@@ -1,0 +1,21 @@
+[workspace]
+members = [
+    "crates/query",
+    "crates/storage",
+    "crates/writer"
+]
+resolver = "2"
+
+[workspace.dependencies]
+anyhow = "1.0.86"
+arrow = { version = "52.0.0", default-features = false }
+arrow-buffer = "52.0.0"
+borsh = { version = "1.5.1", features = ["derive"] }
+lazy_static = "1.4.0"
+parking_lot = "0.12.3"
+parquet = "52.0.0"
+serde = "1.0.203"
+serde_json = "1.0.118"
+
+[profile.release]
+debug = 1

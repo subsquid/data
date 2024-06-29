@@ -1,0 +1,2 @@
+*/chunk/*.parquet filter=lfs diff=lfs merge=lfs -text
+*/queries/*/result.json filter=lfs diff=lfs merge=lfs -text

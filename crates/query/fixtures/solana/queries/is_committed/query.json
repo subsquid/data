@@ -1,0 +1,32 @@
+{
+  "type": "solana",
+  "fromBlock": 200000000,
+  "fields": {
+    "block": {
+      "slot": true,
+      "parentHash": true,
+      "parentSlot": true,
+      "timestamp": true
+    },
+    "transaction": {
+      "signatures": true,
+      "feePayer": true,
+      "err": true
+    },
+    "instruction": {
+      "programId": true,
+      "accounts": true,
+      "data": true,
+      "isCommitted": true
+    }
+  },
+  "instructions": [
+    {
+      "programId": ["whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"],
+      "a2": ["7qbRF6YsyGuLUVs6Y1q64bdVrfe4ZcUUz1JRdoVNUJnm"],
+      "d8": ["0xf8c69e91e17587c8"],
+      "isCommitted": true,
+      "transaction": true
+    }
+  ]
+}

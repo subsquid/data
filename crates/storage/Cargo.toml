@@ -1,0 +1,12 @@
+[package]
+name = "sqd-storage"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+arrow = { workspace = true, features = ["arrow-ipc", "ipc", "prettyprint"] }
+borsh = { workspace = true }
+parking_lot = { workspace = true }
+rocksdb = "0.22.0"
+uuid = { version = "1.8.0", features = ["v7", "borsh"] }

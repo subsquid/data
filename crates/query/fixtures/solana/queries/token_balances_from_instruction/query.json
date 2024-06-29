@@ -1,0 +1,33 @@
+{
+  "type": "solana",
+  "fromBlock": 0,
+  "fields": {
+    "block": {
+      "slot": true
+    },
+    "transaction": {
+      "signatures": true
+    },
+    "instruction": {
+      "programId": true,
+      "accounts": true,
+      "data": true
+    },
+    "tokenBalance": {
+      "postOwner": true,
+      "postMint": true,
+      "preAmount": true,
+      "postAmount": true
+    }
+  },
+  "instructions": [
+    {
+      "programId": ["whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"],
+      "d8": ["0xf8c69e91e17587c8"],
+      "transaction": true,
+      "transactionTokenBalances": true,
+      "innerInstructions": true,
+      "isCommitted": true
+    }
+  ]
+}

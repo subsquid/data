@@ -1,0 +1,35 @@
+{
+  "type": "solana",
+  "fromBlock": 200000000,
+  "fields": {
+    "block": {
+      "slot": true
+    },
+    "tokenBalance": {
+      "preMint": true,
+      "postMint": true,
+      "preDecimals": true,
+      "postDecimals": true,
+      "preOwner": true,
+      "postOwner": true,
+      "preAmount": true,
+      "postAmount": true
+    },
+    "transaction": {
+      "signatures": true,
+      "feePayer": true
+    },
+    "instruction": {
+      "programId": true,
+      "accounts": true,
+      "data": true
+    }
+  },
+  "tokenBalances": [
+    {
+      "account": ["HP1di8NhtL58UwQkekZxgtyUETag4hFcppteRiyqsZi4"],
+      "transaction": true,
+      "transactionInstructions": true
+    }
+  ]
+}

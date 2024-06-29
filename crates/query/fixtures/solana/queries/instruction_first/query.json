@@ -1,0 +1,36 @@
+{
+  "type": "solana",
+  "fromBlock": 0,
+  "fields": {
+    "block": {
+      "slot": true,
+      "parentHash": true,
+      "parentSlot": true,
+      "timestamp": true
+    },
+    "instruction": {
+      "programId": true,
+      "accounts": true,
+      "data": true,
+      "error": true,
+      "hasDroppedLogMessages": true
+    },
+    "transaction": {
+      "signatures": true,
+      "feePayer": true,
+      "err": true
+    },
+    "log": {
+      "instructionAddress": true,
+      "kind": true,
+      "message": true
+    }
+  },
+  "instructions": [
+    {
+      "programId": ["SSwpkEEcbUqx4vtoEByFjSkhKdCT862DNVb52nZg1UZ"],
+      "transaction": true,
+      "logs": true
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "type": "solana",
+  "fromBlock": 200000000,
+  "fields": {
+    "block": {
+      "slot": true,
+      "timestamp": true
+    },
+    "reward": {
+      "lamports": true,
+      "rewardType": true
+    }
+  },
+  "rewards": [
+    {
+      "pubkey": ["Fd7btgySsrjuo25CJCj7oE7VPMyezDhnx7pZkj2v69Nk"]
+    }
+  ]
+}

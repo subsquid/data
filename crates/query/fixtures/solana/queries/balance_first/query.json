@@ -1,0 +1,29 @@
+{
+  "type": "solana",
+  "fromBlock": 200000000,
+  "fields": {
+    "block": {
+      "slot": true
+    },
+    "balance": {
+      "pre": true,
+      "post": true
+    },
+    "transaction": {
+      "signatures": true,
+      "feePayer": true
+    },
+    "instruction": {
+      "programId": true,
+      "accounts": true,
+      "data": true
+    }
+  },
+  "balances": [
+    {
+      "account": ["FSduwbdC1cgtVV7ovQFYt3WrVqym2GxC6b9X7ERaFzG9"],
+      "transaction": true,
+      "transactionInstructions": true
+    }
+  ]
+}
