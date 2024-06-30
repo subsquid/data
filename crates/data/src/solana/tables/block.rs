@@ -45,12 +45,8 @@ impl RowProcessor for BlockProcessor {
         self.downcast.block_number.reg(row.height);
     }
 
-    fn post(&mut self, array: ArrayRef) -> ArrayRef {
+    fn post(&self, array: ArrayRef) -> ArrayRef {
         self.downcast.block_number.downcast_columns(array, &["number"])
-    }
-
-    fn capacity(&self) -> usize {
-        2000
     }
 }
 

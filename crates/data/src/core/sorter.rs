@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
@@ -20,7 +21,7 @@ pub struct Sorter<R: Row> {
 
 impl <R: Row> Default for Sorter<R> {
     fn default() -> Self {
-        Self::new(300_000, 16 * 1024 * 1024)
+        Self::new(250_000, 8 * 1024 * 1024)
     }
 }
 
@@ -40,7 +41,7 @@ impl <R: Row> Sorter<R> {
                 chunks.push(0);
                 chunks
             },
-            buf: Vec::with_capacity(4 * memory_threshold / 3),
+            buf: Vec::with_capacity(memory_threshold + min(256 * 1024, memory_threshold / 3)),
             buf_offsets: {
                 let mut offsets = Vec::with_capacity(1024);
                 offsets.push(0);
@@ -50,11 +51,11 @@ impl <R: Row> Sorter<R> {
         }
     }
 
-    pub fn n_rows(&self) -> usize {
+    pub fn num_rows(&self) -> usize {
         self.keys.len()
     }
 
-    pub fn n_bytes(&self) -> usize {
+    pub fn num_bytes(&self) -> usize {
         self.offsets.last().copied().unwrap() + self.buf_offsets.last().copied().unwrap()
     }
 

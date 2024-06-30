@@ -53,7 +53,7 @@ impl RowProcessor for LogMessageProcessor {
         self.downcast.item.reg(row.transaction_index);
     }
 
-    fn post(&mut self, array: ArrayRef) -> ArrayRef {
+    fn post(&self, array: ArrayRef) -> ArrayRef {
         let array = self.downcast.block_number.downcast_columns(array, &["block_number"]);
         self.downcast.item.downcast_columns(array, &["transaction_index"])
     }

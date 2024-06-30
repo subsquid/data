@@ -45,7 +45,7 @@ impl RowProcessor for RewardProcessor {
         self.downcast.block_number.reg(row.block_number);
     }
 
-    fn post(&mut self, array: ArrayRef) -> ArrayRef {
+    fn post(&self, array: ArrayRef) -> ArrayRef {
         self.downcast.block_number.downcast_columns(array, &["block_number"])
     }
 }

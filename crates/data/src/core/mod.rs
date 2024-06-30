@@ -5,8 +5,10 @@ mod row_processor;
 pub mod sorter;
 mod util;
 mod struct_builder;
+mod table_builder;
 
 
+pub use arrow_data_type::*;
 pub use row::*;
 pub use row_processor::*;
-pub use arrow_data_type::*;
+pub use table_builder::*;
