@@ -1,9 +1,4 @@
-use std::sync::Arc;
-
-use arrow::array::{ArrayBuilder, ArrowPrimitiveType, BinaryBuilder, ListBuilder, PrimitiveBuilder, StringBuilder, BooleanBuilder};
-use arrow::datatypes::{DataType, Field};
-use arrow_buffer::ArrowNativeType;
-
+#[macro_export]
 macro_rules! struct_builder {
     ($name:ident {
         $($field:ident : $builder:ident,)*
@@ -16,15 +11,7 @@ macro_rules! struct_builder {
             _fields: arrow::datatypes::Fields
         }
 
-        impl Builder for $name {
-            fn byte_size(&self) -> usize {
-                let mut size = 0;
-                $(
-                size += self.$field.byte_size();
-                )*
-                size
-            }
-
+        impl ArrowDataType for $name {
             fn data_type() -> arrow::datatypes::DataType {
                 use arrow::datatypes::*;
                 DataType::Struct(Self::data_fields())
@@ -108,68 +95,4 @@ macro_rules! struct_builder {
             }
         }
     };
-}
-pub(crate) use struct_builder;
-
-
-pub trait Builder {
-    fn byte_size(&self) -> usize;
-
-    fn data_type() -> DataType;
-}
-
-
-impl <T: ArrowPrimitiveType> Builder for PrimitiveBuilder<T> {
-    fn byte_size(&self) -> usize {
-        self.len() * T::Native::get_byte_width()
-    }
-
-    fn data_type() -> DataType {
-        T::DATA_TYPE
-    }
-}
-
-
-impl Builder for StringBuilder {
-    fn byte_size(&self) -> usize {
-        self.values_slice().len()
-    }
-
-    fn data_type() -> DataType {
-        DataType::Utf8
-    }
-}
-
-
-impl Builder for BinaryBuilder {
-    fn byte_size(&self) -> usize {
-        self.values_slice().len()
-    }
-
-    fn data_type() -> DataType {
-        DataType::Binary
-    }
-}
-
-
-impl Builder for BooleanBuilder {
-    fn byte_size(&self) -> usize {
-        1
-    }
-
-    fn data_type() -> DataType {
-        DataType::Boolean
-    }
-}
-
-
-impl <T: ArrayBuilder + Builder> Builder for ListBuilder<T> {
-    fn byte_size(&self) -> usize {
-        self.values_ref().byte_size()
-    }
-
-    fn data_type() -> DataType {
-        let field = Field::new_list_field(T::data_type(), true);
-        DataType::List(Arc::new(field))
-    }
 }

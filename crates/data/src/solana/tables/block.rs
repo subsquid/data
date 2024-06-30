@@ -1,11 +1,12 @@
 use arrow::array::{ArrayRef, TimestampSecondBuilder, UInt64Builder};
-use crate::array_builder::*;
-use crate::downcast::Downcast;
-use crate::primitives::BlockNumber;
-use crate::row::Row;
+
+use sqd_primitives::BlockNumber;
+
+use crate::core::{ArrowDataType, Row, RowProcessor};
+use crate::core::downcast::Downcast;
 use crate::solana::model::BlockHeader;
 use crate::solana::tables::common::*;
-use crate::row_processor::RowProcessor;
+use crate::struct_builder;
 
 
 struct_builder! {

@@ -3,8 +3,8 @@ use std::fs::File;
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 
-use crate::row::Row;
-use crate::util::arrange;
+use crate::core::row::Row;
+use crate::core::util::arrange;
 
 
 pub struct Sorter<R: Row> {
@@ -244,8 +244,8 @@ impl <R: Row> Iterator for SortedRows<R> {
 #[cfg(test)]
 mod test {
     use proptest::prelude::*;
-    use crate::row::{Row};
-    use crate::sorter::Sorter;
+    use crate::core::row::{Row};
+    use crate::core::sorter::Sorter;
 
     impl Row for String {
         type Key = String;

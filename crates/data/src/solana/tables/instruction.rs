@@ -1,12 +1,11 @@
 use arrow::array::{ArrayRef, UInt32Builder, UInt64Builder, StringBuilder, BooleanBuilder};
+use sqd_primitives::{BlockNumber, ItemIndex};
 
-use crate::array_builder::*;
-use crate::downcast::Downcast;
-use crate::primitives::{BlockNumber, ItemIndex};
-use crate::row::Row;
-use crate::row_processor::RowProcessor;
+use crate::core::downcast::Downcast;
+use crate::core::{ArrowDataType, Row, RowProcessor};
 use crate::solana::model::Instruction;
 use crate::solana::tables::common::{InstructionAddressListBuilder, Base58Builder, BytesBuilder, AccountListBuilder};
+use crate::struct_builder;
 
 
 struct_builder! {
@@ -99,10 +98,9 @@ impl RowProcessor for InstructionProcessor {
         builder.accounts_size.append_value(accounts_size);
 
         // meta
-        let compute_units_consumed = row.compute_units_consumed.as_ref()
-            .map(|val| val.parse::<u64>().unwrap());
+        let compute_units_consumed = row.compute_units_consumed.as_ref().map(|val| val.0);
         builder.compute_units_consumed.append_option(compute_units_consumed);
-        builder.error.append_option(row.error.as_ref());
+        builder.error.append_option(row.error.as_ref().map(|json| json.to_string()));
         builder.is_committed.append_value(row.is_committed);
         builder.has_dropped_log_messages.append_value(row.has_dropped_log_messages);
 

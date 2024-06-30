@@ -1,12 +1,12 @@
 use arrow::array::{ArrayRef, UInt32Builder, UInt64Builder, UInt16Builder};
+use sqd_primitives::{BlockNumber, ItemIndex};
 
-use crate::array_builder::*;
-use crate::downcast::Downcast;
-use crate::primitives::{BlockNumber, ItemIndex};
-use crate::row::Row;
-use crate::row_processor::RowProcessor;
+
+use crate::core::downcast::Downcast;
+use crate::core::{ArrowDataType, Row, RowProcessor};
 use crate::solana::model::TokenBalance;
 use crate::solana::tables::common::Base58Builder;
+use crate::struct_builder;
 
 
 struct_builder! {
@@ -50,8 +50,8 @@ impl RowProcessor for TokenBalanceProcessor {
         builder.post_program_id.append_option(row.post_program_id.as_ref());
         builder.pre_owner.append_option(row.pre_owner.as_ref());
         builder.post_owner.append_option(row.post_owner.as_ref());
-        builder.pre_amount.append_option(row.pre_amount.as_ref().map(|val| val.parse::<u64>().unwrap()));
-        builder.post_amount.append_option(row.post_amount.as_ref().map(|val| val.parse::<u64>().unwrap()));
+        builder.pre_amount.append_option(row.pre_amount.map(|v| v.0));
+        builder.post_amount.append_option(row.post_amount.map(|v| v.0));
         builder.append(true);
     }
 

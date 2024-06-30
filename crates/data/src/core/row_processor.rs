@@ -1,7 +1,7 @@
 use arrow::array::{ArrayBuilder, ArrayRef};
 
-use crate::row::Row;
-use crate::sorter::{SortedRows, Sorter};
+use super::row::Row;
+use super::sorter::{SortedRows, Sorter};
 
 
 pub trait RowProcessor: Sized {

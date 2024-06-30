@@ -1,12 +1,12 @@
 use arrow::array::{ArrayRef, UInt32Builder, UInt64Builder};
 
-use crate::array_builder::*;
-use crate::downcast::Downcast;
-use crate::primitives::{BlockNumber, ItemIndex};
-use crate::row::Row;
-use crate::row_processor::RowProcessor;
+use sqd_primitives::{BlockNumber, ItemIndex};
+
+use crate::core::{ArrowDataType, Row, RowProcessor};
+use crate::core::downcast::Downcast;
 use crate::solana::model::Balance;
 use crate::solana::tables::common::Base58Builder;
+use crate::struct_builder;
 
 
 struct_builder! {
@@ -34,8 +34,8 @@ impl RowProcessor for BalanceProcessor {
         builder.block_number.append_value(row.block_number);
         builder.transaction_index.append_value(row.transaction_index);
         builder.account.append_value(&row.account);
-        builder.pre.append_value(row.pre.parse::<u64>().unwrap());
-        builder.post.append_value(row.post.parse::<u64>().unwrap());
+        builder.pre.append_value(row.pre.0);
+        builder.post.append_value(row.post.0);
         builder.append(true);
     }
 

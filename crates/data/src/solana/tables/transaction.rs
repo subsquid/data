@@ -1,12 +1,12 @@
-use arrow::array::{ArrayRef, Int16Builder, ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder, BooleanBuilder};
+use arrow::array::{ArrayRef, BooleanBuilder, Int16Builder, ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder};
 
-use crate::array_builder::*;
-use crate::downcast::Downcast;
-use crate::primitives::{BlockNumber, ItemIndex};
-use crate::row::Row;
-use crate::row_processor::RowProcessor;
+use sqd_primitives::{BlockNumber, ItemIndex};
+
+use crate::core::{ArrowDataType, Row, RowProcessor};
+use crate::core::downcast::Downcast;
 use crate::solana::model::{Transaction, TransactionVersion};
-use crate::solana::tables::common::{AccountIndexList, AccountListBuilder, Base58Builder, SignatureListBuilder, JsonBuilder, AddressListBuilder};
+use crate::solana::tables::common::{AccountIndexList, AccountListBuilder, AddressListBuilder, Base58Builder, JsonBuilder, SignatureListBuilder};
+use crate::struct_builder;
 
 
 type AddressTableLookupListBuilder = ListBuilder<AddressTableLookupBuilder>;
@@ -102,8 +102,8 @@ impl RowProcessor for TransactionProcessor {
         builder.signatures.append(true);
 
         builder.err.append_option(row.err.as_ref().map(|val| serde_json::to_string(&val).unwrap()));
-        builder.compute_units_consumed.append_option(row.compute_units_consumed.as_ref().map(|val| val.parse::<u64>().unwrap()));
-        builder.fee.append_value(row.fee.parse().unwrap());
+        builder.compute_units_consumed.append_option(row.compute_units_consumed.map(|v| v.0));
+        builder.fee.append_value(row.fee.0);
 
         for address in &row.loaded_addresses.readonly {
             builder.loaded_addresses.readonly.values().append_value(address);

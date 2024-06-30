@@ -12,7 +12,7 @@ pub fn arrange<T>(list: &mut [T], mut indexes: Vec<usize>) {
 
 #[cfg(test)]
 mod test {
-    use crate::util::arrange;
+    use crate::core::util::arrange;
 
     #[test]
     fn test_arrange() {

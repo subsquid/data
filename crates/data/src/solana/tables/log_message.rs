@@ -1,12 +1,12 @@
-use arrow::array::{ArrayRef, UInt32Builder, UInt64Builder, StringBuilder};
+use arrow::array::{ArrayRef, StringBuilder, UInt32Builder, UInt64Builder};
 
-use crate::array_builder::*;
-use crate::downcast::Downcast;
-use crate::primitives::{BlockNumber, ItemIndex};
-use crate::row::Row;
-use crate::row_processor::RowProcessor;
+use sqd_primitives::{BlockNumber, ItemIndex};
+
+use crate::core::{ArrowDataType, Row, RowProcessor};
+use crate::core::downcast::Downcast;
 use crate::solana::model::LogMessage;
 use crate::solana::tables::common::{Base58Builder, InstructionAddressListBuilder};
+use crate::struct_builder;
 
 
 struct_builder! {

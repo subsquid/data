@@ -1,42 +1,10 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use bincode::{Encode, Decode, impl_borrow_decode};
-use bincode::enc::Encoder;
-use bincode::de::Decoder;
-use bincode::error::{EncodeError, DecodeError};
-
-use crate::primitives::{BlockNumber, ItemIndex};
+use sqd_primitives::{BlockNumber, ItemIndex};
+use crate::types::{Base58Bytes, JSON, StringEncoded};
 
 
-pub type Base58Bytes = String;
-pub type JsBigInt = String; // FIXME: implement custom SerDe
-
-
-#[derive(Serialize, Deserialize)]
-pub struct JSON(serde_json::Value);
-
-
-impl Encode for JSON {
-    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
-        let value = serde_json::to_string(&self.0).unwrap();
-        Encode::encode(&value, encoder)?;
-        Ok(())
-    }
-}
-
-
-impl Decode for JSON {
-    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
-        let value: String = Decode::decode(decoder)?;
-        let json = JSON(serde_json::from_str(&value).unwrap());
-        Ok(json)
-    }
-}
-
-
-impl_borrow_decode!(JSON);
-
-
-#[derive(Serialize, Deserialize, Encode, Decode)]
+#[derive(Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockHeader {
     pub hash: Base58Bytes,
@@ -48,7 +16,7 @@ pub struct BlockHeader {
 }
 
 
-#[derive(Serialize, Deserialize, Encode, Decode)]
+#[derive(Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddressTableLookup {
     pub account_key: Base58Bytes,
@@ -57,14 +25,14 @@ pub struct AddressTableLookup {
 }
 
 
-#[derive(Serialize, Deserialize, Encode, Decode)]
+#[derive(Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct LoadedAddresses {
     pub readonly: Vec<Base58Bytes>,
     pub writable: Vec<Base58Bytes>,
 }
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TransactionVersion {
     Legacy,
@@ -73,34 +41,7 @@ pub enum TransactionVersion {
 }
 
 
-impl Encode for TransactionVersion {
-    fn encode<E: bincode::enc::Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
-        let value: i16 = match self {
-            TransactionVersion::Legacy => -1,
-            TransactionVersion::Other(num) => (*num).into(),
-        };
-        Encode::encode(&value, encoder)?;
-        Ok(())
-    }
-}
-
-
-impl Decode for TransactionVersion {
-    fn decode<D: bincode::de::Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
-        let value: i16 = Decode::decode(decoder)?;
-        let version = match value {
-            -1 => TransactionVersion::Legacy,
-            _ => TransactionVersion::Other(value.try_into().unwrap())
-        };
-        Ok(version)
-    }
-}
-
-
-impl_borrow_decode!(TransactionVersion);
-
-
-#[derive(Serialize, Deserialize, Encode, Decode)]
+#[derive(Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Transaction {
     #[serde(default)]
@@ -115,14 +56,14 @@ pub struct Transaction {
     pub recent_blockhash: Base58Bytes,
     pub signatures: Vec<Base58Bytes>,
     pub err: Option<JSON>,
-    pub compute_units_consumed: Option<JsBigInt>,
-    pub fee: JsBigInt,
+    pub compute_units_consumed: Option<StringEncoded<u64>>,
+    pub fee: StringEncoded<u64>,
     pub loaded_addresses: LoadedAddresses,
     pub has_dropped_log_messages: bool,
 }
 
 
-#[derive(Serialize, Deserialize, Encode, Decode)]
+#[derive(Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Instruction {
     #[serde(default)]
@@ -132,14 +73,14 @@ pub struct Instruction {
     pub program_id: Base58Bytes,
     pub accounts: Vec<Base58Bytes>,
     pub data: Base58Bytes,
-    pub compute_units_consumed: Option<JsBigInt>,
-    pub error: Option<String>,
+    pub compute_units_consumed: Option<StringEncoded<u64>>,
+    pub error: Option<JSON>,
     pub is_committed: bool,
     pub has_dropped_log_messages: bool,
 }
 
 
-#[derive(Serialize, Deserialize, Encode, Decode)]
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogMessageKind {
     Log,
@@ -148,7 +89,7 @@ pub enum LogMessageKind {
 }
 
 
-#[derive(Serialize, Deserialize, Encode, Decode)]
+#[derive(Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogMessage {
     #[serde(default)]
@@ -162,19 +103,19 @@ pub struct LogMessage {
 }
 
 
-#[derive(Serialize, Deserialize, Encode, Decode)]
+#[derive(Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Balance {
     #[serde(default)]
     pub block_number: BlockNumber,
     pub transaction_index: ItemIndex,
     pub account: Base58Bytes,
-    pub pre: JsBigInt,
-    pub post: JsBigInt,
+    pub pre: StringEncoded<u64>,
+    pub post: StringEncoded<u64>,
 }
 
 
-#[derive(Serialize, Deserialize, Encode, Decode)]
+#[derive(Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenBalance {
     #[serde(default)]
@@ -189,25 +130,25 @@ pub struct TokenBalance {
     pub post_program_id: Option<Base58Bytes>,
     pub pre_owner: Option<Base58Bytes>,
     pub post_owner: Option<Base58Bytes>,
-    pub pre_amount: Option<JsBigInt>,
-    pub post_amount: Option<JsBigInt>,
+    pub pre_amount: Option<StringEncoded<u64>>,
+    pub post_amount: Option<StringEncoded<u64>>,
 }
 
 
-#[derive(Serialize, Deserialize, Encode, Decode)]
+#[derive(Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reward {
     #[serde(default)]
     pub block_number: BlockNumber,
     pub pubkey: Base58Bytes,
-    pub lamports: JsBigInt,
-    pub post_balance: JsBigInt,
+    pub lamports: StringEncoded<i64>,
+    pub post_balance: StringEncoded<u64>,
     pub reward_type: Option<String>,
     pub commission: Option<u8>,
 }
 
 
-#[derive(Serialize, Deserialize, Encode, Decode)]
+#[derive(Deserialize, BorshSerialize, BorshDeserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Block {
     pub header: BlockHeader,

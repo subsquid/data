@@ -3,8 +3,7 @@ use std::sync::Arc;
 
 use arrow::array::{Array, ArrayRef, AsArray, StructArray};
 use arrow::datatypes::{DataType, Field, Fields};
-
-use crate::primitives::Name;
+use sqd_primitives::Name;
 
 
 pub struct IndexDowncast {
