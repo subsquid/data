@@ -1,15 +1,14 @@
-use arrow::array::{ArrayRef, StringBuilder, UInt32Builder, UInt64Builder};
+use arrow::array::{StringBuilder, UInt32Builder, UInt64Builder};
 
-use sqd_primitives::{BlockNumber, ItemIndex};
+use sqd_primitives::BlockNumber;
 
-use crate::core::{ArrowDataType, Row, RowProcessor};
-use crate::core::downcast::Downcast;
+use crate::core::ArrowDataType;
 use crate::solana::model::LogMessage;
 use crate::solana::tables::common::{Base58Builder, InstructionAddressListBuilder};
-use crate::struct_builder;
+use crate::table_builder;
 
 
-struct_builder! {
+table_builder! {
     LogMessageBuilder {
         block_number: UInt64Builder,
         transaction_index: UInt32Builder,
@@ -19,53 +18,28 @@ struct_builder! {
         kind: StringBuilder,
         message: StringBuilder,
     }
+
+    description(d) {
+        d.downcast.block_number = vec!["block_number"];
+        d.downcast.item_index = vec!["transaction_index", "log_index", "instruction_address"];
+        d.sort_key = vec!["program_id", "block_number", "transaction_index", "log_index"];
+    }
 }
 
 
-#[derive(Default)]
-pub struct LogMessageProcessor {
-    downcast: Downcast
-}
-
-
-impl RowProcessor for LogMessageProcessor {
-    type Row = LogMessage;
-    type Builder = LogMessageBuilder;
-
-    fn map(&mut self, builder: &mut Self::Builder, row: &Self::Row) {
-        builder.block_number.append_value(row.block_number);
-        builder.transaction_index.append_value(row.transaction_index);
-        builder.log_index.append_value(row.log_index);
+impl LogMessageBuilder {
+    pub fn push(&mut self, block_number: BlockNumber, row: &LogMessage) {
+        self.block_number.append_value(block_number);
+        self.transaction_index.append_value(row.transaction_index);
+        self.log_index.append_value(row.log_index);
 
         for address in &row.instruction_address {
-            builder.instruction_address.values().append_value(*address);
+            self.instruction_address.values().append_value(*address);
         }
-        builder.instruction_address.append(true);
+        self.instruction_address.append(true);
 
-        builder.program_id.append_value(&row.program_id);
-        builder.kind.append_value(serde_json::to_string(&row.kind).unwrap());
-        builder.message.append_value(&row.message);
-        builder.append(true);
-    }
-
-    fn pre(&mut self, row: &Self::Row) {
-        self.downcast.block_number.reg(row.block_number);
-        self.downcast.item.reg(row.transaction_index);
-    }
-
-    fn post(&self, array: ArrayRef) -> ArrayRef {
-        let array = self.downcast.block_number.downcast_columns(array, &["block_number"]);
-        self.downcast.item.downcast_columns(array, &["transaction_index"])
-    }
-}
-
-
-impl Row for LogMessage {
-    type Key = (Vec<u8>, Vec<u8>, BlockNumber, ItemIndex);
-
-    fn key(&self) -> Self::Key {
-        let program_id = self.program_id.as_bytes().to_vec();
-        let kind = serde_json::to_string(&self.kind).unwrap().as_bytes().to_vec();
-        (program_id, kind, self.block_number, self.transaction_index)
+        self.program_id.append_value(&row.program_id);
+        self.kind.append_value(row.kind.to_str());
+        self.message.append_value(&row.message);
     }
 }

@@ -6,10 +6,11 @@ edition = "2021"
 [dependencies]
 arrow = { workspace = true }
 arrow-buffer = { workspace = true }
-borsh = { workspace = true }
 bs58 = "0.5.1"
+lazy_static = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["preserve_order"] }
+sqd-dataset = { path = "../dataset" }
 sqd-primitives = { path = "../primitives" }
 tempfile = "3.10.1"
 

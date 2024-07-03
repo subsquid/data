@@ -1,104 +1,114 @@
-use std::cmp::max;
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayRef, AsArray, StructArray};
-use arrow::datatypes::{DataType, Field, Fields};
-use sqd_primitives::Name;
+use arrow::array::{Array, ArrayRef, AsArray, RecordBatch};
+use arrow::datatypes::{DataType, Field, FieldRef, Schema, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
+use arrow_buffer::ArrowNativeType;
 
 
-pub struct IndexDowncast {
-    max: u64,
-    limit: u64
+pub struct Downcast {
+    block_number: u64,
+    item_index: u64
 }
 
 
-impl IndexDowncast {
-    pub fn new(limit: u64) -> Self {
+impl Default for Downcast {
+    fn default() -> Self {
         Self {
-            max: limit,
-            limit
+            block_number: u32::MAX as u64,
+            item_index: u16::MAX as u64
         }
     }
+}
 
-    pub fn for_block_number() -> Self {
-        Self::new(u16::MAX as u64 + 1)
+
+impl Downcast {
+    pub fn reg_block_number(&mut self, array: &dyn Array) {
+        self.block_number = std::cmp::max(self.block_number, get_max(array))
     }
 
-    pub fn for_item_index() -> Self {
-        Self::new(256)
+    pub fn reg_item_index(&mut self, array: &dyn Array) {
+        self.item_index = std::cmp::max(self.item_index, get_max(array))
     }
 
-    pub fn reg<T: Into<u64>>(&mut self, val: T) {
-        self.max = max(self.max, val.into())
-    }
+    pub fn downcast_record_batch(
+        &self,
+        record_batch: RecordBatch,
+        block_number_columns: &[usize],
+        item_index_columns: &[usize]
+    ) -> RecordBatch
+    {
+        let mut patch: Option<NewBatch> = None;
+        let block_number_type = get_minimal_type(self.block_number);
+        let item_type = get_minimal_type(self.item_index);
 
-    pub fn target_type(&self) -> DataType {
-        if u8::try_from(self.max).is_ok() {
-            return DataType::UInt8
-        }
-        if u16::try_from(self.max).is_ok() {
-            return DataType::UInt16
-        }
-        if u32::try_from(self.max).is_ok() {
-            return DataType::UInt32
-        }
-        DataType::UInt64
-    }
-
-    pub fn downcast_columns(&self, array: ArrayRef, column_names: &[Name]) -> ArrayRef {
-        let target_type = self.target_type();
-        let (fields, mut columns, nulls) = array.as_struct().clone().into_parts();
-        let mut fields_vec: Vec<_> = fields.iter().cloned().collect();
-
-        for name in column_names.iter().copied() {
-            let pos = fields.iter()
-                .position(|f| f.name().as_str() == name)
-                .unwrap();
-
-            if unwrap_list_type(fields[pos].data_type()) == target_type {
-                continue
+        for (columns, ty) in [
+            (block_number_columns, block_number_type),
+            (item_index_columns, item_type)
+        ] {
+            for idx in columns.iter().copied() {
+                let array = record_batch.column(idx);
+                let target_type = get_target_index_type(&array, ty.clone());
+                if record_batch.schema().fields()[idx].data_type() != &target_type {
+                    let new_array = cast(&array, target_type);
+                    NewBatch::set_at_place(&mut patch, &record_batch, idx, new_array);
+                }
             }
-
-            let new_column = cast_index(columns[pos].as_ref(), target_type.clone());
-
-            fields_vec[pos] = Arc::new(
-                Field::new(
-                    fields[pos].name().clone(),
-                    new_column.data_type().clone(),
-                    fields[pos].is_nullable()
-                )
-            );
-
-            columns[pos] = new_column;
         }
 
-        Arc::new(
-            StructArray::new(Fields::from(fields_vec), columns, nulls)
-        )
-    }
-
-    pub fn reset(&mut self) {
-        self.max = self.limit
+        patch.map(|b| b.take()).unwrap_or(record_batch)
     }
 }
 
 
-fn unwrap_list_type(ty: &DataType) -> DataType {
-    match ty {
-        DataType::List(t) => t.data_type().clone(),
-       _ => ty.clone()
+fn get_target_index_type(array: &dyn Array, index_type: DataType) -> DataType {
+    match array.data_type() {
+        DataType::List(f) => DataType::List(
+            Arc::new(Field::new_list_field(index_type, f.is_nullable()))
+        ),
+        _ => index_type
     }
 }
 
 
-fn cast_index(array: &dyn Array, to: DataType) -> ArrayRef {
-    let target_type = match array.data_type() {
-        DataType::List(_) => DataType::List(Arc::new(Field::new_list_field(to.clone(), true))),
-        _ => to
-    };
+fn get_max(array: &dyn Array) -> u64 {
+    macro_rules! max {
+        ($t:ty) => {
+            arrow::compute::max(array.as_primitive::<$t>()).map_or(0, |val| val.to_i64().unwrap()) as u64
+        };
+    }
+    
+    match array.data_type() {
+        DataType::UInt8 => max!(UInt8Type),
+        DataType::UInt16 => max!(UInt16Type),
+        DataType::UInt32 => max!(UInt32Type),
+        DataType::UInt64 => max!(UInt64Type),
+        DataType::List(f) if f.data_type().is_integer() => {
+            let list_array = array.as_list::<i32>();
+            get_max(list_array.values())
+        },
+        ty => panic!("invalid index array - {}", ty)
+    }
+}
+
+
+fn get_minimal_type(max: u64) -> DataType {
+    if u8::try_from(max).is_ok() {
+        return DataType::UInt8
+    }
+    if u16::try_from(max).is_ok() {
+        return DataType::UInt16
+    }
+    if u32::try_from(max).is_ok() {
+        return DataType::UInt32
+    }
+    DataType::UInt64
+}
+
+
+fn cast(array: &dyn Array, to: DataType) -> ArrayRef {
     arrow::compute::cast_with_options(
         array,
-        &target_type,
+        &to,
         &arrow::compute::CastOptions {
             safe: false,
             ..arrow::compute::CastOptions::default()
@@ -107,25 +117,44 @@ fn cast_index(array: &dyn Array, to: DataType) -> ArrayRef {
 }
 
 
-pub struct Downcast {
-    pub block_number: IndexDowncast,
-    pub item: IndexDowncast
+struct NewBatch<'a> {
+    columns: Vec<ArrayRef>,
+    fields: Vec<FieldRef>,
+    record_batch: &'a RecordBatch
 }
 
 
-impl Downcast {
-    pub fn reset(&mut self) {
-        self.block_number.reset();
-        self.item.reset()
+impl <'a> NewBatch<'a> {
+    fn set(&mut self, i: usize, new_array: ArrayRef) {
+        self.fields[i] = Arc::new(
+            Field::new(
+                self.fields[i].name(),
+                new_array.data_type().clone(),
+                self.fields[i].is_nullable()
+            )
+        );
+        self.columns[i] = new_array
     }
-}
 
-
-impl Default for Downcast {
-    fn default() -> Self {
-        Downcast {
-            block_number: IndexDowncast::for_block_number(),
-            item: IndexDowncast::for_item_index()
+    fn set_at_place<'b>(place: &'b mut Option<Self>, record_batch: &'a RecordBatch, i: usize, array: ArrayRef) {
+        if place.is_none() {
+            let _ = std::mem::replace(place, Some(
+                Self {
+                    columns: record_batch.columns().to_vec(),
+                    fields: record_batch.schema().fields().to_vec(),
+                    record_batch
+                }
+            ));
         }
+        let new_batch = place.as_mut().unwrap();
+        new_batch.set(i, array)
+    }
+
+    fn take(self) -> RecordBatch {
+        let schema = Schema::new_with_metadata(
+            self.fields,
+            self.record_batch.schema().metadata().clone()
+        );
+        RecordBatch::try_new(Arc::new(schema), self.columns).unwrap()
     }
 }

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/data",
+    "crates/dataset",
     "crates/primitives",
     "crates/query",
     "crates/storage",

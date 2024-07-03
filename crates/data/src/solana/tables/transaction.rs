@@ -1,12 +1,11 @@
-use arrow::array::{ArrayRef, BooleanBuilder, Int16Builder, ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder};
+use arrow::array::{BooleanBuilder, Int16Builder, ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder};
 
-use sqd_primitives::{BlockNumber, ItemIndex};
+use sqd_primitives::BlockNumber;
 
-use crate::core::{ArrowDataType, Row, RowProcessor};
-use crate::core::downcast::Downcast;
+use crate::{struct_builder, table_builder};
+use crate::core::ArrowDataType;
 use crate::solana::model::{Transaction, TransactionVersion};
 use crate::solana::tables::common::{AccountIndexList, AccountListBuilder, AddressListBuilder, Base58Builder, JsonBuilder, SignatureListBuilder};
-use crate::struct_builder;
 
 
 type AddressTableLookupListBuilder = ListBuilder<AddressTableLookupBuilder>;
@@ -27,7 +26,7 @@ struct_builder! {
 }
 
 
-struct_builder! {
+table_builder! {
     TransactionBuilder {
         block_number: UInt64Builder,
         transaction_index: UInt32Builder,
@@ -50,35 +49,32 @@ struct_builder! {
         signatures_size: UInt64Builder,
         loaded_addresses_size: UInt64Builder,
     }
+
+    description(d) {
+        d.downcast.block_number = vec!["block_number"];
+        d.downcast.item_index = vec!["transaction_index"];
+        d.sort_key = vec!["fee_payer", "block_number", "transaction_index"];
+    }
 }
 
 
-#[derive(Default)]
-pub struct TransactionProcessor {
-    downcast: Downcast
-}
+impl TransactionBuilder {
+    pub fn push(&mut self, block_number: BlockNumber, row: &Transaction) {
+        self.block_number.append_value(block_number);
+        self.transaction_index.append_value(row.transaction_index);
 
-
-impl RowProcessor for TransactionProcessor {
-    type Row = Transaction;
-    type Builder = TransactionBuilder;
-
-    fn map(&mut self, builder: &mut Self::Builder, row: &Self::Row) {
-        builder.block_number.append_value(row.block_number);
-        builder.transaction_index.append_value(row.transaction_index);
-
-        builder.version.append_value(match row.version {
+        self.version.append_value(match row.version {
             TransactionVersion::Legacy => -1,
             TransactionVersion::Other(v) => v as i16
         });
 
         for account in row.account_keys.iter() {
-            builder.account_keys.values().append_value(account)
+            self.account_keys.values().append_value(account)
         }
-        builder.account_keys.append(true);
+        self.account_keys.append(true);
 
         for lookup in row.address_table_lookups.iter() {
-            let item = builder.address_table_lookups.values();
+            let item = self.address_table_lookups.values();
             item.account_key.append_value(&lookup.account_key);
             for account_index in lookup.readonly_indexes.iter() {
                 item.readonly_indexes.values().append_value(*account_index);
@@ -89,72 +85,49 @@ impl RowProcessor for TransactionProcessor {
             }
             item.writable_indexes.append(true);
         }
-        builder.address_table_lookups.append(true);
+        self.address_table_lookups.append(true);
 
-        builder.num_readonly_signed_accounts.append_value(row.num_readonly_signed_accounts);
-        builder.num_readonly_unsigned_accounts.append_value(row.num_readonly_unsigned_accounts);
-        builder.num_required_signatures.append_value(row.num_required_signatures);
-        builder.recent_block_hash.append_value(&row.recent_blockhash);
+        self.num_readonly_signed_accounts.append_value(row.num_readonly_signed_accounts);
+        self.num_readonly_unsigned_accounts.append_value(row.num_readonly_unsigned_accounts);
+        self.num_required_signatures.append_value(row.num_required_signatures);
+        self.recent_block_hash.append_value(&row.recent_blockhash);
 
         for signature in &row.signatures {
-            builder.signatures.values().append_value(signature);
+            self.signatures.values().append_value(signature);
         }
-        builder.signatures.append(true);
+        self.signatures.append(true);
 
-        builder.err.append_option(row.err.as_ref().map(|val| serde_json::to_string(&val).unwrap()));
-        builder.compute_units_consumed.append_option(row.compute_units_consumed.map(|v| v.0));
-        builder.fee.append_value(row.fee.0);
+        self.err.append_option(row.err.as_ref().map(|val| serde_json::to_string(&val).unwrap()));
+        self.compute_units_consumed.append_option(row.compute_units_consumed);
+        self.fee.append_value(row.fee);
 
         for address in &row.loaded_addresses.readonly {
-            builder.loaded_addresses.readonly.values().append_value(address);
+            self.loaded_addresses.readonly.values().append_value(address);
         }
-        builder.loaded_addresses.readonly.append(true);
+        self.loaded_addresses.readonly.append(true);
         for address in &row.loaded_addresses.writable {
-            builder.loaded_addresses.writable.values().append_value(address);
+            self.loaded_addresses.writable.values().append_value(address);
         }
-        builder.loaded_addresses.writable.append(true);
-        builder.loaded_addresses.append(true);
+        self.loaded_addresses.writable.append(true);
+        self.loaded_addresses.append(true);
 
-        builder.has_dropped_log_messages.append_value(row.has_dropped_log_messages);
-        builder.fee_payer.append_value(&row.account_keys[0]);
+        self.has_dropped_log_messages.append_value(row.has_dropped_log_messages);
+        self.fee_payer.append_value(&row.account_keys[0]);
 
         let account_keys_size = row.account_keys.iter().map(|val| val.len() as u64).sum();
-        builder.account_keys_size.append_value(account_keys_size);
+        self.account_keys_size.append_value(account_keys_size);
 
         let address_table_lookups_size = row.address_table_lookups.iter()
             .map(|l| l.account_key.len() as u64 + l.readonly_indexes.len() as u64 + l.writable_indexes.len() as u64)
             .sum();
-        builder.address_table_lookups_size.append_value(address_table_lookups_size);
+        self.address_table_lookups_size.append_value(address_table_lookups_size);
 
         let signatures_size = row.signatures.iter().map(|val| val.len() as u64).sum();
-        builder.signatures_size.append_value(signatures_size);
+        self.signatures_size.append_value(signatures_size);
 
         let readonly_size: u64 = row.loaded_addresses.readonly.iter().map(|val| val.len() as u64).sum();
         let writable_size: u64 = row.loaded_addresses.writable.iter().map(|val| val.len() as u64).sum();
         let loaded_addresses_size = readonly_size + writable_size;
-        builder.loaded_addresses_size.append_value(loaded_addresses_size);
-
-        builder.append(true)
-    }
-
-    fn pre(&mut self, row: &Self::Row) {
-        self.downcast.block_number.reg(row.block_number);
-        self.downcast.item.reg(row.transaction_index)
-    }
-
-    fn post(&self, array: ArrayRef) -> ArrayRef {
-        let array = self.downcast.block_number.downcast_columns(array, &["block_number"]);
-        self.downcast.item.downcast_columns(array, &["transaction_index"])
+        self.loaded_addresses_size.append_value(loaded_addresses_size);
     }
 }
-
-
-impl Row for Transaction {
-    type Key = (Vec<u8>, BlockNumber, ItemIndex);
-
-    fn key(&self) -> Self::Key {
-        let fee_payer = self.account_keys[0].as_bytes().to_vec();
-        (fee_payer, self.block_number, self.transaction_index)
-    }
-}
-

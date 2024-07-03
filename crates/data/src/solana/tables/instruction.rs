@@ -1,14 +1,13 @@
-use arrow::array::{ArrayRef, UInt32Builder, UInt64Builder, StringBuilder, BooleanBuilder};
-use sqd_primitives::{BlockNumber, ItemIndex};
+use arrow::array::{BooleanBuilder, StringBuilder, UInt32Builder, UInt64Builder};
 
-use crate::core::downcast::Downcast;
-use crate::core::{ArrowDataType, Row, RowProcessor};
+use sqd_primitives::BlockNumber;
+
+use crate::core::ArrowDataType;
 use crate::solana::model::Instruction;
-use crate::solana::tables::common::{InstructionAddressListBuilder, Base58Builder, BytesBuilder, AccountListBuilder};
-use crate::struct_builder;
+use crate::solana::tables::common::{AccountListBuilder, Base58Builder, BytesBuilder, InstructionAddressListBuilder};
+use crate::table_builder;
 
-
-struct_builder! {
+table_builder! {
     InstructionBuilder {
         block_number: UInt64Builder,
         transaction_index: UInt32Builder,
@@ -44,96 +43,67 @@ struct_builder! {
         d4: BytesBuilder,
         d8: BytesBuilder,
     }
+
+    description(d) {
+        d.downcast.block_number = vec!["block_number"];
+        d.downcast.item_index = vec!["transaction_index", "instruction_address"]
+    }
 }
 
 
-#[derive(Default)]
-pub struct InstructionProcessor {
-    downcast: Downcast
-}
-
-
-impl RowProcessor for InstructionProcessor {
-    type Row = Instruction;
-    type Builder = InstructionBuilder;
-
-    fn map(&mut self, builder: &mut Self::Builder, row: &Self::Row) {
-        builder.block_number.append_value(row.block_number);
-        builder.transaction_index.append_value(row.transaction_index);
+impl InstructionBuilder {
+    pub fn push(&mut self, block_number: BlockNumber, row: &Instruction) {
+        self.block_number.append_value(block_number);
+        self.transaction_index.append_value(row.transaction_index);
 
         for address in &row.instruction_address {
-            builder.instruction_address.values().append_value(*address);
+            self.instruction_address.values().append_value(*address);
         }
-        builder.instruction_address.append(true);
+        self.instruction_address.append(true);
 
-        builder.program_id.append_value(&row.program_id);
-        builder.data.append_value(&row.data);
-        builder.a0.append_option(row.accounts.get(0));
-        builder.a1.append_option(row.accounts.get(1));
-        builder.a2.append_option(row.accounts.get(2));
-        builder.a3.append_option(row.accounts.get(3));
-        builder.a4.append_option(row.accounts.get(4));
-        builder.a5.append_option(row.accounts.get(5));
-        builder.a6.append_option(row.accounts.get(6));
-        builder.a7.append_option(row.accounts.get(7));
-        builder.a8.append_option(row.accounts.get(8));
-        builder.a9.append_option(row.accounts.get(9));
-        builder.a10.append_option(row.accounts.get(10));
-        builder.a11.append_option(row.accounts.get(11));
-        builder.a12.append_option(row.accounts.get(12));
-        builder.a13.append_option(row.accounts.get(13));
-        builder.a14.append_option(row.accounts.get(14));
-        builder.a15.append_option(row.accounts.get(15));
+        self.program_id.append_value(&row.program_id);
+        self.data.append_value(&row.data);
+        self.a0.append_option(row.accounts.get(0));
+        self.a1.append_option(row.accounts.get(1));
+        self.a2.append_option(row.accounts.get(2));
+        self.a3.append_option(row.accounts.get(3));
+        self.a4.append_option(row.accounts.get(4));
+        self.a5.append_option(row.accounts.get(5));
+        self.a6.append_option(row.accounts.get(6));
+        self.a7.append_option(row.accounts.get(7));
+        self.a8.append_option(row.accounts.get(8));
+        self.a9.append_option(row.accounts.get(9));
+        self.a10.append_option(row.accounts.get(10));
+        self.a11.append_option(row.accounts.get(11));
+        self.a12.append_option(row.accounts.get(12));
+        self.a13.append_option(row.accounts.get(13));
+        self.a14.append_option(row.accounts.get(14));
+        self.a15.append_option(row.accounts.get(15));
 
         if let Some(accounts) = row.accounts.get(16..) {
             for account in accounts {
-                builder.rest_accounts.values().append_value(account);
+                self.rest_accounts.values().append_value(account);
             }
-            builder.rest_accounts.append(true);
+            self.rest_accounts.append(true);
         } else {
-            builder.rest_accounts.append_null();
+            self.rest_accounts.append_null();
         }
 
         let accounts_size = row.accounts.iter().map(|val| val.len() as u64).sum();
-        builder.accounts_size.append_value(accounts_size);
+        self.accounts_size.append_value(accounts_size);
 
         // meta
-        let compute_units_consumed = row.compute_units_consumed.as_ref().map(|val| val.0);
-        builder.compute_units_consumed.append_option(compute_units_consumed);
-        builder.error.append_option(row.error.as_ref().map(|json| json.to_string()));
-        builder.is_committed.append_value(row.is_committed);
-        builder.has_dropped_log_messages.append_value(row.has_dropped_log_messages);
+        self.compute_units_consumed.append_option(row.compute_units_consumed);
+        self.error.append_option(row.error.as_ref().map(|json| json.to_string()));
+        self.is_committed.append_value(row.is_committed);
+        self.has_dropped_log_messages.append_value(row.has_dropped_log_messages);
 
         // discriminators
         // todo: check that decoding works as expected
         let data = bs58::decode(&row.data).into_vec().unwrap();
-        builder.d1.append_value(format!("{:x?}", data.get(..1).unwrap_or_default()));
-        builder.d2.append_value(format!("{:x?}", data.get(..2).unwrap_or_default()));
-        builder.d4.append_value(format!("{:x?}", data.get(..4).unwrap_or_default()));
-        builder.d8.append_value(format!("{:x?}", data.get(..8).unwrap_or_default()));
-
-        builder.append(true)
-    }
-
-    fn pre(&mut self, row: &Self::Row) {
-        self.downcast.block_number.reg(row.block_number);
-        self.downcast.item.reg(row.transaction_index);
-    }
-
-    fn post(&self, array: ArrayRef) -> ArrayRef {
-        let array = self.downcast.block_number.downcast_columns(array, &["block_number"]);
-        self.downcast.item.downcast_columns(array, &["transaction_index"])
-    }
-}
-
-
-impl Row for Instruction {
-    type Key = (Option<u8>, Vec<u8>, BlockNumber, ItemIndex);
-
-    fn key(&self) -> Self::Key {
-        let data = bs58::decode(&self.data).into_vec().unwrap();
-        let d1 = data.get(0).copied();
-        let program_id = self.program_id.as_bytes().to_vec();
-        (d1, program_id, self.block_number, self.transaction_index)
+        self.d1.append_value(format!("{:x?}", data.get(..1).unwrap_or_default()));
+        self.d2.append_value(format!("{:x?}", data.get(..2).unwrap_or_default()));
+        self.d4.append_value(format!("{:x?}", data.get(..4).unwrap_or_default()));
+        self.d8.append_value(format!("{:x?}", data.get(..8).unwrap_or_default()));
     }
 }

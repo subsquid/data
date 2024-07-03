@@ -2297,14 +2297,19 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "arrow-buffer",
- "borsh",
  "bs58",
+ "lazy_static",
  "proptest",
  "serde",
  "serde_json",
+ "sqd-dataset",
  "sqd-primitives",
  "tempfile",
 ]
+
+[[package]]
+name = "sqd-dataset"
+version = "0.1.0"
 
 [[package]]
 name = "sqd-primitives"
