@@ -2,10 +2,10 @@ use arrow::array::{BooleanBuilder, StringBuilder, UInt32Builder, UInt64Builder};
 
 use sqd_primitives::BlockNumber;
 
-use crate::core::ArrowDataType;
 use crate::solana::model::Instruction;
 use crate::solana::tables::common::{AccountListBuilder, Base58Builder, BytesBuilder, InstructionAddressListBuilder};
 use crate::table_builder;
+
 
 table_builder! {
     InstructionBuilder {

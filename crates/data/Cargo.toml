@@ -12,7 +12,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["preserve_order"] }
 sqd-dataset = { path = "../dataset" }
 sqd-primitives = { path = "../primitives" }
-tempfile = "3.10.1"
 
 [dev-dependencies]
 proptest = { workspace = true }

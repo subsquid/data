@@ -2,7 +2,6 @@ use arrow::array::{UInt16Builder, UInt32Builder, UInt64Builder};
 
 use sqd_primitives::BlockNumber;
 
-use crate::core::ArrowDataType;
 use crate::solana::model::TokenBalance;
 use crate::solana::tables::common::Base58Builder;
 use crate::table_builder;

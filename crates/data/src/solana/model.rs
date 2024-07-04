@@ -1,4 +1,3 @@
-use std::fmt::{Display, Formatter, Write};
 use serde::{Deserialize, Serialize};
 
 use sqd_primitives::{BlockNumber, ItemIndex};

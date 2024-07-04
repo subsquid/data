@@ -5,7 +5,6 @@ members = [
     "crates/primitives",
     "crates/query",
     "crates/storage",
-#    "crates/writer"
 ]
 resolver = "2"
 

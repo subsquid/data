@@ -4,6 +4,9 @@ use arrow::datatypes::SchemaRef;
 
 pub struct PreparedTable<'a> {
     pub schema: SchemaRef,
+    pub max_block_number: u64,
+    pub max_item_index: u64,
+    pub num_rows: usize,
     pub rows: Box<dyn Iterator<Item=RecordBatch> + 'a>
 }
 
@@ -37,7 +40,7 @@ macro_rules! table_builder {
                 &DESC
             }
 
-            fn normal_schema() -> arrow::datatypes::SchemaRef {
+            pub fn schema() -> arrow::datatypes::SchemaRef {
                 use std::sync::Arc;
                 use arrow::datatypes::*;
                 use crate::core::ArrowDataType;
@@ -57,11 +60,11 @@ macro_rules! table_builder {
                 SCHEMA.clone()
             }
 
-            fn downcast_columns() -> &'static (Vec<usize>, Vec<usize>) {
+            pub fn downcast_columns() -> &'static (Vec<usize>, Vec<usize>) {
                 lazy_static::lazy_static! {
                     static ref COLS: (Vec<usize>, Vec<usize>) = {
                         let desc = $name::table_description();
-                        let schema = $name::normal_schema();
+                        let schema = $name::schema();
 
                         let block_number = desc.downcast.block_number.iter().map(|&name| {
                             schema.index_of(name).unwrap()
@@ -80,38 +83,46 @@ macro_rules! table_builder {
             pub fn finish(&mut self) -> crate::core::PreparedTable<'_> {
                 use arrow::array::*;
 
-                let desc = Self::table_description();
-
                 let columns = vec![
                     $(
                     arrow::array::ArrayBuilder::finish(&mut self.$field),
                     )*
                 ];
 
-                let schema = Self::normal_schema();
+                let schema = Self::schema();
 
                 let record_batch = RecordBatch::try_new(schema.clone(), columns).unwrap();
 
                 let downcast_columns = Self::downcast_columns();
-                let mut downcast = crate::core::downcast::Downcast::default();
+                let mut max_block_number = 0u64;
+                let mut max_item_index = 0u64;
 
                 for col in downcast_columns.0.iter().copied() {
-                    downcast.reg_block_number(record_batch.column(col))
+                    let max = crate::core::downcast::get_max(record_batch.column(col));
+                    max_block_number = std::cmp::max(max_block_number, max)
                 }
 
                 for col in downcast_columns.1.iter().copied() {
-                    downcast.reg_item_index(record_batch.column(col))
+                    let max = crate::core::downcast::get_max(record_batch.column(col));
+                    max_item_index = std::cmp::max(max_item_index, max)
                 }
-
-                let record_batch = downcast.downcast_record_batch(
-                    record_batch,
-                    &downcast_columns.0,
-                    &downcast_columns.1
-                );
 
                 crate::core::PreparedTable {
                     schema,
+                    max_block_number,
+                    max_item_index,
+                    num_rows: record_batch.num_rows(),
                     rows: Box::new(std::iter::once(record_batch))
+                }
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self {
+                    $(
+                        $field: $builder::default(),
+                    )*
                 }
             }
         }

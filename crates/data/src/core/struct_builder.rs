@@ -7,11 +7,10 @@ macro_rules! struct_builder {
             $(
                 pub $field: $builder,
             )*
-            _nulls: arrow_buffer::NullBufferBuilder,
-            _fields: arrow::datatypes::Fields
+            _nulls: arrow_buffer::NullBufferBuilder
         }
 
-        impl ArrowDataType for $name {
+        impl crate::core::ArrowDataType for $name {
             fn data_type() -> arrow::datatypes::DataType {
                 use arrow::datatypes::*;
                 DataType::Struct(Self::data_fields())
@@ -21,11 +20,19 @@ macro_rules! struct_builder {
         impl $name {
             pub fn data_fields() -> arrow::datatypes::Fields {
                 use arrow::datatypes::*;
-                Fields::from(vec![
-                    $(
-                    Field::new(stringify!($field), $builder::data_type(), true),
-                    )*
-                ])
+                use crate::core::ArrowDataType;
+
+                lazy_static::lazy_static! {
+                    static ref FIELDS: Fields = {
+                        Fields::from(vec![
+                            $(
+                            Field::new(stringify!($field), $builder::data_type(), true),
+                            )*
+                        ])
+                    };
+                }
+
+                FIELDS.clone()
             }
 
             pub fn append(&mut self, is_valid: bool) {
@@ -45,7 +52,7 @@ macro_rules! struct_builder {
             fn finish(&mut self) -> arrow::array::ArrayRef {
                 let nulls = self._nulls.finish();
                 let array = arrow::array::StructArray::new(
-                    self._fields.clone(),
+                    Self::data_fields(),
                     vec![
                         $(
                         arrow::array::ArrayBuilder::finish(&mut self.$field),
@@ -59,7 +66,7 @@ macro_rules! struct_builder {
             fn finish_cloned(&self) -> arrow::array::ArrayRef {
                 let nulls = self._nulls.finish_cloned();
                 let array = arrow::array::StructArray::new(
-                    self._fields.clone(),
+                    Self::data_fields(),
                     vec![
                         $(
                         arrow::array::ArrayBuilder::finish_cloned(&self.$field),
@@ -87,7 +94,6 @@ macro_rules! struct_builder {
             fn default() -> Self {
                 Self {
                     _nulls: arrow_buffer::NullBufferBuilder::new(1024),
-                    _fields: Self::data_fields(),
                     $(
                         $field: $builder::default(),
                     )*

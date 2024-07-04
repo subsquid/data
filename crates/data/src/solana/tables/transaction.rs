@@ -3,7 +3,6 @@ use arrow::array::{BooleanBuilder, Int16Builder, ListBuilder, UInt32Builder, UIn
 use sqd_primitives::BlockNumber;
 
 use crate::{struct_builder, table_builder};
-use crate::core::ArrowDataType;
 use crate::solana::model::{Transaction, TransactionVersion};
 use crate::solana::tables::common::{AccountIndexList, AccountListBuilder, AddressListBuilder, Base58Builder, JsonBuilder, SignatureListBuilder};
 

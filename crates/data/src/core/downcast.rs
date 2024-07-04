@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use arrow::array::{Array, ArrayRef, AsArray, RecordBatch};
-use arrow::datatypes::{DataType, Field, FieldRef, Schema, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
+use arrow::datatypes::{DataType, Field, FieldRef, Schema, SchemaRef, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 use arrow_buffer::ArrowNativeType;
 
 
+#[derive(Copy, Clone)]
 pub struct Downcast {
     block_number: u64,
     item_index: u64
@@ -22,12 +23,12 @@ impl Default for Downcast {
 
 
 impl Downcast {
-    pub fn reg_block_number(&mut self, array: &dyn Array) {
-        self.block_number = std::cmp::max(self.block_number, get_max(array))
+    pub fn reg_block_number(&mut self, i: u64) {
+        self.block_number = std::cmp::max(self.block_number, i)
     }
 
-    pub fn reg_item_index(&mut self, array: &dyn Array) {
-        self.item_index = std::cmp::max(self.item_index, get_max(array))
+    pub fn reg_item_index(&mut self, i: u64) {
+        self.item_index = std::cmp::max(self.item_index, i)
     }
 
     pub fn downcast_record_batch(
@@ -70,7 +71,7 @@ fn get_target_index_type(array: &dyn Array, index_type: DataType) -> DataType {
 }
 
 
-fn get_max(array: &dyn Array) -> u64 {
+pub fn get_max(array: &dyn Array) -> u64 {
     macro_rules! max {
         ($t:ty) => {
             arrow::compute::max(array.as_primitive::<$t>()).map_or(0, |val| val.to_i64().unwrap()) as u64
@@ -117,14 +118,14 @@ fn cast(array: &dyn Array, to: DataType) -> ArrayRef {
 }
 
 
-struct NewBatch<'a> {
+struct NewBatch {
     columns: Vec<ArrayRef>,
     fields: Vec<FieldRef>,
-    record_batch: &'a RecordBatch
+    schema: SchemaRef
 }
 
 
-impl <'a> NewBatch<'a> {
+impl NewBatch {
     fn set(&mut self, i: usize, new_array: ArrayRef) {
         self.fields[i] = Arc::new(
             Field::new(
@@ -136,13 +137,13 @@ impl <'a> NewBatch<'a> {
         self.columns[i] = new_array
     }
 
-    fn set_at_place<'b>(place: &'b mut Option<Self>, record_batch: &'a RecordBatch, i: usize, array: ArrayRef) {
+    fn set_at_place(place: &mut Option<Self>, record_batch: &RecordBatch, i: usize, array: ArrayRef) {
         if place.is_none() {
             let _ = std::mem::replace(place, Some(
                 Self {
                     columns: record_batch.columns().to_vec(),
                     fields: record_batch.schema().fields().to_vec(),
-                    record_batch
+                    schema: record_batch.schema()
                 }
             ));
         }
@@ -153,7 +154,7 @@ impl <'a> NewBatch<'a> {
     fn take(self) -> RecordBatch {
         let schema = Schema::new_with_metadata(
             self.fields,
-            self.record_batch.schema().metadata().clone()
+            self.schema.metadata().clone()
         );
         RecordBatch::try_new(Arc::new(schema), self.columns).unwrap()
     }

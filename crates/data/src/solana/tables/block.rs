@@ -1,6 +1,5 @@
 use arrow::array::{TimestampSecondBuilder, UInt64Builder};
 
-use crate::core::ArrowDataType;
 use crate::solana::model::BlockHeader;
 use crate::solana::tables::common::*;
 use crate::table_builder;

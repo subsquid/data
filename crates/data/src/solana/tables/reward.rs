@@ -2,7 +2,6 @@ use arrow::array::{Int64Builder, StringBuilder, UInt64Builder, UInt8Builder};
 
 use sqd_primitives::BlockNumber;
 
-use crate::core::ArrowDataType;
 use crate::solana::model::Reward;
 use crate::solana::tables::common::Base58Builder;
 use crate::table_builder;
