@@ -2336,6 +2336,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "sqd-primitives",
 ]
 
 [[package]]

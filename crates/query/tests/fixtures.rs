@@ -3,15 +3,16 @@ use std::path::{Path, PathBuf};
 
 use rstest::rstest;
 
-use sqd_query::{JsonArrayWriter, Query};
+use sqd_query::{JsonArrayWriter, ParquetChunk, Query};
 
 
-fn execute_query(chunk: impl AsRef<Path>, query_file: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
+fn execute_query(chunk_path: impl AsRef<Path>, query_file: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
     let query = Query::from_json_bytes(
         &std::fs::read(query_file)?
     )?;
     let plan = query.compile();
-    let mut result = plan.execute(chunk.as_ref().to_str().unwrap())?;
+    let chunk = ParquetChunk::new(chunk_path.as_ref().to_str().unwrap());
+    let mut result = plan.execute(&chunk)?;
     let data = Vec::with_capacity(4 * 1024 * 1024);
     let mut writer = JsonArrayWriter::new(data);
     writer.write_blocks(&mut result)?;

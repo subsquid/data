@@ -1,7 +1,6 @@
 mod rel;
 mod plan;
 mod row_list;
-mod chunk_ctx;
 mod table;
 mod result;
 mod sort;

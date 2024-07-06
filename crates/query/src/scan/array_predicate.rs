@@ -9,6 +9,9 @@ use arrow::datatypes::{ArrowNativeTypeOp, ArrowPrimitiveType, DataType, Int16Typ
 use crate::scan::arrow::IntoArrow;
 
 
+pub type ArrayPredicateRef = Arc<dyn ArrayPredicate>;
+
+
 pub trait ArrayPredicate: Sync + Send {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray>;
 
@@ -16,19 +19,17 @@ pub trait ArrayPredicate: Sync + Send {
         false
     }
 
-    fn evaluate_stats(&self, _stats: &dyn ArrayStats) -> anyhow::Result<BooleanArray> {
+    fn evaluate_stats(&self, _stats: &ArrayStats) -> anyhow::Result<BooleanArray> {
         bail!("Stats evaluation is not supported by this predicate")
     }
 }
 
 
-pub trait ArrayStats: Sync + Send {
-    fn get_min(&self) -> ArrayRef;
-    fn get_max(&self) -> ArrayRef;
+#[derive(Clone)]
+pub struct ArrayStats {
+    pub min: ArrayRef,
+    pub max: ArrayRef
 }
-
-
-pub type ArrayPredicateRef = Arc<dyn ArrayPredicate>;
 
 
 pub struct And {
@@ -62,9 +63,9 @@ impl ArrayPredicate for And {
         self.predicates.iter().any(|p| p.can_evaluate_stats())
     }
 
-    fn evaluate_stats(&self, stats: &dyn ArrayStats) -> anyhow::Result<BooleanArray> {
+    fn evaluate_stats(&self, stats: &ArrayStats) -> anyhow::Result<BooleanArray> {
         if self.predicates.len() == 0 {
-            return Ok(zero_mask(stats.get_max().len(), true))
+            return Ok(zero_mask(stats.min.len(), true))
         }
         let mut result_mask = self.predicates[0].evaluate_stats(stats)?;
         for i in 1..self.predicates.len() {
@@ -107,9 +108,9 @@ impl ArrayPredicate for Or {
         self.predicates.iter().all(|p| p.can_evaluate_stats())
     }
 
-    fn evaluate_stats(&self, stats: &dyn ArrayStats) -> anyhow::Result<BooleanArray> {
+    fn evaluate_stats(&self, stats: &ArrayStats) -> anyhow::Result<BooleanArray> {
         if self.predicates.len() == 0 {
-            return Ok(zero_mask(stats.get_max().len(), false))
+            return Ok(zero_mask(stats.min.len(), false))
         }
         let mut result_mask = self.predicates[0].evaluate_stats(stats)?;
         for i in 1..self.predicates.len() {
@@ -160,11 +161,11 @@ impl ArrayPredicate for Eq {
         true
     }
 
-    fn evaluate_stats(&self, stats: &dyn ArrayStats) -> anyhow::Result<BooleanArray> {
-        let min_array = &stats.get_min();
+    fn evaluate_stats(&self, stats: &ArrayStats) -> anyhow::Result<BooleanArray> {
+        let min_array = &stats.min;
         cast_scalar!(value, &self.value, min_array, Less: false, Greater: false);
         let min_boundary = arrow::compute::kernels::cmp::gt_eq(value, min_array)?;
-        let max_boundary = arrow::compute::kernels::cmp::lt_eq(value, &stats.get_max())?;
+        let max_boundary = arrow::compute::kernels::cmp::lt_eq(value, &stats.max)?;
         Ok(arrow::compute::and(&min_boundary, &max_boundary)?)
     }
 }
@@ -196,8 +197,8 @@ impl ArrayPredicate for GtEq {
         true
     }
 
-    fn evaluate_stats(&self, stats: &dyn ArrayStats) -> anyhow::Result<BooleanArray> {
-        let min = &stats.get_min();
+    fn evaluate_stats(&self, stats: &ArrayStats) -> anyhow::Result<BooleanArray> {
+        let min = &stats.min;
         cast_scalar!(value, &self.value, min, Less: false, Greater: true);
         let result_mask = arrow::compute::kernels::cmp::gt_eq(value, min)?;
         Ok(result_mask)
@@ -231,8 +232,8 @@ impl ArrayPredicate for LtEq {
         true
     }
 
-    fn evaluate_stats(&self, stats: &dyn ArrayStats) -> anyhow::Result<BooleanArray> {
-        let max = &stats.get_max();
+    fn evaluate_stats(&self, stats: &ArrayStats) -> anyhow::Result<BooleanArray> {
+        let max = &stats.max;
         cast_scalar!(value, &self.value, max, Less: true, Greater: false);
         let result_mask = arrow::compute::kernels::cmp::lt_eq(value, max)?;
         Ok(result_mask)

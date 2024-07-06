@@ -1,18 +1,20 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 use anyhow::anyhow;
-use sqd_query::{JsonArrayWriter, Query, set_polars_thread_pool_size};
+use sqd_query::{JsonArrayWriter, ParquetChunk, Query, set_polars_thread_pool_size};
 
 
 fn main() -> anyhow::Result<()> {
     unsafe { set_polars_thread_pool_size(8) };
 
-    let data_chunk = std::env::args().skip(1).next().ok_or_else(|| {
+    let data_chunk_path = std::env::args().skip(1).next().ok_or_else(|| {
         anyhow!("specify a data chunks as a first argument")
     })?;
 
     let query = read_query()?;
     let plan = query.compile();
+
+    let data_chunk = ParquetChunk::new(data_chunk_path);
 
     let query_start = std::time::Instant::now();
 

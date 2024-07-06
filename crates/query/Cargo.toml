@@ -14,17 +14,18 @@ bytes = "1.6.0"
 convert_case = "0.6.0"
 dashmap = "6.0.1"
 identconv = "0.2.0"
-lazy_static = {workspace = true}
+lazy_static = { workspace = true }
 lexical-core = "0.8.5"
 memmap2 = "0.9.4"
-parking_lot = {workspace = true}
-parquet = {workspace = true}
+parking_lot = { workspace = true }
+parquet = { workspace = true }
 polars = { version = "0.39.2", default-features = false, features = ["lazy", "semi_anti_join", "cum_agg", "fmt"] }
 polars-arrow = { version = "0.39.2", features = ["arrow_rs"] }
 polars-core = "0.39.2"
 rayon = "1.10.0"
 serde = { workspace = true, features = ["derive", "serde_derive"] }
 serde_json = { workspace = true, features = ["preserve_order"] }
+sqd-primitives = { path = "../primitives" }
 
 [dev-dependencies]
 rstest = "0.21.0"

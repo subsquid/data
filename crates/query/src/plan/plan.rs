@@ -2,15 +2,15 @@ use std::collections::HashSet;
 
 use anyhow::ensure;
 use rayon::prelude::*;
+use sqd_primitives::RowRangeList;
 
 use crate::json::exp::Exp;
-use crate::plan::chunk_ctx::ChunkCtx;
 use crate::plan::rel::Rel;
 use crate::plan::result::{BlockWriter, DataItem};
 use crate::plan::row_list::RowList;
 use crate::plan::table::{ColumnWeight, TableSet};
 use crate::primitives::{BlockNumber, Name, RowWeight, RowWeightPolarsType};
-use crate::scan::{col_between, col_gt_eq, col_lt_eq, row_selection, RowPredicateRef};
+use crate::scan::{Chunk, col_between, col_gt_eq, col_lt_eq, RowPredicateRef};
 use crate::util::record_batch_vec_to_lazy_polars_df;
 
 
@@ -47,9 +47,9 @@ pub struct Plan {
 
 
 impl Plan {
-    pub fn execute(&self, data_chunk_path: &str) -> anyhow::Result<BlockWriter> {
+    pub fn execute(&self, data_chunk: &dyn Chunk) -> anyhow::Result<BlockWriter> {
         PlanExecution {
-            chunk_ctx: ChunkCtx::new(data_chunk_path.to_string()),
+            data_chunk,
             plan: self,
         }.execute()
     }
@@ -57,7 +57,7 @@ impl Plan {
 
 
 struct PlanExecution<'a> {
-    chunk_ctx: ChunkCtx,
+    data_chunk: &'a dyn Chunk,
     plan: &'a Plan,
 }
 
@@ -84,9 +84,8 @@ impl <'a> PlanExecution<'a> {
     ) -> anyhow::Result<()>
     {
         self.plan.scans.par_iter().try_for_each(|scan| -> anyhow::Result<()> {
-            let parquet_scan = self.chunk_ctx.get_parquet(scan.table)?;
-
-            let rows = parquet_scan
+            let rows = self.data_chunk
+                .scan_table(scan.table)?
                 .with_row_index(true)
                 .with_columns([])
                 .with_predicate(scan.predicate.clone())
@@ -117,7 +116,7 @@ impl <'a> PlanExecution<'a> {
             }
             let rel = &self.plan.relations[idx];
             let output = &output_inputs[self.get_output_index(rel.output_table())];
-            rel.eval(&self.chunk_ctx, &input, output)
+            rel.eval(self.data_chunk, &input, output)
         })
     }
 
@@ -136,10 +135,11 @@ impl <'a> PlanExecution<'a> {
                     if row_indexes.is_empty() {
                         return Ok(DataFrame::empty())
                     }
-                    Some(row_selection::from_row_indexes(row_indexes))
+                    Some(RowRangeList::from_sorted_indexes(row_indexes))
                 };
 
-                let record_batches = self.chunk_ctx.get_parquet(output.table)?
+                let record_batches = self.data_chunk
+                    .scan_table(output.table)?
                     .with_row_selection(maybe_row_selection)
                     .with_predicate(self.get_block_number_predicate(output.key[0]))
                     .with_row_index(true)
@@ -283,11 +283,12 @@ impl <'a> PlanExecution<'a> {
                 col("row_index")
             ]).collect()?;
 
-            let row_selection = row_selection::from_row_indexes(
+            let row_selection = RowRangeList::from_sorted_indexes(
                 row_index.column("row_index").unwrap().u32()?.into_no_null_iter()
             );
 
-            let records = self.chunk_ctx.get_parquet(output.table)?
+            let records = self.data_chunk
+                .scan_table(output.table)?
                 .with_row_selection(row_selection)
                 .with_projection(output.projection.clone())
                 .execute()?;

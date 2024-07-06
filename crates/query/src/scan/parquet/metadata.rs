@@ -1,15 +1,15 @@
 use std::collections::HashMap;
-use std::ops::Range;
 use std::sync::Arc;
 
-use arrow::array::{ArrayBuilder, ArrayRef, BinaryArray, BinaryBuilder, BooleanArray, BooleanBuilder, Int32Array, Int32Builder, Int64Array, Int64Builder};
+use anyhow::anyhow;
+use arrow::array::{ArrayBuilder, ArrayRef, BinaryArray, BinaryBuilder, BooleanArray, BooleanBuilder, Int32Array, Int32Builder, Int64Array, Int64Builder, UInt32Array};
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::file::page_index::index::Index;
 use parquet::file::statistics::Statistics;
 
-use crate::scan::array_predicate::ArrayStats;
-use crate::scan::row_predicate::{ColumnStats, RowStats};
 use crate::primitives::Name;
+use crate::scan::array_predicate::ArrayStats;
+use crate::scan::row_predicate::RowStats;
 
 
 pub struct ParquetMetadata {
@@ -47,7 +47,7 @@ impl ParquetMetadata {
 
 struct RowGroupStats {
     metadata: ArrowReaderMetadata,
-    column_stats: parking_lot::Mutex<HashMap<Name, Option<Arc<dyn ColumnStats>>>>
+    column_stats: parking_lot::Mutex<HashMap<Name, Option<ColumnStats>>>
 }
 
 
@@ -63,11 +63,31 @@ impl RowGroupStats {
 
 
 impl RowStats for RowGroupStats {
-    fn get_column_stats(&self, column_name: Name) -> Option<Arc<dyn ColumnStats>> {
+    fn get_column_offsets(&self, column: Name) -> anyhow::Result<UInt32Array> {
         let mut column_stats = self.column_stats.lock();
-        column_stats.entry(column_name).or_insert_with(|| {
-            self.build_column_stats(column_name).map(|s| Arc::new(s) as Arc<dyn ColumnStats>)
-        }).clone()
+
+        let s = column_stats.entry(column).or_insert_with(|| {
+            self.build_column_stats(column)
+        });
+
+        if let Some(s) = s.as_ref() {
+            Ok(s.offsets.clone())
+        } else {
+            Err(anyhow!(
+                "stats are not available for column `{}`, offsets should not be requested",
+                column
+            ))
+        }
+    }
+
+    fn get_column_stats(&self, column: Name) ->  anyhow::Result<Option<ArrayStats>> {
+        let mut column_stats = self.column_stats.lock();
+
+        let s = column_stats.entry(column).or_insert_with(|| {
+            self.build_column_stats(column)
+        });
+
+        Ok(s.as_ref().map(|s| s.values.clone()))
     }
 
     fn get_num_rows(&self) -> usize {
@@ -77,17 +97,18 @@ impl RowStats for RowGroupStats {
 
 
 impl RowGroupStats {
-    fn build_column_stats(&self, column_name: Name) -> Option<ColStats> {
+    fn build_column_stats(&self, column_name: Name) -> Option<ColumnStats> {
         let col_idx = find_primitive_column(&self.metadata, column_name)?;
 
         let num_row_groups = self.metadata.metadata().num_row_groups();
-        let mut ranges = Vec::with_capacity(num_row_groups);
+        let mut offsets = UInt32Array::builder(num_row_groups + 1);
         let mut boolean: Option<(BooleanBuilder, BooleanBuilder)> = None;
         let mut int32: Option<(Int32Builder, Int32Builder)> = None;
         let mut int64: Option<(Int64Builder, Int64Builder)> = None;
         let mut binary: Option<(BinaryBuilder, BinaryBuilder)> = None;
 
-        let mut offset = 0i64;
+        let mut offset = 0u32;
+        offsets.append_value(0);
 
         for rg in self.metadata.metadata().row_groups().iter() {
             let statistics = rg.column(col_idx).statistics()?;
@@ -146,8 +167,9 @@ impl RowGroupStats {
                 }
                 _ => return None
             }
-            ranges.push(offset..offset + rg.num_rows());
-            offset += rg.num_rows();
+
+            offset += rg.num_rows() as u32;
+            offsets.append_value(offset);
         }
 
         macro_rules! complete_min_max {
@@ -174,10 +196,12 @@ impl RowGroupStats {
         }).or_else(|| {
             complete_min_max!(boolean, num_row_groups)
         }).map(|min_max| {
-            ColStats {
-                ranges,
-                min: min_max.0,
-                max: min_max.1,
+            ColumnStats {
+                offsets: offsets.finish(),
+                values: ArrayStats {
+                    min: min_max.0,
+                    max: min_max.1
+                }
             }
         })
     }
@@ -187,7 +211,7 @@ impl RowGroupStats {
 struct PageStats {
     metadata: ArrowReaderMetadata,
     row_group_idx: usize,
-    column_stats: parking_lot::Mutex<HashMap<Name, Option<Arc<dyn ColumnStats>>>>
+    column_stats: parking_lot::Mutex<HashMap<Name, Option<ColumnStats>>>
 }
 
 
@@ -204,11 +228,31 @@ impl PageStats {
 
 
 impl RowStats for PageStats {
-    fn get_column_stats(&self, column: Name) -> Option<Arc<dyn ColumnStats>> {
+    fn get_column_offsets(&self, column: Name) -> anyhow::Result<UInt32Array> {
         let mut column_stats = self.column_stats.lock();
-        column_stats.entry(column).or_insert_with(|| {
-            self.build_column_stats(column).map(|s| Arc::new(s) as Arc<dyn ColumnStats>)
-        }).clone()
+
+        let s = column_stats.entry(column).or_insert_with(|| {
+            self.build_column_stats(column)
+        });
+
+        if let Some(s) = s.as_ref() {
+            Ok(s.offsets.clone())
+        } else {
+            Err(anyhow!(
+                "stats are not available for column `{}`, offsets should not be requested",
+                column
+            ))
+        }
+    }
+
+    fn get_column_stats(&self, column: Name) ->  anyhow::Result<Option<ArrayStats>> {
+        let mut column_stats = self.column_stats.lock();
+
+        let s = column_stats.entry(column).or_insert_with(|| {
+            self.build_column_stats(column)
+        });
+
+        Ok(s.as_ref().map(|s| s.values.clone()))
     }
 
     fn get_num_rows(&self) -> usize {
@@ -218,23 +262,23 @@ impl RowStats for PageStats {
 
 
 impl PageStats {
-    fn build_column_stats(&self, column_name: Name) -> Option<ColStats> {
+    fn build_column_stats(&self, column_name: Name) -> Option<ColumnStats> {
         let col_idx = find_primitive_column(&self.metadata, column_name)?;
 
-        let ranges = self.metadata
+        let offsets = self.metadata
             .metadata()
             .offset_index()
             .map(|offset_index| {
                 let pages = &offset_index[self.row_group_idx][col_idx];
-                let mut ranges = Vec::with_capacity(pages.len());
-                for i in 0..pages.len() - 1 {
-                    ranges.push(pages[i].first_row_index..pages[i+1].first_row_index);
+                let mut offsets = UInt32Array::builder(pages.len() + 1);
+
+                for page in pages.iter() {
+                    offsets.append_value(page.first_row_index as u32)
                 }
-                if let Some(last_page) = pages.last() {
-                    let num_rows = self.metadata.metadata().row_group(self.row_group_idx).num_rows();
-                    ranges.push(last_page.first_row_index..num_rows);
-                }
-                ranges
+
+                let num_rows = self.metadata.metadata().row_group(self.row_group_idx).num_rows();
+                offsets.append_value(num_rows as u32);
+                offsets.finish()
             })?;
 
         let page_index = self.metadata
@@ -273,12 +317,19 @@ impl PageStats {
             _ => return None
         };
 
-        Some(ColStats {
-            ranges,
-            min,
-            max
+        Some(ColumnStats {
+            offsets,
+            values: ArrayStats {
+                min, max
+            }
         })
     }
+}
+
+
+struct ColumnStats {
+    offsets: UInt32Array,
+    values: ArrayStats
 }
 
 
@@ -289,33 +340,4 @@ fn find_primitive_column(metadata: &ArrowReaderMetadata, name: Name) -> Option<u
         }
     }
     None
-}
-
-
-struct ColStats {
-    ranges: Vec<Range<i64>>,
-    min: ArrayRef,
-    max: ArrayRef
-}
-
-
-impl ArrayStats for ColStats {
-    fn get_min(&self) -> ArrayRef{
-        self.min.clone()
-    }
-
-    fn get_max(&self) -> ArrayRef {
-        self.max.clone()
-    }
-}
-
-
-impl ColumnStats for ColStats {
-    fn get_ranges(&self) -> &[Range<i64>] {
-        self.ranges.as_slice()
-    }
-
-    fn as_array_stats(&self) -> &dyn ArrayStats {
-        self
-    }
 }

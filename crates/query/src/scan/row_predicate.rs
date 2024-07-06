@@ -2,12 +2,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::bail;
-use arrow::array::{Array, BooleanArray, RecordBatch};
+use arrow::array::{Array, BooleanArray, RecordBatch, UInt32Array};
 
-use crate::scan::{array_predicate, row_range};
-use crate::scan::array_predicate::{ArrayPredicateRef, ArrayStats};
-use crate::scan::row_range::{RowRange, RowRangeList};
+use sqd_primitives::RowRangeList;
+
 use crate::primitives::Name;
+use crate::scan::array_predicate;
+use crate::scan::array_predicate::{ArrayPredicateRef, ArrayStats};
 
 
 pub type RowPredicateRef = Arc<dyn RowPredicate>;
@@ -29,18 +30,12 @@ pub trait RowPredicate: Sync + Send {
 
 
 pub trait RowStats {
-    fn get_column_stats(&self, column: Name) -> Option<ColumnStatsRef>;
+    fn get_column_offsets(&self, column: Name) -> anyhow::Result<UInt32Array>;
+
+    fn get_column_stats(&self, column: Name) -> anyhow::Result<Option<ArrayStats>>;
+
     fn get_num_rows(&self) -> usize;
 }
-
-
-pub trait ColumnStats: ArrayStats {
-    fn get_ranges(&self) -> &[RowRange];
-    fn as_array_stats(&self) -> &dyn ArrayStats;
-}
-
-
-pub type ColumnStatsRef = Arc<dyn ColumnStats>;
 
 
 pub struct ColumnPredicate {
@@ -76,20 +71,19 @@ impl RowPredicate for ColumnPredicate {
         self.array_predicate.can_evaluate_stats()
     }
 
-    fn evaluate_stats(&self, stats: &dyn RowStats) -> anyhow::Result<Option<RowRangeList>> {
-        stats.get_column_stats(self.column[0]).map(|column_stats| {
-            let mask = self.array_predicate.evaluate_stats(column_stats.as_array_stats())?;
+    fn evaluate_stats(&self, row_stats: &dyn RowStats) -> anyhow::Result<Option<RowRangeList>> {
+        row_stats.get_column_stats(self.column[0])?.map(|column_stats| {
+            let mask = self.array_predicate.evaluate_stats(&column_stats)?;
 
-            let ranges = column_stats.get_ranges()
-                .iter()
-                .cloned()
-                .enumerate()
-                .filter(|(i, _r)| {
-                    mask.value(*i) && !mask.is_null(*i)
+            let offsets = row_stats.get_column_offsets(self.column[0])?;
+
+            let ranges = (0..offsets.len() - 1)
+                .filter(|&i| {
+                    mask.value(i) && !mask.is_null(i)
                 })
-                .map(|(_i, r)| r);
+                .map(|i| offsets.value(i)..offsets.value(i+1));
 
-            Ok(row_range::seal(ranges).collect())
+            Ok(RowRangeList::seal(ranges))
         }).transpose()
     }
 }
@@ -134,15 +128,19 @@ impl RowPredicate for AndPredicate {
     }
 
     fn evaluate_stats(&self, stats: &dyn RowStats) -> anyhow::Result<Option<RowRangeList>> {
-        let mut selections: Vec<Vec<RowRange>> = Vec::with_capacity(self.predicates.len());
+        let mut selection: Option<RowRangeList> = None;
         for p in self.predicates.iter() {
             if p.can_evaluate_stats() {
                 if let Some(sel) = p.evaluate_stats(stats)? {
-                    selections.push(sel);
+                    selection = Some(if let Some(prev) = selection {
+                        prev.intersection(&sel)
+                    } else {
+                        sel
+                    })
                 }
             }
         }
-        Ok(selections.into_iter().reduce(|a, b| row_range::intersection(a, b).collect()))
+        Ok(selection)
     }
 }
 
@@ -186,11 +184,15 @@ impl RowPredicate for OrPredicate {
     }
 
     fn evaluate_stats(&self, stats: &dyn RowStats) -> anyhow::Result<Option<RowRangeList>> {
-        let mut selections = Vec::with_capacity(self.predicates.len());
+        let mut selection: Option<RowRangeList> = None;
         for p in self.predicates.iter() {
             if p.can_evaluate_stats() {
                 if let Some(sel) = p.evaluate_stats(stats)? {
-                    selections.push(sel);
+                    selection = Some(if let Some(prev) = selection {
+                        prev.union(&sel)
+                    } else {
+                        sel
+                    })
                 } else {
                     return Ok(None)
                 }
@@ -198,7 +200,7 @@ impl RowPredicate for OrPredicate {
                 return Ok(None)
             }
         }
-        Ok(selections.into_iter().reduce(|a, b| row_range::union(a, b).collect()))
+        Ok(selection)
     }
 }
 

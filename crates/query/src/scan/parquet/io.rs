@@ -1,13 +1,13 @@
 use std::io::Cursor;
 use std::sync::Arc;
-use bytes::{Bytes};
+
+use bytes::Bytes;
 use memmap2::{Mmap, MmapOptions};
 use parquet::file::reader::{ChunkReader, Length};
 
 
 #[derive(Clone)]
 pub struct MmapIO {
-    filename: Arc<String>,
     mmap: Arc<Mmap>
 }
 
@@ -19,13 +19,8 @@ impl MmapIO {
             MmapOptions::new().map(&file)
         }?;
         Ok(MmapIO {
-            filename: Arc::new(filename.to_string()),
             mmap: Arc::new(mmap)
         })
-    }
-
-    pub fn filename(&self) -> &str {
-        &self.filename
     }
 }
 

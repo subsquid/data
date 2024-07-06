@@ -4,11 +4,12 @@ use anyhow::bail;
 use arrow::array::{Array, ArrayRef, ArrowPrimitiveType, AsArray, OffsetSizeTrait};
 use arrow::datatypes::{DataType, Int32Type, UInt32Type};
 
-use crate::plan::chunk_ctx::ChunkCtx;
+use sqd_primitives::RowRangeList;
+
 use crate::plan::key::{GenericListKey, Key, PrimitiveGenericListKey};
 use crate::plan::row_list::RowList;
 use crate::primitives::{Name, RowIndex, RowIndexArrowType, schema_error, SchemaError};
-use crate::scan::row_selection;
+use crate::scan::Chunk;
 use crate::util::{polars_series_to_arrow_array, polars_series_to_row_index_iter};
 
 
@@ -49,7 +50,7 @@ impl Rel {
 
     pub fn eval(
         &self,
-        chunk: &ChunkCtx,
+        chunk: &dyn Chunk,
         input: &BTreeSet<RowIndex>,
         output: &RowList
     ) -> anyhow::Result<()>
@@ -89,7 +90,7 @@ impl Rel {
 
 
 fn eval_join(
-    chunk: &ChunkCtx,
+    chunk: &dyn Chunk,
     input: &BTreeSet<RowIndex>,
     input_table: Name,
     input_key: &Vec<Name>,
@@ -99,13 +100,13 @@ fn eval_join(
 ) -> anyhow::Result<()>
 {
     use polars::prelude::*;
-
-    let input_rows = chunk.get_parquet(input_table)?
-        .with_row_selection(row_selection::from_row_indexes(input.iter().copied()))
+    
+    let input_rows = chunk.scan_table(input_table)?
+        .with_row_selection(RowRangeList::from_sorted_indexes(input.iter().copied()))
         .with_columns(input_key.iter().copied())
         .to_lazy_df()?;
 
-    let output_rows = chunk.get_parquet(output_table)?
+    let output_rows = chunk.scan_table(output_table)?
         .with_row_index(true)
         .with_columns(output_key.iter().copied())
         .to_lazy_df()?;
@@ -126,7 +127,7 @@ fn eval_join(
 
 
 fn eval_children(
-    chunk: &ChunkCtx,
+    chunk: &dyn Chunk,
     input: &BTreeSet<RowIndex>,
     table: Name,
     key: &Vec<Name>,
@@ -148,7 +149,7 @@ fn eval_children(
 
 
 fn select_stack(
-    chunk: &ChunkCtx,
+    chunk: &dyn Chunk,
     table: Name,
     key: &Vec<Name>,
     input: &BTreeSet<RowIndex>
@@ -156,7 +157,7 @@ fn select_stack(
 {
     use polars::prelude::*;
 
-    let items = chunk.get_parquet(table)?
+    let items = chunk.scan_table(table)?
         .with_row_index(true)
         .with_columns(key.iter().copied())
         .to_lazy_df()?
@@ -210,7 +211,7 @@ fn select_stack(
 
 
 fn eval_sub(
-    chunk: &ChunkCtx,
+    chunk: &dyn Chunk,
     input: &BTreeSet<RowIndex>,
     input_table: Name,
     input_key: &Vec<Name>,
@@ -228,8 +229,8 @@ fn eval_sub(
 
     let address_column = output_key.last().unwrap();
 
-    let input = chunk.get_parquet(input_table)?
-        .with_row_selection(row_selection::from_row_indexes(input.iter().copied()))
+    let input = chunk.scan_table(input_table)?
+        .with_row_selection(RowRangeList::from_sorted_indexes(input.iter().copied()))
         .with_columns(input_key.iter().copied())
         .to_lazy_df()?
         .select(
@@ -239,7 +240,7 @@ fn eval_sub(
         )
         .collect()?;
 
-    let items = chunk.get_parquet(output_table)?
+    let items = chunk.scan_table(output_table)?
         .with_columns(output_key.iter().copied())
         .with_row_index(true)
         .to_lazy_df()?
@@ -420,7 +421,7 @@ fn is_parent_address<I: Eq>(parent: &[I], child: &[I]) -> bool {
 
 
 fn eval_stack(
-    chunk: &ChunkCtx,
+    chunk: &dyn Chunk,
     input: &BTreeSet<RowIndex>,
     table: Name,
     key: &Vec<Name>,
