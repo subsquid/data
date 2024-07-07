@@ -6,5 +6,4 @@ mod chunk_builder;
 
 
 pub use arrow_data_type::*;
-pub use chunk_builder::*;
 pub use table_builder::*;

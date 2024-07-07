@@ -10,3 +10,4 @@ borsh = { workspace = true }
 parking_lot = { workspace = true }
 rocksdb = "0.22.0"
 uuid = { version = "1.8.0", features = ["v7", "borsh"] }
+sqd-primitives = { path = "../primitives" }

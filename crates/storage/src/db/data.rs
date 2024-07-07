@@ -3,8 +3,9 @@ use std::fmt::{Display, Formatter};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use sqd_primitives::{BlockNumber, ShortHash};
+
 use crate::db::table_id::TableId;
-use crate::primitives::{BlockNumber, ShortHash};
 use crate::table::write::TableOptions;
 
 

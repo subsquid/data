@@ -1,7 +1,7 @@
 use anyhow::{Context, ensure};
 use crate::db::data::{Chunk, ChunkId, DatasetId};
 use crate::kv::KvReadCursor;
-use crate::primitives::BlockNumber;
+use sqd_primitives::BlockNumber;
 
 
 pub fn list_chunks<C: KvReadCursor>(

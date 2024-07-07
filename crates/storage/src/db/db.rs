@@ -2,9 +2,9 @@ use anyhow::ensure;
 use rocksdb::Options as RocksOptions;
 
 use crate::db::data::{DatasetDescriptionRef, DatasetId, DatasetKind, DatasetLabel};
-use crate::db::read::ReadSnapshot;
+use crate::db::read::snapshot::ReadSnapshot;
 use crate::db::write::{ChunkBuilder, NewChunk, Tx};
-use crate::primitives::Name;
+use sqd_primitives::Name;
 
 
 pub(super) const CF_DATASETS: Name = "DATASETS";

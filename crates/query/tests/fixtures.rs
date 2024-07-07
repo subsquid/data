@@ -1,3 +1,4 @@
+#![cfg(feature = "parquet")]
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 

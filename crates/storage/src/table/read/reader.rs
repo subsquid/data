@@ -1,4 +1,3 @@
-use std::cmp::{max, min};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -8,11 +7,12 @@ use arrow::buffer::BooleanBuffer;
 use arrow::datatypes::{ArrowNativeType, DataType, Schema, SchemaRef, UInt32Type};
 use parking_lot::Mutex;
 
+use sqd_primitives::RowRangeList;
+
 use crate::array::serde::{deserialize_array, deserialize_primitive_array};
 use crate::kv::{KvRead, KvReadCursor};
-use crate::range::RangeList;
-use crate::table::read::projection::ProjectionMask;
 use crate::table::key::{Statistic, TableKeyFactory};
+use crate::table::read::projection::ProjectionMask;
 
 
 type StatsBag = HashMap<Statistic, Option<ArrayRef>>;
@@ -105,7 +105,7 @@ impl <S: KvRead> TableReader<S> {
         &self,
         row_group: usize,
         column: usize,
-        row_selection: Option<&RangeList>
+        row_selection: Option<&RowRangeList>
     ) -> anyhow::Result<ArrayRef>
     {
         let page_offsets = self.get_page_offsets(row_group, column)?;
@@ -166,7 +166,7 @@ impl <S: KvRead> TableReader<S> {
     pub fn read_row_group(
         &self,
         row_group: usize,
-        row_selection: Option<&RangeList>,
+        row_selection: Option<&RowRangeList>,
         projection: Option<&ProjectionMask>
     ) -> anyhow::Result<RecordBatch>
     {
@@ -368,57 +368,22 @@ fn validate_statistic(offsets: &[u32], kind: Statistic, array: &dyn Array) -> an
 
 fn select_pages<'a>(
     offsets: &'a [u32],
-    row_selection: &'a RangeList
+    row_selection: &'a RowRangeList
 ) -> impl Iterator<Item=(usize, Option<BooleanBuffer>)> + 'a
 {
-    let mut mask = BooleanBufferBuilder::new(0);
-    let mut ranges = row_selection.iter().cloned().peekable();
-
-    let mut pages = (0..offsets.len() - 1).map(|i| {
-        offsets[i] as usize..offsets[i+1] as usize
-    }).enumerate();
-
-    std::iter::from_fn(move || {
-        while let Some((idx, page)) = pages.next() {
-            let mut beg = page.start;
-            let end = page.end;
-            while beg < end {
-                if let Some(r) = ranges.peek_mut() {
-                    if r.end <= beg || r.start >= r.end {
-                        ranges.next();
-                        continue
-                    }
-                    if end <= r.start {
-                        break
-                    }
-                    let take_start = max(r.start, beg);
-                    let take_end = min(end, r.end);
-                    skip(&mut mask, beg, take_start - beg);
-                    beg = take_end;
-                    r.start = take_end;
-                } else {
-                    break
-                }
+    row_selection.filter_groups(offsets).map(|(rg, maybe_rows)| {
+        let maybe_mask = maybe_rows.map(|ranges| {
+            let size = offsets[rg + 1] - offsets[rg];
+            let mut mask = BooleanBufferBuilder::new(size as usize);
+            let mut end = 0;
+            for r in ranges.iter() {
+                mask.append_n((r.start - end) as usize, false);
+                mask.append_n((r.end - r.start) as usize, true);
+                end = r.end
             }
-            if end - beg < page.len() {
-                skip(&mut mask, beg, end);
-                return if mask.len() > 0 {
-                    mask.append_n(page.len() - mask.len(), true);
-                    Some((idx, Some(mask.finish())))
-                } else {
-                    mask.resize(0);
-                    Some((idx, None))
-                }
-            }
-        }
-        None
+            mask.append_n((size - end) as usize, false);
+            mask.finish()
+        });
+        (rg, maybe_mask)
     })
-}
-
-
-fn skip(mask: &mut BooleanBufferBuilder, skip_start: usize, skip_end: usize) {
-    if skip_start < skip_end {
-        mask.append_n(skip_start - mask.len(), true);
-        mask.append_n(skip_end - skip_start, false);
-    }
 }

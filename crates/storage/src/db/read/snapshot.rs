@@ -2,12 +2,12 @@ use std::ops::Deref;
 
 use anyhow::anyhow;
 use rocksdb::{ColumnFamily, ReadOptions};
+use sqd_primitives::{BlockNumber, Name};
 
 use crate::db::data::{Chunk, ChunkId, DatasetId};
 use crate::db::db::{CF_CHUNKS, CF_TABLES, RocksDB, RocksSnapshot};
 use crate::db::read::chunk::list_chunks;
 use crate::kv::{KvRead, KvReadCursor};
-use crate::primitives::BlockNumber;
 use crate::table::read::TableReader;
 
 
@@ -75,7 +75,7 @@ impl <'a> ChunkReader<'a> {
         self.chunk.tables.contains_key(name)
     }
 
-    pub fn get_table(&self, name: &str) -> anyhow::Result<TableReader<impl KvRead + 'a>> {
+    pub fn get_table(&self, name: &str) -> anyhow::Result<ChunkTableReader<'a>> {
         let table_id = self.chunk.tables.get(name).ok_or_else(|| {
             anyhow!(
                 "table `{}` does not exist in chunk {}",
@@ -86,7 +86,7 @@ impl <'a> ChunkReader<'a> {
 
         let storage = CFSnapshot {
             snapshot: self.snapshot,
-            cf: self.snapshot.cf_handle(CF_TABLES)
+            cf: CF_TABLES
         };
 
         let reader = TableReader::new(storage, table_id.as_ref())?;
@@ -96,16 +96,19 @@ impl <'a> ChunkReader<'a> {
 }
 
 
-struct CFSnapshot<'a> {
+pub type ChunkTableReader<'a> = TableReader<CFSnapshot<'a>>;
+
+
+pub struct CFSnapshot<'a> {
     snapshot: &'a ReadSnapshot<'a>,
-    cf: &'a ColumnFamily
+    cf: Name
 }
 
 
 impl <'a> KvRead for CFSnapshot<'a> {
     fn get<'b, 'c>(&'b self, key: &'c [u8]) -> anyhow::Result<Option<impl Deref<Target=[u8]> + 'b>> {
         Ok(self.snapshot.db.get_pinned_cf_opt(
-            self.cf,
+            self.snapshot.cf_handle(self.cf),
             key,
             &self.snapshot.new_options()
         )?)
@@ -113,7 +116,7 @@ impl <'a> KvRead for CFSnapshot<'a> {
 
     fn new_cursor(&self) -> impl KvReadCursor {
         self.snapshot.db.raw_iterator_cf_opt(
-            self.cf,
+            self.snapshot.cf_handle(self.cf),
             self.snapshot.new_options()
         )
     }

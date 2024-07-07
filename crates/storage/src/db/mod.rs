@@ -7,7 +7,7 @@ mod rocks;
 
 
 pub use db::*;
-pub use read::*;
+pub use read::snapshot::*;
 pub use write::*;
 pub use data::{
     DatasetId,

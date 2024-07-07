@@ -2337,6 +2337,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqd-primitives",
+ "sqd-storage",
 ]
 
 [[package]]
@@ -2348,6 +2349,7 @@ dependencies = [
  "borsh",
  "parking_lot",
  "rocksdb",
+ "sqd-primitives",
  "uuid",
 ]
 

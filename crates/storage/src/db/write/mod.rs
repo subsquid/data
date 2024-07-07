@@ -4,11 +4,11 @@ use anyhow::{anyhow, ensure};
 use rocksdb::ColumnFamily;
 
 pub use chunk::*;
+use sqd_primitives::{BlockNumber, ShortHash};
 
 use crate::db::data::{Chunk, ChunkId, DatasetId, DatasetLabel};
 use crate::db::db::{CF_CHUNKS, CF_DATASETS, CF_DIRTY_TABLES, RocksDB, RocksTransaction, RocksTransactionOptions};
 use crate::db::read::chunk::list_chunks;
-use crate::primitives::{BlockNumber, ShortHash};
 use crate::util::borsh_serialize;
 
 
