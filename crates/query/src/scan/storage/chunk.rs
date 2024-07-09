@@ -13,6 +13,16 @@ pub struct StorageChunk<'a> {
 }
 
 
+impl <'a> StorageChunk<'a> {
+    pub fn new(reader: ChunkReader<'a>) -> Self {
+        Self {
+            reader,
+            cache: dashmap::DashMap::new()
+        }
+    }
+}
+
+
 impl <'a> Chunk for StorageChunk<'a> {
     fn scan_table(&self, name: Name) -> anyhow::Result<Scan<'a>> {
         let entry = self.cache.entry(name);

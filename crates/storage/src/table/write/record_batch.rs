@@ -1,11 +1,11 @@
 use anyhow::ensure;
 use arrow::array::{Array, ArrayRef, RecordBatch};
 use arrow::datatypes::SchemaRef;
+use sqd_dataset::TableOptions;
 
 use crate::array::ext::{bisect_at_byte_size, get_byte_size};
 use crate::kv::KvWrite;
 use crate::util::next_chunk;
-use crate::table::write::table::TableOptions;
 use crate::table::write::writer::TableWriter;
 
 

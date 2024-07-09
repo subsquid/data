@@ -118,3 +118,19 @@ impl TableKeyFactory {
         })
     }
 }
+
+
+#[cfg(test)]
+mod test {
+    use crate::table::key::{TableKeyFactory};
+    
+    #[test]
+    fn test_key_order() {
+        let mut k1 = TableKeyFactory::new(b"hello");
+        let mut k2 = TableKeyFactory::new(b"hello");
+        assert!(k1.page(0, 0, 0) < k2.page(0, 0, 1));
+        assert!(k1.page(0, 0, 0) < k2.page(0, 0, 300));
+        assert!(k1.page(0, 0, 255) < k2.page(0, 0, 300));
+        assert!(k1.page(0, 1, 255) < k2.page(0, 2, 0));
+    }
+}

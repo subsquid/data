@@ -93,6 +93,10 @@ impl <S: KvRead> TableReader<S> {
         self.row_group_offsets.len() - 1
     }
 
+    pub fn get_row_group_offsets(&self) -> &UInt32Array {
+        &self.row_group_offsets
+    }
+
     pub fn get_page_offsets(&self, row_group: usize, column: usize) -> anyhow::Result<UInt32Array> {
         Ok(self.get_statistic1(Statistic::Offsets, row_group, column)?
             .unwrap()
@@ -119,12 +123,12 @@ impl <S: KvRead> TableReader<S> {
 
         let mut cursor = self.storage.new_cursor();
         let mut key = self.key.clone();
-        let mut prev_page = 0;
+        let mut maybe_prev_page = None;
         let data_type = self.schema.field(column).data_type();
 
         let arrays = pages.into_iter().map(|(page_index, maybe_mask)| {
             let page_key = key.page(row_group, column, page_index);
-            if prev_page + 1 == page_index {
+            if maybe_prev_page.map(|p| p + 1 == page_index).unwrap_or(false) {
                 cursor.next()?;
             } else {
                 cursor.seek(page_key)?;
@@ -150,7 +154,7 @@ impl <S: KvRead> TableReader<S> {
                 )?;
             }
 
-            prev_page = page_index;
+            maybe_prev_page = Some(page_index);
             Ok::<ArrayRef, anyhow::Error>(array)
         }.with_context(|| {
             format!("failed to read page {}", page_index)
@@ -230,6 +234,22 @@ impl <S: KvRead> TableReader<S> {
         } else {
             self.schema.clone()
         }
+    }
+
+    pub fn get_per_row_group_min(&self, column: usize) -> anyhow::Result<Option<ArrayRef>> {
+        self.get_statistic0(Statistic::Min, column)
+    }
+
+    pub fn get_per_row_group_max(&self, column: usize) -> anyhow::Result<Option<ArrayRef>> {
+        self.get_statistic0(Statistic::Max, column)
+    }
+
+    pub fn get_per_page_min(&self, row_group: usize, column: usize) -> anyhow::Result<Option<ArrayRef>> {
+        self.get_statistic1(Statistic::Min, row_group, column)
+    }
+
+    pub fn get_per_page_max(&self, row_group: usize, column: usize) -> anyhow::Result<Option<ArrayRef>> {
+        self.get_statistic1(Statistic::Max, row_group, column)
     }
 
     fn get_statistic0(&self, kind: Statistic, column: usize) -> anyhow::Result<Option<ArrayRef>> {

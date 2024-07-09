@@ -2323,6 +2323,7 @@ dependencies = [
  "bytes",
  "convert_case",
  "dashmap",
+ "glob",
  "identconv",
  "lazy_static",
  "lexical-core",
@@ -2336,8 +2337,11 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "sqd-data",
+ "sqd-dataset",
  "sqd-primitives",
  "sqd-storage",
+ "tempfile",
 ]
 
 [[package]]
@@ -2349,6 +2353,7 @@ dependencies = [
  "borsh",
  "parking_lot",
  "rocksdb",
+ "sqd-dataset",
  "sqd-primitives",
  "uuid",
 ]

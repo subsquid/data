@@ -1,7 +1,8 @@
 use anyhow::ensure;
 use rocksdb::Options as RocksOptions;
+use sqd_dataset::DatasetDescriptionRef;
 
-use crate::db::data::{DatasetDescriptionRef, DatasetId, DatasetKind, DatasetLabel};
+use crate::db::data::{DatasetId, DatasetKind, DatasetLabel};
 use crate::db::read::snapshot::ReadSnapshot;
 use crate::db::write::{ChunkBuilder, NewChunk, Tx};
 use sqd_primitives::Name;
@@ -29,7 +30,10 @@ pub struct Database {
 
 impl Database {
     pub fn open(path: &str) -> anyhow::Result<Self> {
-        let db = RocksDB::open_cf(&RocksOptions::default(), path, [
+        let mut options = RocksOptions::default();
+        options.create_if_missing(true);
+        options.create_missing_column_families(true);
+        let db = RocksDB::open_cf(&options, path, [
             CF_DATASETS,
             CF_CHUNKS,
             CF_TABLES,

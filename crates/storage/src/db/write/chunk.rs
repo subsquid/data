@@ -5,8 +5,8 @@ use anyhow::{anyhow, ensure};
 use arrow::array::RecordBatch;
 use arrow::datatypes::SchemaRef;
 use parking_lot::Mutex;
+use sqd_dataset::DatasetDescriptionRef;
 
-use crate::db::data::DatasetDescriptionRef;
 use crate::db::db::RocksDB;
 use crate::db::table_id::TableId;
 use crate::db::write::storage::TableStorage;
@@ -37,7 +37,7 @@ impl <'a> ChunkBuilder<'a> {
     }
 
     pub fn add_table(&self, name: &str, schema: SchemaRef) -> anyhow::Result<ChunkTableWriter<'_>> {
-        let desc = self.dataset_description.tables.iter().find(|t| t.name == name).ok_or_else(|| {
+        let desc = self.dataset_description.tables.get(name).ok_or_else(|| {
             anyhow!("table `{}` is not defined in the dataset", name)
         })?;
 

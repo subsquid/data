@@ -9,6 +9,7 @@ mod row_predicate_dsl;
 mod scan;
 #[cfg(feature = "storage")]
 pub mod storage;
+mod util;
 
 
 pub use row_predicate_dsl::*;

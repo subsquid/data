@@ -6,7 +6,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use sqd_primitives::{BlockNumber, ShortHash};
 
 use crate::db::table_id::TableId;
-use crate::table::write::TableOptions;
 
 
 #[derive(Copy, Clone, Hash, Ord, PartialOrd, Eq, PartialEq, Debug, BorshSerialize, BorshDeserialize)]
@@ -19,6 +18,19 @@ impl DatasetId {
     pub fn new(bytes: [u8; 48]) -> Self {
         Self { bytes }
     }
+
+    pub fn from_str(id: &str) -> Self {
+        Self::new(from_str(id))
+    }
+}
+
+
+fn from_str<const N: usize>(id: &str) -> [u8; N] {
+    let id_bytes = id.as_bytes();
+    assert!(id_bytes.len() <= N);
+    let mut bytes = [0u8; N];
+    bytes[0..id_bytes.len()].copy_from_slice(&id_bytes);
+    bytes
 }
 
 
@@ -58,6 +70,10 @@ pub struct DatasetKind {
 impl DatasetKind {
     pub fn new(bytes: [u8; 16]) -> Self {
         Self { bytes }
+    }
+
+    pub fn from_str(id: &str) -> Self {
+        Self::new(from_str(id))
     }
 }
 
@@ -120,21 +136,4 @@ pub struct Chunk {
     pub last_block_hash: ShortHash,
     pub max_num_rows: u32,
     pub tables: HashMap<String, TableId>
-}
-
-
-pub type DatasetDescriptionRef = std::sync::Arc<DatasetDescription>;
-
-
-#[derive(Clone, Debug, Default)]
-pub struct DatasetDescription {
-    pub tables: Vec<TableDescription>
-}
-
-
-#[derive(Clone, Debug)]
-pub struct TableDescription {
-    pub name: String,
-    pub sort_key: Vec<String>,
-    pub options: TableOptions
 }

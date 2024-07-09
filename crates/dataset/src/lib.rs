@@ -35,6 +35,13 @@ pub struct TableOptions {
 }
 
 
+impl TableOptions {
+    pub fn has_stats(&self, name: &str) -> bool {
+        self.column_options.get(name).map_or(false, |c| c.with_stats)
+    }
+}
+
+
 impl Default for TableOptions {
     fn default() -> Self {
         Self {

@@ -12,9 +12,6 @@ pub use write::*;
 pub use data::{
     DatasetId,
     DatasetKind,
-    DatasetDescription,
-    DatasetDescriptionRef,
     DatasetLabel,
-    DatasetVersion,
-    TableDescription
+    DatasetVersion
 };
