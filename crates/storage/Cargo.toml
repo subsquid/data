@@ -11,4 +11,4 @@ parking_lot = { workspace = true }
 rocksdb = "0.22.0"
 uuid = { version = "1.8.0", features = ["v7", "borsh"] }
 sqd-dataset = { path = "../dataset" }
-sqd-primitives = { path = "../primitives" }
+sqd-primitives = { path = "../primitives", features = ["borsh"] }

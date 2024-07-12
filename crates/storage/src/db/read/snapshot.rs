@@ -5,7 +5,8 @@ use rocksdb::{ColumnFamily, ReadOptions};
 use sqd_primitives::{BlockNumber, Name};
 
 use crate::db::data::{Chunk, ChunkId, DatasetId};
-use crate::db::db::{CF_CHUNKS, CF_TABLES, RocksDB, RocksSnapshot};
+use crate::db::DatasetLabel;
+use crate::db::db::{CF_CHUNKS, CF_DATASETS, CF_TABLES, RocksDB, RocksSnapshot};
 use crate::db::read::chunk::list_chunks;
 use crate::kv::{KvRead, KvReadCursor};
 use crate::table::read::TableReader;
@@ -23,6 +24,20 @@ impl <'a> ReadSnapshot<'a> {
             db,
             snapshot: db.snapshot()
         }
+    }
+
+    pub fn get_label(&self, dataset_id: DatasetId) -> anyhow::Result<Option<DatasetLabel>> {
+        let maybe_bytes = self.db.get_pinned_cf_opt(
+            self.cf_handle(CF_DATASETS),
+            dataset_id,
+            &self.new_options()
+        )?;
+        Ok(if let Some(bytes) = maybe_bytes {
+            let label = borsh::from_slice(bytes.as_ref())?;
+            Some(label)
+        } else {
+            None
+        })
     }
 
     pub fn list_chunks(

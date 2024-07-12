@@ -55,6 +55,27 @@ impl Database {
         tx.commit()
     }
 
+    pub fn create_dataset_if_not_exists(&self, id: DatasetId, kind: DatasetKind) -> anyhow::Result<()> {
+        let tx = Tx::new(&self.db);
+        let label = tx.find_label_for_update(id)?;
+        if let Some(label) = tx.find_label_for_update(id)? {
+            ensure!(
+                label.kind == kind, 
+                "wanted to create dataset {} of kind {}, but it already exists with kind {}",
+                id,
+                label.kind,
+                kind
+            );
+            Ok(())
+        } else {
+            tx.write_label(id, &DatasetLabel {
+                kind,
+                version: 0
+            })?;
+            tx.commit()
+        }
+    }
+
     pub fn new_chunk_builder(&self, ds: DatasetDescriptionRef) -> ChunkBuilder<'_> {
         ChunkBuilder::new(&self.db, ds)
     }

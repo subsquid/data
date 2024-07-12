@@ -2,3 +2,7 @@
 name = "sqd-primitives"
 version = "0.1.0"
 edition = "2021"
+
+[dependencies]
+borsh = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }

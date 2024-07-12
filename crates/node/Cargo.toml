@@ -1,0 +1,17 @@
+[package]
+name = "sqd-node"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+axum = "0.7.5"
+clap = { version = "4.5.9", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqd-data = { path = "../data" }
+sqd-dataset = { path = "../dataset" }
+sqd-primitives = { path = "../primitives", features = ["serde"] }
+sqd-query = { path = "../query", features = ["storage"] }
+sqd-storage = { path = "../storage" }
+tokio = { version = "1.38.0", features = ["macros", "rt-multi-thread"] }

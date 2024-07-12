@@ -1,81 +1,20 @@
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use sqd_primitives::{BlockNumber, ShortHash};
+use sqd_primitives::{SID, BlockNumber, ShortHash};
 
 use crate::db::table_id::TableId;
 
 
-#[derive(Copy, Clone, Hash, Ord, PartialOrd, Eq, PartialEq, Debug, BorshSerialize, BorshDeserialize)]
-pub struct DatasetId {
-    bytes: [u8; 48]
-}
-
-
-impl DatasetId {
-    pub fn new(bytes: [u8; 48]) -> Self {
-        Self { bytes }
-    }
-
-    pub fn from_str(id: &str) -> Self {
-        Self::new(from_str(id))
-    }
-}
-
-
-fn from_str<const N: usize>(id: &str) -> [u8; N] {
-    let id_bytes = id.as_bytes();
-    assert!(id_bytes.len() <= N);
-    let mut bytes = [0u8; N];
-    bytes[0..id_bytes.len()].copy_from_slice(&id_bytes);
-    bytes
-}
-
-
-impl AsRef<[u8]> for DatasetId {
-    fn as_ref(&self) -> &[u8] {
-        &self.bytes
-    }
-}
-
-
-impl Display for DatasetId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for byte in &self.bytes {
-            write!(f, "{:02X}", byte)?;
-        }
-        Ok(())
-    }
-}
-
-
-impl Default for DatasetId {
-    fn default() -> Self {
-        Self::new([0; 48])
-    }
-}
+pub type DatasetId = SID<48>;
 
 
 pub type DatasetVersion = u64;
 
 
-#[derive(Copy, Clone, Hash, Ord, PartialOrd, Eq, PartialEq, Debug, BorshSerialize, BorshDeserialize)]
-pub struct DatasetKind {
-    bytes: [u8; 16]
-}
-
-
-impl DatasetKind {
-    pub fn new(bytes: [u8; 16]) -> Self {
-        Self { bytes }
-    }
-
-    pub fn from_str(id: &str) -> Self {
-        Self::new(from_str(id))
-    }
-}
+pub type DatasetKind = SID<16>;
 
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, BorshSerialize, BorshDeserialize)]
@@ -85,7 +24,7 @@ pub struct DatasetLabel {
 }
 
 
-#[derive(Copy, Clone, Hash, Ord, PartialOrd, Eq, PartialEq, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Copy, Clone, Hash, Ord, PartialOrd, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkId {
     bytes: [u8; 56]
 }
@@ -106,7 +45,7 @@ impl ChunkId {
     }
 
     pub fn dataset_id(&self) -> DatasetId {
-        DatasetId::new(self.bytes[0..48].try_into().unwrap())
+        DatasetId::try_from(&self.bytes[0..48]).unwrap()
     }
 
     pub fn last_block(&self) -> BlockNumber {
@@ -125,6 +64,13 @@ impl AsRef<[u8]> for ChunkId {
 impl Display for ChunkId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}/{}", self.dataset_id(), self.last_block())
+    }
+}
+
+
+impl Debug for ChunkId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ChunkId({})", self)
     }
 }
 
