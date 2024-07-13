@@ -2,12 +2,12 @@ use std::ops::Deref;
 
 use anyhow::anyhow;
 use rocksdb::{ColumnFamily, ReadOptions};
-use sqd_primitives::{BlockNumber, Name};
+use sqd_primitives::{BlockNumber, Name, ShortHash};
 
 use crate::db::data::{Chunk, ChunkId, DatasetId};
 use crate::db::DatasetLabel;
 use crate::db::db::{CF_CHUNKS, CF_DATASETS, CF_TABLES, RocksDB, RocksSnapshot};
-use crate::db::read::chunk::list_chunks;
+use crate::db::read::chunk::{list_chunks, read_current_chunk};
 use crate::kv::{KvRead, KvReadCursor};
 use crate::table::read::TableReader;
 
@@ -46,7 +46,10 @@ impl <'a> ReadSnapshot<'a> {
         from_block: BlockNumber
     ) -> impl Iterator<Item=anyhow::Result<ChunkReader<'_>>>
     {
-        let cursor = self.db.raw_iterator_cf_opt(self.cf_handle(CF_CHUNKS), self.new_options());
+        let cursor = self.db.raw_iterator_cf_opt(
+            self.cf_handle(CF_CHUNKS),
+            self.new_options()
+        );
         list_chunks(cursor, dataset_id, from_block).map(move |chunk_result| {
             chunk_result.map(|chunk| {
                 ChunkReader {
@@ -56,6 +59,31 @@ impl <'a> ReadSnapshot<'a> {
                 }
             })
         })
+    }
+    
+    pub fn get_first_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<ChunkReader<'_>>> {
+        self.list_chunks(dataset_id, 0).next().transpose()
+    }
+
+    pub fn get_last_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<ChunkReader<'_>>> {
+        let mut cursor = self.db.raw_iterator_cf_opt(
+            self.cf_handle(CF_CHUNKS),
+            self.new_options()
+        );
+
+        let max_chunk_id = ChunkId::new(dataset_id, BlockNumber::MAX);
+        cursor.seek_for_prev(max_chunk_id);
+        cursor.status()?;
+
+        let reader = read_current_chunk(&cursor, dataset_id)?.map(|chunk| {
+            ChunkReader {
+                snapshot: self,
+                chunk,
+                dataset_id
+            }
+        });
+
+        Ok(reader)
     }
 
     fn new_options(&self) -> ReadOptions {
@@ -84,6 +112,10 @@ impl <'a> ChunkReader<'a> {
 
     pub fn last_block(&self) -> BlockNumber {
         self.chunk.last_block
+    }
+    
+    pub fn last_block_hash(&self) -> ShortHash {
+        self.chunk.last_block_hash
     }
 
     pub fn has_table(&self, name: &str) -> bool {

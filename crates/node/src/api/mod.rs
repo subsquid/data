@@ -59,10 +59,17 @@ impl Api {
 
     pub fn get_status(&self, dataset_name: &str) -> Result<Json<JsonValue>, ApiError> {
         let info = self.get_dataset_info(dataset_name)?;
+        
+        let snapshot = self.db.get_snapshot();
+        let first_chunk = snapshot.get_first_chunk(info.id)?;
+        let last_chunk = snapshot.get_last_chunk(info.id)?;
 
         let response = json!({
             "id": info.id.as_str(),
-            "kind": info.options.kind.as_str()
+            "kind": info.options.kind.as_str(),
+            "firstBlock": first_chunk.map(|c| c.first_block()),
+            "lastBlock": last_chunk.as_ref().map(|c| c.last_block()),
+            "lastBlockHash": last_chunk.as_ref().map(|c| c.last_block_hash())
         });
 
         Ok(Json(response))

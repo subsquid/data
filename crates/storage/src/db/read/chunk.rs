@@ -21,28 +21,36 @@ pub fn list_chunks<C: KvReadCursor>(
         } else {
             cursor.next()?;
         }
-        if !cursor.is_valid() {
-            return Ok(None)
-        }
-
-        let current_id: ChunkId = borsh::from_slice(cursor.key())?;
-        assert!(first_chunk_id <= current_id);
-        assert!(current_id.last_block() >= from_block);
-
-        if current_id.dataset_id() != dataset_id {
-            return Ok(None)
-        }
-
-        let chunk: Chunk = borsh::from_slice(cursor.value())
-            .with_context(|| {
-                format!("failed to deserialize a chunk {}", current_id)
-            })?;
-
-        validate_chunk(&current_id, &chunk)?;
-        Ok(Some(chunk))
+        
+        read_current_chunk(&cursor, dataset_id)
     };
 
     std::iter::from_fn(move || next().transpose())
+}
+
+
+pub fn read_current_chunk(
+    cursor: &impl KvReadCursor,
+    dataset_id: DatasetId
+) -> anyhow::Result<Option<Chunk>>
+{
+    if !cursor.is_valid() {
+        return Ok(None)
+    }
+
+    let current_id: ChunkId = borsh::from_slice(cursor.key())?;
+    if current_id.dataset_id() != dataset_id {
+        return Ok(None)
+    }
+
+    let chunk: Chunk = borsh::from_slice(cursor.value())
+        .with_context(|| {
+            format!("failed to deserialize a chunk {}", current_id)
+        })?;
+
+    validate_chunk(&current_id, &chunk)?;
+    
+    Ok(Some(chunk))
 }
 
 
