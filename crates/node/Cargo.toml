@@ -14,4 +14,6 @@ sqd-dataset = { path = "../dataset" }
 sqd-primitives = { path = "../primitives", features = ["serde"] }
 sqd-query = { path = "../query", features = ["storage"] }
 sqd-storage = { path = "../storage" }
-tokio = { version = "1.38.0", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.38.0", features = ["full"] }
+tokio-util = { version = "0.7.11", features = ["io"] }
+futures = "0.3.30"

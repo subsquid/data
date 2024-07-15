@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
+use crate::ShortHash;
 
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -46,6 +47,15 @@ impl <const N: usize> TryFrom<&str> for SID<N> {
         Ok(Self {
             bytes
         })
+    }
+}
+
+
+impl <const N: usize> Default for SID<N> {
+    fn default() -> Self {
+        Self {
+            bytes: [0; N]
+        }
     }
 }
 
@@ -187,4 +197,11 @@ mod serde_visitor {
             })
         }
     }
+}
+
+
+pub fn short_hash(hash: &str) -> ShortHash {
+    let beg = hash.len().saturating_sub(8);
+    let end = hash.len();
+    ShortHash::try_from(&hash[beg..end]).unwrap()
 }

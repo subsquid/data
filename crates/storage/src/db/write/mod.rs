@@ -122,7 +122,7 @@ impl <'a> Tx<'a> {
         if let Some(prev_block_hash) = new_chunk.prev_block_hash {
             let ok = existing.first().map(|prev| {
                 prev.last_block + 1 == new_chunk.first_block && prev.last_block_hash == prev_block_hash
-            }).unwrap_or(false);
+            }).unwrap_or(true);
             ensure!(ok, "chain continuity violated");
         }
 

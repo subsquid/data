@@ -31,6 +31,44 @@ impl Downcast {
         self.item_index = std::cmp::max(self.item_index, i)
     }
 
+    pub fn downcast_schema(
+        &self,
+        schema: SchemaRef,
+        block_number_columns: &[usize],
+        item_index_columns: &[usize]
+    ) -> SchemaRef
+    {
+        let block_number_type = get_minimal_type(self.block_number);
+        let item_type = get_minimal_type(self.item_index);
+
+        let mut patch: Option<Vec<FieldRef>> = None;
+
+        for (columns, ty) in [
+            (block_number_columns, block_number_type),
+            (item_index_columns, item_type)
+        ] {
+            for idx in columns.iter().copied() {
+                let f = schema.field(idx);
+                let target_type = get_target_index_type(f.data_type(), ty.clone());
+                if &target_type != f.data_type() {
+                    if patch.is_none() {
+                        patch = Some(schema.fields().to_vec())
+                    }
+                    let fields = patch.as_mut().unwrap();
+                    set_field_type(fields, idx, target_type)
+                }
+            }
+        }
+
+        patch.map(|fields| {
+            let schema = Schema::new_with_metadata(
+                fields,
+                schema.metadata().clone()
+            );
+            Arc::new(schema)
+        }).unwrap_or(schema)
+    }
+
     pub fn downcast_record_batch(
         &self,
         record_batch: RecordBatch,
@@ -48,7 +86,7 @@ impl Downcast {
         ] {
             for idx in columns.iter().copied() {
                 let array = record_batch.column(idx);
-                let target_type = get_target_index_type(&array, ty.clone());
+                let target_type = get_target_index_type(array.data_type(), ty.clone());
                 if record_batch.schema().fields()[idx].data_type() != &target_type {
                     let new_array = cast(&array, target_type);
                     NewBatch::set_at_place(&mut patch, &record_batch, idx, new_array);
@@ -61,8 +99,8 @@ impl Downcast {
 }
 
 
-fn get_target_index_type(array: &dyn Array, index_type: DataType) -> DataType {
-    match array.data_type() {
+fn get_target_index_type(ty: &DataType, index_type: DataType) -> DataType {
+    match ty {
         DataType::List(f) => DataType::List(
             Arc::new(Field::new_list_field(index_type, f.is_nullable()))
         ),
@@ -127,13 +165,7 @@ struct NewBatch {
 
 impl NewBatch {
     fn set(&mut self, i: usize, new_array: ArrayRef) {
-        self.fields[i] = Arc::new(
-            Field::new(
-                self.fields[i].name(),
-                new_array.data_type().clone(),
-                self.fields[i].is_nullable()
-            )
-        );
+        set_field_type(&mut self.fields, i, new_array.data_type().clone());
         self.columns[i] = new_array
     }
 
@@ -158,4 +190,15 @@ impl NewBatch {
         );
         RecordBatch::try_new(Arc::new(schema), self.columns).unwrap()
     }
+}
+
+
+fn set_field_type(fields: &mut Vec<FieldRef>, i: usize, new_type: DataType) {
+    fields[i] = Arc::new(
+        Field::new(
+            fields[i].name(),
+            new_type,
+            fields[i].is_nullable()
+        )
+    )
 }

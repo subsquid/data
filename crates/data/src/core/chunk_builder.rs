@@ -52,6 +52,13 @@ macro_rules! chunk_builder {
 
                 tables.into_iter().map(move |(name, downcast_columns, mut table)| {
                     let dc = dowcast.clone();
+                    
+                    table.schema = dc.downcast_schema(
+                        table.schema,         
+                        &downcast_columns.0,
+                        &downcast_columns.1
+                    );
+                    
                     table.rows = Box::new(
                         table.rows.map(move |record_batch| {
                             dc.downcast_record_batch(

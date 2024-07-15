@@ -5,6 +5,7 @@ use axum::http::StatusCode;
 pub enum ApiError {
     Internal(anyhow::Error),
     DatasetNotFound(String),
+    UserError(String)
 }
 
 
@@ -13,14 +14,20 @@ impl <'a> IntoResponse for ApiError {
         match self {
             ApiError::Internal(err) => {
                 (
-                    StatusCode::INTERNAL_SERVER_ERROR, 
+                    StatusCode::INTERNAL_SERVER_ERROR,
                     err.to_string()
                 ).into_response()
             },
             ApiError::DatasetNotFound(dataset_id) => {
                 (
-                    StatusCode::NOT_FOUND, 
+                    StatusCode::NOT_FOUND,
                     format!("unknown dataset - {}", dataset_id)
+                ).into_response()
+            },
+            ApiError::UserError(msg) => {
+                (
+                    StatusCode::BAD_REQUEST,
+                    msg
                 ).into_response()
             }
         }
@@ -28,8 +35,8 @@ impl <'a> IntoResponse for ApiError {
 }
 
 
-impl From<anyhow::Error> for ApiError {
-    fn from(err: anyhow::Error) -> Self {
-        ApiError::Internal(err)
+impl <E: Into<anyhow::Error>> From<E> for ApiError {
+    fn from(err: E) -> Self {
+        ApiError::Internal(err.into())
     }
 }

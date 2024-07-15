@@ -2,15 +2,22 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{Json, Router};
+use axum::extract::Request;
+use axum::routing::post;
+use futures::TryStreamExt;
 use serde_json::{json, Value as JsonValue};
+use tokio::io::AsyncBufReadExt;
+use tokio_util::io::StreamReader;
 
 use error::ApiError;
 use sqd_storage::db::{Database, DatasetId};
 
+use crate::api::push::DataPush;
 use crate::config::{Config, DatasetConfig};
 
 
 mod error;
+mod push;
 
 
 struct DatasetInfo {
@@ -59,7 +66,7 @@ impl Api {
 
     pub fn get_status(&self, dataset_name: &str) -> Result<Json<JsonValue>, ApiError> {
         let info = self.get_dataset_info(dataset_name)?;
-        
+
         let snapshot = self.db.get_snapshot();
         let first_chunk = snapshot.get_first_chunk(info.id)?;
         let last_chunk = snapshot.get_last_chunk(info.id)?;
@@ -75,6 +82,28 @@ impl Api {
         Ok(Json(response))
     }
 
+    pub async fn push_data(&self, dataset_name: &str, req: Request) -> Result<&'static str, ApiError> {
+        let info = self.get_dataset_info(dataset_name)?;
+
+        let mut lines = StreamReader::new(
+            req.into_body()
+            .into_data_stream()
+            .map_err(|err| {
+                std::io::Error::new(std::io::ErrorKind::Other, err)
+            })
+        ).lines();
+        
+        let mut writer = DataPush::new(self.db.clone(), info.id, info.options.kind);
+
+        while let Some(line) = lines.next_line().await? {
+            writer.push(&line)?;
+        }
+        
+        writer.flush()?;
+
+        Ok("OK")
+    }
+
     pub fn build_router(&self) -> Router {
         use axum::routing::get;
         use axum::extract::*;
@@ -88,8 +117,18 @@ impl Api {
             api.get_status(&dataset_name)
         }
 
+        async fn post_data(
+            State(api): State<Api>,
+            Path(dataset_name): Path<String>,
+            req: Request
+        ) -> impl IntoResponse
+        {
+            api.push_data(&dataset_name, req).await
+        }
+
         Router::new()
             .route("/:id/status", get(get_status))
+            .route("/:id/data", post(post_data))
             .with_state(self.clone())
     }
 }

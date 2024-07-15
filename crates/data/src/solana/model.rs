@@ -55,7 +55,7 @@ pub struct Transaction {
     pub recent_blockhash: Base58Bytes,
     pub signatures: Vec<Base58Bytes>,
     pub err: Option<JsonValue>,
-    #[serde(deserialize_with="crate::types::decode_string_option")]
+    #[serde(deserialize_with="crate::types::decode_string_option", default)]
     pub compute_units_consumed: Option<u64>,
     #[serde(deserialize_with="crate::types::decode_string")]
     pub fee: u64,
@@ -72,8 +72,9 @@ pub struct Instruction {
     pub program_id: Base58Bytes,
     pub accounts: Vec<Base58Bytes>,
     pub data: Base58Bytes,
-    #[serde(deserialize_with="crate::types::decode_string_option")]
+    #[serde(deserialize_with="crate::types::decode_string_option", default)]
     pub compute_units_consumed: Option<u64>,
+    #[serde(default)]
     pub error: Option<JsonValue>,
     pub is_committed: bool,
     pub has_dropped_log_messages: bool,
@@ -129,17 +130,25 @@ pub struct Balance {
 pub struct TokenBalance {
     pub transaction_index: ItemIndex,
     pub account: Base58Bytes,
+    #[serde(default)]
     pub pre_mint: Option<Base58Bytes>,
+    #[serde(default)]
     pub post_mint: Option<Base58Bytes>,
+    #[serde(default)]
     pub pre_decimals: Option<u16>,
+    #[serde(default)]
     pub post_decimals: Option<u16>,
+    #[serde(default)]
     pub pre_program_id: Option<Base58Bytes>,
+    #[serde(default)]
     pub post_program_id: Option<Base58Bytes>,
+    #[serde(default)]
     pub pre_owner: Option<Base58Bytes>,
+    #[serde(default)]
     pub post_owner: Option<Base58Bytes>,
-    #[serde(deserialize_with="crate::types::decode_string_option")]
+    #[serde(deserialize_with="crate::types::decode_string_option", default)]
     pub pre_amount: Option<u64>,
-    #[serde(deserialize_with="crate::types::decode_string_option")]
+    #[serde(deserialize_with="crate::types::decode_string_option", default)]
     pub post_amount: Option<u64>,
 }
 
@@ -152,7 +161,9 @@ pub struct Reward {
     pub lamports: i64,
     #[serde(deserialize_with="crate::types::decode_string")]
     pub post_balance: u64,
+    #[serde(default)]
     pub reward_type: Option<String>,
+    #[serde(default)]
     pub commission: Option<u8>,
 }
 
