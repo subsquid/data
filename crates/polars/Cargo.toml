@@ -1,0 +1,15 @@
+[package]
+name = "sqd-polars"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+arrow = { workspace = true }
+polars-arrow = { version = "0.39.2", features = ["arrow_rs"] }
+polars-core = "0.39.2"
+
+[dependencies.polars]
+version = "0.39.2"
+default-features = false
+features = ["lazy", "semi_anti_join", "cum_agg", "fmt", "dtype-u16"]

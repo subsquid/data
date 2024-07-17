@@ -116,7 +116,8 @@ impl <'a> Tx<'a> {
         let existing = list_chunks(
             self.transaction.raw_iterator_cf(self.cf_handle(CF_CHUNKS)),
             dataset_id,
-            new_chunk.first_block.saturating_sub(1)
+            new_chunk.first_block.saturating_sub(1),
+            None
         ).take(2).collect::<anyhow::Result<Vec<_>>>()?;
 
         if let Some(prev_block_hash) = new_chunk.prev_block_hash {

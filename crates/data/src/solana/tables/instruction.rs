@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use arrow::array::{BooleanBuilder, StringBuilder, UInt32Builder, UInt64Builder};
 
 use sqd_primitives::BlockNumber;
@@ -31,7 +32,6 @@ table_builder! {
         a14: Base58Builder,
         a15: Base58Builder,
         rest_accounts: AccountListBuilder,
-        accounts_size: UInt64Builder,
 
         compute_units_consumed: UInt64Builder,
         error: StringBuilder,
@@ -42,6 +42,9 @@ table_builder! {
         d2: BytesBuilder,
         d4: BytesBuilder,
         d8: BytesBuilder,
+
+        accounts_size: UInt64Builder,
+        data_size: UInt64Builder,
     }
 
     description(d) {
@@ -63,6 +66,7 @@ impl InstructionBuilder {
 
         self.program_id.append_value(&row.program_id);
         self.data.append_value(&row.data);
+        self.data_size.append_value(row.data.len() as u64);
         self.a0.append_option(row.accounts.get(0));
         self.a1.append_option(row.accounts.get(1));
         self.a2.append_option(row.accounts.get(2));
@@ -99,11 +103,19 @@ impl InstructionBuilder {
         self.has_dropped_log_messages.append_value(row.has_dropped_log_messages);
 
         // discriminators
-        // todo: check that decoding works as expected
         let data = bs58::decode(&row.data).into_vec().unwrap();
-        self.d1.append_value(format!("{:x?}", data.get(..1).unwrap_or_default()));
-        self.d2.append_value(format!("{:x?}", data.get(..2).unwrap_or_default()));
-        self.d4.append_value(format!("{:x?}", data.get(..4).unwrap_or_default()));
-        self.d8.append_value(format!("{:x?}", data.get(..8).unwrap_or_default()));
+        write_hex(&mut self.d1, data.get(..1).unwrap_or_default());
+        write_hex(&mut self.d2, data.get(..2).unwrap_or_default());
+        write_hex(&mut self.d4, data.get(..4).unwrap_or_default());
+        write_hex(&mut self.d8, data.get(..8).unwrap_or_default());
     }
+}
+
+
+fn write_hex(builder: &mut BytesBuilder, bytes: &[u8]) {
+    write!(builder, "0x").unwrap();
+    for b in bytes.iter().copied() {
+        write!(builder, "{:02x}", b).unwrap();
+    }
+    builder.append_value("")
 }

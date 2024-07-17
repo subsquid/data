@@ -13,5 +13,6 @@ pub use data::{
     DatasetId,
     DatasetKind,
     DatasetLabel,
-    DatasetVersion
+    DatasetVersion,
+    Chunk
 };

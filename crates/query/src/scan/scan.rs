@@ -7,7 +7,7 @@ use sqd_primitives::RowRangeList;
 use crate::primitives::Name;
 use crate::scan::reader::TableReader;
 use crate::scan::RowPredicateRef;
-use crate::util::record_batch_vec_to_lazy_polars_df;
+use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
 
 
 pub struct Scan<'a> {
@@ -74,7 +74,7 @@ impl <'a> Scan<'a> {
         )
     }
 
-    pub fn to_lazy_df(&self) -> anyhow::Result<polars::prelude::LazyFrame> {
+    pub fn to_lazy_df(&self) -> anyhow::Result<sqd_polars::prelude::LazyFrame> {
         let batches = self.execute()?;
         record_batch_vec_to_lazy_polars_df(&batches)
     }

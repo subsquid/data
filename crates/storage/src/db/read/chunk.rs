@@ -7,7 +7,8 @@ use sqd_primitives::BlockNumber;
 pub fn list_chunks<C: KvReadCursor>(
     mut cursor: C,
     dataset_id: DatasetId,
-    from_block: BlockNumber
+    from_block: BlockNumber,
+    to_block: Option<BlockNumber>
 ) -> impl Iterator<Item=anyhow::Result<Chunk>>
 {
     let first_chunk_id = ChunkId::new(dataset_id, from_block);
@@ -22,7 +23,18 @@ pub fn list_chunks<C: KvReadCursor>(
             cursor.next()?;
         }
         
-        read_current_chunk(&cursor, dataset_id)
+        let maybe_chunk = read_current_chunk(&cursor, dataset_id)?;
+
+        Ok(match (maybe_chunk, to_block) {
+            (Some(ch), Some(bn)) => {
+                if bn < ch.first_block {
+                    None
+                } else {
+                    Some(ch)
+                }
+            }
+            (chunk, _) => chunk
+        })
     };
 
     std::iter::from_fn(move || next().transpose())

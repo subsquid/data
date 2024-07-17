@@ -12,7 +12,7 @@ pub type RowIndexArrowType = arrow::datatypes::UInt32Type;
 
 pub type RowWeight = u64;
 
-pub type RowWeightPolarsType = polars::datatypes::UInt64Type;
+pub type RowWeightPolarsType = sqd_polars::prelude::UInt64Type;
 
 
 #[derive(Debug)]

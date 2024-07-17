@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use arrow::array::{Array, AsArray, RecordBatch};
-use arrow::datatypes::{DataType, Int32Type, Int64Type, Schema, UInt32Type};
+use arrow::datatypes::{DataType, Int32Type, Int64Type, Schema, UInt16Type, UInt32Type};
 
 use crate::plan::key::{Key, PrimitiveKey, PrimitiveListKey};
 use crate::primitives::{Name, schema_error, SchemaError};
@@ -283,6 +283,8 @@ fn get_column(
         }};
     }
     match data_type {
+        DataType::UInt16 => make!(array, PrimitiveKey::<UInt16Type>::from(array)),
+        DataType::UInt32 => make!(array, PrimitiveKey::<UInt32Type>::from(array)),
         DataType::Int32 => make!(array, PrimitiveKey::<Int32Type>::from(array)),
         DataType::Int64 => make!(array, PrimitiveKey::<Int64Type>::from(array)),
         DataType::Utf8  => make!(array, array.as_string::<i32>().clone()),
@@ -291,6 +293,9 @@ fn get_column(
         },
         DataType::List(field) if field.data_type() == &DataType::UInt32 => {
             make!(array, PrimitiveListKey::<UInt32Type>::from(array))
+        },
+        DataType::List(field) if field.data_type() == &DataType::UInt16 => {
+            make!(array, PrimitiveListKey::<UInt16Type>::from(array))
         },
         _ => Err(
             schema_error!("unsupported key column type - {}", data_type)

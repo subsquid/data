@@ -2,22 +2,29 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{Json, Router};
+use axum::body::{Body, Bytes};
 use axum::extract::Request;
+use axum::response::{Response};
 use axum::routing::post;
-use futures::TryStreamExt;
+use futures::{StreamExt, TryStreamExt};
 use serde_json::{json, Value as JsonValue};
 use tokio::io::AsyncBufReadExt;
 use tokio_util::io::StreamReader;
-
+use bytes::{BufMut, BytesMut};
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use error::ApiError;
+use sqd_query::{BlockNumber, Query};
 use sqd_storage::db::{Database, DatasetId};
 
 use crate::api::push::DataPush;
+use crate::api::query::{check_query_kind, query_chunk, StaticSnapshot, stream_data};
 use crate::config::{Config, DatasetConfig};
 
 
 mod error;
 mod push;
+mod query;
 
 
 struct DatasetInfo {
@@ -104,6 +111,62 @@ impl Api {
         Ok("OK")
     }
 
+    pub async fn post_query(&self, dataset_name: &str, body: &Bytes) -> Result<Response, ApiError> {
+        let info = self.get_dataset_info(dataset_name)?;
+
+        let query = Query::from_json_bytes(body).map_err(|err| {
+            ApiError::UserError(format!("invalid query: {}", err))
+        })?;
+        
+        check_query_kind(info.options.kind, &query)?;
+
+        let plan = Arc::new(query.compile());
+        let snapshot = StaticSnapshot::new(self.db.clone());
+
+        let mut chunks = snapshot.list_chunks(
+            info.id,
+            query.first_block().unwrap_or(0),
+            query.last_block()
+        );
+
+        let mut response = Response::builder()
+            .status(200)
+            .header("content-type", "text/plain");
+
+        Ok(if let Some(first_chunk) = chunks.next().transpose()? {
+            response = response.header("content-encoding", "gzip");
+            
+            let buf = BytesMut::with_capacity(128 * 1024);
+            let gz = GzEncoder::new(buf.writer(), Compression::default());
+            
+            let (last_block, mut gz) = query_chunk(
+                first_chunk, 
+                plan.clone(), 
+                gz
+            ).await?;
+            
+            if last_block >= query.last_block().unwrap_or(BlockNumber::MAX) {
+                let bytes = gz.finish()?.into_inner().freeze();
+                response.body(Body::from(bytes)).unwrap()
+            } else {
+                // FIXME: we can lose blocks below when there is too much data in the chunk,
+                // but right now we are just trying things...
+                let bytes = gz.get_mut().get_mut().split().freeze();
+                
+                let body_stream = futures::stream::once(async { Ok(bytes) })
+                    .chain(
+                        stream_data(gz, chunks, plan)
+                    );
+                
+                let body = Body::from_stream(body_stream);
+                
+                response.body(body).unwrap()
+            }
+        } else {
+            response.body(Body::from("")).unwrap()
+        })
+    }
+
     pub fn build_router(&self) -> Router {
         use axum::routing::get;
         use axum::extract::*;
@@ -126,9 +189,19 @@ impl Api {
             api.push_data(&dataset_name, req).await
         }
 
+        async fn post_query(
+            State(api): State<Api>,
+            Path(dataset_name): Path<String>,
+            body: Bytes
+        ) -> impl IntoResponse
+        {
+            api.post_query(&dataset_name, &body).await
+        }
+
         Router::new()
             .route("/:id/status", get(get_status))
             .route("/:id/data", post(post_data))
+            .route("/:id/query", post(post_query))
             .with_state(self.clone())
     }
 }

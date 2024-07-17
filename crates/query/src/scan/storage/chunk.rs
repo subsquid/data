@@ -8,13 +8,13 @@ use crate::scan::scan::Scan;
 
 
 pub struct StorageChunk<'a> {
-    reader: ChunkReader<'a>,
+    reader: &'a ChunkReader<'a>,
     cache: dashmap::DashMap<Name, Arc<ChunkTableReader<'a>>>
 }
 
 
 impl <'a> StorageChunk<'a> {
-    pub fn new(reader: ChunkReader<'a>) -> Self {
+    pub fn new(reader: &'a ChunkReader<'a>) -> Self {
         Self {
             reader,
             cache: dashmap::DashMap::new()

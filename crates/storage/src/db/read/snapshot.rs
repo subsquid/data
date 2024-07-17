@@ -40,29 +40,41 @@ impl <'a> ReadSnapshot<'a> {
         })
     }
 
-    pub fn list_chunks(
+    pub fn create_chunk_reader(&self, chunk: Chunk) -> ChunkReader<'_> {
+        ChunkReader {
+            snapshot: self,
+            chunk
+        }
+    }
+
+    pub fn list_raw_chunks(
         &self,
         dataset_id: DatasetId,
-        from_block: BlockNumber
-    ) -> impl Iterator<Item=anyhow::Result<ChunkReader<'_>>>
+        from_block: BlockNumber,
+        to_block: Option<BlockNumber>
+    ) -> impl Iterator<Item=anyhow::Result<Chunk>> + '_
     {
         let cursor = self.db.raw_iterator_cf_opt(
             self.cf_handle(CF_CHUNKS),
             self.new_options()
         );
-        list_chunks(cursor, dataset_id, from_block).map(move |chunk_result| {
-            chunk_result.map(|chunk| {
-                ChunkReader {
-                    snapshot: self,
-                    chunk,
-                    dataset_id
-                }
-            })
+        list_chunks(cursor, dataset_id, from_block, to_block)
+    }
+
+    pub fn list_chunks(
+        &self,
+        dataset_id: DatasetId,
+        from_block: BlockNumber,
+        to_block: Option<BlockNumber>
+    ) -> impl Iterator<Item=anyhow::Result<ChunkReader<'_>>>
+    {
+        self.list_raw_chunks(dataset_id, from_block, to_block).map(|result| {
+            result.map(|chunk| self.create_chunk_reader(chunk))
         })
     }
     
     pub fn get_first_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<ChunkReader<'_>>> {
-        self.list_chunks(dataset_id, 0).next().transpose()
+        self.list_chunks(dataset_id, 0, None).next().transpose()
     }
 
     pub fn get_last_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<ChunkReader<'_>>> {
@@ -76,11 +88,7 @@ impl <'a> ReadSnapshot<'a> {
         cursor.status()?;
 
         let reader = read_current_chunk(&cursor, dataset_id)?.map(|chunk| {
-            ChunkReader {
-                snapshot: self,
-                chunk,
-                dataset_id
-            }
+            self.create_chunk_reader(chunk)
         });
 
         Ok(reader)
@@ -100,8 +108,7 @@ impl <'a> ReadSnapshot<'a> {
 
 pub struct ChunkReader<'a> {
     snapshot: &'a ReadSnapshot<'a>,
-    chunk: Chunk,
-    dataset_id: DatasetId
+    chunk: Chunk
 }
 
 
@@ -124,11 +131,7 @@ impl <'a> ChunkReader<'a> {
 
     pub fn get_table(&self, name: &str) -> anyhow::Result<ChunkTableReader<'a>> {
         let table_id = self.chunk.tables.get(name).ok_or_else(|| {
-            anyhow!(
-                "table `{}` does not exist in chunk {}",
-                name,
-                ChunkId::new_for_chunk(self.dataset_id, &self.chunk)
-            )
+            anyhow!("table `{}` does not exist in this chunk", name)
         })?;
 
         let storage = CFSnapshot {
@@ -139,6 +142,10 @@ impl <'a> ChunkReader<'a> {
         let reader = TableReader::new(storage, table_id.as_ref())?;
 
         Ok(reader)
+    }
+    
+    pub fn into_data(self) -> Chunk {
+        self.chunk
     }
 }
 

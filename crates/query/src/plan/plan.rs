@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::ensure;
 use rayon::prelude::*;
+use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
 use sqd_primitives::RowRangeList;
 
 use crate::json::exp::Exp;
@@ -11,7 +12,6 @@ use crate::plan::row_list::RowList;
 use crate::plan::table::{ColumnWeight, TableSet};
 use crate::primitives::{BlockNumber, Name, RowWeight, RowWeightPolarsType};
 use crate::scan::{Chunk, col_between, col_gt_eq, col_lt_eq, RowPredicateRef};
-use crate::util::record_batch_vec_to_lazy_polars_df;
 
 
 type Idx = usize;
@@ -121,7 +121,7 @@ impl <'a> PlanExecution<'a> {
     }
 
     fn execute_output(&self, output_inputs: Vec<RowList>) -> anyhow::Result<BlockWriter> {
-        use polars::prelude::*;
+        use sqd_polars::prelude::*;
 
         let rows = output_inputs.into_par_iter()
             .enumerate()

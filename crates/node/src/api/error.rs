@@ -15,7 +15,7 @@ impl <'a> IntoResponse for ApiError {
             ApiError::Internal(err) => {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    err.to_string()
+                    format!("{:?}", err)
                 ).into_response()
             },
             ApiError::DatasetNotFound(dataset_id) => {

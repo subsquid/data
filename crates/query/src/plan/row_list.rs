@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use arrow::array::{Array, AsArray, PrimitiveArray, RecordBatch};
 
 use crate::primitives::{RowIndex, RowIndexArrowType};
-use crate::util::polars_series_to_row_index_iter;
+use sqd_polars::arrow::polars_series_to_row_index_iter;
 
 
 pub struct RowList {
@@ -35,7 +35,7 @@ impl RowList {
         self.extend(row_index_iter)
     }
 
-    pub fn extend_from_polars_df(&self, df: &polars::prelude::DataFrame) {
+    pub fn extend_from_polars_df(&self, df: &sqd_polars::prelude::DataFrame) {
         let series = df.column("row_index").expect("No row_index column in the data frame");
         let row_index_iter = polars_series_to_row_index_iter(series);
         self.extend(row_index_iter)

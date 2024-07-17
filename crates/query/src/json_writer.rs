@@ -82,3 +82,43 @@ impl <W: Write> JsonArrayWriter<W> {
         Ok(self.write)
     }
 }
+
+
+pub struct JsonLinesWriter<W> {
+    write: W,
+    buf: Vec<u8>,
+    flush_threshold: usize,
+} 
+
+
+impl <W: Write> JsonLinesWriter<W> {
+    pub fn new(write: W) -> Self {
+        Self {
+            write,
+            buf: Vec::with_capacity(256 * 1024),
+            flush_threshold: 16 * 1024,
+        }
+    }
+    
+    pub fn write_blocks(&mut self, blocks: &mut BlockWriter) -> std::io::Result<()> {
+        while blocks.has_next_block() {
+            blocks.write_next_block(&mut self.buf);
+            self.buf.push(b'\n');
+            if self.buf.len() > self.flush_threshold {
+                self.flush()?;
+            }
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.write.write_all(&self.buf)?;
+        self.buf.clear();
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> std::io::Result<W> {
+        self.flush()?;
+        Ok(self.write)
+    }
+}

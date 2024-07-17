@@ -75,6 +75,7 @@ mod storage {
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
     use sqd_dataset::DatasetDescriptionRef;
+    use sqd_primitives::ShortHash;
     use sqd_query::StorageChunk;
     use sqd_storage::db::{Database, DatasetId, DatasetKind, NewChunk};
     use crate::test_fixture;
@@ -88,8 +89,8 @@ mod storage {
         chunk_path: &str
     ) -> anyhow::Result<()>
     {
-        let dataset_id = DatasetId::from_str(name);
-        let dataset_kind = DatasetKind::from_str(kind);
+        let dataset_id = DatasetId::try_from(name).unwrap();
+        let dataset_kind = DatasetKind::try_from(kind).unwrap();
 
         db.create_dataset(dataset_id, dataset_kind)?;
 
@@ -118,7 +119,7 @@ mod storage {
             prev_block_hash: None,
             first_block: 0,
             last_block: 0,
-            last_block_hash: [0; 8],
+            last_block_hash: ShortHash::try_from("hello").unwrap(),
             tables: chunk_builder.finish()
         })?;
 
@@ -140,10 +141,12 @@ mod storage {
 
         let snapshot = db.get_snapshot();
 
-        let solana_chunk = snapshot.list_chunks(DatasetId::from_str("solana"), 0)
+        let solana_chunk_reader = snapshot
+            .list_chunks(DatasetId::try_from("solana").unwrap(), 0, None)
             .next()
-            .expect("chunk must be present")
-            .map(StorageChunk::new)?;
+            .expect("chunk must be present")?;
+        
+        let chunk = StorageChunk::new(&solana_chunk_reader);
 
         let queries = glob::glob("fixtures/solana/queries/*/query.json")?
             .collect::<Result<Vec<_>, _>>()?;
@@ -152,7 +155,7 @@ mod storage {
 
         for q in queries {
             println!("query: {}", q.to_str().unwrap());
-            test_fixture(&solana_chunk, q);
+            test_fixture(&chunk, q);
         }
 
         Ok(())

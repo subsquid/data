@@ -2,15 +2,15 @@ use std::collections::{BTreeSet, HashSet};
 
 use anyhow::bail;
 use arrow::array::{Array, ArrayRef, ArrowPrimitiveType, AsArray, OffsetSizeTrait};
-use arrow::datatypes::{DataType, Int32Type, UInt32Type};
+use arrow::datatypes::{DataType, Int32Type, UInt32Type, UInt16Type};
 
+use sqd_polars::arrow::{polars_series_to_arrow_array, polars_series_to_row_index_iter};
 use sqd_primitives::RowRangeList;
 
 use crate::plan::key::{GenericListKey, Key, PrimitiveGenericListKey};
 use crate::plan::row_list::RowList;
 use crate::primitives::{Name, RowIndex, RowIndexArrowType, schema_error, SchemaError};
 use crate::scan::Chunk;
-use crate::util::{polars_series_to_arrow_array, polars_series_to_row_index_iter};
 
 
 #[derive(PartialEq, Eq, Hash, Clone)]
@@ -99,7 +99,7 @@ fn eval_join(
     output: &RowList
 ) -> anyhow::Result<()>
 {
-    use polars::prelude::*;
+    use sqd_polars::prelude::*;
     
     let input_rows = chunk.scan_table(input_table)?
         .with_row_selection(RowRangeList::from_sorted_indexes(input.iter().copied()))
@@ -155,7 +155,7 @@ fn select_stack(
     input: &BTreeSet<RowIndex>
 ) -> anyhow::Result<Stack>
 {
-    use polars::prelude::*;
+    use sqd_polars::prelude::*;
 
     let items = chunk.scan_table(table)?
         .with_row_index(true)
@@ -220,7 +220,7 @@ fn eval_sub(
     output: &RowList
 ) -> anyhow::Result<()>
 {
-    use polars::prelude::*;
+    use sqd_polars::prelude::*;
 
     let group_key_exp: Vec<_> = output_key.iter().copied()
         .map(col)
@@ -302,7 +302,7 @@ struct Stack {
 
 
 impl Stack {
-    fn from_df(df: &polars::prelude::DataFrame) -> Self {
+    fn from_df(df: &sqd_polars::prelude::DataFrame) -> Self {
         let address = polars_series_to_arrow_array(
             df.column("address").unwrap()
         );
@@ -333,6 +333,9 @@ macro_rules! downcast_address_type {
             },
             DataType::LargeList(it) if it.data_type() == &DataType::UInt32 => {
                 $co!(UInt32Type)
+            },
+            DataType::LargeList(it) if it.data_type() == &DataType::UInt16 => {
+                $co!(UInt16Type)
             },
             it => bail!(
                 schema_error!("invalid address type - {}", it)
