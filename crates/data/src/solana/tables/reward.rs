@@ -19,6 +19,7 @@ table_builder! {
     description(d) {
         d.downcast.block_number = vec!["block_number"];
         d.sort_key = vec!["pubkey", "block_number"];
+        d.options.add_stats("pubkey");
     }
 }
 

@@ -12,4 +12,10 @@ polars-core = "0.39.2"
 [dependencies.polars]
 version = "0.39.2"
 default-features = false
-features = ["lazy", "semi_anti_join", "cum_agg", "fmt", "dtype-u16"]
+features = [
+    "cum_agg",
+    "dtype-full",
+    "fmt",
+    "lazy",
+    "semi_anti_join",
+]

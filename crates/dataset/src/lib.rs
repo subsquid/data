@@ -39,6 +39,11 @@ impl TableOptions {
     pub fn has_stats(&self, name: &str) -> bool {
         self.column_options.get(name).map_or(false, |c| c.with_stats)
     }
+    
+    pub fn add_stats(&mut self, name: Name) {
+        let options = self.column_options.entry(name).or_insert(ColumnOptions::default());
+        options.with_stats = true
+    }
 }
 
 
@@ -52,7 +57,7 @@ impl Default for TableOptions {
 }
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ColumnOptions {
     pub with_stats: bool
 }

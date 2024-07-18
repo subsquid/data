@@ -27,7 +27,21 @@ table_builder! {
     description(d) {
         d.downcast.block_number = vec!["block_number"];
         d.downcast.item_index = vec!["transaction_index"];
-        d.sort_key = vec!["post_program_id", "post_mint", "account", "block_number", "transaction_index"];
+        d.sort_key = vec![
+            "post_program_id",
+            "post_mint",
+            "account",
+            "block_number",
+            "transaction_index"
+        ];
+        d.options.add_stats("pre_program_id");
+        d.options.add_stats("post_program_id");
+        d.options.add_stats("pre_mint");
+        d.options.add_stats("post_mint");
+        d.options.add_stats("account");
+        d.options.add_stats("pre_owner");
+        d.options.add_stats("post_owner");
+        d.options.add_stats("block_number");
     }
 }
 

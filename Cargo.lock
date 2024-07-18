@@ -1944,6 +1944,7 @@ dependencies = [
  "polars-ops",
  "polars-parquet",
  "polars-sql",
+ "polars-time",
  "polars-utils",
  "version_check",
 ]
@@ -2065,6 +2066,7 @@ checksum = "b2c8589e418cbe4a48228d64b2a8a40284a82ec3c98817c0c2bcc0267701338b"
 dependencies = [
  "ahash",
  "bytes",
+ "chrono",
  "home",
  "memchr",
  "memmap2 0.7.1",
@@ -2074,6 +2076,7 @@ dependencies = [
  "polars-arrow",
  "polars-core",
  "polars-error",
+ "polars-time",
  "polars-utils",
  "rayon",
  "regex",
@@ -2771,6 +2774,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqd-dataset",
+ "sqd-polars",
  "sqd-primitives",
 ]
 

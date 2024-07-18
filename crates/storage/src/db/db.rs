@@ -1,5 +1,5 @@
 use anyhow::ensure;
-use rocksdb::Options as RocksOptions;
+use rocksdb::{ColumnFamilyDescriptor, Options as RocksOptions};
 use sqd_dataset::DatasetDescriptionRef;
 
 use crate::db::data::{DatasetId, DatasetKind, DatasetLabel};
@@ -33,11 +33,23 @@ impl Database {
         let mut options = RocksOptions::default();
         options.create_if_missing(true);
         options.create_missing_column_families(true);
-        let db = RocksDB::open_cf(&options, path, [
-            CF_DATASETS,
-            CF_CHUNKS,
-            CF_TABLES,
-            CF_DIRTY_TABLES
+        options.set_wal_compression_type(rocksdb::DBCompressionType::Zstd);
+
+        // set up block cache
+        // let cache = rocksdb::Cache::new_lru_cache(1 * 1024 * 1024 * 1024);
+        // let mut block_based_table_factory = rocksdb::BlockBasedOptions::default();
+        // block_based_table_factory.set_block_cache(&cache);
+        // options.set_block_based_table_factory(&block_based_table_factory);
+
+        let db = RocksDB::open_cf_descriptors(&options, path, [
+            ColumnFamilyDescriptor::new(CF_DATASETS, RocksOptions::default()),
+            ColumnFamilyDescriptor::new(CF_CHUNKS, RocksOptions::default()),
+            ColumnFamilyDescriptor::new(CF_TABLES, {
+                let mut options = RocksOptions::default();
+                options.set_compression_type(rocksdb::DBCompressionType::Lz4);
+                options
+            }),
+            ColumnFamilyDescriptor::new(CF_DIRTY_TABLES, RocksOptions::default())
         ])?;
         Ok(Self {
             db

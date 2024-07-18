@@ -1,4 +1,5 @@
 use std::fmt::Write;
+
 use arrow::array::{BooleanBuilder, StringBuilder, UInt32Builder, UInt64Builder};
 
 use sqd_primitives::BlockNumber;
@@ -49,7 +50,19 @@ table_builder! {
 
     description(d) {
         d.downcast.block_number = vec!["block_number"];
-        d.downcast.item_index = vec!["transaction_index", "instruction_address"]
+        d.downcast.item_index = vec!["transaction_index", "instruction_address"];
+        d.sort_key = vec![
+            "d1",
+            "program_id",
+            "block_number",
+            "transaction_index"
+        ];
+        d.options.add_stats("d1");
+        d.options.add_stats("d2");
+        d.options.add_stats("d4");
+        d.options.add_stats("d8");
+        d.options.add_stats("program_id");
+        d.options.add_stats("block_number");
     }
 }
 

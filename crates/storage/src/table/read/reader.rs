@@ -307,7 +307,7 @@ impl <S: KvRead> TableReader<S> {
                         "unexpected offset sizes"
                     );
                 } else if let Some(array) = result.as_ref() {
-                    let offsets_array = self.handle_statistic1(bag, kind, row_group, column)?.unwrap();
+                    let offsets_array = self.handle_statistic1(bag, Statistic::Offsets, row_group, column)?.unwrap();
                     let offsets = offsets_array.as_primitive::<UInt32Type>().values().as_ref();
                     validate_statistic(offsets, kind, array.as_ref())?;
                 }

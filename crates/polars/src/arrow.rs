@@ -1,5 +1,6 @@
-use arrow::array::{ArrayRef, RecordBatch};
+use arrow::array::{Array, ArrayRef, RecordBatch};
 use polars::prelude::{DataFrame, IntoLazy, LazyFrame, Series, UnionArgs};
+use polars_core::prelude::SortMultipleOptions;
 
 
 pub fn record_batch_to_polars_df(batch: &RecordBatch) -> anyhow::Result<DataFrame> {
@@ -44,4 +45,29 @@ pub fn polars_series_to_arrow_array(series: &Series) -> ArrayRef {
     assert_eq!(series.chunks().len(), 1);
     let polars_array = series.to_arrow(0, false);
     ArrayRef::from(polars_array)
+}
+
+
+pub fn sort_record_batch(record_batch: &RecordBatch, by: Vec<String>) -> anyhow::Result<RecordBatch> {
+    let df = record_batch_to_polars_df(record_batch)?;
+    
+    let sorted_df = df.sort(
+        by, 
+        SortMultipleOptions::default().with_multithreaded(false)
+    )?;
+    
+    let schema = record_batch.schema();
+    
+    let columns: Vec<ArrayRef> = sorted_df.iter().enumerate().map(|(i, s)| {
+        let array = polars_series_to_arrow_array(s);
+        if array.data_type() == schema.field(i).data_type() {
+            array
+        } else {
+            arrow::compute::cast(&array, schema.field(i).data_type()).unwrap()
+        }
+    }).collect();
+    
+    let sorted_batch = RecordBatch::try_new(schema, columns)?;
+    
+    Ok(sorted_batch)
 }

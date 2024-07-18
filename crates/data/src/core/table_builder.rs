@@ -91,7 +91,16 @@ macro_rules! table_builder {
 
                 let schema = Self::schema();
 
-                let record_batch = RecordBatch::try_new(schema.clone(), columns).unwrap();
+                let mut record_batch = RecordBatch::try_new(schema.clone(), columns).unwrap();
+                
+                let sort_key = &Self::table_description().sort_key; 
+                if sort_key.len() > 0 {
+                    let by = sort_key.iter().map(|name| name.to_string()).collect();
+                    record_batch = sqd_polars::arrow::sort_record_batch(
+                        &record_batch,
+                        by
+                    ).unwrap()
+                }
 
                 let downcast_columns = Self::downcast_columns();
                 let mut max_block_number = 0u64;

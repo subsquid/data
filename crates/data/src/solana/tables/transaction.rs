@@ -53,6 +53,8 @@ table_builder! {
         d.downcast.block_number = vec!["block_number"];
         d.downcast.item_index = vec!["transaction_index"];
         d.sort_key = vec!["fee_payer", "block_number", "transaction_index"];
+        d.options.add_stats("fee_payer");
+        d.options.add_stats("block_number");
     }
 }
 

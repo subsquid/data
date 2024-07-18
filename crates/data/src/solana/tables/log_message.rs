@@ -22,6 +22,8 @@ table_builder! {
         d.downcast.block_number = vec!["block_number"];
         d.downcast.item_index = vec!["transaction_index", "log_index", "instruction_address"];
         d.sort_key = vec!["program_id", "block_number", "transaction_index", "log_index"];
+        d.options.add_stats("program_id");
+        d.options.add_stats("block_number");
     }
 }
 
