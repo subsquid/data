@@ -31,7 +31,8 @@ pub struct DowncastColumns {
 #[derive(Clone, Debug)]
 pub struct TableOptions {
     pub column_options: HashMap<Name, ColumnOptions>,
-    pub default_page_size: usize
+    pub default_page_size: usize,
+    pub row_group_size: usize
 }
 
 
@@ -51,7 +52,8 @@ impl Default for TableOptions {
     fn default() -> Self {
         Self {
             column_options: HashMap::new(),
-            default_page_size: 32 * 1024
+            default_page_size: 32 * 1024,
+            row_group_size: 5000
         }
     }
 }

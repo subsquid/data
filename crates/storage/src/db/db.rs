@@ -35,11 +35,11 @@ impl Database {
         options.create_missing_column_families(true);
         options.set_wal_compression_type(rocksdb::DBCompressionType::Zstd);
 
-        // set up block cache
-        // let cache = rocksdb::Cache::new_lru_cache(1 * 1024 * 1024 * 1024);
-        // let mut block_based_table_factory = rocksdb::BlockBasedOptions::default();
-        // block_based_table_factory.set_block_cache(&cache);
-        // options.set_block_based_table_factory(&block_based_table_factory);
+        // Set up block cache
+        let cache = rocksdb::Cache::new_lru_cache(1 * 1024 * 1024 * 1024);
+        let mut block_based_table_factory = rocksdb::BlockBasedOptions::default();
+        block_based_table_factory.set_block_cache(&cache);
+        options.set_block_based_table_factory(&block_based_table_factory);
 
         let db = RocksDB::open_cf_descriptors(&options, path, [
             ColumnFamilyDescriptor::new(CF_DATASETS, RocksOptions::default()),

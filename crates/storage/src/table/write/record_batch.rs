@@ -117,17 +117,13 @@ impl <S: KvWrite> RecordBatchWriter<S> {
             current_row_group_size: 0,
             page_size: table_options.default_page_size,
             expected_num_rows: 0,
-            target_row_group_size: 0,
+            target_row_group_size: table_options.row_group_size,
             had_error: false
         }
     }
 
     pub fn with_expected_row_count(&mut self, row_count: usize) {
         self.expected_num_rows = row_count;
-    }
-
-    pub fn with_row_group_size(&mut self, row_count: usize) {
-        self.target_row_group_size = row_count;
     }
 
     pub fn storage(&self) -> &S {

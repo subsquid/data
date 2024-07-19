@@ -80,7 +80,7 @@ impl DataPush {
         self.line += 1;
         self.blocks_buffered += 1;
 
-        if self.blocks_buffered >= 10 {
+        if self.blocks_buffered >= 50 {
             self.write_chunk()?;
         }
 

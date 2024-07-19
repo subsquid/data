@@ -4,21 +4,19 @@ use std::sync::Arc;
 use axum::{Json, Router};
 use axum::body::{Body, Bytes};
 use axum::extract::Request;
-use axum::response::{Response};
+use axum::response::Response;
 use axum::routing::post;
 use futures::{StreamExt, TryStreamExt};
 use serde_json::{json, Value as JsonValue};
 use tokio::io::AsyncBufReadExt;
 use tokio_util::io::StreamReader;
-use bytes::{BufMut, BytesMut};
-use flate2::Compression;
-use flate2::write::GzEncoder;
+
 use error::ApiError;
-use sqd_query::{BlockNumber, Query};
+use sqd_query::Query;
 use sqd_storage::db::{Database, DatasetId};
 
 use crate::api::push::DataPush;
-use crate::api::query::{check_query_kind, query_chunk, StaticSnapshot, stream_data};
+use crate::api::query::{check_query_kind, StaticSnapshot, stream_data};
 use crate::config::{Config, DatasetConfig};
 
 
@@ -120,7 +118,6 @@ impl Api {
         
         check_query_kind(info.options.kind, &query)?;
 
-        let plan = Arc::new(query.compile());
         let snapshot = StaticSnapshot::new(self.db.clone());
 
         let mut chunks = snapshot.list_chunks(
@@ -133,38 +130,26 @@ impl Api {
             .status(200)
             .header("content-type", "text/plain");
 
-        Ok(if let Some(first_chunk) = chunks.next().transpose()? {
-            response = response.header("content-encoding", "gzip");
-            
-            let buf = BytesMut::with_capacity(128 * 1024);
-            let gz = GzEncoder::new(buf.writer(), Compression::default());
-            
-            let (last_block, mut gz) = query_chunk(
-                first_chunk, 
-                plan.clone(), 
-                gz
-            ).await?;
-            
-            if last_block >= query.last_block().unwrap_or(BlockNumber::MAX) {
-                let bytes = gz.finish()?.into_inner().freeze();
-                response.body(Body::from(bytes)).unwrap()
-            } else {
-                // FIXME: we can lose blocks below when there is too much data in the chunk,
-                // but right now we are just trying things...
-                let bytes = gz.get_mut().get_mut().split().freeze();
+        if let Some(first_chunk) = chunks.next().transpose()? {
+            let plan = Arc::new(query.compile());
+
+            let mut body_stream = stream_data(
+                std::iter::once(Ok(first_chunk)).chain(chunks),
+                plan
+            );
+
+            if let Some(bytes) = body_stream.next().await.transpose()? {
+                response = response.header("content-encoding", "gzip");
                 
-                let body_stream = futures::stream::once(async { Ok(bytes) })
-                    .chain(
-                        stream_data(gz, chunks, plan)
-                    );
+                let body = Body::from_stream(
+                    futures::stream::once(async { Ok(bytes) }).chain(body_stream)
+                );
                 
-                let body = Body::from_stream(body_stream);
-                
-                response.body(body).unwrap()
+                return Ok(response.body(body)?)
             }
-        } else {
-            response.body(Body::from("")).unwrap()
-        })
+        }
+
+        Ok(response.body("".into())?)
     }
 
     pub fn build_router(&self) -> Router {

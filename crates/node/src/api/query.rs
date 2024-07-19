@@ -2,11 +2,10 @@ use std::io::Write;
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use async_stream::try_stream;
-use bytes::buf::Writer;
-use bytes::{Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
+use flate2::Compression;
 use flate2::write::GzEncoder;
-use futures::Stream;
+use futures::SinkExt;
 use ouroboros::self_referencing;
 
 use sqd_query::{BlockNumber, JsonLinesWriter, Plan, Query, StorageChunk};
@@ -35,7 +34,7 @@ pub fn check_query_kind(dataset_kind: DatasetKind, query: &Query) -> Result<(), 
 }
 
 
-pub async fn query_chunk<W: Write + Send + 'static>(
+async fn query_chunk<W: Write + Send + 'static>(
     chunk: StaticChunk,
     plan: Arc<Plan>,
     out: W
@@ -65,21 +64,43 @@ pub async fn query_chunk<W: Write + Send + 'static>(
 
 
 pub fn stream_data(
-    gz: GzEncoder<Writer<BytesMut>>,
-    mut chunks: impl Iterator<Item = anyhow::Result<StaticChunk>>,
+    chunks: impl Iterator<Item = anyhow::Result<StaticChunk>> + Send + 'static,
     plan: Arc<Plan>
-) -> impl Stream<Item = anyhow::Result<Bytes>>
+) -> futures::channel::mpsc::Receiver<anyhow::Result<Bytes>>
 {
-    try_stream! {
-        let mut gz = gz;
-        while let Some(chunk) = chunks.next().transpose()? {
-            let (_last_block, gz_ret) = query_chunk(chunk, plan.clone(), gz).await?;
-            gz = gz_ret;
-            let bytes = gz.get_mut().get_mut().split().freeze();
-            yield bytes;
+    let (mut tx, rx) = futures::channel::mpsc::channel(2);
+    tokio::spawn(async move {
+        if let Err(err) = stream_task(tx.clone(), chunks, plan).await {
+            let _ = tx.send(Err(err)).await;
         }
-        yield gz.finish()?.into_inner().freeze()
+    });
+    rx
+}
+
+
+async fn stream_task(
+    mut tx: futures::channel::mpsc::Sender<anyhow::Result<Bytes>>,
+    mut chunks: impl Iterator<Item = anyhow::Result<StaticChunk>> + Send + 'static,
+    plan: Arc<Plan>
+) -> anyhow::Result<()>
+{
+    let buf = BytesMut::with_capacity(256 * 1024);
+    let mut gz = GzEncoder::new(buf.writer(), Compression::default());
+    while let Some(chunk) = chunks.next().transpose()? {
+        // FIXME: we can lose blocks below when there is too much data in the chunk,
+        // but right now we are just trying things...
+        let state = query_chunk(chunk, plan.clone(), gz).await?;
+        gz = state.1;
+        let bytes_mut = gz.get_mut().get_mut();
+        if bytes_mut.len() > 0 {
+            let bytes = bytes_mut.split().freeze();
+            if tx.send(Ok(bytes)).await.is_err() {
+                return Ok(())
+            }
+        }
     }
+    let _ = tx.send(Ok(gz.finish()?.into_inner().freeze())).await;
+    Ok(())
 }
 
 
