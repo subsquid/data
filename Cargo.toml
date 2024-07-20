@@ -1,5 +1,5 @@
 [workspace]
-members = [
+members = [ "crates/array",
     "crates/data",
     "crates/dataset",
     "crates/node",
