@@ -11,6 +11,7 @@ clap = { version = "4.5.9", features = ["derive"] }
 ouroboros = "0.18.4"
 flate2 = "1.0.30"
 futures = "0.3.30"
+mimalloc = "0.1.43"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqd-data = { path = "../data" }

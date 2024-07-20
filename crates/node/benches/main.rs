@@ -5,6 +5,10 @@ use sqd_query::{JsonLinesWriter, Query, StorageChunk};
 use sqd_storage::db::{Database, DatasetId};
 
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+
 fn setup(c: &mut Criterion) {
     let db = Database::open("../../node.temp.db").unwrap();
     let solana = DatasetId::try_from("solana").unwrap();
