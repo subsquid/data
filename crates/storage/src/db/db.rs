@@ -39,6 +39,7 @@ impl Database {
         let cache = rocksdb::Cache::new_lru_cache(1 * 1024 * 1024 * 1024);
         let mut block_based_table_factory = rocksdb::BlockBasedOptions::default();
         block_based_table_factory.set_block_cache(&cache);
+        block_based_table_factory.set_block_size(1024 * 1024);
         options.set_block_based_table_factory(&block_based_table_factory);
 
         let db = RocksDB::open_cf_descriptors(&options, path, [
@@ -47,6 +48,7 @@ impl Database {
             ColumnFamilyDescriptor::new(CF_TABLES, {
                 let mut options = RocksOptions::default();
                 options.set_compression_type(rocksdb::DBCompressionType::Lz4);
+                options.set_target_file_size_base(256 * 1024 * 1024);
                 options
             }),
             ColumnFamilyDescriptor::new(CF_DIRTY_TABLES, RocksOptions::default())

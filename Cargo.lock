@@ -2900,6 +2900,7 @@ dependencies = [
 name = "sqd-array"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arrow",
  "arrow-buffer",
 ]
@@ -3005,6 +3006,7 @@ dependencies = [
  "borsh",
  "parking_lot",
  "rocksdb",
+ "sqd-array",
  "sqd-dataset",
  "sqd-primitives",
  "uuid",

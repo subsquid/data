@@ -17,6 +17,7 @@ mod api;
 
 
 fn main() -> anyhow::Result<()> {
+    println!(env!("CARGO_MANIFEST_DIR"));
     let args = CLI::parse();
 
     let config = Config::read(&args.config).with_context(|| {

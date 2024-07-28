@@ -2,11 +2,12 @@ use anyhow::ensure;
 use arrow::array::Array;
 use arrow::datatypes::{Field, SchemaRef};
 use arrow::ipc::convert::schema_to_fb;
+
+use sqd_array::{AnySlice, Slice};
 use sqd_dataset::TableOptions;
 
-use crate::array::serde::serialize_array;
-use crate::table::key::{Statistic, TableKeyFactory};
 use crate::kv::KvWrite;
+use crate::table::key::{Statistic, TableKeyFactory};
 use crate::table::write::stats::{Summary, SummaryBuilder};
 
 
@@ -33,7 +34,7 @@ pub struct TableWriter<S> {
 macro_rules! write_array {
     ($this:ident, $key:expr, $array:expr) => {{
         $this.buf.clear();
-        serialize_array($array, &mut $this.buf);
+        AnySlice::from($array).write_page(&mut $this.buf);
         $this.storage.put($key, &$this.buf)
     }};
 }

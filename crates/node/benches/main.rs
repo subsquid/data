@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::time::Duration;
 use criterion::{Criterion, criterion_group, criterion_main};
 use serde_json::json;
@@ -8,9 +9,17 @@ use sqd_storage::db::{Database, DatasetId};
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+// #[global_allocator]
+// static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 
 fn setup(c: &mut Criterion) {
-    let db = Database::open("../../node.temp.db").unwrap();
+    let db_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap()
+        .parent().unwrap()
+        .join("node.temp.db");
+    
+    let db = Database::open(db_path.to_str().unwrap()).unwrap();
     let solana = DatasetId::try_from("solana").unwrap();
 
     let whirlpool_swap = {
