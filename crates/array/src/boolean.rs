@@ -1,9 +1,11 @@
+use anyhow::{Context, ensure};
 use arrow::array::{Array, BooleanArray};
 use arrow_buffer::BooleanBufferBuilder;
 
 use crate::bitmask::{BitSlice, push_null_mask, write_null_mask};
+use crate::StaticSlice;
 use crate::types::{Builder, Slice};
-use crate::util::Padding;
+use crate::util::{PageReader, PageWriter};
 
 
 #[derive(Clone)]
@@ -14,18 +16,10 @@ pub struct BooleanSlice<'a> {
 
 
 impl <'a> Slice<'a> for BooleanSlice<'a> {
-    fn read_page(_bytes: &'a [u8]) -> anyhow::Result<Self> {
-        todo!()
-    }
-
-    unsafe fn read_valid_page(_bytes: &'a [u8]) -> Self {
-        todo!()
-    }
-
     fn write_page(&self, buf: &mut Vec<u8>) {
-        let mut padding = Padding::new(buf);
-        write_null_mask(&self.nulls, buf);
-        padding.pad(buf);
+        let mut write = PageWriter::new(buf);
+        write_null_mask(&self.nulls, write.buf);
+        write.pad();
         self.values.write_page(buf)
     }
 
@@ -38,6 +32,31 @@ impl <'a> Slice<'a> for BooleanSlice<'a> {
             values: self.values.slice(offset, len),
             nulls: self.nulls.as_ref().map(|nulls| nulls.slice(offset, len))
         }
+    }
+}
+
+
+impl <'a> StaticSlice<'a> for BooleanSlice<'a> {
+    fn read_page(bytes: &'a [u8]) -> anyhow::Result<Self> {
+        let mut page = PageReader::new(bytes, Some(1))?;
+        let nulls = page.read_null_mask()?;
+
+        let values_buf = page.read_next_buffer()?;
+
+        let values = BitSlice::read_page(values_buf).context(
+            "failed to read value buffer"
+        )?;
+
+        let null_mask_length_is_ok = nulls.as_ref()
+            .map(|mask| mask.len() == values.len())
+            .unwrap_or(true);
+
+        ensure!(null_mask_length_is_ok, "null mask length doesn't match the value array length");
+
+        Ok(Self {
+            values,
+            nulls
+        })
     }
 }
 

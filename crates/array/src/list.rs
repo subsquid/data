@@ -1,12 +1,13 @@
+use anyhow::ensure;
 use arrow::array::{Array, GenericByteArray, ListArray};
-use arrow::datatypes::ByteArrayType;
+use arrow::datatypes::{ByteArrayType, DataType};
 use arrow_buffer::BooleanBufferBuilder;
 
-use crate::AnySlice;
+use crate::{AnySlice, read_any_page, StaticSlice};
 use crate::bitmask::{BitSlice, push_null_mask, write_null_mask};
 use crate::primitive::{NativeBuilder, NativeSlice};
 use crate::types::{Builder, Slice};
-use crate::util::PageWriter;
+use crate::util::{PageReader, PageWriter};
 
 
 #[derive(Clone)]
@@ -28,22 +29,14 @@ impl <'a, T> ListSlice<'a, T> {
 
 
 impl <'a, T: Slice<'a>> Slice<'a> for ListSlice<'a, T> {
-    fn read_page(_bytes: &'a [u8]) -> anyhow::Result<Self> {
-        todo!()
-    }
-
-    unsafe fn read_valid_page(_bytes: &'a [u8]) -> Self {
-        todo!()
-    }
-
     fn write_page(&self, buf: &mut Vec<u8>) {
         let mut write = PageWriter::new(buf);
-        
+
         write.append_index(self.offsets.data().len());
-        
+
         write_null_mask(&self.nulls, write.buf);
         write.pad();
-        
+
         for offset in self.zeroed_offsets() {
             write.buf.extend_from_slice(&offset.to_le_bytes())
         }
@@ -70,6 +63,55 @@ impl <'a, T: Slice<'a>> Slice<'a> for ListSlice<'a, T> {
 }
 
 
+fn read_page<'a, T, F>(bytes: &'a [u8], read_values: F) -> anyhow::Result<ListSlice<'a, T>>
+where
+    F: FnOnce(&'a [u8]) -> anyhow::Result<T>,
+    T: Slice<'a>
+{
+    let mut page = PageReader::new(bytes, Some(2))?;
+
+    let nulls = page.read_null_mask()?;
+
+    let offsets = NativeSlice::<'a, i32>::read_page(page.read_next_buffer()?)?;
+
+    ensure!(offsets.len() > 0, "got zero length offsets array");
+    for i in 1..offsets.len() {
+        let current = offsets.value(i);
+        let prev = offsets.value(i - 1);
+        ensure!(prev <= current, "offset values are not monotonically increasing");
+    }
+
+    let null_mask_length_ok = nulls.as_ref()
+        .map(|nulls| nulls.len() + 1 == offsets.len())
+        .unwrap_or(true);
+
+    ensure!(
+            null_mask_length_ok,
+            "null mask length doesn't match the offsets array"
+        );
+
+    let values = read_values(page.read_next_buffer()?)?;
+
+    ensure!(
+            values.len() == offsets.last_value() as usize,
+            "last offset and values array length does not match"
+        );
+
+    Ok(ListSlice {
+        offsets,
+        values,
+        nulls
+    })
+}
+
+
+impl <'a, T: StaticSlice<'a>> StaticSlice<'a> for ListSlice<'a, T> {
+    fn read_page(bytes: &'a [u8]) -> anyhow::Result<Self> {
+        read_page(bytes, T::read_page)
+    }
+}
+
+
 pub struct ListBuilder<T> {
     offsets: NativeBuilder<i32>,
     values: T,
@@ -82,19 +124,23 @@ impl <T: Builder> Builder for ListBuilder<T> {
 
     fn push_slice(&mut self, slice: &Self::Slice<'_>) {
         let top = self.offsets.len();
-        let offset = self.offsets.values()[top - 1];
-        let slice_offset = slice.offsets.value(0);
+        let last_offset = self.offsets.values()[top - 1];
+
+        let slice_value_range = slice.offsets.value(0)..slice.offsets.last_value();
 
         self.offsets.push_slice(
             &slice.offsets.slice(1, slice.offsets.len() - 1)
         );
 
         for v in self.offsets.values_mut()[top..].iter_mut() {
-            *v = *v - slice_offset + offset
+            *v = *v - slice_value_range.start + last_offset
         }
 
         self.values.push_slice(
-            &slice.values.slice(slice_offset as usize, slice.len())
+            &slice.values.slice(
+                slice_value_range.start as usize, 
+                slice_value_range.len()
+            )
         );
 
         push_null_mask(
@@ -146,4 +192,13 @@ impl <'a> From<&'a ListArray> for AnySlice<'a> {
             nulls: value.nulls().map(|nulls| nulls.inner().into())
         }.into()
     }
+}
+
+
+pub fn read_any_list_page<'a>(
+    bytes: &'a [u8],
+    item_data_type: &DataType
+) -> anyhow::Result<ListSlice<'a, AnySlice<'a>>>
+{
+    read_page(bytes, |b| read_any_page(b, item_data_type))
 }

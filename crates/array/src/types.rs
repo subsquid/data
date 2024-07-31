@@ -1,13 +1,12 @@
 use std::ops::Range;
 
 
-pub trait Slice<'a>: Sized + Clone {
+pub trait StaticSlice<'a>: Slice<'a> {
     fn read_page(bytes: &'a [u8]) -> anyhow::Result<Self>;
+}
 
-    unsafe fn read_valid_page(bytes: &'a [u8]) -> Self {
-        Self::read_page(bytes).unwrap()
-    }
 
+pub trait Slice<'a>: Sized + Clone {
     fn write_page(&self, buf: &mut Vec<u8>);
 
     fn len(&self) -> usize;
@@ -27,26 +26,67 @@ pub trait Builder {
 
     fn push_slice(&mut self, slice: &Self::Slice<'_>);
 
+    fn push_slice_ranges(
+        &mut self,
+        slice: &Self::Slice<'_>,
+        ranges: impl Iterator<Item = Range<usize>> + Clone
+    ) {
+        for r in ranges {
+            self.push_slice(&slice.slice_range(r))
+        }
+    }
+
     fn as_slice(&self) -> Self::Slice<'_>;
 
     fn len(&self) -> usize;
-    
+
     fn capacity(&self) -> usize;
+}
+
+
+impl <T: Builder> Builder for Box<T> {
+    type Slice<'a> = T::Slice<'a>;
+
+    fn push_slice(&mut self, slice: &Self::Slice<'_>) {
+        self.as_mut().push_slice(slice)
+    }
+
+    fn push_slice_ranges(
+        &mut self,
+        slice: &Self::Slice<'_>,
+        ranges: impl Iterator<Item = Range<usize>> + Clone
+    ) {
+        self.as_mut().push_slice_ranges(slice, ranges)
+    }
+
+    fn as_slice(&self) -> Self::Slice<'_> {
+        self.as_ref().as_slice()
+    }
+
+    fn len(&self) -> usize {
+        self.as_ref().len()
+    }
+
+    fn capacity(&self) -> usize {
+        self.as_ref().capacity()
+    }
 }
 
 
 pub trait DataBuilder {
     fn push_page(&mut self, page: &[u8]) -> anyhow::Result<()>;
 
-    unsafe fn push_valid_page(&mut self, page: &[u8]);
-
-    fn push_page_range(&mut self, page: &[u8], range: Range<usize>) -> anyhow::Result<()>;
-
-    unsafe fn push_valid_page_range(&mut self, page: &[u8], range: Range<usize>);
+    fn push_page_ranges(
+        &mut self,
+        page: &[u8],
+        ranges: impl Iterator<Item = Range<usize>> + Clone
+    ) -> anyhow::Result<()>;
 }
 
 
-impl <T> DataBuilder for T where T: Builder
+impl <T> DataBuilder for T where
+    T: Builder,
+    for <'a> T::Slice<'a>: StaticSlice<'a>
 {
     fn push_page(&mut self, page: &[u8]) -> anyhow::Result<()> {
         let slice = T::Slice::read_page(page)?;
@@ -54,19 +94,14 @@ impl <T> DataBuilder for T where T: Builder
         Ok(())
     }
 
-    unsafe fn push_valid_page(&mut self, page: &[u8]) {
-        let slice = T::Slice::read_valid_page(page);
-        self.push_slice(&slice)
-    }
-
-    fn push_page_range(&mut self, page: &[u8], range: Range<usize>) -> anyhow::Result<()> {
+    fn push_page_ranges(
+        &mut self, 
+        page: &[u8], 
+        ranges: impl Iterator<Item=Range<usize>> + Clone
+    ) -> anyhow::Result<()> 
+    {
         let slice = T::Slice::read_page(page)?;
-        self.push_slice(&slice.slice_range(range));
+        self.push_slice_ranges(&slice, ranges);
         Ok(())
-    }
-
-    unsafe fn push_valid_page_range(&mut self, page: &[u8], range: Range<usize>) {
-        let slice = T::Slice::read_valid_page(page);
-        self.push_slice(&slice.slice_range(range));
     }
 }
