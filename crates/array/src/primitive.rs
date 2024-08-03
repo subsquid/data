@@ -2,11 +2,12 @@ use std::marker::PhantomData;
 use std::ops::Range;
 
 use anyhow::ensure;
-use arrow::array::{Array, ArrowPrimitiveType, PrimitiveArray};
-use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, MutableBuffer, ToByteSlice};
+use arrow::array::{Array, ArrayDataBuilder, ArrayRef, ArrowPrimitiveType, make_array, PrimitiveArray};
+use arrow::datatypes::DataType;
+use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, MutableBuffer, ScalarBuffer, ToByteSlice};
 
+use crate::{DefaultDataBuilder, StaticSlice};
 use crate::bitmask::{BitSlice, push_null_mask, write_null_mask};
-use crate::StaticSlice;
 use crate::types::{Builder, Slice};
 use crate::util::{PageReader, PageWriter};
 
@@ -78,6 +79,13 @@ pub struct NativeBuilder<T> {
 
 
 impl <T: ArrowNativeType> NativeBuilder<T> {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            values: MutableBuffer::with_capacity(capacity * T::get_byte_width()),
+            phantom_data: PhantomData::default()
+        }
+    }
+
     pub fn values(&self) -> &[T] {
         self.values.typed_data()
     }
@@ -88,8 +96,12 @@ impl <T: ArrowNativeType> NativeBuilder<T> {
 }
 
 
-impl <T: ArrowNativeType> Builder for NativeBuilder<T> {
+impl <T: NativeType> Builder for NativeBuilder<T> {
     type Slice<'a> = NativeSlice<'a, T>;
+
+    fn read_page<'a>(&self, page: &'a [u8]) -> anyhow::Result<Self::Slice<'a>> {
+        Self::Slice::read_page(page)
+    }
 
     fn push_slice(&mut self, slice: &Self::Slice<'_>) {
         self.values.extend_from_slice(slice.values)
@@ -108,6 +120,36 @@ impl <T: ArrowNativeType> Builder for NativeBuilder<T> {
 
     fn capacity(&self) -> usize {
         self.values.capacity() / T::get_byte_width()
+    }
+
+    fn into_arrow_array(self, data_type: Option<DataType>) -> ArrayRef {
+        let data_type = if let Some(data_type) = data_type {
+            assert!(T::check_data_type(&data_type), "got incompatible data type - {}", data_type);
+            data_type
+        } else {
+            T::DEFAULT_DATA_TYPE.clone()
+        };
+
+        let data = ArrayDataBuilder::new(data_type)
+            .add_buffer(self.values.into())
+            .build()
+            .unwrap();
+
+        make_array(data)
+    }
+}
+
+
+impl <T: ArrowNativeType> NativeBuilder<T> {
+    pub fn into_scalar_buffer(self) -> ScalarBuffer<T> {
+        ScalarBuffer::from(self.values)
+    }
+}
+
+
+impl <T: ArrowNativeType> Default for NativeBuilder<T> {
+    fn default() -> Self {
+        Self::with_capacity(0)
     }
 }
 
@@ -177,8 +219,13 @@ pub struct PrimitiveBuilder<T> {
 }
 
 
-impl <T: ArrowNativeType> Builder for PrimitiveBuilder<T> {
+impl <T> DefaultDataBuilder for PrimitiveBuilder<T> {}
+impl <T: NativeType> Builder for PrimitiveBuilder<T> {
     type Slice<'a> = PrimitiveSlice<'a, T>;
+
+    fn read_page<'a>(&self, page: &'a [u8]) -> anyhow::Result<Self::Slice<'a>> {
+        Self::Slice::read_page(page)
+    }
 
     fn push_slice(&mut self, slice: &Self::Slice<'_>) {
         self.values.push_slice(&slice.values);
@@ -204,6 +251,78 @@ impl <T: ArrowNativeType> Builder for PrimitiveBuilder<T> {
 
     fn capacity(&self) -> usize {
         self.values.capacity()
+    }
+
+    fn into_arrow_array(self, data_type: Option<DataType>) -> ArrayRef {
+        let data_type = if let Some(data_type) = data_type {
+            assert!(T::check_data_type(&data_type), "got incompatible data type - {}", data_type);
+            data_type
+        } else {
+            T::DEFAULT_DATA_TYPE.clone()
+        };
+
+        let data = ArrayDataBuilder::new(data_type)
+            .add_buffer(self.values.values.into())
+            .nulls(self.nulls.map(|mut nulls| nulls.finish().into()))
+            .build()
+            .unwrap();
+
+        make_array(data)
+    }
+}
+
+
+trait NativeType: ArrowNativeType {
+    const DEFAULT_DATA_TYPE: DataType;
+
+    fn check_data_type(data_type: &DataType) -> bool {
+        data_type == &Self::DEFAULT_DATA_TYPE
+    }
+}
+
+
+macro_rules! impl_simple_native_type {
+    ($t:ident, $dt:ident) => {
+        impl NativeType for $t {
+            const DEFAULT_DATA_TYPE: DataType = DataType::$dt;
+        }
+    };
+}
+impl_simple_native_type!(u8, UInt8);
+impl_simple_native_type!(u16, UInt16);
+impl_simple_native_type!(u32, UInt32);
+impl_simple_native_type!(u64, UInt64);
+impl_simple_native_type!(i8, Int8);
+impl_simple_native_type!(i16, Int16);
+impl_simple_native_type!(i32, Int32);
+
+
+impl NativeType for i64 {
+    const DEFAULT_DATA_TYPE: DataType = DataType::Int64;
+
+    fn check_data_type(data_type: &DataType) -> bool {
+        match data_type {
+            DataType::Int64 => true,
+            DataType::Timestamp(_, _) => true,
+            _ => false
+        }
+    }
+}
+
+
+impl <T: ArrowNativeType> Default for PrimitiveBuilder<T> {
+    fn default() -> Self {
+        Self::with_capacity(0)
+    }
+}
+
+
+impl <T: ArrowNativeType> PrimitiveBuilder<T> {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            values: NativeBuilder::with_capacity(capacity),
+            nulls: None
+        }
     }
 }
 

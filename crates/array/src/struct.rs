@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
 use anyhow::{Context, ensure};
-use arrow::array::{Array, StructArray};
-use arrow::datatypes::FieldRef;
+use arrow::array::{Array, ArrayRef, StructArray};
+use arrow::datatypes::{DataType, Field, Fields};
 use arrow_buffer::BooleanBufferBuilder;
 
 use crate::any::{AnyBuilder, AnySlice};
 use crate::bitmask::{BitSlice, push_null_mask, write_null_mask};
-use crate::read_any_page;
-use crate::types::{Builder, Slice};
+use crate::types::{Builder, DefaultDataBuilder, Slice};
 use crate::util::{PageReader, PageWriter};
 
 
@@ -63,8 +62,54 @@ pub struct AnyStructBuilder {
 }
 
 
+impl DefaultDataBuilder for AnyStructBuilder {}
 impl Builder for AnyStructBuilder {
     type Slice<'a> = AnyStructSlice<'a>;
+
+    fn read_page<'a>(&self, bytes: &'a [u8]) -> anyhow::Result<Self::Slice<'a>> {
+        let mut page = PageReader::new(bytes, None)?;
+
+        ensure!(
+            page.buffers_left() == self.columns.len(),
+            "page has {} columns, but this builder has {}",
+            page.buffers_left(),
+            self.columns.len()
+        );
+
+        let nulls = page.read_null_mask()?;
+
+        let columns = self.columns.iter().enumerate().map(|(i, b)| {
+            b.read_page(page.read_next_buffer()?).with_context(|| {
+                format!("failed to read column {}", i)
+            })
+        }).collect::<anyhow::Result<Arc<[AnySlice<'a>]>>>()?;
+
+        let len = columns[0].len();
+
+        for i in 1..columns.len() {
+            ensure!(
+                columns[i].len() == len,
+                "columns {} and column 0 have different lengths",
+                i
+            );
+        }
+
+        let null_mask_length_ok = nulls.as_ref()
+            .map(|nulls| nulls.len() + 1 == len)
+            .unwrap_or(true);
+
+        ensure!(
+            null_mask_length_ok,
+            "null mask length doesn't match the length of columns"
+        );
+
+        Ok(AnyStructSlice {
+            columns,
+            nulls,
+            offset: 0,
+            len
+        })
+    }
 
     fn push_slice(&mut self, slice: &Self::Slice<'_>) {
         for (i, col) in slice.columns.iter().enumerate() {
@@ -75,7 +120,8 @@ impl Builder for AnyStructBuilder {
             &slice.nulls,
             self.capacity(),
             &mut self.nulls
-        )
+        );
+        self.len += slice.len;
     }
 
     fn as_slice(&self) -> Self::Slice<'_> {
@@ -95,6 +141,62 @@ impl Builder for AnyStructBuilder {
     fn capacity(&self) -> usize {
         self.columns.get(0).map(|b| b.capacity()).unwrap_or(0).max(self.len)
     }
+
+    fn into_arrow_array(self, data_type: Option<DataType>) -> ArrayRef {
+        let (columns, fields) = if let Some(data_type) = data_type {
+            let fields = if let DataType::Struct(fields) = data_type {
+                fields
+            } else {
+                panic!("struct builder got unexpected data type - {}", data_type)
+            };
+
+            assert_eq!(fields.len(), self.columns.len());
+
+            let columns = fields.iter().zip(self.columns.into_iter()).map(|(f, c)| {
+               Builder::into_arrow_array(c, Some(f.data_type().clone()))
+            }).collect::<Vec<_>>();
+
+            (columns, fields)
+        } else {
+            let columns = self.columns.into_iter().map(|c| {
+                Builder::into_arrow_array(c, None)
+            }).collect::<Vec<_>>();
+
+            let fields = columns.iter().enumerate().map(|(i, c)| {
+                Arc::new(Field::new(
+                    format!("f{}", i), 
+                    c.data_type().clone(), 
+                    true
+                ))
+            }).collect::<Fields>();
+
+            (columns, fields)
+        };
+        
+        let array = StructArray::new(
+            fields, 
+            columns, 
+            self.nulls.map(|mut nulls| nulls.finish().into())
+        );
+        
+        Arc::new(array)
+    }
+}
+
+
+impl AnyStructBuilder {
+    pub fn new(columns: Vec<AnyBuilder>) -> Self {
+        assert!(columns.len() > 0);
+        let len = columns[0].len();
+        for i in 1..columns.len() {
+            assert_eq!(columns[i].len(), len);
+        }
+        Self {
+            columns,
+            len,
+            nulls: None
+        }
+    }
 }
 
 
@@ -107,56 +209,4 @@ impl <'a> From<&'a StructArray> for AnyStructSlice<'a> {
             len: value.len()
         }
     }
-}
-
-
-pub fn read_any_struct_page<'a>(
-    bytes: &'a [u8],
-    fields: &[FieldRef]
-) -> anyhow::Result<AnyStructSlice<'a>>
-{
-    ensure!(fields.len() > 0, "structs with no columns are not readable");
-
-    let mut page = PageReader::new(bytes, None)?;
-
-    ensure!(
-        page.buffers_left() == fields.len(),
-        "page has {} columns, but field spec has {}",
-        page.buffers_left(),
-        fields.len()
-    );
-
-    let nulls = page.read_null_mask()?;
-
-    let columns = fields.iter().enumerate().map(|(i, f)| {
-        read_any_page(page.read_next_buffer()?, f.data_type()).with_context(|| {
-            format!("failed to read column {}", i)
-        })
-    }).collect::<anyhow::Result<Arc<[AnySlice<'a>]>>>()?;
-
-    let len = columns[0].len();
-
-    for i in 1..columns.len() {
-        ensure!(
-            columns[i].len() == len,
-            "columns {} and column 0 have different lengths",
-            i
-        );
-    }
-
-    let null_mask_length_ok = nulls.as_ref()
-        .map(|nulls| nulls.len() + 1 == len)
-        .unwrap_or(true);
-
-    ensure!(
-        null_mask_length_ok,
-        "null mask length doesn't match the length of columns"
-    );
-
-    Ok(AnyStructSlice {
-        columns,
-        nulls,
-        offset: 0,
-        len
-    })
 }

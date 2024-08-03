@@ -1,9 +1,10 @@
+use std::ops::Range;
 use std::sync::Arc;
 
-use arrow::array::{Array, AsArray, BinaryArray, BooleanArray, PrimitiveArray, StringArray, StructArray};
+use arrow::array::{Array, ArrayRef, AsArray, BinaryArray, BooleanArray, PrimitiveArray, StringArray, StructArray};
 use arrow::datatypes::{DataType, Int16Type, Int32Type, Int64Type, Int8Type, TimestampMillisecondType, TimestampSecondType, TimeUnit, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 
-use crate::{AnyStructBuilder, AnyStructSlice, BinaryBuilder, BinarySlice, ListSlice, read_any_list_page, read_any_struct_page, StaticSlice};
+use crate::{AnyStructBuilder, AnyStructSlice, BinaryBuilder, BinarySlice, DataBuilder, ListSlice};
 use crate::boolean::{BooleanBuilder, BooleanSlice};
 use crate::list::ListBuilder;
 use crate::primitive::{PrimitiveBuilder, PrimitiveSlice};
@@ -93,6 +94,23 @@ pub enum AnyBuilder {
 impl Builder for AnyBuilder {
     type Slice<'a> = AnySlice<'a>;
 
+    fn read_page<'a>(&self, page: &'a [u8]) -> anyhow::Result<Self::Slice<'a>> {
+        match self {
+            AnyBuilder::Boolean(b) => b.read_page(page).map(Into::into),
+            AnyBuilder::UInt8(b) => b.read_page(page).map(Into::into),
+            AnyBuilder::UInt16(b) => b.read_page(page).map(Into::into),
+            AnyBuilder::UInt32(b) => b.read_page(page).map(Into::into),
+            AnyBuilder::UInt64(b) => b.read_page(page).map(Into::into),
+            AnyBuilder::Int8(b) => b.read_page(page).map(Into::into),
+            AnyBuilder::Int16(b) => b.read_page(page).map(Into::into),
+            AnyBuilder::Int32(b) => b.read_page(page).map(Into::into),
+            AnyBuilder::Int64(b) => b.read_page(page).map(Into::into),
+            AnyBuilder::Binary(b) => b.read_page(page).map(Into::into),
+            AnyBuilder::List(b) => b.read_page(page).map(Into::into),
+            AnyBuilder::Struct(b) => b.read_page(page).map(Into::into)
+        }
+    }
+
     fn push_slice(&mut self, slice: &Self::Slice<'_>) {
         macro_rules! push {
             ($b:ident, $s:ident) => {
@@ -164,6 +182,93 @@ impl Builder for AnyBuilder {
             AnyBuilder::Binary(b) => b.capacity(),
             AnyBuilder::List(b) => b.capacity(),
             AnyBuilder::Struct(b) => b.capacity(),
+        }
+    }
+
+    fn into_arrow_array(self, data_type: Option<DataType>) -> ArrayRef {
+        match self {
+            AnyBuilder::Boolean(b) => Builder::into_arrow_array(b, data_type),
+            AnyBuilder::UInt8(b) => Builder::into_arrow_array(b, data_type),
+            AnyBuilder::UInt16(b) => Builder::into_arrow_array(b, data_type),
+            AnyBuilder::UInt32(b) => Builder::into_arrow_array(b, data_type),
+            AnyBuilder::UInt64(b) => Builder::into_arrow_array(b, data_type),
+            AnyBuilder::Int8(b) => Builder::into_arrow_array(b, data_type),
+            AnyBuilder::Int16(b) => Builder::into_arrow_array(b, data_type),
+            AnyBuilder::Int32(b) => Builder::into_arrow_array(b, data_type),
+            AnyBuilder::Int64(b) => Builder::into_arrow_array(b, data_type),
+            AnyBuilder::Binary(b) => Builder::into_arrow_array(b, data_type),
+            AnyBuilder::List(b) => Builder::into_arrow_array(b, data_type),
+            AnyBuilder::Struct(b) => Builder::into_arrow_array(b, data_type)
+        }
+    }
+}
+
+
+impl DataBuilder for AnyBuilder {
+    fn push_page(&mut self, page: &[u8]) -> anyhow::Result<()> {
+        match self {
+            AnyBuilder::Boolean(b) => b.push_page(page),
+            AnyBuilder::UInt8(b) => b.push_page(page),
+            AnyBuilder::UInt16(b) => b.push_page(page),
+            AnyBuilder::UInt32(b) => b.push_page(page),
+            AnyBuilder::UInt64(b) => b.push_page(page),
+            AnyBuilder::Int8(b) => b.push_page(page),
+            AnyBuilder::Int16(b) => b.push_page(page),
+            AnyBuilder::Int32(b) => b.push_page(page),
+            AnyBuilder::Int64(b) => b.push_page(page),
+            AnyBuilder::Binary(b) => b.push_page(page),
+            AnyBuilder::List(b) => b.push_page(page),
+            AnyBuilder::Struct(b) => b.push_page(page),
+        }
+    }
+
+    fn push_page_ranges(&mut self, page: &[u8], ranges: &[Range<usize>]) -> anyhow::Result<()> {
+        match self {
+            AnyBuilder::Boolean(b) => b.push_page_ranges(page, ranges),
+            AnyBuilder::UInt8(b) => b.push_page_ranges(page, ranges),
+            AnyBuilder::UInt16(b) => b.push_page_ranges(page, ranges),
+            AnyBuilder::UInt32(b) => b.push_page_ranges(page, ranges),
+            AnyBuilder::UInt64(b) => b.push_page_ranges(page, ranges),
+            AnyBuilder::Int8(b) => b.push_page_ranges(page, ranges),
+            AnyBuilder::Int16(b) => b.push_page_ranges(page, ranges),
+            AnyBuilder::Int32(b) => b.push_page_ranges(page, ranges),
+            AnyBuilder::Int64(b) => b.push_page_ranges(page, ranges),
+            AnyBuilder::Binary(b) => b.push_page_ranges(page, ranges),
+            AnyBuilder::List(b) => b.push_page_ranges(page, ranges),
+            AnyBuilder::Struct(b) => b.push_page_ranges(page, ranges),
+        }
+    }
+
+    fn into_arrow_array(self, data_type: Option<DataType>) -> ArrayRef {
+        Builder::into_arrow_array(self, data_type)
+    }
+}
+
+
+impl AnyBuilder {
+    pub fn for_data_type(data_type: &DataType) -> Self {
+        match data_type {
+            DataType::Boolean => AnyBuilder::Boolean(BooleanBuilder::default()),
+            DataType::Int8 => AnyBuilder::Int8(PrimitiveBuilder::default()),
+            DataType::Int16 => AnyBuilder::Int16(PrimitiveBuilder::default()),
+            DataType::Int32 => AnyBuilder::Int32(PrimitiveBuilder::default()),
+            DataType::Int64 => AnyBuilder::Int64(PrimitiveBuilder::default()),
+            DataType::UInt8 => AnyBuilder::UInt8(PrimitiveBuilder::default()),
+            DataType::UInt16 => AnyBuilder::UInt16(PrimitiveBuilder::default()),
+            DataType::UInt32 => AnyBuilder::UInt32(PrimitiveBuilder::default()),
+            DataType::UInt64 => AnyBuilder::UInt64(PrimitiveBuilder::default()),
+            DataType::Timestamp(_, _) => AnyBuilder::Int64(PrimitiveBuilder::default()),
+            DataType::Binary => AnyBuilder::Binary(BinaryBuilder::default()),
+            DataType::Utf8 => AnyBuilder::Binary(BinaryBuilder::default()),
+            DataType::List(f) => AnyBuilder::List(
+                ListBuilder::new(0, Box::new(Self::for_data_type(f.data_type())))
+            ),
+            DataType::Struct(fields) => AnyBuilder::Struct(
+                AnyStructBuilder::new(
+                    fields.iter().map(|f| Self::for_data_type(f.data_type())).collect()
+                )
+            ),
+            ty => panic!("unsupported arrow type - {}", ty)
         }
     }
 }
@@ -324,25 +429,5 @@ impl <'a> From<&'a dyn Array> for AnySlice<'a> {
             DataType::Struct(_) => value.as_struct().into(),
             t => panic!("unsupported arrow data type - {}", t)
         }
-    }
-}
-
-
-pub fn read_any_page<'a>(bytes: &'a [u8], data_type: &DataType) -> anyhow::Result<AnySlice<'a>> {
-    match data_type {
-        DataType::Boolean => BooleanSlice::read_page(bytes).map(Into::into),
-        DataType::Int8 => PrimitiveSlice::<i8>::read_page(bytes).map(Into::into),
-        DataType::Int16 => PrimitiveSlice::<i16>::read_page(bytes).map(Into::into),
-        DataType::Int32 => PrimitiveSlice::<i32>::read_page(bytes).map(Into::into),
-        DataType::Int64 => PrimitiveSlice::<i64>::read_page(bytes).map(Into::into),
-        DataType::UInt8 => PrimitiveSlice::<u8>::read_page(bytes).map(Into::into),
-        DataType::UInt16 => PrimitiveSlice::<u16>::read_page(bytes).map(Into::into),
-        DataType::UInt32 => PrimitiveSlice::<u32>::read_page(bytes).map(Into::into),
-        DataType::UInt64 => PrimitiveSlice::<u64>::read_page(bytes).map(Into::into),
-        DataType::Timestamp(_, _) => PrimitiveSlice::<i64>::read_page(bytes).map(Into::into),
-        DataType::Binary | DataType::Utf8 => BinarySlice::read_page(bytes).map(Into::into),
-        DataType::List(f) => read_any_list_page(bytes, f.data_type()).map(Into::into),
-        DataType::Struct(fields) => read_any_struct_page(bytes, &fields).map(Into::into),
-        ty => panic!("unsupported arrow type - {}", ty)
     }
 }

@@ -1,11 +1,13 @@
+use std::sync::Arc;
 use anyhow::{Context, ensure};
-use arrow::array::{Array, BooleanArray};
+use arrow::array::{Array, ArrayRef, BooleanArray};
+use arrow::datatypes::DataType;
 use arrow_buffer::BooleanBufferBuilder;
 
 use crate::bitmask::{BitSlice, push_null_mask, write_null_mask};
-use crate::StaticSlice;
+use crate::{DefaultDataBuilder, StaticSlice};
 use crate::types::{Builder, Slice};
-use crate::util::{PageReader, PageWriter};
+use crate::util::{assert_data_type, PageReader, PageWriter};
 
 
 #[derive(Clone)]
@@ -67,8 +69,13 @@ pub struct BooleanBuilder {
 }
 
 
+impl DefaultDataBuilder for BooleanBuilder {}
 impl Builder for BooleanBuilder {
     type Slice<'a> = BooleanSlice<'a>;
+
+    fn read_page<'a>(&self, page: &'a [u8]) -> anyhow::Result<Self::Slice<'a>> {
+        Self::Slice::read_page(page)
+    }
 
     fn push_slice(&mut self, slice: &Self::Slice<'_>) {
         self.values.push_slice(&slice.values);
@@ -94,6 +101,33 @@ impl Builder for BooleanBuilder {
 
     fn capacity(&self) -> usize {
         self.values.capacity()
+    }
+
+    fn into_arrow_array(mut self, data_type: Option<DataType>) -> ArrayRef {
+        assert_data_type!(data_type, DataType::Boolean);
+        Arc::new(
+            BooleanArray::new(
+                self.values.finish(), 
+                self.nulls.map(|mut nulls| nulls.finish().into())
+            )
+        )
+    }
+}
+
+
+impl BooleanBuilder {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            values: BooleanBufferBuilder::new(capacity),
+            nulls: None
+        }
+    }
+}
+
+
+impl Default for BooleanBuilder {
+    fn default() -> Self {
+        Self::with_capacity(0)
     }
 }
 

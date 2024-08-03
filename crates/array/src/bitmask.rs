@@ -1,8 +1,13 @@
+use std::sync::Arc;
+
 use anyhow::ensure;
+use arrow::array::{ArrayRef, BooleanArray};
+use arrow::datatypes::DataType;
 use arrow_buffer::{bit_mask, bit_util, BooleanBuffer, BooleanBufferBuilder};
+
 use crate::StaticSlice;
 use crate::types::{Builder, Slice};
-use crate::util::{encode_index, LEN_BYTES, read_index};
+use crate::util::{assert_data_type, encode_index, LEN_BYTES, read_index};
 
 
 #[derive(Clone)]
@@ -82,6 +87,10 @@ impl <'a> Slice<'a> for BitSlice<'a> {
 impl Builder for BooleanBufferBuilder {
     type Slice<'a> = BitSlice<'a>;
 
+    fn read_page<'a>(&self, page: &'a [u8]) -> anyhow::Result<Self::Slice<'a>> {
+        Self::Slice::read_page(page)
+    }
+
     fn push_slice(&mut self, slice: &Self::Slice<'_>) {
         let beg = slice.offset;
         let end = slice.offset + slice.len;
@@ -102,6 +111,11 @@ impl Builder for BooleanBufferBuilder {
 
     fn capacity(&self) -> usize {
         self.capacity()
+    }
+
+    fn into_arrow_array(mut self, data_type: Option<DataType>) -> ArrayRef {
+        assert_data_type!(data_type, DataType::Boolean);
+        Arc::new(BooleanArray::new(self.finish(), None))
     }
 }
 

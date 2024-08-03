@@ -141,3 +141,16 @@ impl <'a> PageReader<'a> {
         }
     }
 }
+
+
+macro_rules! assert_data_type {
+    ($dt:expr, $pat:pat) => {
+        if let Some(data_type) = $dt.as_ref() {
+            match data_type {
+                $pat => {},
+                ty => panic!("got unexpected data type - {}", ty)
+            }
+        };
+    };
+}
+pub(crate) use assert_data_type;

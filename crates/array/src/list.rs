@@ -1,9 +1,11 @@
-use anyhow::ensure;
-use arrow::array::{Array, GenericByteArray, ListArray};
-use arrow::datatypes::{ByteArrayType, DataType};
-use arrow_buffer::BooleanBufferBuilder;
+use std::sync::Arc;
 
-use crate::{AnySlice, read_any_page, StaticSlice};
+use anyhow::ensure;
+use arrow::array::{Array, ArrayRef, GenericByteArray, ListArray};
+use arrow::datatypes::{ByteArrayType, DataType, Field};
+use arrow_buffer::{BooleanBufferBuilder, OffsetBuffer};
+
+use crate::{AnySlice, DefaultDataBuilder, StaticSlice};
 use crate::bitmask::{BitSlice, push_null_mask, write_null_mask};
 use crate::primitive::{NativeBuilder, NativeSlice};
 use crate::types::{Builder, Slice};
@@ -119,8 +121,13 @@ pub struct ListBuilder<T> {
 }
 
 
+impl <T> DefaultDataBuilder for ListBuilder<T> {}
 impl <T: Builder> Builder for ListBuilder<T> {
     type Slice<'a> = ListSlice<'a, T::Slice<'a>>;
+
+    fn read_page<'a>(&self, page: &'a [u8]) -> anyhow::Result<Self::Slice<'a>> {
+        read_page(page, |b| self.values.read_page(b))
+    }
 
     fn push_slice(&mut self, slice: &Self::Slice<'_>) {
         let top = self.offsets.len();
@@ -166,11 +173,58 @@ impl <T: Builder> Builder for ListBuilder<T> {
     fn capacity(&self) -> usize {
         self.offsets.capacity() - 1
     }
+
+    fn into_arrow_array(self, data_type: Option<DataType>) -> ArrayRef {
+        let item_field = data_type.map(|t| {
+            if let DataType::List(f) = t {
+                f
+            } else {
+                panic!("list builder got unexpected data type - {}", t)
+            }
+        });
+        
+        let offsets = self.offsets.into_scalar_buffer();
+
+        let values = self.values.into_arrow_array(
+            item_field.as_ref().map(|f| f.data_type().clone())
+        );
+
+        let nulls = self.nulls.map(|mut nulls| nulls.finish().into());
+        
+        let array = ListArray::new(
+            item_field.unwrap_or_else(|| {
+                Arc::new(Field::new_list_field(values.data_type().clone(), true))
+            }), 
+            OffsetBuffer::new(offsets), 
+            values, 
+            nulls
+        );
+        
+        Arc::new(array)
+    }
+}
+
+
+impl <T> ListBuilder<T> {
+    pub fn new(capacity: usize, values: T) -> Self {
+        Self {
+            offsets: NativeBuilder::with_capacity(capacity),
+            values,
+            nulls: None
+        }
+    }
 }
 
 
 pub type BinarySlice<'a> = ListSlice<'a, NativeSlice<'a, u8>>;
 pub type BinaryBuilder = ListBuilder<NativeBuilder<u8>>;
+
+
+impl Default for BinaryBuilder {
+    fn default() -> Self {
+        ListBuilder::new(0, NativeBuilder::default())
+    }
+}
 
 
 impl <'a, T: ByteArrayType<Offset = i32>> From<&'a GenericByteArray<T>> for BinarySlice<'a> {
@@ -192,13 +246,4 @@ impl <'a> From<&'a ListArray> for AnySlice<'a> {
             nulls: value.nulls().map(|nulls| nulls.inner().into())
         }.into()
     }
-}
-
-
-pub fn read_any_list_page<'a>(
-    bytes: &'a [u8],
-    item_data_type: &DataType
-) -> anyhow::Result<ListSlice<'a, AnySlice<'a>>>
-{
-    read_page(bytes, |b| read_any_page(b, item_data_type))
 }
