@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use anyhow::ensure;
-use arrow::array::{Array, ArrayRef, GenericByteArray, ListArray};
-use arrow::datatypes::{ByteArrayType, DataType, Field};
+use arrow::array::{Array, ArrayRef, AsArray, BinaryArray, GenericByteArray, ListArray, StringArray};
+use arrow::datatypes::{ByteArrayType, DataType, Field, UInt8Type};
 use arrow_buffer::{BooleanBufferBuilder, OffsetBuffer};
 
 use crate::{AnySlice, DefaultDataBuilder, StaticSlice};
-use crate::bitmask::{BitSlice, push_null_mask, write_null_mask};
+use crate::bitmask::{BitSlice, build_null_buffer, push_null_mask, write_null_mask};
 use crate::primitive::{NativeBuilder, NativeSlice};
 use crate::types::{Builder, Slice};
 use crate::util::{PageReader, PageWriter};
@@ -44,9 +44,8 @@ impl <'a, T: Slice<'a>> Slice<'a> for ListSlice<'a, T> {
         }
         write.pad();
 
-        let values = self.values.slice(
-            self.offsets.value(0) as usize,
-            self.offsets.value(self.offsets.len() - 1) as usize - self.offsets.value(0) as usize
+        let values = self.values.slice_range(
+            self.offsets.value(0) as usize..self.offsets.last_value() as usize
         );
         values.write_page(buf);
     }
@@ -88,16 +87,16 @@ where
         .unwrap_or(true);
 
     ensure!(
-            null_mask_length_ok,
-            "null mask length doesn't match the offsets array"
-        );
+        null_mask_length_ok,
+        "null mask length doesn't match the offsets array"
+    );
 
     let values = read_values(page.read_next_buffer()?)?;
 
     ensure!(
-            values.len() == offsets.last_value() as usize,
-            "last offset and values array length does not match"
-        );
+        values.len() == offsets.last_value() as usize,
+        "last offset and values array length does not match"
+    );
 
     Ok(ListSlice {
         offsets,
@@ -142,7 +141,7 @@ impl <T: Builder> Builder for ListBuilder<T> {
         for v in self.offsets.values_mut()[top..].iter_mut() {
             *v = *v - slice_value_range.start + last_offset
         }
-
+        
         self.values.push_slice(
             &slice.values.slice(
                 slice_value_range.start as usize, 
@@ -151,9 +150,10 @@ impl <T: Builder> Builder for ListBuilder<T> {
         );
 
         push_null_mask(
-            self.values.len(),
+            self.offsets.len() - 1,
+            slice.len(),
             &slice.nulls,
-            self.values.capacity(),
+            self.capacity(),
             &mut self.nulls
         )
     }
@@ -175,31 +175,64 @@ impl <T: Builder> Builder for ListBuilder<T> {
     }
 
     fn into_arrow_array(self, data_type: Option<DataType>) -> ArrayRef {
-        let item_field = data_type.map(|t| {
-            if let DataType::List(f) = t {
-                f
-            } else {
-                panic!("list builder got unexpected data type - {}", t)
+        let offsets = OffsetBuffer::new(
+            self.offsets.into_scalar_buffer()
+        );
+
+        let nulls = self.nulls.and_then(build_null_buffer);
+
+        let item_field = if let Some(ty) = data_type {
+            match ty {
+                DataType::List(f) => Some(f),
+                DataType::Utf8 => {
+                    let bytes = self.values.into_arrow_array(Some(DataType::UInt8))
+                        .as_primitive::<UInt8Type>()
+                        .values()
+                        .inner()
+                        .clone();
+
+                    let array = StringArray::new(
+                        offsets,
+                        bytes,
+                        nulls
+                    );
+
+                    return Arc::new(array)
+                },
+                DataType::Binary => {
+                    let bytes = self.values.into_arrow_array(Some(DataType::UInt8))
+                        .as_primitive::<UInt8Type>()
+                        .values()
+                        .inner()
+                        .clone();
+
+                    let array = BinaryArray::new(
+                        offsets,
+                        bytes,
+                        nulls
+                    );
+
+                    return Arc::new(array)
+                },
+                _ => panic!("list builder got unexpected data type - {}", ty)
             }
-        });
-        
-        let offsets = self.offsets.into_scalar_buffer();
+        } else {
+            None
+        };
 
         let values = self.values.into_arrow_array(
             item_field.as_ref().map(|f| f.data_type().clone())
         );
 
-        let nulls = self.nulls.map(|mut nulls| nulls.finish().into());
-        
         let array = ListArray::new(
             item_field.unwrap_or_else(|| {
                 Arc::new(Field::new_list_field(values.data_type().clone(), true))
-            }), 
-            OffsetBuffer::new(offsets), 
-            values, 
+            }),
+            offsets,
+            values,
             nulls
         );
-        
+
         Arc::new(array)
     }
 }
@@ -207,8 +240,10 @@ impl <T: Builder> Builder for ListBuilder<T> {
 
 impl <T> ListBuilder<T> {
     pub fn new(capacity: usize, values: T) -> Self {
+        let mut offsets = NativeBuilder::with_capacity(capacity + 1);
+        offsets.push(0);
         Self {
-            offsets: NativeBuilder::with_capacity(capacity),
+            offsets,
             values,
             nulls: None
         }

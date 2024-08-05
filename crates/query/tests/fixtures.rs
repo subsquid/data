@@ -78,6 +78,7 @@ mod storage {
     use sqd_primitives::ShortHash;
     use sqd_query::StorageChunk;
     use sqd_storage::db::{Database, DatasetId, DatasetKind, NewChunk};
+
     use crate::test_fixture;
 
 
@@ -160,4 +161,49 @@ mod storage {
 
         Ok(())
     }
+
+    // #[test]
+    // fn reading() -> anyhow::Result<()> {
+    //     let db_dir = tempfile::tempdir()?;
+    //     let db = Database::open(db_dir.path().to_str().unwrap())?;
+    //
+    //     create_dataset(
+    //         &db,
+    //         "solana",
+    //         "solana",
+    //         sqd_data::solana::tables::SolanaChunkBuilder::dataset_description(),
+    //         "fixtures/solana/chunk"
+    //     )?;
+    //
+    //     let snapshot = db.get_snapshot();
+    //
+    //     let solana_chunk_reader = snapshot
+    //         .list_chunks(DatasetId::try_from("solana").unwrap(), 0, None)
+    //         .next()
+    //         .expect("chunk must be present")?;
+    //
+    //     let storage_chunk = StorageChunk::new(&solana_chunk_reader);
+    //
+    //     let parquet_chunk = ParquetChunk::new("fixtures/solana/chunk");
+    //
+    //     let parquet_records = parquet_chunk
+    //         .scan_table("instructions")?
+    //         .with_columns(["a1"])
+    //         .with_row_selection(RowRangeList::new(vec![1000..1005]))
+    //         .execute()?;
+    //
+    //     let storage_records = storage_chunk
+    //         .scan_table("instructions")?
+    //         .with_columns(["a1"])
+    //         .with_row_selection(RowRangeList::new(vec![1000..1005]))
+    //         .execute()?;
+    //
+    //     if parquet_records != storage_records {
+    //         print_batches(&storage_records)?;
+    //         print_batches(&parquet_records)?;
+    //         panic!("unequal records")
+    //     }
+    //
+    //     Ok(())
+    // }
 }

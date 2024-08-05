@@ -94,10 +94,10 @@ pub trait DataBuilder {
     fn push_page_ranges(
         &mut self,
         page: &[u8],
-        ranges: &[Range<usize>]
+        ranges: &[Range<u32>]
     ) -> anyhow::Result<()>;
 
-    fn into_arrow_array(self, data_type: Option<DataType>) -> ArrayRef;
+    fn into_arrow_array(self: Box<Self>, data_type: Option<DataType>) -> ArrayRef;
 }
 
 
@@ -114,15 +114,19 @@ impl <T: Builder + DefaultDataBuilder> DataBuilder for T {
     fn push_page_ranges(
         &mut self, 
         page: &[u8],
-        ranges: &[Range<usize>]
+        ranges: &[Range<u32>]
     ) -> anyhow::Result<()>
     {
         let slice = self.read_page(page)?;
-        self.push_slice_ranges(&slice, ranges.iter().cloned());
+
+        self.push_slice_ranges(&slice, ranges.iter().map(|r| {
+            r.start as usize..r.end as usize
+        }));
+
         Ok(())
     }
 
-    fn into_arrow_array(self, data_type: Option<DataType>) -> ArrayRef {
+    fn into_arrow_array(self: Box<Self>, data_type: Option<DataType>) -> ArrayRef {
         Builder::into_arrow_array(self, data_type)
     }
 }

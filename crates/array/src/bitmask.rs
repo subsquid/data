@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::ensure;
 use arrow::array::{ArrayRef, BooleanArray};
 use arrow::datatypes::DataType;
-use arrow_buffer::{bit_mask, bit_util, BooleanBuffer, BooleanBufferBuilder};
+use arrow_buffer::{bit_mask, bit_util, BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 
 use crate::StaticSlice;
 use crate::types::{Builder, Slice};
@@ -25,7 +25,7 @@ pub fn read_bit_page(bytes: &[u8], whole: bool) -> anyhow::Result<(BitSlice<'_>,
     let end = LEN_BYTES + byte_len;
 
     ensure!(
-        end < bytes.len() && (!whole || end + 1 == bytes.len()),
+        whole && end == bytes.len() || end <= bytes.len(),
         "expected bit page of length {} to take {} bytes, but got {}",
         bit_len,
         end,
@@ -33,7 +33,7 @@ pub fn read_bit_page(bytes: &[u8], whole: bool) -> anyhow::Result<(BitSlice<'_>,
     );
 
     let slice = BitSlice {
-        buf: &bytes[beg..],
+        buf: &bytes[beg..end],
         offset: 0,
         len: bit_len
     };
@@ -121,6 +121,7 @@ impl Builder for BooleanBufferBuilder {
 
 
 pub fn push_null_mask<'a>(
+    values_len: usize,
     mask_len: usize,
     mask: &'a Option<BitSlice<'a>>,
     builder_cap: usize,
@@ -131,8 +132,9 @@ pub fn push_null_mask<'a>(
             b.push_slice(m)
         },
         (Some(m), None) => {
-            let mut b = BooleanBufferBuilder::new(std::cmp::max(builder_cap, mask_len));
-            b.append_n(mask_len, true);
+            assert_eq!(mask_len, m.len());
+            let mut b = BooleanBufferBuilder::new(std::cmp::max(builder_cap, values_len));
+            b.append_n(values_len - m.len(), true);
             b.push_slice(m);
             *builder = Some(b)
         },
@@ -152,6 +154,16 @@ pub fn write_null_mask(
         mask.write_page(buf)
     } else {
         buf.extend_from_slice(&encode_index(0))
+    }
+}
+
+
+pub fn build_null_buffer(mut builder: BooleanBufferBuilder) -> Option<NullBuffer> {
+    let buffer: NullBuffer = builder.finish().into();
+    if buffer.null_count() == 0 {
+        None
+    } else {
+        Some(buffer)
     }
 }
 

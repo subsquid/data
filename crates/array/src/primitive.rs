@@ -7,7 +7,7 @@ use arrow::datatypes::DataType;
 use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, MutableBuffer, ScalarBuffer, ToByteSlice};
 
 use crate::{DefaultDataBuilder, StaticSlice};
-use crate::bitmask::{BitSlice, push_null_mask, write_null_mask};
+use crate::bitmask::{BitSlice, build_null_buffer, push_null_mask, write_null_mask};
 use crate::types::{Builder, Slice};
 use crate::util::{PageReader, PageWriter};
 
@@ -93,6 +93,10 @@ impl <T: ArrowNativeType> NativeBuilder<T> {
     pub fn values_mut(&mut self) -> &mut [T] {
         self.values.typed_data_mut()
     }
+
+    pub fn push(&mut self, value: T) {
+        self.values.push(value)
+    }
 }
 
 
@@ -131,6 +135,7 @@ impl <T: NativeType> Builder for NativeBuilder<T> {
         };
 
         let data = ArrayDataBuilder::new(data_type)
+            .len(self.len())
             .add_buffer(self.values.into())
             .build()
             .unwrap();
@@ -232,6 +237,7 @@ impl <T: NativeType> Builder for PrimitiveBuilder<T> {
 
         push_null_mask(
             self.values.len(),
+            slice.len(),
             &slice.nulls,
             self.values.capacity(),
             &mut self.nulls
@@ -262,8 +268,9 @@ impl <T: NativeType> Builder for PrimitiveBuilder<T> {
         };
 
         let data = ArrayDataBuilder::new(data_type)
+            .len(self.len())
             .add_buffer(self.values.values.into())
-            .nulls(self.nulls.map(|mut nulls| nulls.finish().into()))
+            .nulls(self.nulls.and_then(build_null_buffer))
             .build()
             .unwrap();
 

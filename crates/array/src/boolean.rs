@@ -4,7 +4,7 @@ use arrow::array::{Array, ArrayRef, BooleanArray};
 use arrow::datatypes::DataType;
 use arrow_buffer::BooleanBufferBuilder;
 
-use crate::bitmask::{BitSlice, push_null_mask, write_null_mask};
+use crate::bitmask::{BitSlice, build_null_buffer, push_null_mask, write_null_mask};
 use crate::{DefaultDataBuilder, StaticSlice};
 use crate::types::{Builder, Slice};
 use crate::util::{assert_data_type, PageReader, PageWriter};
@@ -82,6 +82,7 @@ impl Builder for BooleanBuilder {
 
         push_null_mask(
             self.values.len(),
+            slice.len(),
             &slice.nulls,
             self.values.capacity(),
             &mut self.nulls
@@ -108,7 +109,7 @@ impl Builder for BooleanBuilder {
         Arc::new(
             BooleanArray::new(
                 self.values.finish(), 
-                self.nulls.map(|mut nulls| nulls.finish().into())
+                self.nulls.and_then(build_null_buffer)
             )
         )
     }

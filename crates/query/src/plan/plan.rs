@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::ensure;
 use rayon::prelude::*;
+
 use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
 use sqd_primitives::RowRangeList;
 

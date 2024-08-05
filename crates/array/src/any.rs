@@ -222,7 +222,7 @@ impl DataBuilder for AnyBuilder {
         }
     }
 
-    fn push_page_ranges(&mut self, page: &[u8], ranges: &[Range<usize>]) -> anyhow::Result<()> {
+    fn push_page_ranges(&mut self, page: &[u8], ranges: &[Range<u32>]) -> anyhow::Result<()> {
         match self {
             AnyBuilder::Boolean(b) => b.push_page_ranges(page, ranges),
             AnyBuilder::UInt8(b) => b.push_page_ranges(page, ranges),
@@ -239,7 +239,7 @@ impl DataBuilder for AnyBuilder {
         }
     }
 
-    fn into_arrow_array(self, data_type: Option<DataType>) -> ArrayRef {
+    fn into_arrow_array(self: Box<Self>, data_type: Option<DataType>) -> ArrayRef {
         Builder::into_arrow_array(self, data_type)
     }
 }

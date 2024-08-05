@@ -54,6 +54,10 @@ impl <Idx: Ord + Copy> RangeList<Idx> {
     pub fn iter(&self) -> impl Iterator<Item=Range<Idx>> + '_ {
         self.ranges.iter().cloned()
     }
+    
+    pub fn as_slice(&self) -> &[Range<Idx>] {
+        &self.ranges
+    }
 
     pub fn union(&self, other: &Self) -> Self {
         Self {

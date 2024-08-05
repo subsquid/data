@@ -6,7 +6,7 @@ use arrow::datatypes::{DataType, Field, Fields};
 use arrow_buffer::BooleanBufferBuilder;
 
 use crate::any::{AnyBuilder, AnySlice};
-use crate::bitmask::{BitSlice, push_null_mask, write_null_mask};
+use crate::bitmask::{BitSlice, build_null_buffer, push_null_mask, write_null_mask};
 use crate::types::{Builder, DefaultDataBuilder, Slice};
 use crate::util::{PageReader, PageWriter};
 
@@ -33,9 +33,11 @@ impl <'a> Slice<'a> for AnyStructSlice<'a> {
         );
 
         for (i, col) in self.columns.iter().enumerate() {
+            if i > 0 {
+                write.set_buffer_index(i);
+            }
             write.pad();
             col.slice(self.offset, self.len).write_page(write.buf);
-            write.set_buffer_index(i + 1)
         }
     }
 
@@ -95,12 +97,14 @@ impl Builder for AnyStructBuilder {
         }
 
         let null_mask_length_ok = nulls.as_ref()
-            .map(|nulls| nulls.len() + 1 == len)
+            .map(|nulls| nulls.len() == len)
             .unwrap_or(true);
 
         ensure!(
             null_mask_length_ok,
-            "null mask length doesn't match the length of columns"
+            "null mask length ({}) doesn't match the length of columns ({})",
+            nulls.unwrap().len(),
+            len
         );
 
         Ok(AnyStructSlice {
@@ -112,16 +116,19 @@ impl Builder for AnyStructBuilder {
     }
 
     fn push_slice(&mut self, slice: &Self::Slice<'_>) {
+        self.len += slice.len;
+
         for (i, col) in slice.columns.iter().enumerate() {
             self.columns[i].push_slice(&col.slice(slice.offset, slice.len))
         }
+
         push_null_mask(
             self.len,
+            slice.len(),
             &slice.nulls,
             self.capacity(),
             &mut self.nulls
         );
-        self.len += slice.len;
     }
 
     fn as_slice(&self) -> Self::Slice<'_> {
@@ -164,21 +171,21 @@ impl Builder for AnyStructBuilder {
 
             let fields = columns.iter().enumerate().map(|(i, c)| {
                 Arc::new(Field::new(
-                    format!("f{}", i), 
-                    c.data_type().clone(), 
+                    format!("f{}", i),
+                    c.data_type().clone(),
                     true
                 ))
             }).collect::<Fields>();
 
             (columns, fields)
         };
-        
+
         let array = StructArray::new(
-            fields, 
-            columns, 
-            self.nulls.map(|mut nulls| nulls.finish().into())
+            fields,
+            columns,
+            self.nulls.and_then(build_null_buffer)
         );
-        
+
         Arc::new(array)
     }
 }
