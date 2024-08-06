@@ -142,16 +142,8 @@ impl <S: KvRead> TableReader<S> {
             );
 
             if let Some(ranges) = row_selection {
-                // println!(
-                //     "range reading {}, page - {}..{}: {:?}",
-                //     self.schema.field(column).name(),
-                //     page_offsets[page_index] + self.row_group_offsets.value(row_group),
-                //     page_offsets[page_index + 1] + self.row_group_offsets.value(row_group),
-                //     &cursor.value()[0..64]
-                // );
                 builder.push_page_ranges(cursor.value(), ranges.as_slice())
             } else {
-                // println!("reading: {:?}", &cursor.value()[0..64]);
                 builder.push_page(cursor.value())
             }.with_context(|| {
                 format!("failed to read page {}", page_index)
