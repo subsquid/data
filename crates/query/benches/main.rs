@@ -70,20 +70,28 @@ mod storage {
     use crate::{perform_query, WHIRLPOOL_SWAP};
 
     pub fn setup(c: &mut Criterion) {
+        let db_dir = tempfile::tempdir().unwrap();
+        let db = Database::open(db_dir.path().to_str().unwrap()).unwrap();
+        let dataset_id = prepare_solana_chunk(&db).unwrap();
+        
+        drop(db);
+        
+        let db = Database::open(db_dir.path().to_str().unwrap()).unwrap();
+        let snapshot = db.get_snapshot();
+        let chunk_reader = snapshot.get_first_chunk(dataset_id).unwrap().unwrap();
+        let chunk = StorageChunk::new(&chunk_reader);
+        
         c.bench_function("storage: whirlpool swap", |bench| {
-            let db_dir = tempfile::tempdir().unwrap();
-            let db = Database::open(db_dir.path().to_str().unwrap()).unwrap();
-            let dataset_id = prepare_solana_chunk(&db).unwrap();
-
-            let snapshot = db.get_snapshot();
-            let chunk_reader = snapshot.get_first_chunk(dataset_id).unwrap().unwrap();
-            let chunk = StorageChunk::new(&chunk_reader);
             let plan = WHIRLPOOL_SWAP.compile();
 
             bench.iter(|| {
                 perform_query(&plan, &chunk).unwrap()
             })
         });
+        
+        if let Some(stats) = db.get_statistics() {
+            println!("{}", stats);
+        }
     }
 
     fn prepare_solana_chunk(db: &Database) -> anyhow::Result<DatasetId> {
