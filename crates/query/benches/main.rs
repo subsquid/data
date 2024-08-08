@@ -16,7 +16,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 static WHIRLPOOL_SWAP: LazyLock<Query> = LazyLock::new(|| {
     let query = json!({
         "type": "solana",
-        "fromBlock": 200_000_500,
+        "fromBlock": 200_000_000,
         "fields": {
             "block": {
                 "slot": true,
