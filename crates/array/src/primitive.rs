@@ -1,10 +1,11 @@
 use std::marker::PhantomData;
 use std::ops::Range;
+use std::sync::Arc;
 
 use anyhow::ensure;
-use arrow::array::{Array, ArrayDataBuilder, ArrayRef, ArrowPrimitiveType, make_array, PrimitiveArray};
-use arrow::datatypes::DataType;
-use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, MutableBuffer, ScalarBuffer, ToByteSlice};
+use arrow::array::{Array, ArrayDataBuilder, ArrayRef, ArrowPrimitiveType, PrimitiveArray};
+use arrow::datatypes::{DataType, Date32Type, Date64Type, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
+use arrow_buffer::{ArrowNativeType, BooleanBufferBuilder, MutableBuffer, NullBuffer, ScalarBuffer, ToByteSlice};
 
 use crate::{DefaultDataBuilder, StaticSlice};
 use crate::bitmask::{BitSlice, build_null_buffer, push_null_mask, write_null_mask};
@@ -27,6 +28,12 @@ impl<'a, T: ArrowNativeType> NativeSlice<'a, T> {
         unsafe {
             std::ptr::read_unaligned(ptr.cast())
         }
+    }
+
+    pub unsafe fn value_unchecked(&self, idx: usize) -> T {
+        let pos = idx * T::get_byte_width();
+        let ptr = self.values.as_ptr().add(pos);
+        std::ptr::read_unaligned(ptr.cast())
     }
 
     pub fn data(&self) -> &'a [u8] {
@@ -134,13 +141,47 @@ impl <T: NativeType> Builder for NativeBuilder<T> {
             T::DEFAULT_DATA_TYPE.clone()
         };
 
-        let data = ArrayDataBuilder::new(data_type)
-            .len(self.len())
-            .add_buffer(self.values.into())
-            .build()
-            .unwrap();
+        make_array(data_type, self.len(), self.values, None)
+    }
+}
 
-        make_array(data)
+
+fn make_array(
+    data_type: DataType,
+    len: usize,
+    buffer: MutableBuffer,
+    nulls: Option<NullBuffer>
+) -> ArrayRef {
+    macro_rules! make {
+        ($t:ident) => {
+            Arc::new(PrimitiveArray::<$t>::new(ScalarBuffer::from(buffer), nulls))
+        };
+    }
+
+    match data_type {
+        DataType::Int8 => make!(Int8Type),
+        DataType::Int16 => make!(Int16Type),
+        DataType::Int32 => make!(Int32Type),
+        DataType::Int64 => make!(Int64Type),
+        DataType::UInt8 => make!(UInt8Type),
+        DataType::UInt16 => make!(UInt16Type),
+        DataType::UInt32 => make!(UInt32Type),
+        DataType::UInt64 => make!(UInt64Type),
+        DataType::Float16 => make!(Float16Type),
+        DataType::Float32 => make!(Float32Type),
+        DataType::Float64 => make!(Float64Type),
+        DataType::Date32 => make!(Date32Type),
+        DataType::Date64 => make!(Date64Type),
+        _ => {
+            let data = ArrayDataBuilder::new(data_type)
+                .len(len)
+                .add_buffer(buffer.into())
+                .nulls(nulls)
+                .build()
+                .unwrap();
+            
+            arrow::array::make_array(data)
+        }
     }
 }
 
@@ -267,14 +308,7 @@ impl <T: NativeType> Builder for PrimitiveBuilder<T> {
             T::DEFAULT_DATA_TYPE.clone()
         };
 
-        let data = ArrayDataBuilder::new(data_type)
-            .len(self.len())
-            .add_buffer(self.values.values.into())
-            .nulls(self.nulls.and_then(build_null_buffer))
-            .build()
-            .unwrap();
-
-        make_array(data)
+        make_array(data_type, self.len(), self.values.values, self.nulls.and_then(build_null_buffer))
     }
 }
 

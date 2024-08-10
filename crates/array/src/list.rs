@@ -75,12 +75,7 @@ where
 
     let offsets = NativeSlice::<'a, i32>::read_page(page.read_next_buffer()?)?;
 
-    ensure!(offsets.len() > 0, "got zero length offsets array");
-    for i in 1..offsets.len() {
-        let current = offsets.value(i);
-        let prev = offsets.value(i - 1);
-        ensure!(prev <= current, "offset values are not monotonically increasing");
-    }
+    validate_list_offsets(&offsets)?;
 
     let null_mask_length_ok = nulls.as_ref()
         .map(|nulls| nulls.len() + 1 == offsets.len())
@@ -103,6 +98,25 @@ where
         values,
         nulls
     })
+}
+
+
+fn validate_list_offsets(offsets: &NativeSlice<'_, i32>) -> anyhow::Result<()> {
+    ensure!(offsets.len() > 0, "got zero length offsets array");
+
+    let mut prev = unsafe {
+        offsets.value_unchecked(0)
+    };
+
+    for i in 1..offsets.len() {
+        let current = unsafe {
+            offsets.value_unchecked(i)
+        };
+        ensure!(prev <= current, "offset values are not monotonically increasing");
+        prev = current;
+    }
+    
+    Ok(())
 }
 
 
@@ -175,9 +189,11 @@ impl <T: Builder> Builder for ListBuilder<T> {
     }
 
     fn into_arrow_array(self, data_type: Option<DataType>) -> ArrayRef {
-        let offsets = OffsetBuffer::new(
-            self.offsets.into_scalar_buffer()
-        );
+        let offsets = unsafe {
+            OffsetBuffer::new_unchecked(
+                self.offsets.into_scalar_buffer()
+            )
+        };
 
         let nulls = self.nulls.and_then(build_null_buffer);
 
