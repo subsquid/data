@@ -16,8 +16,11 @@ mod cli;
 mod api;
 
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+
 fn main() -> anyhow::Result<()> {
-    println!(env!("CARGO_MANIFEST_DIR"));
     let args = CLI::parse();
 
     let config = Config::read(&args.config).with_context(|| {
@@ -29,8 +32,10 @@ fn main() -> anyhow::Result<()> {
     for (dataset, options) in config.datasets.iter() {
         db.create_dataset_if_not_exists(*dataset, options.kind.storage_kind())?;
     }
+
+    let db = Arc::new(db);
     
-    let api = Api::new(Arc::new(db), &config);
+    let api = Api::new(db.clone(), &config);
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -41,6 +46,9 @@ fn main() -> anyhow::Result<()> {
             
             let app = Router::new()
                 .route("/", get(|| async { "Hello, World!" }))
+                .route("/stats", get(|| async move {
+                    db.get_statistics().unwrap_or_else(|| "no stats available".to_string())
+                }))
                 .nest("/dataset", api.build_router());
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;

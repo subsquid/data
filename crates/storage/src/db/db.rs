@@ -24,7 +24,8 @@ pub(super) type RocksSnapshotIterator<'a> = rocksdb::DBRawIteratorWithThreadMode
 
 
 pub struct Database {
-    db: RocksDB
+    db: RocksDB,
+    options: RocksOptions
 }
 
 
@@ -34,13 +35,9 @@ impl Database {
         options.create_if_missing(true);
         options.create_missing_column_families(true);
         options.set_wal_compression_type(rocksdb::DBCompressionType::Zstd);
+        // options.enable_statistics();
 
-        // Set up block cache
-        let cache = rocksdb::Cache::new_lru_cache(1 * 1024 * 1024 * 1024);
-        let mut block_based_table_factory = rocksdb::BlockBasedOptions::default();
-        block_based_table_factory.set_block_cache(&cache);
-        block_based_table_factory.set_block_size(1024 * 1024);
-        options.set_block_based_table_factory(&block_based_table_factory);
+        // options.set_block_based_table_factory(&block_based_table_factory);
 
         let db = RocksDB::open_cf_descriptors(&options, path, [
             ColumnFamilyDescriptor::new(CF_DATASETS, RocksOptions::default()),
@@ -49,12 +46,21 @@ impl Database {
                 let mut options = RocksOptions::default();
                 options.set_compression_type(rocksdb::DBCompressionType::Lz4);
                 options.set_target_file_size_base(256 * 1024 * 1024);
+
+                // Set up block cache
+                let cache = rocksdb::Cache::new_lru_cache(1024 * 1024 * 1024);
+                let mut block_based_table_factory = rocksdb::BlockBasedOptions::default();
+                block_based_table_factory.set_block_cache(&cache);
+                // block_based_table_factory.disable_cache();
+
+                options.set_block_based_table_factory(&block_based_table_factory);
                 options
             }),
             ColumnFamilyDescriptor::new(CF_DIRTY_TABLES, RocksOptions::default())
         ])?;
         Ok(Self {
-            db
+            db,
+            options
         })
     }
 
@@ -107,4 +113,8 @@ impl Database {
     pub fn get_snapshot(&self) -> ReadSnapshot<'_> {
         ReadSnapshot::new(&self.db)
     }
-}
+
+    pub fn get_statistics(&self) -> Option<String> {
+        self.options.get_statistics()
+    }
+ }

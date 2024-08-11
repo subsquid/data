@@ -1,7 +1,13 @@
-use arrow_buffer::{bit_mask, bit_util, BooleanBuffer, BooleanBufferBuilder};
+use std::sync::Arc;
 
+use anyhow::ensure;
+use arrow::array::{ArrayRef, BooleanArray};
+use arrow::datatypes::DataType;
+use arrow_buffer::{bit_mask, bit_util, BooleanBuffer, BooleanBufferBuilder, NullBuffer};
+
+use crate::StaticSlice;
 use crate::types::{Builder, Slice};
-use crate::util::encode_len;
+use crate::util::{assert_data_type, encode_index, LEN_BYTES, read_index};
 
 
 #[derive(Clone)]
@@ -12,17 +18,45 @@ pub struct BitSlice<'a> {
 }
 
 
-impl <'a> Slice<'a> for BitSlice<'a> {
-    fn read_page(_bytes: &'a [u8]) -> anyhow::Result<Self> {
-        todo!()
-    }
+pub fn read_bit_page(bytes: &[u8], whole: bool) -> anyhow::Result<(BitSlice<'_>, usize)> {
+    let bit_len = read_index(bytes, 0)?;
+    let byte_len = bit_util::ceil(bit_len, 8);
+    let beg = LEN_BYTES;
+    let end = LEN_BYTES + byte_len;
 
+    ensure!(
+        whole && end == bytes.len() || end <= bytes.len(),
+        "expected bit page of length {} to take {} bytes, but got {}",
+        bit_len,
+        end,
+        bytes.len()
+    );
+
+    let slice = BitSlice {
+        buf: &bytes[beg..end],
+        offset: 0,
+        len: bit_len
+    };
+
+    Ok((slice, end))
+}
+
+
+impl<'a> StaticSlice<'a> for BitSlice<'a> {
+    fn read_page(bytes: &'a [u8]) -> anyhow::Result<Self> {
+        let (slice, _) = read_bit_page(bytes, true)?;
+        Ok(slice)
+    }
+}
+
+
+impl <'a> Slice<'a> for BitSlice<'a> {
     fn write_page(&self, buf: &mut Vec<u8>) {
-        let size = encode_len(self.len);
+        let bit_size = encode_index(self.len);
         let data_len = bit_util::ceil(self.len, 8);
 
-        buf.reserve(size.len() + data_len);
-        buf.extend_from_slice(&size);
+        buf.reserve(bit_size.len() + data_len);
+        buf.extend_from_slice(&bit_size);
 
         let offset = buf.len();
         buf.extend(std::iter::repeat(0).take(data_len));
@@ -53,6 +87,10 @@ impl <'a> Slice<'a> for BitSlice<'a> {
 impl Builder for BooleanBufferBuilder {
     type Slice<'a> = BitSlice<'a>;
 
+    fn read_page<'a>(&self, page: &'a [u8]) -> anyhow::Result<Self::Slice<'a>> {
+        Self::Slice::read_page(page)
+    }
+
     fn push_slice(&mut self, slice: &Self::Slice<'_>) {
         let beg = slice.offset;
         let end = slice.offset + slice.len;
@@ -74,10 +112,16 @@ impl Builder for BooleanBufferBuilder {
     fn capacity(&self) -> usize {
         self.capacity()
     }
+
+    fn into_arrow_array(mut self, data_type: Option<DataType>) -> ArrayRef {
+        assert_data_type!(data_type, DataType::Boolean);
+        Arc::new(BooleanArray::new(self.finish(), None))
+    }
 }
 
 
 pub fn push_null_mask<'a>(
+    values_len: usize,
     mask_len: usize,
     mask: &'a Option<BitSlice<'a>>,
     builder_cap: usize,
@@ -88,8 +132,9 @@ pub fn push_null_mask<'a>(
             b.push_slice(m)
         },
         (Some(m), None) => {
-            let mut b = BooleanBufferBuilder::new(std::cmp::max(builder_cap, mask_len));
-            b.append_n(mask_len, true);
+            assert_eq!(mask_len, m.len());
+            let mut b = BooleanBufferBuilder::new(std::cmp::max(builder_cap, values_len));
+            b.append_n(values_len - m.len(), true);
             b.push_slice(m);
             *builder = Some(b)
         },
@@ -108,18 +153,17 @@ pub fn write_null_mask(
     if let Some(mask) = nulls.as_ref() {
         mask.write_page(buf)
     } else {
-        buf.extend_from_slice(&encode_len(0))
+        buf.extend_from_slice(&encode_index(0))
     }
 }
 
 
-impl BitSlice<'static> {
-    pub fn empty() -> Self {
-        Self {
-            buf: &[],
-            offset: 0,
-            len: 0
-        }
+pub fn build_null_buffer(mut builder: BooleanBufferBuilder) -> Option<NullBuffer> {
+    let buffer: NullBuffer = builder.finish().into();
+    if buffer.null_count() == 0 {
+        None
+    } else {
+        Some(buffer)
     }
 }
 

@@ -23,12 +23,14 @@ sqd-primitives = { path = "../primitives" }
 sqd-storage = { path = "../storage", optional = true }
 
 [dev-dependencies]
+criterion = "0.5.1"
 glob = "0.3.1"
 rstest = "0.21.0"
 tempfile = "3.10.1"
 parquet = { workspace = true }
 sqd-dataset = { path = "../dataset" }
 sqd-data = { path = "../data" }
+mimalloc = "0.1.43"
 
 [features]
 parquet = [
@@ -39,3 +41,7 @@ storage = [
     "dep:sqd-storage"
 ]
 
+[[bench]]
+name = "main"
+harness = false
+required-features = ["storage", "parquet"]

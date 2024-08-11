@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, ensure};
-use arrow::array::{Array, ArrayRef, AsArray, BooleanArray, BooleanBufferBuilder, RecordBatch, UInt32Array};
-use arrow::buffer::BooleanBuffer;
+use arrow::array::{Array, ArrayRef, AsArray, RecordBatch, UInt32Array};
 use arrow::datatypes::{ArrowNativeType, DataType, Schema, SchemaRef, UInt32Type};
 use parking_lot::Mutex;
 
+use sqd_array::make_data_builder;
 use sqd_primitives::RowRangeList;
 
 use crate::array::serde::{deserialize_array, deserialize_primitive_array};
@@ -116,7 +116,7 @@ impl <S: KvRead> TableReader<S> {
         let page_offsets = page_offsets.values().as_ref();
 
         let pages: Vec<_> = row_selection.map(|ranges| {
-            select_pages(page_offsets, ranges).collect()
+            ranges.filter_groups(page_offsets).collect()
         }).unwrap_or_else(|| {
             (0..page_offsets.len() - 1).map(|i| (i, None)).collect()
         });
@@ -125,46 +125,36 @@ impl <S: KvRead> TableReader<S> {
         let mut key = self.key.clone();
         let mut maybe_prev_page = None;
         let data_type = self.schema.field(column).data_type();
+        let mut builder = make_data_builder(data_type);
 
-        let arrays = pages.into_iter().map(|(page_index, maybe_mask)| {
+        for (page_index, row_selection) in pages {
             let page_key = key.page(row_group, column, page_index);
+
             if maybe_prev_page.map(|p| p + 1 == page_index).unwrap_or(false) {
                 cursor.next()?;
             } else {
                 cursor.seek(page_key)?;
             }
+
             ensure!(
                 cursor.is_valid() && cursor.key() == page_key,
                 "page was not found at expected place"
             );
 
-            let mut array = deserialize_array(cursor.value(), data_type.clone())?;
-
-            let expected_array_len = page_offsets[page_index + 1] - page_offsets[page_index];
-
-            ensure!(
-                array.len() == expected_array_len as usize,
-                "unexpected array length"
-            );
-
-            if let Some(mask) = maybe_mask {
-                array = arrow::compute::filter(
-                    array.as_ref(),
-                    &BooleanArray::new(mask, None)
-                )?;
-            }
+            if let Some(ranges) = row_selection {
+                builder.push_page_ranges(cursor.value(), ranges.as_slice())
+            } else {
+                builder.push_page(cursor.value())
+            }.with_context(|| {
+                format!("failed to read page {}", page_index)
+            })?;
 
             maybe_prev_page = Some(page_index);
-            Ok::<ArrayRef, anyhow::Error>(array)
-        }.with_context(|| {
-            format!("failed to read page {}", page_index)
-        })).collect::<anyhow::Result<Vec<_>>>()?;
+        }
 
-        let array_refs: Vec<_> = arrays.iter().map(|a| a.as_ref()).collect();
+        let array = builder.into_arrow_array(Some(data_type.clone()));
 
-        let result = arrow::compute::concat(array_refs.as_slice())?;
-
-        Ok(result)
+        Ok(array)
     }
 
     pub fn read_row_group(
@@ -383,27 +373,4 @@ fn validate_statistic(offsets: &[u32], kind: Statistic, array: &dyn Array) -> an
         ensure!(bounds_ok, "some null counts are not within expected bounds");
     }
     Ok(())
-}
-
-
-fn select_pages<'a>(
-    offsets: &'a [u32],
-    row_selection: &'a RowRangeList
-) -> impl Iterator<Item=(usize, Option<BooleanBuffer>)> + 'a
-{
-    row_selection.filter_groups(offsets).map(|(rg, maybe_rows)| {
-        let maybe_mask = maybe_rows.map(|ranges| {
-            let size = offsets[rg + 1] - offsets[rg];
-            let mut mask = BooleanBufferBuilder::new(size as usize);
-            let mut end = 0;
-            for r in ranges.iter() {
-                mask.append_n((r.start - end) as usize, false);
-                mask.append_n((r.end - r.start) as usize, true);
-                end = r.end
-            }
-            mask.append_n((size - end) as usize, false);
-            mask.finish()
-        });
-        (rg, maybe_mask)
-    })
 }
