@@ -38,12 +38,16 @@ pub struct TableOptions {
 
 impl TableOptions {
     pub fn has_stats(&self, name: &str) -> bool {
-        self.column_options.get(name).map_or(false, |c| c.with_stats)
+        self.column_options.get(name).map_or(false, |c| c.stats_enable)
+    }
+    
+    pub fn get_stats_partition(&self, name: &str) -> Option<usize> {
+        self.column_options.get(name).map(|c| c.stats_partition)
     }
     
     pub fn add_stats(&mut self, name: Name) {
         let options = self.column_options.entry(name).or_insert(ColumnOptions::default());
-        options.with_stats = true
+        options.stats_enable = true
     }
 }
 
@@ -59,7 +63,18 @@ impl Default for TableOptions {
 }
 
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ColumnOptions {
-    pub with_stats: bool
+    pub stats_enable: bool,
+    pub stats_partition: usize
+}
+
+
+impl Default for ColumnOptions {
+    fn default() -> Self {
+        Self {
+            stats_enable: false,
+            stats_partition: 4000
+        }
+    }
 }

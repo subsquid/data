@@ -43,7 +43,7 @@ impl <'a> TableReader for ChunkTableReader<'a> {
         let row_selection = maybe_new_row_selection.as_ref().or(row_selection);
 
         let mut row_groups = if let Some(row_ranges) = row_selection {
-            row_ranges.filter_groups(
+            row_ranges.paginate(
                 self.get_row_group_offsets().values().as_ref()
             ).collect::<Vec<_>>()
         } else {

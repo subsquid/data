@@ -116,7 +116,7 @@ impl <S: KvRead> TableReader<S> {
         let page_offsets = page_offsets.values().as_ref();
 
         let pages: Vec<_> = row_selection.map(|ranges| {
-            ranges.filter_groups(page_offsets).collect()
+            ranges.paginate(page_offsets).collect()
         }).unwrap_or_else(|| {
             (0..page_offsets.len() - 1).map(|i| (i, None)).collect()
         });

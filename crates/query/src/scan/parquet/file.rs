@@ -82,7 +82,7 @@ impl TableReader for ParquetFile {
 
         let mut row_groups = if let Some(row_ranges) = row_selection {
             let row_group_offsets = build_row_group_offsets(parquet_metadata.row_groups());
-            let selected_row_groups = row_ranges.filter_groups(&row_group_offsets).collect::<Vec<_>>();
+            let selected_row_groups = row_ranges.paginate(&row_group_offsets).collect::<Vec<_>>();
             maybe_row_group_offsets = Some(row_group_offsets);
             selected_row_groups
         } else {

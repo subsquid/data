@@ -107,6 +107,9 @@ impl <T: ArrowNativeType> NativeBuilder<T> {
 }
 
 
+impl <T: NativeType> DefaultDataBuilder for NativeBuilder<T> {}
+
+
 impl <T: NativeType> Builder for NativeBuilder<T> {
     type Slice<'a> = NativeSlice<'a, T>;
 

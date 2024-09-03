@@ -3014,6 +3014,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqd-storage2"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "arrow-buffer",
+ "borsh",
+ "parking_lot",
+ "rayon",
+ "rocksdb",
+ "sqd-dataset",
+ "sqd-primitives",
+ "uuid",
+]
+
+[[package]]
 name = "sqlparser"
 version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

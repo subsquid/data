@@ -36,9 +36,15 @@ impl <Idx: Ord> TryFrom<Vec<Range<Idx>>> for RangeList<Idx> {
 }
 
 
-impl <Idx: Ord + Copy> RangeList<Idx> {
+impl <Idx: Ord + Copy + Default> RangeList<Idx> {
     pub fn new(ranges: Vec<Range<Idx>>) -> Self {
         Self::try_from(ranges).unwrap()
+    }
+    
+    pub unsafe fn new_unchecked(ranges: Vec<Range<Idx>>) -> Self {
+        Self {
+            ranges
+        }
     }
 
     pub fn seal<I: IntoIterator<Item = Range<Idx>>>(list: I) -> Self {
@@ -70,33 +76,41 @@ impl <Idx: Ord + Copy> RangeList<Idx> {
             ranges: intersection(self.iter(), other.iter()).collect()
         }
     }
+    
+    pub fn end(&self) -> Idx {
+        self.ranges.last().map(|r| r.end).unwrap_or_default()
+    }
+    
+    pub fn len(&self) -> usize {
+        self.ranges.len()
+    }
 }
 
 
-impl <Idx: Ord + Copy + Sub<Output = Idx> + Debug> RangeList<Idx> {
-    pub fn filter_groups<'a>(&'a self, offsets: &'a [Idx]) -> impl Iterator<Item = (usize, Option<Self>)> + 'a {
+impl <Idx: Ord + Copy + Default + Sub<Output = Idx> + Debug> RangeList<Idx> {
+    pub fn paginate<'a>(&'a self, page_offsets: &'a [Idx]) -> impl Iterator<Item = (usize, Option<Self>)> + 'a {
         let mut ranges = self.iter().peekable();
         let mut i = 0;
         std::iter::from_fn(move || {
-            while i < offsets.len() - 1 {
-                let gix = i;
-                let group = offsets[i]..offsets[i + 1];
-                assert!(!group.is_empty());
+            while i < page_offsets.len() - 1 {
+                let pix = i;
+                let page = page_offsets[i]..page_offsets[i + 1];
+                assert!(!page.is_empty());
 
                 let mut included_ranges = Vec::new();
 
                 loop {
                     if let Some(range) = ranges.peek().cloned() {
-                        let intersection = max(group.start, range.start)..min(group.end, range.end);
+                        let intersection = max(page.start, range.start)..min(page.end, range.end);
 
-                        if intersection == group {
+                        if intersection == page {
                             i += 1;
-                            return Some((gix, None))
+                            return Some((pix, None))
                         }
                         
                         if intersection.end > intersection.start {
                             included_ranges.push(
-                                intersection.start - group.start..intersection.end-group.start
+                                intersection.start - page.start..intersection.end - page.start
                             );
                         }
                         
@@ -104,12 +118,12 @@ impl <Idx: Ord + Copy + Sub<Output = Idx> + Debug> RangeList<Idx> {
                             ranges.next();
                         }
 
-                        if group.end == intersection.end {
+                        if page.end == intersection.end {
                             break
                         }
                     } else {
                         return if included_ranges.len() > 0 {
-                            Some((gix, Some(RangeList {
+                            Some((pix, Some(RangeList {
                                 ranges: included_ranges
                             })))
                         } else {
@@ -121,7 +135,7 @@ impl <Idx: Ord + Copy + Sub<Output = Idx> + Debug> RangeList<Idx> {
                 i += 1;
 
                 if included_ranges.len() > 0 {
-                    return Some((gix, Some(RangeList {
+                    return Some((pix, Some(RangeList {
                         ranges: std::mem::take(&mut included_ranges)
                     })))
                 }
