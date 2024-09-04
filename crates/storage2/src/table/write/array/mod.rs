@@ -16,17 +16,19 @@ pub type FlushCallback<'a> = &'a mut dyn FnMut(usize, usize, &[u8]) -> anyhow::R
 
 
 pub trait Builder {
+    fn num_buffers(&self) -> usize;
+    
     fn get_index(&self) -> usize;
 
     fn set_index(&mut self, index: usize);
-
-    fn num_buffers(&self) -> usize;
 
     fn flush(&mut self, cb: FlushCallback<'_>) -> anyhow::Result<()>;
 
     fn flush_all(&mut self, cb: FlushCallback<'_>) -> anyhow::Result<()>;
 
     fn push_array(&mut self, array: &dyn Array);
+    
+    fn total_len(&self) -> usize;
 }
 
 

@@ -9,6 +9,8 @@ mod row_predicate_dsl;
 mod scan;
 #[cfg(feature = "storage")]
 pub mod storage;
+#[cfg(feature = "storage2")]
+pub mod storage2;
 mod util;
 
 

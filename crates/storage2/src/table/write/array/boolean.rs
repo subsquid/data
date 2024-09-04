@@ -1,39 +1,45 @@
-use crate::table::write::array::bitmask::{flush_all_null_mask, flush_null_mask, set_nulls_index, BitmaskBuilder};
+use crate::table::write::array::bitmask::{BitmaskBuilder, NullMaskBuilder};
 use crate::table::write::array::{Builder, FlushCallback};
-use arrow::array::Array;
+use arrow::array::{Array, AsArray};
 
 
 pub struct BooleanBuilder {
-    nulls: Option<BitmaskBuilder>,
+    nulls: NullMaskBuilder,
     values: BitmaskBuilder
 }
 
 
 impl Builder for BooleanBuilder {
-    fn get_index(&self) -> usize {
-        self.values.get_index() - 1
-    }
-
-    fn set_index(&mut self, index: usize) {
-        set_nulls_index!(self, index);
-        self.values.set_index(index + 1);
-    }
-
     fn num_buffers(&self) -> usize {
         2
     }
 
+    fn get_index(&self) -> usize {
+        self.nulls.get_index()
+    }
+
+    fn set_index(&mut self, index: usize) {
+        self.nulls.set_index(index);
+        self.values.set_index(index + 1);
+    }
+
     fn flush(&mut self, cb: FlushCallback<'_>) -> anyhow::Result<()> {
-        flush_null_mask!(self, cb);
+        self.nulls.flush(cb)?;
         self.values.flush(cb)
     }
 
     fn flush_all(&mut self, cb: FlushCallback<'_>) -> anyhow::Result<()> {
-        flush_all_null_mask!(self, cb);
+        self.nulls.flush_all(cb)?;
         self.values.flush_all(cb)
     }
 
     fn push_array(&mut self, array: &dyn Array) {
-        todo!()
+        let array = array.as_boolean();
+        self.nulls.push(array.len(), array.nulls());
+        self.values.push_boolean_buffer(array.values())
+    }
+
+    fn total_len(&self) -> usize {
+        self.values.total_len()
     }
 }

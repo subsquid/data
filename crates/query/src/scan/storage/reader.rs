@@ -132,7 +132,7 @@ fn read_row_group<'a>(
         let row_index = build_row_index_array(
             row_group_offset,
             row_group_len as usize,
-            &maybe_row_selection
+            maybe_row_selection.as_ref()
         );
         record_batch = add_row_index(&record_batch, row_index)
     }
@@ -169,10 +169,6 @@ impl <'a> RowStats for ChunkTableReader<'a> {
             max
         }))
     }
-
-    fn get_num_rows(&self) -> usize {
-        self.num_rows()
-    }
 }
 
 
@@ -196,11 +192,5 @@ impl <'a> RowStats for RowGroupStats<'a> {
             min,
             max
         }))
-    }
-
-    fn get_num_rows(&self) -> usize {
-        let offsets = self.reader.get_row_group_offsets();
-        let num_rows = offsets.value(self.row_group + 1) - offsets.value(self.row_group);
-        num_rows as usize
     }
 }

@@ -198,7 +198,7 @@ fn read_row_group(
 
     let maybe_row_index = maybe_row_index_offset.map(|offset| {
         let len = metadata.metadata().row_group(row_group_idx).num_rows();
-        build_row_index_array(offset, len as usize, &maybe_row_selection)
+        build_row_index_array(offset, len as usize, maybe_row_selection.as_ref())
     });
 
     if let Some(row_ranges) = maybe_row_selection {

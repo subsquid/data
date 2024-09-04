@@ -89,10 +89,6 @@ impl RowStats for RowGroupStats {
 
         Ok(s.as_ref().map(|s| s.values.clone()))
     }
-
-    fn get_num_rows(&self) -> usize {
-        self.metadata.metadata().file_metadata().num_rows() as usize
-    }
 }
 
 
@@ -253,10 +249,6 @@ impl RowStats for PageStats {
         });
 
         Ok(s.as_ref().map(|s| s.values.clone()))
-    }
-
-    fn get_num_rows(&self) -> usize {
-        self.metadata.metadata().row_group(self.row_group_idx).num_rows() as usize
     }
 }
 

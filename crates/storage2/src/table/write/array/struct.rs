@@ -1,21 +1,25 @@
-use crate::table::write::array::bitmask::{flush_all_null_mask, flush_null_mask, set_nulls_index, BitmaskBuilder};
+use crate::table::write::array::bitmask::NullMaskBuilder;
 use crate::table::write::array::{AnyBuilder, Builder, FlushCallback};
-use arrow::array::Array;
+use arrow::array::{Array, AsArray};
 
 
 pub struct StructBuilder {
-    nulls: Option<BitmaskBuilder>,
+    nulls: NullMaskBuilder,
     columns: Vec<AnyBuilder>
 }
 
 
 impl Builder for StructBuilder {
+    fn num_buffers(&self) -> usize {
+        1 + self.columns.iter().map(|c| c.num_buffers()).sum::<usize>()
+    }
+
     fn get_index(&self) -> usize {
-        self.columns[0].get_index() - 1
+        self.nulls.get_index()
     }
 
     fn set_index(&mut self, index: usize) {
-        set_nulls_index!(self, index);
+        self.nulls.set_index(index);
         let mut i = index + 1;
         for col in self.columns.iter_mut() {
             col.set_index(i);
@@ -23,12 +27,8 @@ impl Builder for StructBuilder {
         }
     }
 
-    fn num_buffers(&self) -> usize {
-        1 + self.columns.iter().map(|c| c.num_buffers()).sum::<usize>()
-    }
-
     fn flush(&mut self, cb: FlushCallback<'_>) -> anyhow::Result<()> {
-        flush_null_mask!(self, cb);
+        self.nulls.flush(cb)?;
         for col in self.columns.iter_mut() {
             col.flush(cb)?;
         }
@@ -36,7 +36,7 @@ impl Builder for StructBuilder {
     }
 
     fn flush_all(&mut self, cb: FlushCallback<'_>) -> anyhow::Result<()> {
-        flush_all_null_mask!(self, cb);
+        self.nulls.flush_all(cb)?;
         for col in self.columns.iter_mut() {
             col.flush_all(cb)?;
         }
@@ -44,6 +44,15 @@ impl Builder for StructBuilder {
     }
 
     fn push_array(&mut self, array: &dyn Array) {
-        todo!()
+        let array = array.as_struct();
+        assert_eq!(array.num_columns(), self.columns.len());
+        self.nulls.push(array.len(), array.nulls());
+        for (b, col) in self.columns.iter_mut().zip(array.columns()) {
+            b.push_array(col)
+        }
+    }
+
+    fn total_len(&self) -> usize {
+        self.nulls.total_len()
     }
 }

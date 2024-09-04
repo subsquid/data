@@ -10,7 +10,7 @@ use crate::scan::row_predicate::RowPredicate;
 pub fn build_row_index_array(
     offset: RowIndex,
     len: usize,
-    maybe_row_selection: &Option<RowRangeList>
+    maybe_row_selection: Option<&RowRangeList>
 ) -> PrimitiveArray<RowIndexArrowType> {
     if let Some(row_ranges) = maybe_row_selection {
         let num_rows = row_ranges.iter()

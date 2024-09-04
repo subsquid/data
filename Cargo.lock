@@ -2995,6 +2995,7 @@ dependencies = [
  "sqd-polars",
  "sqd-primitives",
  "sqd-storage",
+ "sqd-storage2",
  "tempfile",
 ]
 

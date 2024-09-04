@@ -33,8 +33,6 @@ pub trait RowStats {
     fn get_column_offsets(&self, column: Name) -> anyhow::Result<UInt32Array>;
 
     fn get_column_stats(&self, column: Name) -> anyhow::Result<Option<ArrayStats>>;
-
-    fn get_num_rows(&self) -> usize;
 }
 
 
