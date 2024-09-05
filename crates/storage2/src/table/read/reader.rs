@@ -56,25 +56,25 @@ impl <S: KvRead + Sync> TableReader<S> {
     }
 
     pub fn get_column_stats(&self, column_index: usize) -> anyhow::Result<Option<Stats>> {
-        Ok(None)
-        // let stats = self.stats.lock();
-        // Ok(if let Some(stats) = stats[column_index].as_ref() {
-        //     Some(stats.clone())
-        // } else {
-        //     let data = self.storage.get(
-        //         self.key.clone().statistic(column_index)
-        //     )?;
-        //     if let Some(data) = data {
-        //         let stats = Stats::read(&data, self.schema.field(column_index).data_type())
-        //             .with_context(|| anyhow!(
-        //                 "failed to deserialize stats for column {}", 
-        //                 self.schema.field(column_index).name()
-        //             ))?;
-        //         Some(stats)
-        //     } else {
-        //         None
-        //     }
-        // })
+        // Ok(None)
+        let stats = self.stats.lock();
+        Ok(if let Some(stats) = stats[column_index].as_ref() {
+            Some(stats.clone())
+        } else {
+            let data = self.storage.get(
+                self.key.clone().statistic(column_index)
+            )?;
+            if let Some(data) = data {
+                let stats = Stats::read(&data, self.schema.field(column_index).data_type())
+                    .with_context(|| anyhow!(
+                        "failed to deserialize stats for column {}",
+                        self.schema.field(column_index).name()
+                    ))?;
+                Some(stats)
+            } else {
+                None
+            }
+        })
     }
 
     pub fn read_table(
@@ -223,38 +223,40 @@ impl <S: KvRead + Sync> TableReader<S> {
             let mut buf = MutableBuffer::from_len_zeroed((len + 1) * i32::get_byte_width());
             let data = buf.typed_data_mut::<i32>();
             let mut pos = 0;
-            
+
             for r in ranges.iter() {
                 let end_pos = pos + r.len();
-                
+
                 let offset = data[pos];
                 data[pos..end_pos + 1].copy_from_slice(
                     &offsets[r.start as usize..r.end as usize + 1]
                 );
-                
+
                 let val_range = data[pos] as u32..data[end_pos] as u32;
-                
+
                 let range_offset = data[pos];
                 for o in data[pos..end_pos + 1].iter_mut() {
                     *o = *o - range_offset + offset;
                 }
-           
-                if let Some(last_range) = value_ranges.last_mut() {
-                    if (*last_range).end == val_range.start {
-                        last_range.end = val_range.end
+
+                if val_range.start < val_range.end {
+                    if let Some(last_range) = value_ranges.last_mut() {
+                        if (*last_range).end == val_range.start {
+                            last_range.end = val_range.end
+                        } else {
+                            value_ranges.push(val_range)
+                        }
                     } else {
                         value_ranges.push(val_range)
                     }
-                } else {
-                    value_ranges.push(val_range)
                 }
 
                 pos = end_pos;
             }
-            
+
             unsafe {(
                 OffsetBuffer::new_unchecked(ScalarBuffer::from(buf)),
-                Some(RangeList::new_unchecked(value_ranges))
+                Some(RangeList::new(value_ranges))
             )}
         } else {
             let offsets = unsafe {
