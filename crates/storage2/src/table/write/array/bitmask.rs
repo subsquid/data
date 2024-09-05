@@ -142,6 +142,7 @@ impl BitmaskBuilder {
     }
 
     pub fn new(page_size: usize) -> Self {
+        assert!(page_size > 0);
         Self {
             buffer: MutableBuffer::new(page_size * 2),
             len: 0,
@@ -162,6 +163,16 @@ pub struct NullMaskBuilder {
 
 
 impl NullMaskBuilder {
+    pub fn new(page_size: usize) -> Self {
+        assert!(page_size > 0);
+        Self {
+            nulls: None,
+            total_len: 0,
+            page_size,
+            index: 0
+        }
+    }
+
     pub fn get_index(&self) -> usize {
         self.index
     }

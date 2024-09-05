@@ -9,6 +9,23 @@ pub struct StructBuilder {
 }
 
 
+impl StructBuilder {
+    pub fn new(page_size: usize, columns: Vec<AnyBuilder>) -> Self {
+        for col in columns.iter() {
+            assert_eq!(col.total_len(), 0);
+        }
+        
+        let mut builder = Self {
+            nulls: NullMaskBuilder::new(page_size),
+            columns
+        };
+        
+        builder.set_index(0);
+        builder
+    }
+}
+
+
 impl Builder for StructBuilder {
     fn num_buffers(&self) -> usize {
         1 + self.columns.iter().map(|c| c.num_buffers()).sum::<usize>()

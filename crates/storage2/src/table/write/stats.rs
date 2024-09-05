@@ -1,7 +1,8 @@
 use crate::table::util::{BufferBag, BufferCallback};
-use arrow::array::{Array, ArrayRef, ArrowPrimitiveType, AsArray};
+use arrow::array::{Array, ArrayRef, ArrowPrimitiveType, AsArray, BinaryArray, PrimitiveArray, StringArray};
 use arrow::datatypes::{DataType, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 use arrow_buffer::{BooleanBuffer, ScalarBuffer};
+use std::sync::Arc;
 
 
 #[derive(Default)]
@@ -126,7 +127,46 @@ impl AnyBag {
     }
 
     fn finish(self) -> (Option<BooleanBuffer>, ArrayRef, ArrayRef) {
-        todo!()
+        macro_rules! prim {
+            ($bag:ident, $t:ty) => {{
+                let nulls = $bag.validity.iter().any(|x| !x).then(|| {
+                    BooleanBuffer::from($bag.validity)
+                });
+                let min = Arc::new(PrimitiveArray::<$t>::from($bag.min));
+                let max = Arc::new(PrimitiveArray::<$t>::from($bag.max));
+                (nulls, min, max)
+            }};
+        }
+        match self {
+            AnyBag::Int8(bag) => prim!(bag, Int8Type),
+            AnyBag::Int16(bag) => prim!(bag, Int16Type),
+            AnyBag::Int32(bag) => prim!(bag, Int32Type),
+            AnyBag::Int64(bag) => prim!(bag, Int64Type),
+            AnyBag::UInt8(bag) => prim!(bag, UInt8Type),
+            AnyBag::UInt16(bag) => prim!(bag, UInt16Type),
+            AnyBag::UInt32(bag) => prim!(bag, UInt32Type),
+            AnyBag::UInt64(bag) => prim!(bag, UInt64Type),
+            AnyBag::Binary(bag) => {
+                let nulls = bag.validity.iter().any(|x| !x).then(|| {
+                    BooleanBuffer::from(bag.validity)
+                });
+                let min: Vec<_> = bag.min.iter().map(|v| v.as_slice()).collect();
+                let max: Vec<_> = bag.max.iter().map(|v| v.as_slice()).collect();
+                let min = Arc::new(BinaryArray::from(min));
+                let max = Arc::new(BinaryArray::from(max));
+                (nulls, min, max)
+            },
+            AnyBag::String(bag) => {
+                let nulls = bag.validity.iter().any(|x| !x).then(|| {
+                    BooleanBuffer::from(bag.validity)
+                });
+                let min: Vec<_> = bag.min.iter().map(|v| v.as_str()).collect();
+                let max: Vec<_> = bag.max.iter().map(|v| v.as_str()).collect();
+                let min = Arc::new(StringArray::from(min));
+                let max = Arc::new(StringArray::from(max));
+                (nulls, min, max)
+            },
+        }
     }
 }
 
@@ -213,7 +253,7 @@ impl StatsBuilder {
 
     pub fn push_array(&mut self, array: &dyn Array) {
         let mut offset = if self.last_partition_len() < self.partition {
-            let len = std::cmp::max(self.partition - self.last_partition_len(), array.len());
+            let len = std::cmp::min(self.partition - self.last_partition_len(), array.len());
             let merge = self.last_partition_len() > 0;
             self.push_array_values(&array.slice(0, len));
             if merge {
@@ -225,7 +265,7 @@ impl StatsBuilder {
         };
 
         while offset < array.len() {
-            let len = std::cmp::max(self.partition, array.len() - offset);
+            let len = std::cmp::min(self.partition, array.len() - offset);
             self.push_array_values(&array.slice(offset, len));
             offset += len
         }

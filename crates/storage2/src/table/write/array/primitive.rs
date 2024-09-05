@@ -94,10 +94,8 @@ impl <T: ArrowNativeType> Builder for NativeBuilder<T> {
             let data = &self.buffer[offset..];
             assert_eq!(data.len() % T::get_byte_width(), 0);
             let len = data.len() / T::get_byte_width();
-            if len > 0 {
-                cb(self.index, len, data)?;
-                offset = self.buffer.len();
-            }
+            cb(self.index, len, data)?;
+            offset = self.buffer.len();
             Ok(())
         });
 
@@ -125,6 +123,18 @@ impl <T: ArrowNativeType> Builder for NativeBuilder<T> {
 pub struct PrimitiveBuilder<T: ArrowPrimitiveType> {
     nulls: NullMaskBuilder,
     values: NativeBuilder<T::Native>
+}
+
+
+impl <T: ArrowPrimitiveType> PrimitiveBuilder<T> {
+    pub fn new(page_size: usize) -> Self {
+        let mut builder = Self {
+            nulls: NullMaskBuilder::new(page_size),
+            values: NativeBuilder::new(page_size)
+        };
+        builder.set_index(0);
+        builder
+    }
 }
 
 

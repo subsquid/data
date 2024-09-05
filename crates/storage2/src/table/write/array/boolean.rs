@@ -9,6 +9,18 @@ pub struct BooleanBuilder {
 }
 
 
+impl BooleanBuilder {
+    pub fn new(page_size: usize) -> Self {
+        let mut builder = Self {
+            nulls: NullMaskBuilder::new(page_size),
+            values: BitmaskBuilder::new(page_size)
+        };
+        builder.set_index(0);
+        builder
+    }
+}
+
+
 impl Builder for BooleanBuilder {
     fn num_buffers(&self) -> usize {
         2

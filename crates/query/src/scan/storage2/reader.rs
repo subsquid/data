@@ -77,7 +77,7 @@ impl <'a> TableReader for ChunkTableReader<'a> {
                     .iter()
                     .enumerate()
                     .filter_map(|(idx, f)| {
-                        if projected_columns.contains(&f.name().as_str()) {
+                        if projected_columns.contains(&f.name().as_str()) || with_row_index && f.name() == "row_index" {
                             Some(idx)
                         } else {
                             None

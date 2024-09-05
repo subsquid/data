@@ -33,3 +33,34 @@ pub trait Builder {
 
 
 pub type AnyBuilder = Box<dyn Builder>;
+
+
+impl Builder for AnyBuilder {
+    fn num_buffers(&self) -> usize {
+        self.as_ref().num_buffers()
+    }
+
+    fn get_index(&self) -> usize {
+        self.as_ref().get_index()
+    }
+
+    fn set_index(&mut self, index: usize) {
+        self.as_mut().set_index(index)
+    }
+
+    fn flush(&mut self, cb: FlushCallback<'_>) -> anyhow::Result<()> {
+        self.as_mut().flush(cb)
+    }
+
+    fn flush_all(&mut self, cb: FlushCallback<'_>) -> anyhow::Result<()> {
+        self.as_mut().flush_all(cb)
+    }
+
+    fn push_array(&mut self, array: &dyn Array) {
+        self.as_mut().push_array(array)
+    }
+
+    fn total_len(&self) -> usize {
+        self.as_ref().total_len()
+    }
+}

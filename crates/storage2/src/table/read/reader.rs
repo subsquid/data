@@ -56,24 +56,25 @@ impl <S: KvRead + Sync> TableReader<S> {
     }
 
     pub fn get_column_stats(&self, column_index: usize) -> anyhow::Result<Option<Stats>> {
-        let stats = self.stats.lock();
-        Ok(if let Some(stats) = stats[column_index].as_ref() {
-            Some(stats.clone())
-        } else {
-            let data = self.storage.get(
-                self.key.clone().statistic(column_index)
-            )?;
-            if let Some(data) = data {
-                let stats = Stats::read(&data, self.schema.field(column_index).data_type())
-                    .with_context(|| anyhow!(
-                        "failed to deserialize stats for column {}", 
-                        self.schema.field(column_index).name()
-                    ))?;
-                Some(stats)
-            } else {
-                None
-            }
-        })
+        Ok(None)
+        // let stats = self.stats.lock();
+        // Ok(if let Some(stats) = stats[column_index].as_ref() {
+        //     Some(stats.clone())
+        // } else {
+        //     let data = self.storage.get(
+        //         self.key.clone().statistic(column_index)
+        //     )?;
+        //     if let Some(data) = data {
+        //         let stats = Stats::read(&data, self.schema.field(column_index).data_type())
+        //             .with_context(|| anyhow!(
+        //                 "failed to deserialize stats for column {}", 
+        //                 self.schema.field(column_index).name()
+        //             ))?;
+        //         Some(stats)
+        //     } else {
+        //         None
+        //     }
+        // })
     }
 
     pub fn read_table(
@@ -210,103 +211,57 @@ impl <S: KvRead + Sync> TableReader<S> {
         ranges: Option<&RangeList<u32>>
     ) -> anyhow::Result<(OffsetBuffer<i32>, Option<RangeList<u32>>)>
     {
+        let offsets = self.read_native_bytes(column, buffer, i32::get_byte_width(), None)
+            .map(ScalarBuffer::<i32>::from)?;
+
+        util::validate_offsets(&offsets)?;
+
         Ok(if let Some(ranges) = ranges {
-            let (offsets, value_ranges) = self.read_ranged_offsets(column, buffer, ranges)?;
-            (offsets, Some(value_ranges))
+            // TODO: implement partial offsets reading
+            let mut value_ranges = Vec::<Range<u32>>::with_capacity(ranges.len());
+            let len: usize = ranges.iter().map(|r| r.len()).sum();
+            let mut buf = MutableBuffer::from_len_zeroed((len + 1) * i32::get_byte_width());
+            let data = buf.typed_data_mut::<i32>();
+            let mut pos = 0;
+            
+            for r in ranges.iter() {
+                let end_pos = pos + r.len();
+                
+                let offset = data[pos];
+                data[pos..end_pos + 1].copy_from_slice(
+                    &offsets[r.start as usize..r.end as usize + 1]
+                );
+                
+                let val_range = data[pos] as u32..data[end_pos] as u32;
+                
+                let range_offset = data[pos];
+                for o in data[pos..end_pos + 1].iter_mut() {
+                    *o = *o - range_offset + offset;
+                }
+           
+                if let Some(last_range) = value_ranges.last_mut() {
+                    if (*last_range).end == val_range.start {
+                        last_range.end = val_range.end
+                    } else {
+                        value_ranges.push(val_range)
+                    }
+                } else {
+                    value_ranges.push(val_range)
+                }
+
+                pos = end_pos;
+            }
+            
+            unsafe {(
+                OffsetBuffer::new_unchecked(ScalarBuffer::from(buf)),
+                Some(RangeList::new_unchecked(value_ranges))
+            )}
         } else {
-            let offsets = self.read_native_bytes(column, buffer, i32::get_byte_width(), None)
-                .map(ScalarBuffer::<i32>::from)?;
-
-            util::validate_offsets(&offsets)?;
-
             let offsets = unsafe {
                 OffsetBuffer::new_unchecked(offsets)
             };
             (offsets, None)
         })
-    }
-
-    fn read_ranged_offsets(
-        &self,
-        column: usize,
-        buffer: usize,
-        ranges: &RangeList<u32>
-    ) -> anyhow::Result<(OffsetBuffer<i32>, RangeList<u32>)>
-    {
-        let page_offsets = self.get_buffer_pages(column, buffer)?;
-        let pagination = Pagination::new(&page_offsets, Some(ranges));
-
-        let item_size = size_of::<i32>();
-        let mut buf = MutableBuffer::from_len_zeroed((pagination.num_items() + 1) * item_size);
-        let offsets = buf.typed_data_mut::<i32>();
-
-        let mut value_ranges = Vec::<Range<u32>>::with_capacity(ranges.len());
-        let mut pos = 0;
-        let mut prev_offset = 0;
-
-        self.for_each_page(column, buffer, &pagination, |pi, data| {
-            let expected_byte_len = pagination.page_range(pi).len() * item_size;
-            ensure!(
-                expected_byte_len == data.len(),
-                "expected for page {} to have byte length {}, but got {}",
-                pagination.page_index(pi),
-                expected_byte_len,
-                data.len()
-            );
-
-            let mut is_first_page = true;
-            for r in pagination.iter_ranges(pi) {
-                debug_assert!(r.len() > 0);
-                let top_offset = offsets[pos];
-
-                unsafe {
-                    copy_bytes(
-                        offsets,
-                        pos,
-                        data,
-                        r.start,
-                        r.end + 1
-                    );
-                }
-
-                let next_pos = pos + r.len();
-                let value_range = offsets[pos]..offsets[next_pos];
-                let range_offset = value_range.start;
-                for offset in offsets[pos..next_pos].iter_mut() {
-                    ensure!(prev_offset <= *offset);
-                    prev_offset = *offset;
-                    *offset = *offset - range_offset + top_offset;
-                }
-
-                if value_range.start < value_range.end {
-                    let new_range = value_range.start as u32..value_range.end as u32;
-                    if is_first_page {
-                        match value_ranges.last_mut() {
-                            Some(l) if l.end == new_range.start => {
-                                l.end = new_range.end
-                            },
-                            _ => {
-                                value_ranges.push(new_range)
-                            }
-                        }
-                    } else {
-                        value_ranges.push(new_range)
-                    }
-                }
-
-                pos = next_pos;
-                is_first_page = false;
-            };
-
-            Ok(())
-        })?;
-
-        unsafe {
-            Ok((
-                OffsetBuffer::new_unchecked(ScalarBuffer::from(buf)),
-                RangeList::new_unchecked(value_ranges)
-            ))
-        }
     }
 
     fn read_native_bytes(
@@ -389,7 +344,7 @@ impl <S: KvRead + Sync> TableReader<S> {
                 let upper = lower.end..pages.end;
 
                 let (lower_buf, upper_buf) = dest.split_at_mut(
-                    pagination.page_write_offset(lower.end) - pagination.page_write_offset(lower.start)
+                    item_size * (pagination.page_write_offset(lower.end) - pagination.page_write_offset(lower.start))
                 );
 
                 let (lower_res, upper_res) = rayon::join(
@@ -441,7 +396,7 @@ impl <S: KvRead + Sync> TableReader<S> {
     ) -> anyhow::Result<Option<NullBuffer>>
     {
         let page_offsets = self.get_buffer_pages(column, buffer)?;
-        if page_offsets.len() == 1 {
+        if page_offsets.last().cloned().unwrap() == 0 {
             return Ok(None)
         }
         let values = self.read_boolean(column, buffer, ranges)?;
@@ -493,27 +448,4 @@ impl <'a, S: KvRead + Sync> Storage for ColumnStorage<'a, S> {
     {
         self.reader.read_offsets(self.column, buffer, ranges)
     }
-}
-
-
-unsafe fn copy_bytes<T>(
-    dest: &mut [T],
-    dest_pos: usize,
-    src_bytes: &[u8],
-    first_src_item: usize,
-    last_src_item: usize
-) {
-    let item_size = size_of::<T>();
-    let first_byte = first_src_item * item_size;
-    let last_byte = last_src_item * item_size;
-    let byte_len = last_byte - first_byte;
-
-    debug_assert!(dest.len() >= last_src_item - first_src_item + dest_pos);
-    debug_assert!(src_bytes.len() >= last_byte);
-
-    std::ptr::copy_nonoverlapping(
-        src_bytes.as_ptr().add(first_byte),
-        dest.as_mut_ptr().add(dest_pos).cast(),
-        byte_len
-    )
 }

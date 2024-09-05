@@ -29,7 +29,7 @@ impl <S: KvWrite> TableWriter<S> {
     ) -> Self
     {
         let columns: Vec<_> = schema.fields().iter().map(|f| {
-            make_any_builder(f.data_type(), table_options.default_page_size)
+            make_any_builder(table_options.default_page_size, f.data_type())
         }).collect();
 
         let pages: Vec<_> = schema.fields().iter().map(|f| {

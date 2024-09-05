@@ -1,10 +1,10 @@
-use std::ops::Range;
 use sqd_primitives::range::RangeList;
+use std::ops::Range;
 
 
-struct PageRead {
+pub struct PageRead {
     page_index: usize,
-    write_slice: Range<usize>,
+    write_offset: usize,
     ranges_slice: Range<usize>
 }
 
@@ -24,8 +24,12 @@ pub enum Pagination<'a> {
 
 impl <'a> Pagination<'a> {
     pub fn new(page_offsets: &'a [u32], ranges: Option<&'a RangeList<u32>>) -> Self {
-        if let Some(_ranges) = ranges {
-            todo!()
+        if let Some(ranges) = ranges {
+            Pagination::Ranged {
+                pages: build_page_reads(page_offsets, ranges),
+                ranges,
+                page_offsets
+            }
         } else {
             Pagination::All {
                 page_offsets,
@@ -63,17 +67,21 @@ impl <'a> Pagination<'a> {
     }
 
     pub fn page_range(&self, seq: usize) -> Range<usize> {
-        let offsets = *match self {
-            Pagination::Ranged { page_offsets, .. } => page_offsets,
-            Pagination::All { page_offsets, .. } => page_offsets
+        let (offsets, idx) = match self {
+            Pagination::Ranged { page_offsets, pages, .. } => {
+                (page_offsets, pages[seq].page_index)
+            },
+            Pagination::All { page_offsets, .. } => {
+                (page_offsets, seq)
+            }
         };
-        offsets[seq] as usize..offsets[seq + 1] as usize
+        offsets[idx] as usize..offsets[idx + 1] as usize
     }
 
     pub fn page_write_offset(&self, seq: usize) -> usize {
         match self {
             Pagination::Ranged { pages, .. } => {
-                pages[seq].write_slice.start
+                pages[seq].write_offset
             },
             Pagination::All { page_offsets, .. } => {
                 page_offsets[seq] as usize
@@ -103,4 +111,61 @@ impl <'a> Pagination<'a> {
             beg as usize..end as usize
         })
     }
+}
+
+
+fn build_page_reads(page_offsets: &[u32], ranges: &RangeList<u32>) -> Vec<PageRead> {
+    assert!(
+        page_offsets.last().cloned().unwrap() >= ranges.end(),
+        "range list is out of bounds: {} < {}",
+        page_offsets.last().cloned().unwrap(),
+        ranges.end()
+    );
+
+    let mut reads = Vec::new();
+    let mut write_offset = 0;
+    let mut ranges = ranges.iter().enumerate().peekable();
+
+    for page_index in 0..page_offsets.len() - 1 {
+        let page_range = page_offsets[page_index]..page_offsets[page_index + 1];
+
+        match ranges.peek().cloned() {
+            None => break,
+            Some((idx, r)) if r.start < page_range.end => {
+                let mut read = PageRead {
+                    page_index,
+                    write_offset,
+                    ranges_slice: idx..idx + 1
+                };
+
+                while let Some((idx, r)) = ranges.peek().cloned() {
+                    if r.start >= page_range.end {
+                        break
+                    }
+
+                    let beg = std::cmp::max(page_range.start, r.start);
+                    let end = std::cmp::min(page_range.end, r.end);
+                    assert!(beg < end);
+
+                    write_offset += (end - beg) as usize;
+                    read.ranges_slice.end = idx + 1;
+
+                    if end == r.end {
+                        ranges.next();
+                    }
+
+                    if end == page_range.end {
+                        break
+                    }
+                }
+
+                reads.push(read);
+            },
+            _ => {}
+        }
+    }
+
+    assert!(ranges.peek().is_none());
+
+    reads
 }
