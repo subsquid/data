@@ -56,7 +56,6 @@ impl <S: KvRead + Sync> TableReader<S> {
     }
 
     pub fn get_column_stats(&self, column_index: usize) -> anyhow::Result<Option<Stats>> {
-        // Ok(None)
         let stats = self.stats.lock();
         Ok(if let Some(stats) = stats[column_index].as_ref() {
             Some(stats.clone())
@@ -256,7 +255,7 @@ impl <S: KvRead + Sync> TableReader<S> {
 
             unsafe {(
                 OffsetBuffer::new_unchecked(ScalarBuffer::from(buf)),
-                Some(RangeList::new(value_ranges))
+                Some(RangeList::new_unchecked(value_ranges))
             )}
         } else {
             let offsets = unsafe {
