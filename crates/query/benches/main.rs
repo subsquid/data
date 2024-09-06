@@ -252,8 +252,8 @@ mod parquet {
 criterion_group!(
     name = benches;
     config = Criterion::default().measurement_time(Duration::from_secs(10));
-    targets = storage2::setup
-    // targets = storage::setup, storage2::setup, parquet::setup
+    // targets = storage2::setup
+    targets = storage::setup, storage2::setup, parquet::setup
 );
 
 
