@@ -8,6 +8,7 @@ use crate::table::read::array::{read_array, Storage};
 use crate::table::read::pagination::Pagination;
 use crate::table::read::stats::Stats;
 use crate::table::util;
+use crate::table::util::{validate_offsets, validate_offsets_monotonicity};
 use anyhow::{anyhow, ensure, Context};
 use arrow::array::{ArrayRef, BooleanBufferBuilder, RecordBatch};
 use arrow::buffer::{BooleanBuffer, MutableBuffer, OffsetBuffer, ScalarBuffer};
@@ -211,20 +212,95 @@ impl <S: KvRead + Sync> TableReader<S> {
         ranges: Option<&RangeList<u32>>
     ) -> anyhow::Result<(OffsetBuffer<i32>, Option<RangeList<u32>>)>
     {
+        Ok(if let Some(ranges) = ranges {
+            let (offsets, value_ranges) = self.read_ranged_offsets(column, buffer, ranges)?;
+            (offsets, Some(value_ranges))
+        } else {
+            let offsets = self.read_all_offsets(column, buffer)?;
+            (offsets, None)
+        })
+    }
+
+    fn read_all_offsets(&self, column: usize, buffer: usize) -> anyhow::Result<OffsetBuffer<i32>> {
         let offsets = self.read_native_bytes(column, buffer, i32::get_byte_width(), None)
             .map(ScalarBuffer::<i32>::from)?;
 
-        util::validate_offsets(&offsets)?;
+        validate_offsets(&offsets)?;
 
-        Ok(if let Some(ranges) = ranges {
-            let (offsets, value_ranges) = util::select_offsets(&offsets, ranges);
-            (offsets, Some(value_ranges))
-        } else {
-            let offsets = unsafe {
-                OffsetBuffer::new_unchecked(offsets)
-            };
-            (offsets, None)
+        Ok(unsafe {
+            OffsetBuffer::new_unchecked(offsets)
         })
+    }
+
+    fn read_ranged_offsets(
+        &self,
+        column: usize,
+        buffer: usize,
+        ranges: &RangeList<u32>
+    ) -> anyhow::Result<(OffsetBuffer<i32>, RangeList<u32>)>
+    {
+        if ranges.len() == 0 {
+            return Ok((OffsetBuffer::new_empty(), RangeList::new(vec![])))
+        }
+
+        let offset_ranges = RangeList::seal(ranges.iter().map(|r| {
+            r.start..r.end + 1
+        }));
+
+        let mut buf = self.read_native_bytes(
+            column,
+            buffer,
+            i32::get_byte_width(),
+            Some(&offset_ranges)
+        )?;
+
+        let offsets = buf.typed_data_mut::<i32>();
+        ensure!(offsets[0] >= 0);
+        validate_offsets_monotonicity(offsets)?;
+
+        let mut value_ranges: Vec<Range<u32>> = Vec::with_capacity(ranges.len());
+        {
+            let mut pos = 0;
+            for r in ranges.iter() {
+                let beg = pos;
+                let end = pos + r.len();
+                let vr = offsets[beg] as u32..offsets[end] as u32;
+                if vr.start < vr.end {
+                    match value_ranges.last_mut() {
+                        Some(prev) if prev.end == vr.start => {
+                            prev.end = vr.end
+                        },
+                        _ => {
+                            value_ranges.push(vr)
+                        }
+                    }
+                }
+                pos = end + 1;
+            }
+        }
+
+        {
+            let mut pos = 0;
+            let mut last_offset = 0;
+            for (shift, r) in ranges.iter().enumerate() {
+                let beg = pos;
+                let end = pos + r.len() + 1;
+                let r_offset = offsets[beg];
+                for o in offsets[beg..end].iter_mut() {
+                    *o = *o - r_offset + last_offset
+                }
+                last_offset = offsets[end - 1];
+                offsets.copy_within(beg..end, beg - shift);
+                pos = end;
+            }
+        }
+
+        buf.truncate(buf.len() - (ranges.len() - 1) * i32::get_byte_width());
+
+        Ok(unsafe {(
+            OffsetBuffer::new_unchecked(ScalarBuffer::from(buf)),
+            RangeList::new_unchecked(value_ranges)
+        )})
     }
 
     fn read_native_bytes(

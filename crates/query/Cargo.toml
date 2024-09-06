@@ -32,6 +32,7 @@ parquet = { workspace = true }
 sqd-dataset = { path = "../dataset" }
 sqd-data = { path = "../data" }
 mimalloc = "0.1.43"
+tikv-jemallocator = "0.6"
 
 [features]
 parquet = [

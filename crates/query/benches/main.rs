@@ -81,7 +81,7 @@ mod storage {
         let chunk_reader = snapshot.get_first_chunk(dataset_id).unwrap().unwrap();
         let chunk = StorageChunk::new(&chunk_reader);
 
-        c.bench_function("storage: whirlpool swap", |bench| {
+        c.bench_function("S1: whirlpool swap", |bench| {
             let plan = WHIRLPOOL_SWAP.compile();
 
             bench.iter(|| {
@@ -164,7 +164,7 @@ mod storage2 {
         let chunk_reader = snapshot.get_first_chunk(dataset_id).unwrap().unwrap();
         let chunk = Storage2Chunk::new(&chunk_reader);
 
-        c.bench_function("storage 2: whirlpool swap", |bench| {
+        c.bench_function("S2: whirlpool swap", |bench| {
             let plan = WHIRLPOOL_SWAP.compile();
 
             bench.iter(|| {

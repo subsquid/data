@@ -56,7 +56,7 @@ impl Default for TableOptions {
     fn default() -> Self {
         Self {
             column_options: HashMap::new(),
-            default_page_size: 256 * 1024,
+            default_page_size: 128 * 1024,
             row_group_size: 20000
         }
     }
