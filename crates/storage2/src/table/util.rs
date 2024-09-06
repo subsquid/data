@@ -1,8 +1,10 @@
+use std::ops::Range;
 use std::sync::Arc;
 use anyhow::ensure;
 use arrow::array::{Array, ArrayRef, ArrowPrimitiveType, AsArray, BinaryArray, BooleanArray, GenericByteArray, PrimitiveArray, StringArray};
 use arrow::datatypes::{ByteArrayType, DataType, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 use arrow_buffer::{bit_util, ArrowNativeType, BooleanBuffer, MutableBuffer, NullBuffer, OffsetBuffer, ScalarBuffer};
+use sqd_primitives::range::RangeList;
 
 
 pub fn get_num_buffers(data_type: &DataType) -> usize {
@@ -296,6 +298,7 @@ pub fn read_array_from_buffers<'a>(
 }
 
 
+#[inline(never)]
 pub fn validate_offsets<T: Ord + Default + Copy>(offsets: &[T]) -> anyhow::Result<()> {
     ensure!(offsets.len() > 0, "got empty offsets array");
 
@@ -309,6 +312,55 @@ pub fn validate_offsets<T: Ord + Default + Copy>(offsets: &[T]) -> anyhow::Resul
     }
 
     Ok(())
+}
+
+
+#[inline(never)]
+pub fn select_offsets(
+    offsets: &ScalarBuffer<i32>,
+    ranges: &RangeList<u32>
+) -> (OffsetBuffer<i32>, RangeList<u32>)
+{
+    let mut value_ranges = Vec::<Range<u32>>::with_capacity(ranges.len());
+    let len: usize = ranges.iter().map(|r| r.len()).sum();
+    let mut buf = MutableBuffer::from_len_zeroed((len + 1) * i32::get_byte_width());
+    let data = buf.typed_data_mut::<i32>();
+    let mut pos = 0;
+
+    for r in ranges.iter() {
+        let end_pos = pos + r.len();
+
+        let offset = data[pos];
+        data[pos..end_pos + 1].copy_from_slice(
+            &offsets[r.start as usize..r.end as usize + 1]
+        );
+
+        let val_range = data[pos] as u32..data[end_pos] as u32;
+
+        let range_offset = data[pos];
+        for o in data[pos..end_pos + 1].iter_mut() {
+            *o = *o - range_offset + offset;
+        }
+
+        if val_range.start < val_range.end {
+            if let Some(last_range) = value_ranges.last_mut() {
+                if (*last_range).end == val_range.start {
+                    last_range.end = val_range.end
+                } else {
+                    value_ranges.push(val_range)
+                }
+            } else {
+                value_ranges.push(val_range)
+            }
+        }
+
+        pos = end_pos;
+    }
+
+    unsafe {(
+        OffsetBuffer::new_unchecked(ScalarBuffer::from(buf)),
+        RangeList::new_unchecked(value_ranges)
+    )}
 }
 
 

@@ -76,6 +76,7 @@ impl <S: KvRead + Sync> TableReader<S> {
         })
     }
 
+    #[inline(never)]
     pub fn read_table(
         &self,
         projection: Option<&HashSet<&str>>,
@@ -216,47 +217,8 @@ impl <S: KvRead + Sync> TableReader<S> {
         util::validate_offsets(&offsets)?;
 
         Ok(if let Some(ranges) = ranges {
-            // TODO: implement partial offsets reading
-            let mut value_ranges = Vec::<Range<u32>>::with_capacity(ranges.len());
-            let len: usize = ranges.iter().map(|r| r.len()).sum();
-            let mut buf = MutableBuffer::from_len_zeroed((len + 1) * i32::get_byte_width());
-            let data = buf.typed_data_mut::<i32>();
-            let mut pos = 0;
-
-            for r in ranges.iter() {
-                let end_pos = pos + r.len();
-
-                let offset = data[pos];
-                data[pos..end_pos + 1].copy_from_slice(
-                    &offsets[r.start as usize..r.end as usize + 1]
-                );
-
-                let val_range = data[pos] as u32..data[end_pos] as u32;
-
-                let range_offset = data[pos];
-                for o in data[pos..end_pos + 1].iter_mut() {
-                    *o = *o - range_offset + offset;
-                }
-
-                if val_range.start < val_range.end {
-                    if let Some(last_range) = value_ranges.last_mut() {
-                        if (*last_range).end == val_range.start {
-                            last_range.end = val_range.end
-                        } else {
-                            value_ranges.push(val_range)
-                        }
-                    } else {
-                        value_ranges.push(val_range)
-                    }
-                }
-
-                pos = end_pos;
-            }
-
-            unsafe {(
-                OffsetBuffer::new_unchecked(ScalarBuffer::from(buf)),
-                Some(RangeList::new_unchecked(value_ranges))
-            )}
+            let (offsets, value_ranges) = util::select_offsets(&offsets, ranges);
+            (offsets, Some(value_ranges))
         } else {
             let offsets = unsafe {
                 OffsetBuffer::new_unchecked(offsets)
@@ -303,41 +265,7 @@ impl <S: KvRead + Sync> TableReader<S> {
             0 => Ok(()),
             1 => {
                 let page_seq = pages.start;
-                let page_idx = pagination.page_index(page_seq);
-
-                let data = self.storage.get(
-                    self.key.clone().page(column, buffer, page_idx)
-                )?.with_context(|| {
-                    anyhow!("page {} was not found", page_idx)
-                })?;
-
-                ensure!(
-                    data.len() % item_size == 0,
-                    "page {} byte size expected to be multiple of {}, but got {}",
-                    page_idx,
-                    item_size,
-                    data.len()
-                );
-
-                let page_len = pagination.page_range(page_seq).len();
-                ensure!(
-                    data.len() / item_size == page_len,
-                    "expected page {} to contain {} items, but got {}",
-                    page_idx,
-                    page_len,
-                    data.len() / item_size
-                );
-
-                let mut write_offset = 0;
-                for r in pagination.iter_ranges(page_seq) {
-                    let beg = r.start * item_size;
-                    let end = r.end * item_size;
-                    let len = end - beg;
-                    dest[write_offset..write_offset + len].copy_from_slice(&data[beg..end]);
-                    write_offset += len;
-                }
-
-                Ok(())
+                self.read_native_par_page(item_size, column, buffer, pagination, page_seq, dest)
             },
             n => {
                 let mid = (n / 2) + (n % 2);
@@ -359,6 +287,54 @@ impl <S: KvRead + Sync> TableReader<S> {
                 Ok(())
             }
         }
+    }
+    
+    #[inline(never)]
+    fn read_native_par_page(
+        &self,
+        item_size: usize,
+        column: usize,
+        buffer: usize,
+        pagination: &Pagination,
+        page_seq: usize,
+        dest: &mut [u8]
+    ) -> anyhow::Result<()>
+    {
+        let page_idx = pagination.page_index(page_seq);
+
+        let data = self.storage.get(
+            self.key.clone().page(column, buffer, page_idx)
+        )?.with_context(|| {
+            anyhow!("page {} was not found", page_idx)
+        })?;
+
+        ensure!(
+            data.len() % item_size == 0,
+            "page {} byte size expected to be multiple of {}, but got {}",
+            page_idx,
+            item_size,
+            data.len()
+        );
+
+        let page_len = pagination.page_range(page_seq).len();
+        ensure!(
+            data.len() / item_size == page_len,
+            "expected page {} to contain {} items, but got {}",
+            page_idx,
+            page_len,
+            data.len() / item_size
+        );
+
+        let mut write_offset = 0;
+        for r in pagination.iter_ranges(page_seq) {
+            let beg = r.start * item_size;
+            let end = r.end * item_size;
+            let len = end - beg;
+            dest[write_offset..write_offset + len].copy_from_slice(&data[beg..end]);
+            write_offset += len;
+        }
+
+        Ok(())
     }
 
     fn read_boolean(
