@@ -1,5 +1,6 @@
-mod stats;
+mod array;
 mod writer;
-mod record_batch;
+mod stats;
 
-pub use self::record_batch::{RecordBatchWriter};
+
+pub use writer::*;

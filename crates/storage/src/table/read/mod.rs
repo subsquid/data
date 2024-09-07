@@ -1,5 +1,8 @@
 mod reader;
-mod projection;
+mod array;
+mod pagination;
+mod stats;
+
 
 pub use reader::*;
-pub use projection::*;
+pub use stats::*;

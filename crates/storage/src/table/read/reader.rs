@@ -1,34 +1,35 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, ensure};
-use arrow::array::{Array, ArrayRef, AsArray, RecordBatch, UInt32Array};
-use arrow::datatypes::{ArrowNativeType, DataType, Schema, SchemaRef, UInt32Type};
-use parking_lot::Mutex;
-
-use sqd_array::make_data_builder;
-use sqd_primitives::RowRangeList;
-
-use crate::array::serde::{deserialize_array, deserialize_primitive_array};
 use crate::kv::{KvRead, KvReadCursor};
-use crate::table::key::{Statistic, TableKeyFactory};
-use crate::table::read::projection::ProjectionMask;
-
-
-type StatsBag = HashMap<Statistic, Option<ArrayRef>>;
+use crate::table::key::TableKeyFactory;
+use crate::table::read::array::{read_array, Storage};
+use crate::table::read::pagination::Pagination;
+use crate::table::read::stats::Stats;
+use crate::table::util;
+use crate::table::util::{validate_offsets, validate_offsets_monotonicity};
+use anyhow::{anyhow, ensure, Context};
+use arrow::array::{ArrayRef, BooleanBufferBuilder, RecordBatch};
+use arrow::buffer::{BooleanBuffer, MutableBuffer, OffsetBuffer, ScalarBuffer};
+use arrow::datatypes::{ArrowNativeType, Schema, SchemaRef};
+use arrow::util::bit_util;
+use arrow_buffer::NullBuffer;
+use parking_lot::Mutex;
+use rayon::prelude::*;
+use sqd_primitives::range::RangeList;
 
 
 pub struct TableReader<S> {
     storage: S,
     key: TableKeyFactory,
     schema: SchemaRef,
-    row_group_offsets: UInt32Array,
-    stats0: Mutex<Vec<StatsBag>>,
-    stats1: Mutex<HashMap<usize, Arc<Mutex<Vec<StatsBag>>>>>
+    offsets: Mutex<HashMap<(usize, usize), ScalarBuffer<u32>>>,
+    stats: Mutex<Vec<Option<Stats>>>
 }
 
 
-impl <S: KvRead> TableReader<S> {
+impl <S: KvRead + Sync> TableReader<S> {
     pub fn new(storage: S, table_name: &[u8]) -> anyhow::Result<Self> {
         let mut key = TableKeyFactory::new(table_name);
 
@@ -37,34 +38,17 @@ impl <S: KvRead> TableReader<S> {
                 anyhow!("schema key not found")
             })?;
             arrow::ipc::root_as_schema(&bytes).map(arrow::ipc::convert::fb_to_schema)
-                .map_err(|_| anyhow!("failed deserialize table schema"))?
+                .map_err(|_| anyhow!("failed to deserialize table schema"))?
         };
 
-        let row_group_offsets = {
-            let bytes = storage.get(key.row_group_offsets())?.ok_or_else(|| {
-                anyhow!("row group offsets key not found")
-            })?;
-
-            deserialize_primitive_array::<UInt32Type>(&bytes)
-                .and_then(|array| {
-                    ensure!(array.null_count() == 0, "offsets array can't have null values");
-                    validate_offsets(array.values().as_ref())?;
-                    Ok(array)
-                })
-                .context("failed to deserialize row group offsets array")?
-        };
-
-        let num_columns = schema.fields().len();
+        let stats = Mutex::new(vec![None; schema.fields().len()]);
 
         Ok(Self {
             storage,
             key,
             schema: Arc::new(schema),
-            row_group_offsets,
-            stats0: Mutex::new(
-                std::iter::repeat_with(HashMap::new).take(num_columns).collect()
-            ),
-            stats1: Mutex::new(HashMap::new())
+            offsets: Mutex::new(HashMap::new()),
+            stats
         })
     }
 
@@ -72,305 +56,449 @@ impl <S: KvRead> TableReader<S> {
         self.schema.as_ref()
     }
 
-    pub fn create_projection<'a, 'b, I: IntoIterator<Item=&'b str>>(&'a self, columns: I) -> ProjectionMask {
-        let mut mask = ProjectionMask::new(self.num_columns());
-        for name in columns {
-            let col_idx = self.schema.index_of(name).unwrap();
-            mask.include_column(col_idx)
-        }
-        mask
-    }
-
-    pub fn num_columns(&self) -> usize {
-        self.schema.fields().len()
-    }
-
-    pub fn num_rows(&self) -> usize {
-        self.row_group_offsets.values().last().unwrap().as_usize()
-    }
-
-    pub fn num_row_groups(&self) -> usize {
-        self.row_group_offsets.len() - 1
-    }
-
-    pub fn get_row_group_offsets(&self) -> &UInt32Array {
-        &self.row_group_offsets
-    }
-
-    pub fn get_page_offsets(&self, row_group: usize, column: usize) -> anyhow::Result<UInt32Array> {
-        Ok(self.get_statistic1(Statistic::Offsets, row_group, column)?
-            .unwrap()
-            .as_primitive()
-            .clone()
-        )
-    }
-
-    pub fn read_row_group_column(
-        &self,
-        row_group: usize,
-        column: usize,
-        row_selection: Option<&RowRangeList>
-    ) -> anyhow::Result<ArrayRef>
-    {
-        let page_offsets = self.get_page_offsets(row_group, column)?;
-        let page_offsets = page_offsets.values().as_ref();
-
-        let pages: Vec<_> = row_selection.map(|ranges| {
-            ranges.paginate(page_offsets).collect()
-        }).unwrap_or_else(|| {
-            (0..page_offsets.len() - 1).map(|i| (i, None)).collect()
-        });
-
-        let mut cursor = self.storage.new_cursor();
-        let mut key = self.key.clone();
-        let mut maybe_prev_page = None;
-        let data_type = self.schema.field(column).data_type();
-        let mut builder = make_data_builder(data_type);
-
-        for (page_index, row_selection) in pages {
-            let page_key = key.page(row_group, column, page_index);
-
-            if maybe_prev_page.map(|p| p + 1 == page_index).unwrap_or(false) {
-                cursor.next()?;
+    pub fn get_column_stats(&self, column_index: usize) -> anyhow::Result<Option<Stats>> {
+        let stats = self.stats.lock();
+        Ok(if let Some(stats) = stats[column_index].as_ref() {
+            Some(stats.clone())
+        } else {
+            let data = self.storage.get(
+                self.key.clone().statistic(column_index)
+            )?;
+            if let Some(data) = data {
+                let stats = Stats::read(&data, self.schema.field(column_index).data_type())
+                    .with_context(|| anyhow!(
+                        "failed to deserialize stats for column {}",
+                        self.schema.field(column_index).name()
+                    ))?;
+                Some(stats)
             } else {
-                cursor.seek(page_key)?;
+                None
             }
-
-            ensure!(
-                cursor.is_valid() && cursor.key() == page_key,
-                "page was not found at expected place"
-            );
-
-            if let Some(ranges) = row_selection {
-                builder.push_page_ranges(cursor.value(), ranges.as_slice())
-            } else {
-                builder.push_page(cursor.value())
-            }.with_context(|| {
-                format!("failed to read page {}", page_index)
-            })?;
-
-            maybe_prev_page = Some(page_index);
-        }
-
-        let array = builder.into_arrow_array(Some(data_type.clone()));
-
-        Ok(array)
+        })
     }
 
-    pub fn read_row_group(
+    #[inline(never)]
+    pub fn read_table(
         &self,
-        row_group: usize,
-        row_selection: Option<&RowRangeList>,
-        projection: Option<&ProjectionMask>
+        projection: Option<&HashSet<&str>>,
+        row_ranges: Option<&RangeList<u32>>
     ) -> anyhow::Result<RecordBatch>
     {
-        let projection_len = if let Some(mask) = projection {
-            ensure!(
-                mask.len() == self.num_columns(),
-                "projection mask does not match the number of columns"
-            );
-            mask.selection_len()
+        let column_indexes = if let Some(projection) = projection {
+            let mut columns = Vec::with_capacity(projection.len());
+            for (i, f) in self.schema.fields().iter().enumerate() {
+                if projection.contains(f.name().as_str()) {
+                    columns.push(i)
+                }
+            }
+            columns
         } else {
-            self.num_columns()
+            (0..self.schema.fields().len()).collect()
         };
 
-        ensure!(projection_len > 0, "no columns where selected");
+        let columns = column_indexes.par_iter().map(|i| {
+            self.read_column(*i, row_ranges)
+        }).collect::<anyhow::Result<Vec<_>>>()?;
 
-        let mut columns = Vec::with_capacity(projection_len);
+        let schema = if column_indexes.len() == self.schema.fields().len() {
+            self.schema.clone()
+        } else {
+            self.schema.project(&column_indexes)?.into()
+        };
 
-        self.for_each_projected_column(projection, |col_idx| {
-            let array = self.read_row_group_column(row_group, col_idx, row_selection)
-                .with_context(|| {
-                    format!("failed to read column {}", col_idx)
-                })?;
-            columns.push(array);
-            Ok(())
-        })?;
-
-        let schema = self.projected_schema(projection);
         let record_batch = RecordBatch::try_new(schema, columns)?;
+        
         Ok(record_batch)
     }
 
-    fn for_each_projected_column<F>(
+    pub fn read_column(&self, index: usize, ranges: Option<&RangeList<u32>>) -> anyhow::Result<ArrayRef> {
+        read_array(
+            &ColumnStorage {
+                reader: self,
+                column: index
+            },
+            0,
+            ranges,
+            self.schema.field(index).data_type()
+        )
+    }
+
+    fn get_buffer_pages(
         &self,
-        projection: Option<&ProjectionMask>,
-        mut f: F
-    ) -> anyhow::Result<()> where F: FnMut(usize) -> anyhow::Result<()>
+        column: usize,
+        buffer: usize
+    ) -> anyhow::Result<ScalarBuffer<u32>>
     {
-        if let Some(mask) = projection {
-            for col_idx in mask.iter() {
-                f(col_idx)?
-            }
+        let mut bag = self.offsets.lock();
+        if let Some(buf) = bag.get(&(column, buffer)) {
+            Ok(buf.clone())
         } else {
-            for col_idx in 0..self.num_columns() {
-                f(col_idx)?
-            }
+            let page = self.storage.get(
+                self.key.clone().offsets(column, buffer)
+            )?.ok_or_else(|| {
+               anyhow!("offsets page was not found")
+            })?;
+
+            let offsets = {
+                let item_size = u32::get_byte_width();
+                ensure!(
+                    page.len() % item_size == 0,
+                    "expected offsets page to be multiple of {}",
+                    item_size
+                );
+                let mut buf = MutableBuffer::new(page.len());
+                buf.extend_from_slice(&page);
+                ScalarBuffer::from(buf)
+            };
+
+            util::validate_offsets(&offsets)?;
+
+            bag.insert((column, buffer), offsets.clone());
+
+            Ok(offsets)
         }
+    }
+
+    fn for_each_page<F: FnMut(usize, &[u8]) -> anyhow::Result<()>>(
+        &self,
+        column: usize,
+        buffer: usize,
+        pagination: &Pagination<'_>,
+        mut cb: F
+    ) -> anyhow::Result<()>
+    {
+        match pagination.num_pages() {
+            0 => {},
+            1 => {
+                let page_idx = pagination.page_index(0);
+
+                let value = self.storage.get(
+                    self.key.clone().page(column, buffer, page_idx)
+                )?.ok_or_else(|| {
+                    anyhow!("page {} was not found", page_idx)
+                })?;
+
+                cb(0, &value)?;
+            },
+            n => {
+                let mut key = self.key.clone();
+                let mut prev_page_idx = 0;
+                let mut cursor = self.storage.new_cursor();
+                for i in 0..n {
+                    let page_idx = pagination.page_index(i);
+                    let page_key = key.page(column, buffer, page_idx);
+                    if prev_page_idx + 1 == page_idx {
+                        cursor.next()?;
+                    } else {
+                        cursor.seek(page_key)?;
+                    }
+                    ensure!(
+                        cursor.is_valid() && cursor.key() == page_key,
+                        "page {} was not found at expected place",
+                        page_idx
+                    );
+                    cb(i, cursor.value())?;
+                    prev_page_idx = page_idx;
+                }
+            }
+        };
         Ok(())
     }
 
-    fn projected_schema(&self, projection: Option<&ProjectionMask>) -> SchemaRef {
-        if let Some(mask) = projection {
-            if mask.selection_len() < self.num_columns() {
-                let fields: Vec<_> = mask.iter().map(|col_idx| {
-                    self.schema.fields()[col_idx].clone()
-                }).collect();
-                let schema = Schema::new(fields);
-                Arc::new(schema)
-            } else {
-                self.schema.clone()
-            }
-        } else {
-            self.schema.clone()
-        }
-    }
-
-    pub fn get_per_row_group_min(&self, column: usize) -> anyhow::Result<Option<ArrayRef>> {
-        self.get_statistic0(Statistic::Min, column)
-    }
-
-    pub fn get_per_row_group_max(&self, column: usize) -> anyhow::Result<Option<ArrayRef>> {
-        self.get_statistic0(Statistic::Max, column)
-    }
-
-    pub fn get_per_page_min(&self, row_group: usize, column: usize) -> anyhow::Result<Option<ArrayRef>> {
-        self.get_statistic1(Statistic::Min, row_group, column)
-    }
-
-    pub fn get_per_page_max(&self, row_group: usize, column: usize) -> anyhow::Result<Option<ArrayRef>> {
-        self.get_statistic1(Statistic::Max, row_group, column)
-    }
-
-    fn get_statistic0(&self, kind: Statistic, column: usize) -> anyhow::Result<Option<ArrayRef>> {
-        let bag = &mut self.stats0.lock()[column];
-        Self::handle_statistic(
-            bag,
-            kind,
-            |kind, bag| {
-                let result = self.read_statistic0(kind, column)?;
-                if let Some(array) = result.as_ref() {
-                    validate_statistic(self.row_group_offsets.values().as_ref(), kind, array.as_ref())?;
-                }
-                Ok(result)
-            }
-        )
-    }
-
-    fn get_statistic1(&self, kind: Statistic, row_group: usize, column: usize) -> anyhow::Result<Option<ArrayRef>> {
-        let row_group_stats = {
-            self.stats1.lock().entry(row_group).or_insert_with(|| {
-                Arc::new(Mutex::new(
-                    std::iter::repeat_with(HashMap::new).take(self.schema.fields().len()).collect()
-                ))
-            }).clone()
-        };
-
-        let bag = &mut row_group_stats.lock()[column];
-
-        self.handle_statistic1(bag, kind, row_group, column)
-    }
-
-    fn handle_statistic1(
+    fn read_offsets(
         &self,
-        bag: &mut StatsBag,
-        kind: Statistic,
-        row_group: usize,
-        column: usize
-    ) -> anyhow::Result<Option<ArrayRef>>
+        column: usize,
+        buffer: usize,
+        ranges: Option<&RangeList<u32>>
+    ) -> anyhow::Result<(OffsetBuffer<i32>, Option<RangeList<u32>>)>
     {
-        Self::handle_statistic(
-            bag,
-            kind,
-            |kind, bag| {
-                let result = self.read_statistic1(kind, row_group, column)?;
-                if kind == Statistic::Offsets {
-                    let array = result.as_ref().ok_or_else(|| {
-                        anyhow!("offsets statistic must be always present")
-                    })?;
-                    ensure!(array.null_count() == 0, "offsets array can't have null values");
-                    let offsets = array.as_primitive::<UInt32Type>().values().as_ref();
-                    validate_offsets(offsets)?;
-                    let expected_num_rows = self.row_group_offsets.value(row_group + 1) - self.row_group_offsets.value(row_group);
-                    ensure!(
-                        offsets.last().copied().unwrap() == expected_num_rows,
-                        "unexpected offset sizes"
-                    );
-                } else if let Some(array) = result.as_ref() {
-                    let offsets_array = self.handle_statistic1(bag, Statistic::Offsets, row_group, column)?.unwrap();
-                    let offsets = offsets_array.as_primitive::<UInt32Type>().values().as_ref();
-                    validate_statistic(offsets, kind, array.as_ref())?;
+        Ok(if let Some(ranges) = ranges {
+            let (offsets, value_ranges) = self.read_ranged_offsets(column, buffer, ranges)?;
+            (offsets, Some(value_ranges))
+        } else {
+            let offsets = self.read_all_offsets(column, buffer)?;
+            (offsets, None)
+        })
+    }
+
+    fn read_all_offsets(&self, column: usize, buffer: usize) -> anyhow::Result<OffsetBuffer<i32>> {
+        let offsets = self.read_native_bytes(column, buffer, i32::get_byte_width(), None)
+            .map(ScalarBuffer::<i32>::from)?;
+
+        validate_offsets(&offsets)?;
+
+        Ok(unsafe {
+            OffsetBuffer::new_unchecked(offsets)
+        })
+    }
+
+    fn read_ranged_offsets(
+        &self,
+        column: usize,
+        buffer: usize,
+        ranges: &RangeList<u32>
+    ) -> anyhow::Result<(OffsetBuffer<i32>, RangeList<u32>)>
+    {
+        if ranges.len() == 0 {
+            return Ok((OffsetBuffer::new_empty(), RangeList::new(vec![])))
+        }
+
+        let offset_ranges = RangeList::seal(ranges.iter().map(|r| {
+            r.start..r.end + 1
+        }));
+
+        let mut buf = self.read_native_bytes(
+            column,
+            buffer,
+            i32::get_byte_width(),
+            Some(&offset_ranges)
+        )?;
+
+        let offsets = buf.typed_data_mut::<i32>();
+        ensure!(offsets[0] >= 0);
+        validate_offsets_monotonicity(offsets)?;
+
+        let mut value_ranges: Vec<Range<u32>> = Vec::with_capacity(ranges.len());
+        {
+            let mut pos = 0;
+            for r in ranges.iter() {
+                let beg = pos;
+                let end = pos + r.len();
+                let vr = offsets[beg] as u32..offsets[end] as u32;
+                if vr.start < vr.end {
+                    match value_ranges.last_mut() {
+                        Some(prev) if prev.end == vr.start => {
+                            prev.end = vr.end
+                        },
+                        _ => {
+                            value_ranges.push(vr)
+                        }
+                    }
                 }
-                Ok(result)
+                pos = end + 1;
             }
-        )
+        }
+
+        {
+            let mut pos = 0;
+            let mut last_offset = 0;
+            for (shift, r) in ranges.iter().enumerate() {
+                let beg = pos;
+                let end = pos + r.len() + 1;
+                let r_offset = offsets[beg];
+                for o in offsets[beg..end].iter_mut() {
+                    *o = *o - r_offset + last_offset
+                }
+                last_offset = offsets[end - 1];
+                offsets.copy_within(beg..end, beg - shift);
+                pos = end;
+            }
+        }
+
+        buf.truncate(buf.len() - (ranges.len() - 1) * i32::get_byte_width());
+
+        Ok(unsafe {(
+            OffsetBuffer::new_unchecked(ScalarBuffer::from(buf)),
+            RangeList::new_unchecked(value_ranges)
+        )})
     }
 
-    fn handle_statistic<R>(
-        bag: &mut StatsBag,
-        kind: Statistic,
-        mut read: R
-    ) -> anyhow::Result<Option<ArrayRef>>
-        where
-            R: FnMut(Statistic, &mut StatsBag) -> anyhow::Result<Option<ArrayRef>>
+    fn read_native_bytes(
+        &self,
+        column: usize,
+        buffer: usize,
+        item_size: usize,
+        ranges: Option<&RangeList<u32>>
+    ) -> anyhow::Result<MutableBuffer>
     {
-        if let Some(result) = bag.get(&kind) {
-            return Ok(result.clone())
-        }
-        let result = read(kind, bag)?;
-        bag.insert(kind, result.clone());
-        Ok(result)
+        let page_offsets = self.get_buffer_pages(column, buffer)?;
+        let pagination = Pagination::new(&page_offsets, ranges);
+        let mut buf = MutableBuffer::from_len_zeroed(pagination.num_items() * item_size);
+
+        self.read_native_par(
+            item_size,
+            column,
+            buffer,
+            &pagination,
+            0..pagination.num_pages(),
+            buf.as_slice_mut()
+        )?;
+
+        Ok(buf)
     }
 
-    fn read_statistic0(&self, kind: Statistic, column: usize) -> anyhow::Result<Option<ArrayRef>> {
-        let mut key = self.key.clone();
-        if let Some(bytes) = self.storage.get(key.statistic0(kind, column))? {
-            let array = deserialize_array(&bytes, self.get_statistic_data_type(kind, column))?;
-            Ok(Some(array))
-        } else {
-            Ok(None)
+    fn read_native_par(
+        &self,
+        item_size: usize,
+        column: usize,
+        buffer: usize,
+        pagination: &Pagination,
+        pages: Range<usize>,
+        dest: &mut [u8]
+    ) -> anyhow::Result<()>
+    {
+        match pages.len() {
+            0 => Ok(()),
+            1 => {
+                let page_seq = pages.start;
+                self.read_native_par_page(item_size, column, buffer, pagination, page_seq, dest)
+            },
+            n => {
+                let mid = (n / 2) + (n % 2);
+                let lower = pages.start..pages.start + mid;
+                let upper = lower.end..pages.end;
+
+                let (lower_buf, upper_buf) = dest.split_at_mut(
+                    item_size * (pagination.page_write_offset(lower.end) - pagination.page_write_offset(lower.start))
+                );
+
+                let (lower_res, upper_res) = rayon::join(
+                    || self.read_native_par(item_size, column, buffer, pagination, lower, lower_buf),
+                    || self.read_native_par(item_size, column, buffer, pagination, upper, upper_buf)
+                );
+
+                lower_res?;
+                upper_res?;
+
+                Ok(())
+            }
         }
     }
+    
+    #[inline(never)]
+    fn read_native_par_page(
+        &self,
+        item_size: usize,
+        column: usize,
+        buffer: usize,
+        pagination: &Pagination,
+        page_seq: usize,
+        dest: &mut [u8]
+    ) -> anyhow::Result<()>
+    {
+        let page_idx = pagination.page_index(page_seq);
 
-    fn read_statistic1(&self, kind: Statistic, row_group: usize, column: usize) -> anyhow::Result<Option<ArrayRef>> {
-        let mut key = self.key.clone();
-        if let Some(bytes) = self.storage.get(key.statistic1(kind, row_group, column))? {
-            let array = deserialize_array(&bytes, self.get_statistic_data_type(kind, column))?;
-            Ok(Some(array))
-        } else {
-            Ok(None)
+        let data = self.storage.get(
+            self.key.clone().page(column, buffer, page_idx)
+        )?.with_context(|| {
+            anyhow!("page {} was not found", page_idx)
+        })?;
+
+        ensure!(
+            data.len() % item_size == 0,
+            "page {} byte size expected to be multiple of {}, but got {}",
+            page_idx,
+            item_size,
+            data.len()
+        );
+
+        let page_len = pagination.page_range(page_seq).len();
+        ensure!(
+            data.len() / item_size == page_len,
+            "expected page {} to contain {} items, but got {}",
+            page_idx,
+            page_len,
+            data.len() / item_size
+        );
+
+        let mut write_offset = 0;
+        for r in pagination.iter_ranges(page_seq) {
+            let beg = r.start * item_size;
+            let end = r.end * item_size;
+            let len = end - beg;
+            dest[write_offset..write_offset + len].copy_from_slice(&data[beg..end]);
+            write_offset += len;
         }
+
+        Ok(())
     }
 
-    fn get_statistic_data_type(&self, statistic: Statistic, column: usize) -> DataType {
-        match statistic {
-            Statistic::Offsets => DataType::UInt32,
-            Statistic::NullCount => DataType::UInt32,
-            Statistic::Min | Statistic::Max => self.schema.field(column).data_type().clone(),
+    fn read_boolean(
+        &self,
+        column: usize,
+        buffer: usize,
+        ranges: Option<&RangeList<u32>>
+    ) -> anyhow::Result<BooleanBuffer>
+    {
+        let page_offsets = self.get_buffer_pages(column, buffer)?;
+        let pagination = Pagination::new(&page_offsets, ranges);
+        let mut buf = BooleanBufferBuilder::new(pagination.num_items());
+        self.for_each_page(column, buffer, &pagination, |i, data| {
+            let expected_bit_len = pagination.page_range(i).len();
+            let expected_byte_len = bit_util::ceil(expected_bit_len, 8);
+            ensure!(
+                expected_byte_len == data.len(),
+                "expected for page {} to have byte length {}, but got {}",
+                pagination.page_index(i),
+                expected_byte_len,
+                data.len()
+            );
+            for r in pagination.iter_ranges(i) {
+                buf.append_packed_range(r, data)
+            }
+            Ok(())
+        })?;
+        Ok(buf.finish())
+    }
+
+    fn read_null_mask(
+        &self,
+        column: usize,
+        buffer: usize,
+        ranges: Option<&RangeList<u32>>
+    ) -> anyhow::Result<Option<NullBuffer>>
+    {
+        let page_offsets = self.get_buffer_pages(column, buffer)?;
+        if page_offsets.last().cloned().unwrap() == 0 {
+            return Ok(None)
         }
+        let values = self.read_boolean(column, buffer, ranges)?;
+        Ok(Some(NullBuffer::new(values)))
     }
 }
 
 
-fn validate_offsets(offsets: &[u32]) -> anyhow::Result<()> {
-    ensure!(offsets.len() > 0, "offsets array can't be empty");
-    for i in 1..offsets.len() {
-        ensure!(offsets[i] >= offsets[i-1], "offset values are not monotonically increasing")
-    }
-    Ok(())
+struct ColumnStorage<'a, S> {
+    reader: &'a TableReader<S>,
+    column: usize
 }
 
 
-fn validate_statistic(offsets: &[u32], kind: Statistic, array: &dyn Array) -> anyhow::Result<()> {
-    assert_ne!(kind, Statistic::Offsets);
-    ensure!(array.len() == offsets.len() - 1, "invalid {:?} array length", kind);
-    if kind == Statistic::NullCount {
-        ensure!(array.null_count() == 0);
-        let null_count = array.as_primitive::<UInt32Type>();
-        let bounds_ok = null_count.values().iter().enumerate().all(|(idx, count)| {
-            *count <= offsets[idx + 1] - offsets[idx]
-        });
-        ensure!(bounds_ok, "some null counts are not within expected bounds");
+impl <'a, S: KvRead + Sync> Storage for ColumnStorage<'a, S> {
+    fn read_native_bytes(
+        &self,
+        buffer: usize,
+        item_size: usize,
+        ranges: Option<&RangeList<u32>>
+    ) -> anyhow::Result<MutableBuffer>
+    {
+        self.reader.read_native_bytes(self.column, buffer, item_size, ranges)
     }
-    Ok(())
+
+    fn read_boolean(
+        &self,
+        buffer: usize,
+        ranges: Option<&RangeList<u32>>
+    ) -> anyhow::Result<BooleanBuffer>
+    {
+        self.reader.read_boolean(self.column, buffer, ranges)
+    }
+
+    fn read_null_mask(
+        &self,
+        buffer: usize,
+        ranges: Option<&RangeList<u32>>
+    ) -> anyhow::Result<Option<NullBuffer>>
+    {
+        self.reader.read_null_mask(self.column, buffer, ranges)
+    }
+
+    fn read_offsets(
+        &self,
+        buffer: usize,
+        ranges: Option<&RangeList<u32>>
+    ) -> anyhow::Result<(OffsetBuffer<i32>, Option<RangeList<u32>>)>
+    {
+        self.reader.read_offsets(self.column, buffer, ranges)
+    }
 }

@@ -1,31 +1,17 @@
-use borsh::BorshSerialize;
-
-
-#[derive(BorshSerialize, Copy, Clone, Hash, Eq, PartialEq, Debug)]
-pub enum Statistic {
-    Offsets,
-    NullCount,
-    Min,
-    Max
-}
-
 
 enum TableKey {
     Schema,
-    RowGroupOffsets,
-    Statistic0 {
-        column: u16,
-        kind: Statistic
+    Statistic {
+        column: u16
     },
-    Statistic1 {
-        row_group: u16,
+    Offsets {
         column: u16,
-        kind: Statistic
+        buffer: u16
     },
     Page {
-        row_group: u16,
         column: u16,
-        page: u32
+        buffer: u16,
+        index: u32
     }
 }
 
@@ -34,27 +20,22 @@ impl TableKey {
     fn serialize(&self, out: &mut Vec<u8>) {
         match self {
             TableKey::Schema => {
-                out.push(0)
+                out.push(0);
             },
-            TableKey::RowGroupOffsets => {
-                out.push(1)
+            TableKey::Statistic { column } => {
+                out.push(1);
+                out.extend_from_slice(&column.to_be_bytes());
             },
-            TableKey::Statistic0 { column, kind } => {
+            TableKey::Offsets { column, buffer } => {
                 out.push(2);
                 out.extend_from_slice(&column.to_be_bytes());
-                kind.serialize(out).unwrap()
+                out.extend_from_slice(&buffer.to_be_bytes())
             },
-            TableKey::Statistic1 { row_group, column, kind } => {
+            TableKey::Page { column, buffer, index } => {
                 out.push(3);
-                out.extend_from_slice(&row_group.to_be_bytes());
                 out.extend_from_slice(&column.to_be_bytes());
-                kind.serialize(out).unwrap()
-            },
-            TableKey::Page { row_group, column, page } => {
-                out.push(4);
-                out.extend_from_slice(&row_group.to_be_bytes());
-                out.extend_from_slice(&column.to_be_bytes());
-                out.extend_from_slice(&page.to_be_bytes())
+                out.extend_from_slice(&buffer.to_be_bytes());
+                out.extend_from_slice(&index.to_be_bytes());
             }
         }
     }
@@ -91,46 +72,24 @@ impl TableKeyFactory {
         self.make(TableKey::Schema)
     }
 
-    pub fn row_group_offsets(&mut self) -> &[u8] {
-        self.make(TableKey::RowGroupOffsets)
-    }
-
-    pub fn statistic0(&mut self, kind: Statistic, column_index: usize) -> &[u8] {
-        self.make(TableKey::Statistic0 {
-            column: column_index as u16,
-            kind
+    pub fn statistic(&mut self, column_index: usize) -> &[u8] {
+        self.make(TableKey::Statistic {
+            column: column_index as u16
         })
     }
 
-    pub fn statistic1(&mut self, kind: Statistic, row_group: usize, column_index: usize) -> &[u8] {
-        self.make(TableKey::Statistic1 {
-            row_group: row_group as u16,
-            column: column_index as u16,
-            kind
+    pub fn offsets(&mut self, column: usize, buffer: usize) -> &[u8] {
+        self.make(TableKey::Offsets {
+            column: column as u16,
+            buffer: buffer as u16
         })
     }
 
-    pub fn page(&mut self, row_group: usize, column_index: usize, page_index: usize) -> &[u8] {
+    pub fn page(&mut self, column: usize, buffer: usize, page: usize) -> &[u8] {
         self.make(TableKey::Page {
-            row_group: row_group as u16,
-            column: column_index as u16,
-            page: page_index as u32
+            column: column as u16,
+            buffer: buffer as u16,
+            index: page as u32
         })
-    }
-}
-
-
-#[cfg(test)]
-mod test {
-    use crate::table::key::{TableKeyFactory};
-    
-    #[test]
-    fn test_key_order() {
-        let mut k1 = TableKeyFactory::new(b"hello");
-        let mut k2 = TableKeyFactory::new(b"hello");
-        assert!(k1.page(0, 0, 0) < k2.page(0, 0, 1));
-        assert!(k1.page(0, 0, 0) < k2.page(0, 0, 300));
-        assert!(k1.page(0, 0, 255) < k2.page(0, 0, 300));
-        assert!(k1.page(0, 1, 255) < k2.page(0, 2, 0));
     }
 }

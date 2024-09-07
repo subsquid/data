@@ -7,7 +7,7 @@ pub trait KvWrite {
 
 
 pub trait KvRead {
-    fn get<'a, 'b>(&'a self, key: &'b [u8]) -> anyhow::Result<Option<impl Deref<Target=[u8]> + 'a>>;
+    fn get(&self, key: &[u8]) -> anyhow::Result<Option<impl Deref<Target=[u8]> + '_>>;
 
     fn new_cursor(&self) -> impl KvReadCursor;
 }

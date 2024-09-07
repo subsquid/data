@@ -21,6 +21,3 @@ pub use scan::parquet::ParquetChunk;
 
 #[cfg(feature = "storage")]
 pub use scan::storage::StorageChunk;
-
-#[cfg(feature = "storage2")]
-pub use scan::storage2::{StorageChunk as Storage2Chunk};

@@ -9,7 +9,6 @@ use sqd_primitives::{BlockNumber, ShortHash};
 use crate::db::data::{Chunk, ChunkId, DatasetId, DatasetLabel};
 use crate::db::db::{CF_CHUNKS, CF_DATASETS, CF_DIRTY_TABLES, RocksDB, RocksTransaction, RocksTransactionOptions};
 use crate::db::read::chunk::list_chunks;
-use crate::util::borsh_serialize;
 
 
 mod chunk;
@@ -83,7 +82,7 @@ impl <'a> Tx<'a> {
         self.transaction.put_cf(
             self.cf_handle(CF_DATASETS),
             dataset_id,
-            &borsh_serialize(label)
+            &borsh::to_vec(label).unwrap()
         )?;
         Ok(())
     }
@@ -100,7 +99,7 @@ impl <'a> Tx<'a> {
         self.transaction.put_cf(
             self.cf_handle(CF_CHUNKS),
             ChunkId::new_for_chunk(dataset_id, &chunk),
-            &borsh_serialize(&chunk)
+            &borsh::to_vec(&chunk).unwrap()
         )?;
 
         for table in chunk.tables.values() {

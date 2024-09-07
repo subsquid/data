@@ -9,7 +9,6 @@ use sqd_primitives::Name;
 
 
 pub(super) const CF_DATASETS: Name = "DATASETS";
-pub(super) const CF_DATASET_VERSIONS: Name = "DATASET_VERSIONS";
 pub(super) const CF_CHUNKS: Name = "CHUNKS";
 pub(super) const CF_TABLES: Name = "TABLES";
 pub(super) const CF_DIRTY_TABLES: Name = "DIRTY_TABLES";
@@ -77,7 +76,6 @@ impl Database {
 
     pub fn create_dataset_if_not_exists(&self, id: DatasetId, kind: DatasetKind) -> anyhow::Result<()> {
         let tx = Tx::new(&self.db);
-        let label = tx.find_label_for_update(id)?;
         if let Some(label) = tx.find_label_for_update(id)? {
             ensure!(
                 label.kind == kind, 

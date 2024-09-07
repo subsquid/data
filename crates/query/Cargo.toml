@@ -21,7 +21,6 @@ serde_json = { workspace = true, features = ["preserve_order"] }
 sqd-polars = { path = "../polars" }
 sqd-primitives = { path = "../primitives" }
 sqd-storage = { path = "../storage", optional = true }
-sqd-storage2 = { path = "../storage2", optional = true }
 
 [dev-dependencies]
 criterion = "0.5.1"
@@ -42,11 +41,8 @@ parquet = [
 storage = [
     "dep:sqd-storage"
 ]
-storage2 = [
-    "dep:sqd-storage2"
-]
 
 [[bench]]
 name = "main"
 harness = false
-required-features = ["parquet", "storage", "storage2"]
+required-features = ["parquet", "storage"]

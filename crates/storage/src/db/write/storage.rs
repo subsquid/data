@@ -41,6 +41,9 @@ impl <'a> TableStorage<'a> {
 impl <'a> KvWrite for TableStorage<'a> {
     fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         self.write_batch.put_cf(self.cf, key, value);
+        if self.byte_size() > 32 * 1024 * 1024 {
+            self.flush()?;
+        }
         Ok(())
     }
 }

@@ -5,9 +5,9 @@ use rocksdb::{ColumnFamily, ReadOptions};
 use sqd_primitives::{BlockNumber, Name, ShortHash};
 
 use crate::db::data::{Chunk, ChunkId, DatasetId};
-use crate::db::DatasetLabel;
-use crate::db::db::{CF_CHUNKS, CF_DATASETS, CF_TABLES, RocksDB, RocksSnapshot};
+use crate::db::db::{RocksDB, RocksSnapshot, CF_CHUNKS, CF_DATASETS, CF_TABLES};
 use crate::db::read::chunk::{list_chunks, read_current_chunk};
+use crate::db::DatasetLabel;
 use crate::kv::{KvRead, KvReadCursor};
 use crate::table::read::TableReader;
 

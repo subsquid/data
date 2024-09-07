@@ -1,42 +1,22 @@
-use anyhow::ensure;
-use arrow::array::Array;
-use arrow::datatypes::{Field, SchemaRef};
-use arrow::ipc::convert::schema_to_fb;
-
-use sqd_dataset::TableOptions;
-
-use crate::array::serde::serialize_array;
 use crate::kv::KvWrite;
-use crate::table::key::{Statistic, TableKeyFactory};
-use crate::table::write::stats::{Summary, SummaryBuilder};
-
-
-fn make_summary_builder(f: &Field, options: &TableOptions) -> SummaryBuilder {
-    let with_stats = options.has_stats(f.name());
-    if with_stats && SummaryBuilder::can_have_stats(f.data_type()) {
-        SummaryBuilder::new(Some(f.data_type().clone()))
-    } else {
-        SummaryBuilder::new(None)
-    }
-}
+use crate::table::key::TableKeyFactory;
+use crate::table::util::{get_num_buffers, BufferBag};
+use crate::table::write::array::{make_any_builder, AnyBuilder, FlushCallback};
+use crate::table::write::stats::StatsBuilder;
+use arrow::array::RecordBatch;
+use arrow::datatypes::SchemaRef;
+use arrow::ipc::convert::schema_to_fb;
+use arrow_buffer::ToByteSlice;
+use sqd_dataset::TableOptions;
 
 
 pub struct TableWriter<S> {
-    storage: S,
     schema: SchemaRef,
-    summary0: Vec<SummaryBuilder>,
-    summary1: Vec<SummaryBuilder>,
+    columns: Vec<AnyBuilder>,
+    pages: Vec<Vec<Vec<u32>>>,
+    stats: Vec<Option<StatsBuilder>>,
     key: TableKeyFactory,
-    buf: Vec<u8>
-}
-
-
-macro_rules! write_array {
-    ($this:ident, $key:expr, $array:expr) => {{
-        $this.buf.clear();
-        serialize_array($array, &mut $this.buf);
-        $this.storage.put($key, &$this.buf)
-    }};
+    storage: S
 }
 
 
@@ -46,132 +26,84 @@ impl <S: KvWrite> TableWriter<S> {
         schema: SchemaRef,
         table_name: &[u8],
         table_options: &TableOptions
-    ) -> Self {
-        let summary0 = schema.fields().iter()
-            .map(|f| make_summary_builder(f, table_options))
-            .collect();
+    ) -> Self
+    {
+        let columns: Vec<_> = schema.fields().iter().map(|f| {
+            make_any_builder(table_options.default_page_size, f.data_type())
+        }).collect();
 
-        let summary1 = schema.fields().iter()
-            .map(|f| make_summary_builder(f, table_options))
-            .collect();
+        let pages: Vec<_> = schema.fields().iter().map(|f| {
+            let num_buffers = get_num_buffers(f.data_type());
+            std::iter::repeat_with(|| vec![0])
+                .take(num_buffers)
+                .collect::<Vec<_>>()
+        }).collect();
+        
+        let stats: Vec<_> = schema.fields().iter().map(|f| {
+            StatsBuilder::can_have_stats(f.data_type()).then_some(())?;
+            let partition = table_options.get_stats_partition(f.name())?;
+            let builder = StatsBuilder::new(f.data_type(), partition);
+            Some(builder)
+        }).collect();
 
         Self {
-            storage,
             schema,
-            summary0,
-            summary1,
+            columns,
+            pages,
+            stats,
             key: TableKeyFactory::new(table_name),
-            buf: Vec::with_capacity(3 * table_options.default_page_size / 2)
+            storage
         }
     }
 
-    pub fn storage(&self) -> &S {
-        &self.storage
-    }
-
-    pub fn storage_mut(&mut self) -> &mut S {
-        &mut self.storage
-    }
-
-    pub fn push_page(&mut self, column_index: usize, array: &dyn Array) -> anyhow::Result<()> {
-        if array.is_empty() {
-            return Ok(());
-        }
-        assert_eq!(self.schema.field(column_index).data_type(), array.data_type());
-        let row_group = self.current_row_group_index();
-        let page_index = self.summary1[column_index].len();
-        let key = self.key.page(row_group, column_index, page_index);
-        write_array!(self, key, array)?;
-        self.summary1[column_index].push(array);
-        Ok(())
-    }
-
-    fn current_row_group_index(&self) -> usize {
-        self.summary0[0].len()
-    }
-
-    fn current_row_group_len(&self) -> anyhow::Result<u32> {
-        let len = self.summary1[0].item_count();
-        for (idx, col) in self.summary1.iter().enumerate().skip(1) {
-            let col_len = col.item_count();
-            ensure!(
-                len == col_len,
-                "columns `{}` and `{}` have different lengths",
-                self.schema.field(0).name(),
-                self.schema.field(idx).name()
-            )
-        }
-        Ok(len)
-    }
-
-    pub fn new_row_group(&mut self) -> anyhow::Result<()> {
-        if self.current_row_group_len()? == 0 {
-            return Ok(())
-        }
-        let row_group = self.current_row_group_index();
-        let columns: Vec<Summary> = self.summary1.iter_mut().map(|s| s.finish()).collect();
-
-        // write page level stats
-        for (col_idx, summary) in columns.iter().enumerate() {
-            write_array!(
-                self,
-                self.key.statistic1(Statistic::Offsets, row_group, col_idx),
-                &summary.offsets
-            )?;
-            write_array!(
-                self,
-                self.key.statistic1(Statistic::NullCount, row_group, col_idx),
-                &summary.null_count
-            )?;
-            if let Some(stats) = summary.stats.as_ref() {
-                write_array!(
-                    self,
-                    self.key.statistic1(Statistic::Min, row_group, col_idx),
-                    stats.min.as_ref()
-                )?;
-                write_array!(
-                    self,
-                    self.key.statistic1(Statistic::Max, row_group, col_idx),
-                    stats.max.as_ref()
-                )?;
+    pub fn push_record_batch(&mut self, record_batch: &RecordBatch) {
+        assert_eq!(self.columns.len(), record_batch.num_columns());
+        for ((idx, col), arr) in self.columns.iter_mut().enumerate().zip(record_batch.columns().iter()) {
+            col.push_array(&arr);
+            if let Some(stats) = self.stats[idx].as_mut() {
+                stats.push_array(&arr)
             }
         }
+    }
 
-        for (rgs, pages) in self.summary0.iter_mut().zip(columns.iter()) {
-            rgs.acc(pages)
+    pub fn flush(&mut self) -> anyhow::Result<()> {
+        self.flush_impl(|col, cb| col.flush(cb))
+    }
+
+    fn flush_impl<F>(&mut self, mut flush: F) -> anyhow::Result<()>
+    where
+        F: for<'a> FnMut(&'a mut AnyBuilder, FlushCallback<'a>) -> anyhow::Result<()>
+    {
+        for (col_idx, col) in self.columns.iter_mut().enumerate() {
+            flush(col, &mut |buf_idx, len, data| {
+                let offsets = &mut self.pages[col_idx][buf_idx];
+                let key = self.key.page(col_idx, buf_idx, offsets.len() - 1);
+                self.storage.put(key, data)?;
+                offsets.push(offsets.last().cloned().unwrap() + len as u32);
+                Ok(())
+            })?
         }
-
         Ok(())
     }
 
     pub fn finish(mut self) -> anyhow::Result<S> {
-        self.new_row_group()?;
+        self.flush_impl(|col, cb| col.flush_all(cb))?;
 
-        for (col_idx, mut summary_builder) in self.summary0.into_iter().enumerate() {
-            let summary = summary_builder.finish();
-            if col_idx == 0 {
-                write_array!(
-                    self,
-                    self.key.row_group_offsets(),
-                    &summary.offsets
-                )?;
-            }
-            write_array!(
-                self,
-                self.key.statistic0(Statistic::NullCount, col_idx),
-                &summary.null_count
-            )?;
-            if let Some(stats) = summary.stats.as_ref() {
-                write_array!(
-                    self,
-                    self.key.statistic0(Statistic::Min, col_idx),
-                    stats.min.as_ref()
-                )?;
-                write_array!(
-                    self,
-                    self.key.statistic0(Statistic::Max, col_idx),
-                    stats.max.as_ref()
-                )?;
+        let mut data = Vec::new();
+        for (col_idx, stats) in self.stats.into_iter().enumerate().filter_map(|(i, stats)| {
+            let s = stats?.finish()?;
+            Some((i, s))
+        }) {
+            data.clear();
+            stats.serialize(&mut data);
+            let key = self.key.statistic(col_idx);
+            self.storage.put(key, &data)?;
+        }
+
+        for (col_idx, buffers) in self.pages.iter().enumerate() {
+            for (buf_idx, offsets) in buffers.iter().enumerate() {
+                let key = self.key.offsets(col_idx, buf_idx);
+                self.storage.put(key, offsets.to_byte_slice())?
             }
         }
 

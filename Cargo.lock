@@ -2897,15 +2897,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sqd-array"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrow",
- "arrow-buffer",
-]
-
-[[package]]
 name = "sqd-data"
 version = "0.1.0"
 dependencies = [
@@ -2995,28 +2986,12 @@ dependencies = [
  "sqd-polars",
  "sqd-primitives",
  "sqd-storage",
- "sqd-storage2",
  "tempfile",
  "tikv-jemallocator",
 ]
 
 [[package]]
 name = "sqd-storage"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrow",
- "borsh",
- "parking_lot",
- "rocksdb",
- "sqd-array",
- "sqd-dataset",
- "sqd-primitives",
- "uuid",
-]
-
-[[package]]
-name = "sqd-storage2"
 version = "0.1.0"
 dependencies = [
  "anyhow",

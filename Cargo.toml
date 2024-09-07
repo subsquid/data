@@ -1,14 +1,12 @@
 [workspace]
 members = [
-    "crates/array",
     "crates/data",
     "crates/dataset",
     "crates/node",
     "crates/polars",
     "crates/primitives",
     "crates/query",
-    "crates/storage",
-    "crates/storage2"
+    "crates/storage"
 ]
 resolver = "2"
 

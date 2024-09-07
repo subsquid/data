@@ -10,7 +10,7 @@ use sqd_dataset::DatasetDescriptionRef;
 use crate::db::db::RocksDB;
 use crate::db::table_id::TableId;
 use crate::db::write::storage::TableStorage;
-use crate::table::write::RecordBatchWriter;
+use crate::table::write::TableWriter;
 
 
 #[derive(Default)]
@@ -54,7 +54,7 @@ impl <'a> ChunkBuilder<'a> {
         let mut storage = TableStorage::new(self.db);
         storage.mark_table_dirty(table_id);
 
-        let writer = RecordBatchWriter::new(storage, schema, table_id.as_ref(), &desc.options);
+        let writer = TableWriter::new(storage, schema, table_id.as_ref(), &desc.options);
 
         Ok(ChunkTableWriter {
             chunk: self,
@@ -75,18 +75,16 @@ pub struct ChunkTableWriter<'a> {
     chunk: &'a ChunkBuilder<'a>,
     table_id: TableId,
     table_name: String,
-    writer: RecordBatchWriter<TableStorage<'a>>,
+    writer: TableWriter<TableStorage<'a>>,
     num_rows: u32
 }
 
 
 impl <'a> ChunkTableWriter<'a> {
     pub fn write_record_batch(&mut self, record_batch: &RecordBatch) -> anyhow::Result<()> {
-        self.writer.write_record_batch(record_batch)?;
+        self.writer.push_record_batch(record_batch);
         self.num_rows += record_batch.num_rows() as u32;
-        if self.writer.storage().byte_size() > 5 * 1024 * 1024 {
-            self.writer.storage_mut().flush()?;
-        }
+        self.writer.flush()?;
         Ok(())
     }
 

@@ -68,7 +68,7 @@ mod parquet {
 
 
 #[cfg(feature = "storage")]
-mod storage {
+mod storage2 {
     use std::fs::File;
 
     use arrow::array::RecordBatchReader;
@@ -146,150 +146,8 @@ mod storage {
             .list_chunks(DatasetId::try_from("solana").unwrap(), 0, None)
             .next()
             .expect("chunk must be present")?;
-        
+
         let chunk = StorageChunk::new(&solana_chunk_reader);
-
-        let queries = glob::glob("fixtures/solana/queries/*/query.json")?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        assert!(queries.len() > 0, "no solana queries found");
-
-        for q in queries {
-            println!("query: {}", q.to_str().unwrap());
-            test_fixture(&chunk, q);
-        }
-
-        Ok(())
-    }
-
-    // #[test]
-    // fn reading() -> anyhow::Result<()> {
-    //     let db_dir = tempfile::tempdir()?;
-    //     let db = Database::open(db_dir.path().to_str().unwrap())?;
-    //
-    //     create_dataset(
-    //         &db,
-    //         "solana",
-    //         "solana",
-    //         sqd_data::solana::tables::SolanaChunkBuilder::dataset_description(),
-    //         "fixtures/solana/chunk"
-    //     )?;
-    //
-    //     let snapshot = db.get_snapshot();
-    //
-    //     let solana_chunk_reader = snapshot
-    //         .list_chunks(DatasetId::try_from("solana").unwrap(), 0, None)
-    //         .next()
-    //         .expect("chunk must be present")?;
-    //
-    //     let storage_chunk = StorageChunk::new(&solana_chunk_reader);
-    //
-    //     let parquet_chunk = ParquetChunk::new("fixtures/solana/chunk");
-    //
-    //     let parquet_records = parquet_chunk
-    //         .scan_table("instructions")?
-    //         .with_columns(["a1"])
-    //         .with_row_selection(RowRangeList::new(vec![1000..1005]))
-    //         .execute()?;
-    //
-    //     let storage_records = storage_chunk
-    //         .scan_table("instructions")?
-    //         .with_columns(["a1"])
-    //         .with_row_selection(RowRangeList::new(vec![1000..1005]))
-    //         .execute()?;
-    //
-    //     if parquet_records != storage_records {
-    //         print_batches(&storage_records)?;
-    //         print_batches(&parquet_records)?;
-    //         panic!("unequal records")
-    //     }
-    //
-    //     Ok(())
-    // }
-}
-
-
-#[cfg(feature = "storage2")]
-mod storage2 {
-    use std::fs::File;
-
-    use arrow::array::RecordBatchReader;
-    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-
-    use sqd_dataset::DatasetDescriptionRef;
-    use sqd_primitives::ShortHash;
-    use sqd_query::Storage2Chunk;
-    use sqd_storage2::db::{Database, DatasetId, DatasetKind, NewChunk};
-
-    use crate::test_fixture;
-
-
-    fn create_dataset(
-        db: &Database,
-        name: &str,
-        kind: &str,
-        desc: DatasetDescriptionRef,
-        chunk_path: &str
-    ) -> anyhow::Result<()>
-    {
-        let dataset_id = DatasetId::try_from(name).unwrap();
-        let dataset_kind = DatasetKind::try_from(kind).unwrap();
-
-        db.create_dataset(dataset_id, dataset_kind)?;
-
-        let chunk_builder = db.new_chunk_builder(desc);
-
-        for item_result in std::fs::read_dir(chunk_path)? {
-            let item = item_result?.file_name();
-            let item_name = item.to_str().unwrap();
-
-            if let Some(table) = item_name.strip_suffix(".parquet") {
-                let mut reader = ParquetRecordBatchReaderBuilder::try_new(
-                    File::open(format!("{}/{}", chunk_path, item_name))?
-                )?.with_batch_size(500).build()?;
-
-                let mut writer = chunk_builder.add_table(table, reader.schema())?;
-
-                while let Some(record_batch) = reader.next().transpose()? {
-                    writer.write_record_batch(&record_batch)?;
-                }
-
-                writer.finish()?
-            }
-        }
-
-        db.insert_chunk(dataset_id, NewChunk {
-            prev_block_hash: None,
-            first_block: 0,
-            last_block: 0,
-            last_block_hash: ShortHash::try_from("hello").unwrap(),
-            tables: chunk_builder.finish()
-        })?;
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_fixtures() -> anyhow::Result<()> {
-        let db_dir = tempfile::tempdir()?;
-        let db = Database::open(db_dir.path().to_str().unwrap())?;
-
-        crate::storage2::create_dataset(
-            &db,
-            "solana",
-            "solana",
-            sqd_data::solana::tables::SolanaChunkBuilder::dataset_description(),
-            "fixtures/solana/chunk"
-        )?;
-
-        let snapshot = db.get_snapshot();
-
-        let solana_chunk_reader = snapshot
-            .list_chunks(DatasetId::try_from("solana").unwrap(), 0, None)
-            .next()
-            .expect("chunk must be present")?;
-
-        let chunk = Storage2Chunk::new(&solana_chunk_reader);
 
         let queries = glob::glob("fixtures/solana/queries/*/query.json")?
             .collect::<Result<Vec<_>, _>>()?;
