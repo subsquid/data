@@ -85,13 +85,9 @@ impl BitmaskBuilder {
 
     fn shift(&mut self, offset: usize) {
         let bytes = self.buffer.as_slice_mut();
-        let count = bytes.len() - offset;
-        let src = bytes[offset..].as_ptr();
-        let dst = bytes.as_mut_ptr();
-        unsafe {
-            std::ptr::copy(src, dst, count);
-        }
-        self.buffer.truncate(count);
+        bytes.copy_within(offset.., 0);
+        let new_len = bytes.len() - offset;
+        self.buffer.truncate(new_len);
         self.len = self.len - offset * 8;
     }
 

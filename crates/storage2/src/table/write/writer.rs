@@ -89,15 +89,15 @@ impl <S: KvWrite> TableWriter<S> {
     pub fn finish(mut self) -> anyhow::Result<S> {
         self.flush_impl(|col, cb| col.flush_all(cb))?;
 
+        let mut data = Vec::new();
         for (col_idx, stats) in self.stats.into_iter().enumerate().filter_map(|(i, stats)| {
             let s = stats?.finish()?;
             Some((i, s))
         }) {
-            let mut data = Vec::new();
+            data.clear();
             stats.serialize(&mut data);
             let key = self.key.statistic(col_idx);
             self.storage.put(key, &data)?;
-            data.clear()
         }
 
         for (col_idx, buffers) in self.pages.iter().enumerate() {

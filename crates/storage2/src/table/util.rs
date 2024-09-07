@@ -304,10 +304,7 @@ pub fn validate_offsets<T: Ord + Default + Copy>(offsets: &[T]) -> anyhow::Resul
 }
 
 
-pub fn validate_offsets_monotonicity<T: Ord + Default + Copy>(
-    offsets: &[T]
-) -> anyhow::Result<()>
-{
+pub fn validate_offsets_monotonicity<T: Ord + Copy>(offsets: &[T]) -> anyhow::Result<()> {
     let mut prev = offsets[0];
     for i in 1..offsets.len() {
         let current = offsets[i];
