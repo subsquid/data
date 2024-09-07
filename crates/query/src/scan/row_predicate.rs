@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::bail;
-use arrow::array::{Array, BooleanArray, RecordBatch, UInt32Array};
-
+use arrow::array::{Array, ArrayRef, BooleanArray, RecordBatch};
+use arrow::buffer::ScalarBuffer;
 use sqd_primitives::RowRangeList;
 
 use crate::primitives::Name;
@@ -30,9 +30,15 @@ pub trait RowPredicate: Sync + Send {
 
 
 pub trait RowStats {
-    fn get_column_offsets(&self, column: Name) -> anyhow::Result<UInt32Array>;
+    fn get_column_stats(&self, column: Name) -> anyhow::Result<Option<ColumnStats>>;
+}
 
-    fn get_column_stats(&self, column: Name) -> anyhow::Result<Option<ArrayStats>>;
+
+#[derive(Clone)]
+pub struct ColumnStats {
+    pub offsets: ScalarBuffer<u32>,
+    pub min: ArrayRef,
+    pub max: ArrayRef
 }
 
 
@@ -71,15 +77,18 @@ impl RowPredicate for ColumnPredicate {
 
     fn evaluate_stats(&self, row_stats: &dyn RowStats) -> anyhow::Result<Option<RowRangeList>> {
         row_stats.get_column_stats(self.column[0])?.map(|column_stats| {
-            let mask = self.array_predicate.evaluate_stats(&column_stats)?;
+            let mask = self.array_predicate.evaluate_stats(&ArrayStats {
+                min: column_stats.min.clone(),
+                max: column_stats.max.clone()
+            })?;
 
-            let offsets = row_stats.get_column_offsets(self.column[0])?;
+            let offsets = &column_stats.offsets;
 
             let ranges = (0..offsets.len() - 1)
                 .filter(|&i| {
                     mask.value(i) && !mask.is_null(i)
                 })
-                .map(|i| offsets.value(i)..offsets.value(i+1));
+                .map(|i| offsets[i]..offsets[i + 1]);
 
             Ok(RowRangeList::seal(ranges))
         }).transpose()

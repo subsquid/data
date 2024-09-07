@@ -6,7 +6,7 @@ use arrow::buffer::BooleanBuffer;
 use arrow::compute::{cast_with_options, CastOptions};
 use arrow::datatypes::{ArrowNativeTypeOp, ArrowPrimitiveType, DataType, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 
-use crate::scan::arrow::IntoArrow;
+use crate::scan::arrow::IntoScalar;
 
 
 pub type ArrayPredicateRef = Arc<dyn ArrayPredicate>;
@@ -142,7 +142,7 @@ pub struct Eq {
 
 
 impl Eq {
-    pub fn new<T: IntoArrow>(value: T) -> Self {
+    pub fn new<T: IntoScalar>(value: T) -> Self {
         Self {
             value: value.into_scalar()
         }
@@ -178,7 +178,7 @@ pub struct GtEq {
 
 
 impl GtEq {
-    pub fn new<T: IntoArrow>(value: T) -> Self {
+    pub fn new<T: IntoScalar>(value: T) -> Self {
         Self {
             value: value.into_scalar()
         }
@@ -213,7 +213,7 @@ pub struct LtEq {
 
 
 impl LtEq {
-    pub fn new<T: IntoArrow>(value: T) -> Self {
+    pub fn new<T: IntoScalar>(value: T) -> Self {
         Self {
             value: value.into_scalar()
         }

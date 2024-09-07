@@ -1,14 +1,12 @@
-use std::collections::HashSet;
-use anyhow::anyhow;
-use arrow::array::{RecordBatch, UInt32Array};
+use crate::primitives::Name;
+use crate::scan::reader::TableReader;
+use crate::scan::row_predicate::{ColumnStats, RowStats};
+use crate::scan::util::{add_row_index, build_row_index_array};
+use crate::scan::RowPredicateRef;
+use arrow::array::RecordBatch;
 use sqd_primitives::RowRangeList;
 use sqd_storage::db::ChunkTableReader;
-use crate::primitives::Name;
-use crate::scan::array_predicate::ArrayStats;
-use crate::scan::reader::TableReader;
-use crate::scan::row_predicate::RowStats;
-use crate::scan::RowPredicateRef;
-use crate::scan::util::{add_row_index, build_row_index_array};
+use std::collections::HashSet;
 
 
 impl <'a> TableReader for ChunkTableReader<'a> {
@@ -96,19 +94,12 @@ impl <'a> TableReader for ChunkTableReader<'a> {
 
 
 impl <'a> RowStats for ChunkTableReader<'a> {
-    fn get_column_offsets(&self, column: Name) -> anyhow::Result<UInt32Array> {
-        let index = self.schema().index_of(column)?;
-        let stats = self.get_column_stats(index)?.ok_or_else(|| {
-           anyhow!("column {} doesn't have stats", column)
-        })?;
-        Ok(UInt32Array::new(stats.offsets, None))
-    }
-
-    fn get_column_stats(&self, column: Name) -> anyhow::Result<Option<ArrayStats>> {
+    fn get_column_stats(&self, column: Name) -> anyhow::Result<Option<ColumnStats>> {
         let index = self.schema().index_of(column)?;
         let stats = self.get_column_stats(index)?;
         Ok(stats.map(|stats| {
-            ArrayStats {
+            ColumnStats {
+                offsets: stats.offsets,
                 min: stats.min,
                 max: stats.max
             }

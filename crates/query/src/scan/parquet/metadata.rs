@@ -1,15 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use arrow::array::{ArrayBuilder, ArrayRef, BinaryArray, BinaryBuilder, BooleanArray, BooleanBuilder, Int32Array, Int32Builder, Int64Array, Int64Builder, UInt32Array};
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::file::page_index::index::Index;
 use parquet::file::statistics::Statistics;
 
 use crate::primitives::Name;
-use crate::scan::array_predicate::ArrayStats;
-use crate::scan::row_predicate::RowStats;
+use crate::scan::row_predicate::{ColumnStats, RowStats};
 
 
 pub struct ParquetMetadata {
@@ -63,31 +61,14 @@ impl RowGroupStats {
 
 
 impl RowStats for RowGroupStats {
-    fn get_column_offsets(&self, column: Name) -> anyhow::Result<UInt32Array> {
+    fn get_column_stats(&self, column: Name) ->  anyhow::Result<Option<ColumnStats>> {
         let mut column_stats = self.column_stats.lock();
 
         let s = column_stats.entry(column).or_insert_with(|| {
             self.build_column_stats(column)
         });
 
-        if let Some(s) = s.as_ref() {
-            Ok(s.offsets.clone())
-        } else {
-            Err(anyhow!(
-                "stats are not available for column `{}`, offsets should not be requested",
-                column
-            ))
-        }
-    }
-
-    fn get_column_stats(&self, column: Name) ->  anyhow::Result<Option<ArrayStats>> {
-        let mut column_stats = self.column_stats.lock();
-
-        let s = column_stats.entry(column).or_insert_with(|| {
-            self.build_column_stats(column)
-        });
-
-        Ok(s.as_ref().map(|s| s.values.clone()))
+        Ok(s.clone())
     }
 }
 
@@ -193,11 +174,9 @@ impl RowGroupStats {
             complete_min_max!(boolean, num_row_groups)
         }).map(|min_max| {
             ColumnStats {
-                offsets: offsets.finish(),
-                values: ArrayStats {
-                    min: min_max.0,
-                    max: min_max.1
-                }
+                offsets: offsets.finish().into_parts().1,
+                min: min_max.0,
+                max: min_max.1
             }
         })
     }
@@ -224,31 +203,14 @@ impl PageStats {
 
 
 impl RowStats for PageStats {
-    fn get_column_offsets(&self, column: Name) -> anyhow::Result<UInt32Array> {
+    fn get_column_stats(&self, column: Name) ->  anyhow::Result<Option<ColumnStats>> {
         let mut column_stats = self.column_stats.lock();
 
         let s = column_stats.entry(column).or_insert_with(|| {
             self.build_column_stats(column)
         });
 
-        if let Some(s) = s.as_ref() {
-            Ok(s.offsets.clone())
-        } else {
-            Err(anyhow!(
-                "stats are not available for column `{}`, offsets should not be requested",
-                column
-            ))
-        }
-    }
-
-    fn get_column_stats(&self, column: Name) ->  anyhow::Result<Option<ArrayStats>> {
-        let mut column_stats = self.column_stats.lock();
-
-        let s = column_stats.entry(column).or_insert_with(|| {
-            self.build_column_stats(column)
-        });
-
-        Ok(s.as_ref().map(|s| s.values.clone()))
+        Ok(s.clone())
     }
 }
 
@@ -270,7 +232,7 @@ impl PageStats {
 
                 let num_rows = self.metadata.metadata().row_group(self.row_group_idx).num_rows();
                 offsets.append_value(num_rows as u32);
-                offsets.finish()
+                offsets.finish().into_parts().1
             })?;
 
         let page_index = self.metadata
@@ -311,17 +273,10 @@ impl PageStats {
 
         Some(ColumnStats {
             offsets,
-            values: ArrayStats {
-                min, max
-            }
+            min,
+            max
         })
     }
-}
-
-
-struct ColumnStats {
-    offsets: UInt32Array,
-    values: ArrayStats
 }
 
 

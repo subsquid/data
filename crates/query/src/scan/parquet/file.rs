@@ -15,8 +15,8 @@ use crate::primitives::{Name, RowIndex};
 use crate::scan::parquet::io::MmapIO;
 use crate::scan::parquet::metadata::ParquetMetadata;
 use crate::scan::reader::TableReader;
-use crate::scan::row_predicate::RowPredicateRef;
-use crate::scan::util::{add_row_index, apply_predicate, build_row_index_array};
+use crate::scan::row_predicate::{RowPredicate, RowPredicateRef};
+use crate::scan::util::{add_row_index, build_row_index_array};
 
 
 #[derive(Clone)]
@@ -241,6 +241,36 @@ fn build_row_group_offsets(row_groups: &[RowGroupMetaData]) -> Vec<RowIndex> {
         offsets.push(current)
     }
     offsets
+}
+
+
+fn apply_predicate(
+    mut batch: RecordBatch,
+    predicate: &dyn RowPredicate,
+    predicate_columns: &HashSet<Name>
+) -> anyhow::Result<RecordBatch>
+{
+    let mask = predicate.evaluate(&batch)?;
+
+    if predicate_columns.len() > 0 {
+        let projection: Vec<usize> = batch.schema()
+            .fields()
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, f)| {
+                if predicate_columns.contains(&f.name().as_str()) {
+                    None
+                } else {
+                    Some(idx)
+                }
+            }).collect();
+
+        batch = batch.project(&projection)?;
+    }
+
+    batch = arrow::compute::filter_record_batch(&batch, &mask)?;
+
+    Ok(batch)
 }
 
 

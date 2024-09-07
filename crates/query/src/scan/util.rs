@@ -1,10 +1,8 @@
-use std::collections::HashSet;
+use crate::primitives::{RowIndex, RowIndexArrowType};
 use arrow::array::{ArrayRef, PrimitiveArray, RecordBatch, RecordBatchOptions, UInt32Array};
 use arrow::datatypes::{DataType, Field, SchemaBuilder, SchemaRef};
 use sqd_primitives::RowRangeList;
 use std::sync::Arc;
-use crate::primitives::{Name, RowIndex, RowIndexArrowType};
-use crate::scan::row_predicate::RowPredicate;
 
 
 pub fn build_row_index_array(
@@ -51,34 +49,4 @@ pub fn add_row_index(batch: &RecordBatch, index: PrimitiveArray<RowIndexArrowTyp
             .with_match_field_names(true)
             .with_row_count(Some(batch.num_rows()))
     ).unwrap()
-}
-
-
-pub fn apply_predicate(
-    mut batch: RecordBatch, 
-    predicate: &dyn RowPredicate, 
-    predicate_columns: &HashSet<Name>
-) -> anyhow::Result<RecordBatch> 
-{
-    let mask = predicate.evaluate(&batch)?;
-
-    if predicate_columns.len() > 0 {
-        let projection: Vec<usize> = batch.schema()
-            .fields()
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, f)| {
-                if predicate_columns.contains(&f.name().as_str()) {
-                    None
-                } else {
-                    Some(idx)
-                }
-            }).collect();
-
-        batch = batch.project(&projection)?;
-    }
-    
-    batch = arrow::compute::filter_record_batch(&batch, &mask)?;
-    
-    Ok(batch)
 }
