@@ -420,11 +420,11 @@ impl SubstrateQuery {
             [events: self.fields.event.project()],
             calls,
             events,
-            evm_logs,
             ethereum_transactions,
             contracts_events,
             gear_messages_enqueued,
             gear_user_messages_sent,
+            <evm_logs: events>,
         )
     }
 }

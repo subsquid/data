@@ -152,28 +152,13 @@ impl PredicateBuilder {
 }
 
 
-macro_rules! _compile_item {
-    ($table:ident, $item:ident) => {
-        let mut predicate = PredicateBuilder::new();
-        $item.predicate(&mut predicate);
-        if predicate.is_never() {
-            continue;
-        }
-        let mut scan = plan.add_scan(stringify!($table));
-        if let Some(predicate) = predicate.build() {
-            scan.with_predicate(predicate);
-        }
-        $item.relations(&mut scan);
-    };
-}
-
-
 macro_rules! compile_plan {
     (
         $this:ident,
         $table_ref:expr,
         $([$out:ident : $fields:expr],)*
         $($item:ident,)*
+        $(<$table_item:ident : $table:ident>,)*
     ) => {{
         use crate::plan::*;
         let mut plan = PlanBuilder::new($table_ref);
@@ -183,20 +168,30 @@ macro_rules! compile_plan {
         $(
             plan.set_projection(stringify!($out), $fields);
         )*
+
+        macro_rules! _compile_item {
+            ($an_item:ident, $a_table:ident) => {
+                for item in $this.$an_item.iter() {
+                    let mut predicate = PredicateBuilder::new();
+                    item.predicate(&mut predicate);
+                    if predicate.is_never() {
+                        continue;
+                    }
+                    let mut scan = plan.add_scan(stringify!($a_table));
+                    if let Some(predicate) = predicate.build() {
+                        scan.with_predicate(predicate);
+                    }
+                    item.relations(&mut scan);
+                }
+            };
+        }
         $(
-            for item in $this.$item.iter() {
-                let mut predicate = PredicateBuilder::new();
-                item.predicate(&mut predicate);
-                if predicate.is_never() {
-                    continue;
-                }
-                let mut scan = plan.add_scan(stringify!($item));
-                if let Some(predicate) = predicate.build() {
-                    scan.with_predicate(predicate);
-                }
-                item.relations(&mut scan);
-            }
+            _compile_item!($item, $item);
         )*
+        $(
+            _compile_item!($table_item, $table);
+        )*
+
         plan.build()
     }};
 }

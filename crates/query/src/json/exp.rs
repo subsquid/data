@@ -126,6 +126,7 @@ fn eval_bignum(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
         DataType::UInt64 => make!(UInt64Type),
         DataType::Float32 => make!(Float32Type),
         DataType::Float64 => make!(Float64Type),
+        DataType::Decimal128(_, 0) => make!(Decimal128Type),
         ty => Err(schema_error!(
             "Expected numeric primitive value, but got - {}", ty
         ))
