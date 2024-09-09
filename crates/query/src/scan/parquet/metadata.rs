@@ -95,12 +95,16 @@ impl RowGroupStats {
                         BooleanBuilder::with_capacity(num_row_groups),
                         BooleanBuilder::with_capacity(num_row_groups)
                     ));
-                    if s.has_min_max_set() {
-                        min_max.0.append_value(*s.min());
-                        min_max.1.append_value(*s.max());
-                    } else {
-                        min_max.0.append_null();
-                        min_max.1.append_null();
+                    match (s.min_opt(), s.max_opt()) {
+                        (Some(min), Some(max)) => {
+                            min_max.0.append_value(*min);
+                            min_max.1.append_value(*max);
+                        },
+                        (None, None) => {
+                            min_max.0.append_null();
+                            min_max.1.append_null();
+                        },
+                        _ => return None
                     }
                 }
                 Statistics::Int32(s) => {
@@ -108,12 +112,16 @@ impl RowGroupStats {
                         Int32Builder::with_capacity(num_row_groups),
                         Int32Builder::with_capacity(num_row_groups)
                     ));
-                    if s.has_min_max_set() {
-                        min_max.0.append_value(*s.min());
-                        min_max.1.append_value(*s.max());
-                    } else {
-                        min_max.0.append_null();
-                        min_max.1.append_null();
+                    match (s.min_opt(), s.max_opt()) {
+                        (Some(min), Some(max)) => {
+                            min_max.0.append_value(*min);
+                            min_max.1.append_value(*max);
+                        },
+                        (None, None) => {
+                            min_max.0.append_null();
+                            min_max.1.append_null();
+                        },
+                        _ => return None
                     }
                 }
                 Statistics::Int64(s) => {
@@ -121,12 +129,16 @@ impl RowGroupStats {
                         Int64Builder::with_capacity(num_row_groups),
                         Int64Builder::with_capacity(num_row_groups)
                     ));
-                    if s.has_min_max_set() {
-                        min_max.0.append_value(*s.min());
-                        min_max.1.append_value(*s.max());
-                    } else {
-                        min_max.0.append_null();
-                        min_max.1.append_null();
+                    match (s.min_opt(), s.max_opt()) {
+                        (Some(min), Some(max)) => {
+                            min_max.0.append_value(*min);
+                            min_max.1.append_value(*max);
+                        },
+                        (None, None) => {
+                            min_max.0.append_null();
+                            min_max.1.append_null();
+                        },
+                        _ => return None
                     }
                 }
                 Statistics::ByteArray(s) => {
@@ -134,12 +146,16 @@ impl RowGroupStats {
                         BinaryBuilder::new(),
                         BinaryBuilder::new()
                     ));
-                    if s.has_min_max_set() {
-                        min_max.0.append_value(s.min());
-                        min_max.1.append_value(s.max());
-                    } else {
-                        min_max.0.append_null();
-                        min_max.1.append_null();
+                    match (s.min_opt(), s.max_opt()) {
+                        (Some(min), Some(max)) => {
+                            min_max.0.append_value(min);
+                            min_max.1.append_value(max);
+                        },
+                        (None, None) => {
+                            min_max.0.append_null();
+                            min_max.1.append_null();
+                        },
+                        _ => return None
                     }
                 }
                 _ => return None
@@ -223,7 +239,7 @@ impl PageStats {
             .metadata()
             .offset_index()
             .map(|offset_index| {
-                let pages = &offset_index[self.row_group_idx][col_idx];
+                let pages = &offset_index[self.row_group_idx][col_idx].page_locations();
                 let mut offsets = UInt32Array::builder(pages.len() + 1);
 
                 for page in pages.iter() {

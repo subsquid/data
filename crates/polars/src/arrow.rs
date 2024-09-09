@@ -1,6 +1,6 @@
 use arrow::array::{Array, ArrayRef, RecordBatch};
 use polars::prelude::{DataFrame, IntoLazy, LazyFrame, Series, UnionArgs};
-use polars_core::prelude::SortMultipleOptions;
+use polars_core::prelude::{CompatLevel, SortMultipleOptions};
 
 
 pub fn record_batch_to_polars_df(batch: &RecordBatch) -> anyhow::Result<DataFrame> {
@@ -16,22 +16,26 @@ pub fn record_batch_to_polars_df(batch: &RecordBatch) -> anyhow::Result<DataFram
 }
 
 
-pub fn record_batch_vec_to_lazy_polars_df(batch_vec: &Vec<RecordBatch>) -> anyhow::Result<LazyFrame> {
-    if batch_vec.len() == 0 {
-        return Ok(DataFrame::empty().lazy());
-    }
+pub fn record_batch_vec_to_lazy_polars_df(batch_vec: &[RecordBatch]) -> anyhow::Result<LazyFrame> {
+    Ok(match batch_vec.len() {
+        0 => DataFrame::empty().lazy(),
+        1 => {
+            let b = &batch_vec[0];
+            let df = record_batch_to_polars_df(b)?;
+            df.lazy()
+        },
+        _ => {
+            let batches = batch_vec.iter().map(|record_batch| {
+                let df = record_batch_to_polars_df(record_batch)?;
+                Ok(df.lazy())
+            }).collect::<anyhow::Result<Vec<_>>>()?;
 
-    let batches = batch_vec.iter().map(|record_batch| {
-        let df = record_batch_to_polars_df(record_batch)?;
-        Ok(df.lazy())
-    }).collect::<anyhow::Result<Vec<_>>>()?;
-
-    let df = polars::prelude::concat(
-        batches.as_slice(),
-        UnionArgs::default()
-    )?;
-
-    Ok(df)
+            polars::prelude::concat(
+                batches.as_slice(),
+                UnionArgs::default()
+            )?
+        }
+    })
 }
 
 
@@ -43,7 +47,7 @@ pub fn polars_series_to_row_index_iter(series: &Series) -> impl Iterator<Item = 
 pub fn polars_series_to_arrow_array(series: &Series) -> ArrayRef {
     let series = series.rechunk();
     assert_eq!(series.chunks().len(), 1);
-    let polars_array = series.to_arrow(0, false);
+    let polars_array = series.to_arrow(0, CompatLevel::oldest());
     ArrayRef::from(polars_array)
 }
 

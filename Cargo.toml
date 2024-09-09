@@ -12,12 +12,12 @@ resolver = "2"
 
 [workspace.dependencies]
 anyhow = "1.0.86"
-arrow = { version = "52.0.0", default-features = false }
-arrow-buffer = "52.0.0"
+arrow = { version = "53.0.0", default-features = false }
+arrow-buffer = "53.0.0"
 borsh = { version = "1.5.1", features = ["derive"] }
 lazy_static = "1.4.0"
 parking_lot = "0.12.3"
-parquet = "52.0.0"
+parquet = "53.0.0"
 proptest = "1.4.0"
 rayon = "1.10.0"
 serde = "1.0.203"
