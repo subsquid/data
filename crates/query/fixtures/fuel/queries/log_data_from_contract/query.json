@@ -1,0 +1,24 @@
+{
+  "type": "fuel",
+  "fromBlock": 9000000,
+  "fields": {
+    "transaction": {
+      "type": true,
+      "hash": true,
+      "status": true
+    },
+    "receipt": {
+      "receiptType": true,
+      "contract": true,
+      "data": true,
+      "is": true
+    }
+  },
+  "receipts": [
+    {
+      "type": ["LOG_DATA"],
+      "contract": ["0x8dad4bc41accf5c8a4d326ba513c7bccba075c4906ef1826f2cbf7409514a112"],
+      "transaction": true
+    }
+  ]
+}

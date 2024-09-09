@@ -1,0 +1,23 @@
+{
+  "type": "fuel",
+  "fromBlock": 9000000,
+  "fields": {
+    "transaction": {
+      "type": true,
+      "hash": true,
+      "status": true
+    },
+    "input": {
+      "coinOwner": true,
+      "coinAmount": true,
+      "coinAssetId": true
+    }
+  },
+  "inputs": [
+    {
+      "type": ["InputCoin"],
+      "coinAssetId": ["0x0cfabde7bbe58d253cf3103d8f55d26987b3dc4691205b9299ac6826c613a2e2"],
+      "transaction": true
+    }
+  ]
+}

@@ -1,9 +1,12 @@
-use serde::{Deserialize, Serialize};
 use crate::plan::Plan;
 use crate::primitives::BlockNumber;
+use serde::{Deserialize, Serialize};
+
 
 pub mod eth;
 pub mod solana;
+pub mod substrate;
+pub mod fuel;
 mod util;
 
 
@@ -13,7 +16,11 @@ pub enum Query {
     #[serde(rename = "eth")]
     Eth(eth::EthQuery),
     #[serde(rename = "solana")]
-    Solana(solana::SolanaQuery)
+    Solana(solana::SolanaQuery),
+    #[serde(rename = "substrate")]
+    Substrate(substrate::SubstrateQuery),
+    #[serde(rename = "fuel")]
+    Fuel(fuel::FuelQuery)
 }
 
 
@@ -41,28 +48,36 @@ impl Query {
     pub fn validate(&self) -> anyhow::Result<()> {
         match self {
             Query::Eth(q) => q.validate(),
-            Query::Solana(q) => q.validate()
+            Query::Solana(q) => q.validate(),
+            Query::Substrate(q) => q.validate(),
+            Query::Fuel(q) => q.validate(),
         }
     }
 
     pub fn first_block(&self) -> Option<BlockNumber> {
         match self {
             Query::Eth(q) => q.from_block,
-            Query::Solana(q) => q.from_block
+            Query::Solana(q) => q.from_block,
+            Query::Substrate(q) => q.from_block,
+            Query::Fuel(q) => q.from_block,
         }
     }
 
     pub fn last_block(&self) -> Option<BlockNumber> {
         match self {
             Query::Eth(q) => q.to_block,
-            Query::Solana(q) => q.to_block
+            Query::Solana(q) => q.to_block,
+            Query::Substrate(q) => q.to_block,
+            Query::Fuel(q) => q.to_block,
         }
     }
 
     pub fn compile(&self) -> Plan {
         match self {
             Query::Eth(q) => q.compile(),
-            Query::Solana(q) => q.compile()
+            Query::Solana(q) => q.compile(),
+            Query::Substrate(q) => q.compile(),
+            Query::Fuel(q) => q.compile(),
         }
     }
 }

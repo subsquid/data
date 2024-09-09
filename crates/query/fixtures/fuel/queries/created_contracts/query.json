@@ -1,0 +1,21 @@
+{
+  "type": "fuel",
+  "fromBlock": 9000000,
+  "fields": {
+    "transaction": {
+      "type": true,
+      "hash": true,
+      "status": true
+    },
+    "output": {
+      "contractCreatedContract": true,
+      "contractCreatedStateRoot": true
+    }
+  },
+  "outputs": [
+    {
+      "type": ["ContractCreated"],
+      "transaction": true
+    }
+  ]
+}

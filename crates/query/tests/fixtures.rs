@@ -56,7 +56,6 @@ mod parquet {
 
     use crate::test_fixture;
 
-
     #[rstest]
     fn query(#[files("fixtures/*/queries/*/query.json")] query_file: PathBuf) {
         let case_dir = query_file.parent().unwrap();
@@ -68,7 +67,7 @@ mod parquet {
 
 
 #[cfg(feature = "storage")]
-mod storage2 {
+mod storage {
     use std::fs::File;
 
     use arrow::array::RecordBatchReader;
