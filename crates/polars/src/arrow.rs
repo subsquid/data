@@ -1,6 +1,6 @@
 use arrow::array::{Array, ArrayRef, RecordBatch};
 use polars::prelude::{DataFrame, IntoLazy, LazyFrame, Series, UnionArgs};
-use polars_core::prelude::{CompatLevel, SortMultipleOptions};
+use polars_core::prelude::SortMultipleOptions;
 
 
 pub fn record_batch_to_polars_df(batch: &RecordBatch) -> anyhow::Result<DataFrame> {
@@ -47,7 +47,7 @@ pub fn polars_series_to_row_index_iter(series: &Series) -> impl Iterator<Item = 
 pub fn polars_series_to_arrow_array(series: &Series) -> ArrayRef {
     let series = series.rechunk();
     assert_eq!(series.chunks().len(), 1);
-    let polars_array = series.to_arrow(0, CompatLevel::oldest());
+    let polars_array = series.to_arrow(0, false);
     ArrayRef::from(polars_array)
 }
 
