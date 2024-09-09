@@ -2,14 +2,14 @@ use std::collections::{BTreeSet, HashSet};
 
 use anyhow::bail;
 use arrow::array::{Array, ArrayRef, ArrowPrimitiveType, AsArray, OffsetSizeTrait};
-use arrow::datatypes::{DataType, Int32Type, UInt32Type, UInt16Type};
+use arrow::datatypes::{DataType, Int32Type, UInt16Type, UInt32Type};
 
 use sqd_polars::arrow::{polars_series_to_arrow_array, polars_series_to_row_index_iter};
 use sqd_primitives::RowRangeList;
 
 use crate::plan::key::{GenericListKey, Key, PrimitiveGenericListKey};
 use crate::plan::row_list::RowList;
-use crate::primitives::{Name, RowIndex, RowIndexArrowType, schema_error, SchemaError};
+use crate::primitives::{schema_error, Name, RowIndex, RowIndexArrowType, SchemaError};
 use crate::scan::Chunk;
 
 
@@ -21,17 +21,23 @@ pub enum Rel {
         output_table: Name,
         output_key: Vec<Name>
     },
-    Children {
-        table: Name,
-        key: Vec<Name>
-    },
-    Sub {
+    ForeignChildren {
         input_table: Name,
         input_key: Vec<Name>,
         output_table: Name,
         output_key: Vec<Name>
     },
-    Stack {
+    ForeignParents {
+        input_table: Name,
+        input_key: Vec<Name>,
+        output_table: Name,
+        output_key: Vec<Name>
+    },
+    Children {
+        table: Name,
+        key: Vec<Name>
+    },
+    Parents {
         table: Name,
         key: Vec<Name>
     }
@@ -42,9 +48,10 @@ impl Rel {
     pub fn output_table(&self) -> Name {
         match self {
             Rel::Join { output_table, .. } => *output_table,
+            Rel::ForeignChildren { output_table, .. } => *output_table,
+            Rel::ForeignParents { output_table, .. } => *output_table,
             Rel::Children { table, .. } => *table,
-            Rel::Sub { output_table, .. } => *output_table,
-            Rel::Stack { table, .. } => *table
+            Rel::Parents { table, .. } => *table
         }
     }
 
@@ -64,25 +71,33 @@ impl Rel {
             } => {
                 eval_join(chunk, input, input_table, input_key, output_table, output_key, output)
             },
+            Rel::ForeignChildren {
+                input_table,
+                input_key,
+                output_table,
+                output_key
+            } => {
+                eval_foreign_children(chunk, input, input_table, input_key, output_table, output_key, output)
+            },
+            Rel::ForeignParents {
+                input_table,
+                input_key,
+                output_table,
+                output_key
+            } => {
+                eval_foreign_parents(chunk, input, input_table, input_key, output_table, output_key, output)
+            },
             Rel::Children {
                 table,
                 key
             } => {
                 eval_children(chunk, input, table, key, output)
             },
-            Rel::Sub {
-                input_table,
-                input_key,
-                output_table,
-                output_key
-            } => {
-                eval_sub(chunk, input, input_table, input_key, output_table, output_key, output)
-            },
-            Rel::Stack {
+            Rel::Parents {
                 table,
                 key
             } => {
-                eval_stack(chunk, input, table, key, output)
+                eval_parents(chunk, input, table, key, output)
             }
         }
     }
@@ -93,9 +108,9 @@ fn eval_join(
     chunk: &dyn Chunk,
     input: &BTreeSet<RowIndex>,
     input_table: Name,
-    input_key: &Vec<Name>,
+    input_key: &[Name],
     output_table: Name,
-    output_key: &Vec<Name>,
+    output_key: &[Name],
     output: &RowList
 ) -> anyhow::Result<()>
 {
@@ -130,7 +145,7 @@ fn eval_children(
     chunk: &dyn Chunk,
     input: &BTreeSet<RowIndex>,
     table: Name,
-    key: &Vec<Name>,
+    key: &[Name],
     output: &RowList
 ) -> anyhow::Result<()>
 {
@@ -148,10 +163,81 @@ fn eval_children(
 }
 
 
+fn eval_parents(
+    chunk: &dyn Chunk,
+    input: &BTreeSet<RowIndex>,
+    table: Name,
+    key: &[Name],
+    output: &RowList
+) -> anyhow::Result<()>
+{
+    let stack = select_stack(chunk, table, key, input)?;
+    let parents = find_parents(&stack, input)?;
+    output.extend(parents);
+    Ok(())
+}
+
+
+fn eval_foreign_children(
+    chunk: &dyn Chunk,
+    input: &BTreeSet<RowIndex>,
+    input_table: Name,
+    input_key: &[Name],
+    output_table: Name,
+    output_key: &[Name],
+    output: &RowList
+) -> anyhow::Result<()>
+{
+    let (stack, parents) = select_foreign_stack(
+        chunk,
+        input,
+        input_table,
+        input_key,
+        output_table,
+        output_key
+    )?;
+
+    let children = find_children(
+        &stack,
+        &parents,
+        true
+    )?;
+
+    output.extend(children);
+
+    Ok(())
+}
+
+
+fn eval_foreign_parents(
+    chunk: &dyn Chunk,
+    input: &BTreeSet<RowIndex>,
+    input_table: Name,
+    input_key: &[Name],
+    output_table: Name,
+    output_key: &[Name],
+    output: &RowList
+) -> anyhow::Result<()>
+{
+    let (stack, children) = select_foreign_stack(
+        chunk,
+        input,
+        input_table,
+        input_key,
+        output_table,
+        output_key
+    )?;
+
+    let parents = find_parents(&stack, &children)?;
+    output.extend(parents);
+    Ok(())
+}
+
+
 fn select_stack(
     chunk: &dyn Chunk,
     table: Name,
-    key: &Vec<Name>,
+    key: &[Name],
     input: &BTreeSet<RowIndex>
 ) -> anyhow::Result<Stack>
 {
@@ -210,15 +296,14 @@ fn select_stack(
 }
 
 
-fn eval_sub(
+fn select_foreign_stack(
     chunk: &dyn Chunk,
     input: &BTreeSet<RowIndex>,
     input_table: Name,
-    input_key: &Vec<Name>,
+    input_key: &[Name],
     output_table: Name,
-    output_key: &Vec<Name>,
-    output: &RowList
-) -> anyhow::Result<()>
+    output_key: &[Name],
+) -> anyhow::Result<(Stack, BTreeSet<RowIndex>)>
 {
     use sqd_polars::prelude::*;
 
@@ -254,7 +339,7 @@ fn eval_sub(
 
     let output_key_exp = output_key.iter().copied().map(col).collect::<Vec<_>>();
 
-    let parents = input.lazy()
+    let input_rows = input.lazy()
         .join(
             items.clone().lazy(),
             &output_key_exp,
@@ -283,15 +368,7 @@ fn eval_sub(
 
     let stack = Stack::from_df(&groups);
 
-    let children = find_children(
-        &stack,
-        &parents,
-        true
-    )?;
-
-    output.extend(children);
-
-    Ok(())
+    Ok((stack, input_rows))
 }
 
 
@@ -419,22 +496,7 @@ fn find_children_impl<A, O>(
 
 
 fn is_parent_address<I: Eq>(parent: &[I], child: &[I]) -> bool {
-    parent.len() <= child.len() && parent.eq(&child[0..parent.len()])
-}
-
-
-fn eval_stack(
-    chunk: &dyn Chunk,
-    input: &BTreeSet<RowIndex>,
-    table: Name,
-    key: &Vec<Name>,
-    output: &RowList
-) -> anyhow::Result<()>
-{
-    let stack = select_stack(chunk, table, key, input)?;
-    let parents = find_parents(&stack, input)?;
-    output.extend(parents);
-    Ok(())
+    parent.len() < child.len() && parent.eq(&child[0..parent.len()])
 }
 
 

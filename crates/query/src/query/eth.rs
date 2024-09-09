@@ -1,11 +1,11 @@
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
-use crate::{BlockNumber, Plan};
-use crate::plan::{ScanBuilder, TableSet};
-use crate::query::util::{compile_plan, ensure_block_range, field_selection, item_field_selection, PredicateBuilder, request};
 use crate::json::exp::Exp;
 use crate::json::lang::*;
+use crate::plan::{ScanBuilder, TableSet};
+use crate::query::util::{compile_plan, ensure_block_range, field_selection, item_field_selection, request, PredicateBuilder};
+use crate::{BlockNumber, Plan};
 
 
 lazy_static! {
@@ -525,7 +525,7 @@ impl TraceRequest {
             scan.include_children();
         }
         if self.parents {
-            scan.include_stack();
+            scan.include_parents();
         }
     }
 }

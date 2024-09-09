@@ -489,13 +489,24 @@ impl <'a> ScanBuilder<'a> {
         self
     }
 
-    pub fn include_sub_items(
+    pub fn include_parents(&mut self) -> &mut Self {
+        let table = &self.plan.scans[self.scan_idx].table;
+        let key = self.plan.tables.get(table).primary_key.clone();
+        let rel_idx = self.plan.add_rel(Rel::Parents {
+            table,
+            key
+        });
+        self.scan_mut().relations.push(rel_idx);
+        self
+    }
+
+    pub fn include_foreign_children(
         &mut self,
         output_table: Name,
         output_key: Vec<Name>,
         scan_key: Vec<Name>
     ) -> &mut Self {
-        let rel_idx = self.plan.add_rel(Rel::Sub {
+        let rel_idx = self.plan.add_rel(Rel::ForeignChildren {
             input_table: self.plan.scans[self.scan_idx].table,
             input_key: scan_key,
             output_table,
@@ -505,12 +516,17 @@ impl <'a> ScanBuilder<'a> {
         self
     }
 
-    pub fn include_stack(&mut self) -> &mut Self {
-        let table = &self.plan.scans[self.scan_idx].table;
-        let key = self.plan.tables.get(table).primary_key.clone();
-        let rel_idx = self.plan.add_rel(Rel::Stack {
-            table,
-            key
+    pub fn include_foreign_parents(
+        &mut self,
+        output_table: Name,
+        output_key: Vec<Name>,
+        scan_key: Vec<Name>
+    ) -> &mut Self {
+        let rel_idx = self.plan.add_rel(Rel::ForeignParents {
+            input_table: self.plan.scans[self.scan_idx].table,
+            input_key: scan_key,
+            output_table,
+            output_key
         });
         self.scan_mut().relations.push(rel_idx);
         self
