@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
+use crate::scan::arrow::IntoArrow;
 use anyhow::bail;
 use arrow::array::{Array, ArrayRef, AsArray, BooleanArray, Datum, PrimitiveArray, Scalar};
 use arrow::buffer::BooleanBuffer;
 use arrow::compute::{cast_with_options, CastOptions};
 use arrow::datatypes::{ArrowNativeTypeOp, ArrowPrimitiveType, DataType, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
-
-use crate::scan::arrow::IntoScalar;
 
 
 pub type ArrayPredicateRef = Arc<dyn ArrayPredicate>;
@@ -142,7 +141,7 @@ pub struct Eq {
 
 
 impl Eq {
-    pub fn new<T: IntoScalar>(value: T) -> Self {
+    pub fn new<T: IntoArrow>(value: T) -> Self {
         Self {
             value: value.into_scalar()
         }
@@ -178,7 +177,7 @@ pub struct GtEq {
 
 
 impl GtEq {
-    pub fn new<T: IntoScalar>(value: T) -> Self {
+    pub fn new<T: IntoArrow>(value: T) -> Self {
         Self {
             value: value.into_scalar()
         }
@@ -213,7 +212,7 @@ pub struct LtEq {
 
 
 impl LtEq {
-    pub fn new<T: IntoScalar>(value: T) -> Self {
+    pub fn new<T: IntoArrow>(value: T) -> Self {
         Self {
             value: value.into_scalar()
         }
@@ -384,4 +383,30 @@ fn tower_cast_impl<FROM, TO, C>(array: &dyn Array) -> CastResult
         ) as Arc<dyn Array>
     );
     CastResult::Cast(scalar)
+}
+
+
+pub struct InList {
+    list: sqd_polars::prelude::Series
+}
+
+
+impl InList {
+    pub fn new<T: IntoArrow>(values: Vec<T>) -> Self {
+        let arr = T::make_array(values);
+        let list = sqd_polars::arrow::array_series("value_list", &arr).unwrap();
+        Self {
+            list
+        }
+    }
+}
+
+
+impl ArrayPredicate for InList {
+    fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
+        let series = sqd_polars::arrow::array_series("values", arr)?;
+        let polars_mask = sqd_polars::prelude::is_in(&series, &self.list)?;
+        let mask = sqd_polars::arrow::polars_boolean_to_arrow_boolean(&polars_mask);
+        Ok(mask)
+    }
 }

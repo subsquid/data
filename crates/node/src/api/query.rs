@@ -29,7 +29,8 @@ pub fn check_query_kind(dataset_kind: DatasetKind, query: &Query) -> Result<(), 
     }
     match query {
         Query::Eth(_) => ensure_kind!(Eth, "eth"),
-        Query::Solana(_) => ensure_kind!(Solana, "solana")
+        Query::Solana(_) => ensure_kind!(Solana, "solana"),
+        _ => todo!()
     }
 }
 

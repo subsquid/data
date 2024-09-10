@@ -3,17 +3,22 @@ use std::sync::Arc;
 use arrow::array::{ArrayRef, BooleanArray, Int16Array, Int32Array, Int64Array, Int8Array, Scalar, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array};
 
 
-pub trait IntoScalar {
-    fn into_scalar(self) -> Scalar<ArrayRef>;
+pub trait IntoArrow: Sized {
+    fn into_scalar(self) -> Scalar<ArrayRef> {
+        let array = Self::make_array(vec![self]);
+        Scalar::new(array)
+    }
+
+    fn make_array(values: Vec<Self>) -> ArrayRef;
 }
 
 
 macro_rules! impl_scalar {
     ($t:ty, $arr_type:ty) => {
-        impl IntoScalar for $t {
-            fn into_scalar(self) -> Scalar<ArrayRef> {
-                let arr = <$arr_type>::from(vec![self]);
-                Scalar::new(Arc::new(arr))
+        impl IntoArrow for $t {
+            fn make_array(values: Vec<Self>) -> ArrayRef {
+                let arr = <$arr_type>::from(values);
+                Arc::new(arr)
             }
         }
     };

@@ -1,15 +1,25 @@
-use arrow::array::{Array, ArrayRef, RecordBatch};
+use arrow::array::{Array, ArrayRef, BooleanArray, RecordBatch};
 use polars::prelude::{DataFrame, IntoLazy, LazyFrame, Series, UnionArgs};
-use polars_core::prelude::SortMultipleOptions;
+use polars_arrow::array::to_data;
+use polars_core::prelude::{BooleanChunked, SortMultipleOptions};
+
+
+pub fn array_series(name: &str, arr: &dyn Array) -> anyhow::Result<Series> {
+    let s = Series::from_arrow(
+        name,
+        Box::<dyn polars_arrow::array::Array>::from(&*arr),
+    )?;
+    Ok(s)
+}
 
 
 pub fn record_batch_to_polars_df(batch: &RecordBatch) -> anyhow::Result<DataFrame> {
     let schema = batch.schema();
     let mut columns = Vec::with_capacity(batch.num_columns());
     for (i, column) in batch.columns().iter().enumerate() {
-        columns.push(Series::from_arrow(
+        columns.push(array_series(
             &schema.fields().get(i).unwrap().name(),
-            Box::<dyn polars_arrow::array::Array>::from(&**column),
+            column
         )?);
     }
     Ok(DataFrame::from_iter(columns))
@@ -49,6 +59,15 @@ pub fn polars_series_to_arrow_array(series: &Series) -> ArrayRef {
     assert_eq!(series.chunks().len(), 1);
     let polars_array = series.to_arrow(0, false);
     ArrayRef::from(polars_array)
+}
+
+
+pub fn polars_boolean_to_arrow_boolean(values: &BooleanChunked) -> BooleanArray {
+    let chunks = values.chunks();
+    assert_eq!(chunks.len(), 1);
+    let chunk: &dyn polars_arrow::array::Array = chunks[0].as_ref();
+    let array_data = to_data(chunk);
+    BooleanArray::from(array_data)
 }
 
 

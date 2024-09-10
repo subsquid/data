@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::scan::array_predicate;
 use crate::scan::array_predicate::ArrayPredicateRef;
 use crate::scan::row_predicate::{AndPredicate, ColumnPredicate, OrPredicate, RowPredicateRef};
-use crate::scan::arrow::IntoScalar;
+use crate::scan::arrow::IntoArrow;
 use crate::primitives::Name;
 
 
@@ -19,15 +19,15 @@ macro_rules! make_column_predicate {
 }
 
 
-pub fn col_eq<T: IntoScalar>(name: Name, value: T) -> RowPredicateRef {
+pub fn col_eq<T: IntoArrow>(name: Name, value: T) -> RowPredicateRef {
     make_column_predicate!(name, array_predicate::Eq::new(value))
 }
 
 
-pub fn col_in_list<T: IntoScalar>(name: Name, values: Vec<T>) -> RowPredicateRef {
+pub fn col_in_list<T: IntoArrow>(name: Name, values: Vec<T>) -> RowPredicateRef {
     match values.len() {
         1 => col_eq(name, values.into_iter().next().unwrap()),
-        _ => {
+        0 | 2..10 => {
             make_column_predicate!(
                 name,
                 array_predicate::Or::new(
@@ -36,25 +36,31 @@ pub fn col_in_list<T: IntoScalar>(name: Name, values: Vec<T>) -> RowPredicateRef
                     }).collect()
                 )
             )
+        },
+        _ => {
+            make_column_predicate!(
+                name,
+                array_predicate::InList::new(values)
+            )
         }
     }
 }
 
 
 /// column <= value
-pub fn col_lt_eq<T: IntoScalar>(name: Name, value: T) -> RowPredicateRef {
+pub fn col_lt_eq<T: IntoArrow>(name: Name, value: T) -> RowPredicateRef {
     make_column_predicate!(name, array_predicate::GtEq::new(value))
 }
 
 
 /// column >= value
-pub fn col_gt_eq<T: IntoScalar>(name: Name, value: T) -> RowPredicateRef {
+pub fn col_gt_eq<T: IntoArrow>(name: Name, value: T) -> RowPredicateRef {
     make_column_predicate!(name, array_predicate::LtEq::new(value))
 }
 
 
 // low <= column <= high
-pub fn col_between<T: IntoScalar>(name: Name, low: T, high: T) -> RowPredicateRef {
+pub fn col_between<T: IntoArrow>(name: Name, low: T, high: T) -> RowPredicateRef {
     make_column_predicate!(name, array_predicate::And::new(vec![
         Arc::new(array_predicate::LtEq::new(low)),
         Arc::new(array_predicate::GtEq::new(high))

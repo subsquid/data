@@ -1,5 +1,5 @@
 use crate::primitives::Name;
-use crate::scan::{and, col_eq, col_gt_eq, col_in_list, col_lt_eq, IntoScalar, RowPredicateRef};
+use crate::scan::{and, col_eq, col_gt_eq, col_in_list, col_lt_eq, IntoArrow, RowPredicateRef};
 
 macro_rules! item_field_selection {
     (
@@ -99,7 +99,7 @@ impl PredicateBuilder {
         }
     }
 
-    pub fn col_eq<T: IntoScalar>(&mut self, name: Name, maybe_value: Option<T>) -> &mut Self {
+    pub fn col_eq<T: IntoArrow>(&mut self, name: Name, maybe_value: Option<T>) -> &mut Self {
         if let Some(value) = maybe_value {
             let predicate = col_eq(name, value);
             self.conditions.push(predicate)
@@ -109,7 +109,7 @@ impl PredicateBuilder {
 
     pub fn col_in_list<L>(&mut self, name: Name, maybe_list: Option<L>) -> &mut Self
         where L: IntoIterator,
-              L::Item: IntoScalar
+              L::Item: IntoArrow
     {
         if let Some(list) = maybe_list {
             let list: Vec<_> = list.into_iter().collect();
@@ -122,7 +122,7 @@ impl PredicateBuilder {
         self
     }
 
-    pub fn col_gt_eq<T: IntoScalar>(&mut self, name: Name, maybe_value: Option<T>) -> &mut Self {
+    pub fn col_gt_eq<T: IntoArrow>(&mut self, name: Name, maybe_value: Option<T>) -> &mut Self {
         if let Some(value) = maybe_value {
             let predicate = col_gt_eq(name, value);
             self.conditions.push(predicate)
@@ -130,7 +130,7 @@ impl PredicateBuilder {
         self
     }
 
-    pub fn col_lt_eq<T: IntoScalar>(&mut self, name: Name, maybe_value: Option<T>) -> &mut Self {
+    pub fn col_lt_eq<T: IntoArrow>(&mut self, name: Name, maybe_value: Option<T>) -> &mut Self {
         if let Some(value) = maybe_value {
             let predicate = col_lt_eq(name, value);
             self.conditions.push(predicate)

@@ -16,6 +16,7 @@ features = [
     "cum_agg",
     "dtype-full",
     "fmt",
+    "is_in",
     "lazy",
-    "semi_anti_join",
+    "semi_anti_join"
 ]
