@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::ensure;
 use rayon::prelude::*;
@@ -402,6 +402,7 @@ impl PlanBuilder{
     }
 
     pub fn build(mut self) -> Plan {
+        self.simplify();
         self.set_output_weights();
         Plan {
             scans: self.scans,
@@ -447,6 +448,179 @@ impl PlanBuilder{
             self.relations.len() - 1
         })
     }
+
+    /// Lame plan optimization procedure
+    ///
+    /// The problem:
+    ///
+    /// "Give me all the data" guys often send requests like this:
+    /// ```json
+    /// {
+    ///   "transactions": [
+    ///     {
+    ///       "logs": true,
+    ///       "traces": true
+    ///     }
+    ///   ],
+    ///   "logs": [
+    ///     {
+    ///       "transaction": true,
+    ///       "transactionTraces": true
+    ///     }
+    ///   ],
+    ///   "traces": [
+    ///     {
+    ///       "transaction": true,
+    ///       "subtraces": true,
+    ///       "parents": true
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// Data leaching is expensive for us in general,
+    /// but especially when they come with (needless) relations.
+    ///
+    /// This procedure tries to rewrite the above query to its sane variant
+    /// ```json
+    /// {
+    ///   "transactions": [{}],
+    ///   "logs": [{}],
+    ///   "traces": [{}]
+    /// }
+    /// ```
+    fn simplify(&mut self) {
+        if self.scans.iter().all(|s| s.predicate.is_some()) {
+            return;
+        }
+
+        let mut is_full = vec![false; self.outputs.len()];
+        let mut is_full_rel = vec![false; self.relations.len()];
+
+        for scan in self.scans.iter() {
+            if scan.predicate.is_none() {
+                // no-predicate scans select the entire table
+                if let Some(out_idx) = scan.output {
+                    // mark output as fully fetched
+                    is_full[out_idx] = true;
+                }
+                for rel_idx in scan.relations.iter().copied() {
+                    // mark relation input as fully populated
+                    is_full_rel[rel_idx] = true;
+
+                    let rel = &self.relations[rel_idx];
+                    if self.is_full_rel(rel) {
+                        // for this relation fully populated input implies fully populated output
+                        // hence, mark output as fully fetched
+                        is_full[self.tables.get_index(rel.output_table())] = true;
+                    }
+                }
+            }
+        }
+
+        // Remove relations, that point to fully populated outputs.
+        // We'll make sure, that those outputs remain populated later.
+        let relations_remove_mask = self.relations.iter().map(|rel| {
+            is_full[self.tables.get_index(rel.output_table())]
+        }).collect::<Vec<_>>();
+
+        remove_elements(&mut is_full_rel, &relations_remove_mask);
+        self.remove_relations(&relations_remove_mask);
+
+        // Now, remove all scans, that either feed a fully populated relations/outputs
+        // or produce fully populated relations/outputs themselves.
+        self.scans.retain_mut(|scan| {
+            if let Some(out_idx) = scan.output {
+                if is_full[out_idx] {
+                    scan.output = None;
+                }
+            }
+            scan.relations.retain(|&i| !is_full_rel[i]);
+            scan.predicate.is_some() && (scan.relations.len() > 0 || scan.output.is_some())
+        });
+
+        // At this stage everything, that should be fully populated is not populated at all.
+        // Introduce new scans to populate that.
+        let mut new_scans: HashMap<Name, Scan> = HashMap::new();
+
+        for out_idx in is_full.iter().enumerate().filter_map(|(idx, full)| full.then_some(idx)) {
+            let table = self.outputs[out_idx].table;
+            new_scans.insert(table, Scan {
+                table,
+                predicate: None,
+                relations: vec![],
+                output: Some(out_idx)
+            });
+        }
+
+        for (idx, rel) in self.relations.iter().enumerate().filter(|(idx, _)| is_full_rel[*idx]) {
+            let table = rel.output_table();
+            let scan = new_scans.entry(table).or_insert_with(|| {
+                Scan {
+                    table,
+                    predicate: None,
+                    relations: vec![],
+                    output: None
+                }
+            });
+            scan.relations.push(idx);
+        }
+
+        self.scans.extend(new_scans.into_values())
+    }
+
+    fn remove_relations(&mut self, remove_mask: &[bool]) {
+        remove_elements(&mut self.relations, remove_mask);
+
+        let mut idx = 0;
+        let index_map = remove_mask.iter().map(|&remove| {
+            if remove {
+                None
+            } else {
+                let i = idx;
+                idx += 1;
+                Some(i)
+            }
+        }).collect::<Vec<_>>();
+
+        for scan in self.scans.iter_mut() {
+            scan.relations.retain_mut(|rel_idx| {
+                if let Some(i) = index_map[*rel_idx] {
+                    *rel_idx = i;
+                    true
+                } else {
+                    false
+                }
+            })
+        }
+    }
+
+    /// checks whether full input implies full output
+    fn is_full_rel(&self, rel: &Rel) -> bool {
+        match rel {
+            Rel::Join { input_table, input_key, output_table, output_key } => {
+                let input_pk = &self.tables.get(input_table).primary_key;
+                let output_pk = &self.tables.get(output_table).primary_key;
+
+                input_key == input_pk
+                    && input_pk.len() <= output_pk.len()
+                    && output_key == &output_pk[0..output_key.len()]
+            },
+            Rel::Children { .. } => true,
+            Rel::Parents { .. } => true,
+            _ => false
+        }
+    }
+}
+
+
+fn remove_elements<T>(vec: &mut Vec<T>, remove_mask: &[bool]) {
+    let mut idx = 0;
+    vec.retain(|_| {
+        let remove = remove_mask[idx];
+        idx += 1;
+        !remove
+    });
 }
 
 

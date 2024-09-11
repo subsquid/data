@@ -1,0 +1,22 @@
+{
+  "fromBlock": 17881390,
+  "toBlock": 17881391,
+  "transactions": [
+    {
+      "logs": true,
+      "traces": true
+    }
+  ],
+  "logs": [
+    {
+      "transaction": true,
+      "transactionTraces": true
+    }
+  ],
+  "traces": [
+    {
+      "transaction": true,
+      "parents": true
+    }
+  ]
+}
