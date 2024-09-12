@@ -22,6 +22,9 @@ lazy_static! {
             "block_number",
             "transaction_index"
         ])
+        .add_child("logs", vec!["block_number", "transaction_index"])
+        .add_child("traces", vec!["block_number", "transaction_index"])
+        .add_child("statediffs", vec!["block_number", "transaction_index"])
         .set_weight_column("input", "input_size");
 
         tables.add_table("logs", vec![

@@ -599,12 +599,9 @@ impl PlanBuilder{
     fn is_full_rel(&self, rel: &Rel) -> bool {
         match rel {
             Rel::Join { input_table, input_key, output_table, output_key } => {
-                let input_pk = &self.tables.get(input_table).primary_key;
-                let output_pk = &self.tables.get(output_table).primary_key;
-
-                input_key == input_pk
-                    && input_pk.len() <= output_pk.len()
-                    && output_key == &output_pk[0..output_key.len()]
+                let input_desc = self.tables.get(input_table);
+                input_key == &input_desc.primary_key
+                    && input_desc.children.get(output_table) == Some(&output_key)
             },
             Rel::Children { .. } => true,
             Rel::Parents { .. } => true,

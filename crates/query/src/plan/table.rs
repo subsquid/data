@@ -13,6 +13,7 @@ pub struct Table {
     pub primary_key: Vec<Name>,
     pub column_weights: HashMap<Name, ColumnWeight>,
     pub result_item_name: Name,
+    pub children: HashMap<Name, Vec<Name>>
 }
 
 
@@ -29,6 +30,12 @@ impl Table {
 
     pub fn set_result_item_name(&mut self, name: Name) -> &mut Self {
         self.result_item_name = name;
+        self
+    }
+
+    pub fn add_child(&mut self, name: Name, key: Vec<Name>) -> &mut Self {
+        assert_eq!(key.len(), self.primary_key.len());
+        self.children.insert(name, key);
         self
     }
 }
@@ -81,7 +88,8 @@ impl TableSet {
             name,
             primary_key: pk,
             column_weights: HashMap::new(),
-            result_item_name: name
+            result_item_name: name,
+            children: HashMap::new()
         });
 
         self.tables.last_mut().unwrap()

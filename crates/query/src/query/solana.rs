@@ -19,6 +19,9 @@ lazy_static! {
             "block_number",
             "transaction_index"
         ])
+        .add_child("logs", vec!["block_number", "transaction_index"])
+        .add_child("balances", vec!["block_number", "transaction_index"])
+        .add_child("token_balances", vec!["block_number", "transaction_index"])
         .set_weight_column("account_keys", "account_keys_size")
         .set_weight_column("address_table_lookups", "address_table_lookups_size")
         .set_weight_column("signatures", "signatures_size")
