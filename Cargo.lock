@@ -2896,6 +2896,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqd-array"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "arrow-buffer",
+]
+
+[[package]]
 name = "sqd-data"
 version = "0.1.0"
 dependencies = [
