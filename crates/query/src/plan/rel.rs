@@ -260,7 +260,7 @@ fn select_stack(
         .take(key.len() - 1)
         .collect();
 
-    let address_column = key.last().unwrap();
+    let address_column = *key.last().unwrap();
 
     let groups = row_index.lazy().join(
         items.clone().lazy(),
