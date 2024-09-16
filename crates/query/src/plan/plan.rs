@@ -205,12 +205,12 @@ impl <'a> PlanExecution<'a> {
 
             let mut block_numbers = agg.column("first_block").unwrap().clone();
             block_numbers.append(agg.column("last_block").unwrap())?;
-            block_numbers.rename("block_number");
+            block_numbers.rename("block_number".into());
 
             item_union.push(
                 DataFrame::new(vec![
                     block_numbers,
-                    Series::new("weight", &[0 as RowWeight, 0 as RowWeight])
+                    Series::new("weight".into(), &[0 as RowWeight, 0 as RowWeight])
                 ])?.lazy()
             );
 

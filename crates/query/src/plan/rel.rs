@@ -251,7 +251,7 @@ fn select_stack(
 
     let row_index = DataFrame::new(vec![{
         let mut series = Series::from_iter(input.iter().copied());
-        series.rename("row_index");
+        series.rename("row_index".into());
         series
     }])?;
 
@@ -312,7 +312,7 @@ fn select_foreign_stack(
         .take(output_key.len() - 1)
         .collect();
 
-    let address_column = output_key.last().unwrap();
+    let address_column = *output_key.last().unwrap();
 
     let input = chunk.scan_table(input_table)?
         .with_row_selection(RowRangeList::from_sorted_indexes(input.iter().copied()))
