@@ -156,7 +156,7 @@ impl <'a> PlanExecution<'a> {
 
                 let mut weight_exp = lit(output.weight_per_row);
                 for name in output.weight_columns.iter() {
-                    weight_exp = weight_exp + col(*name).strict_cast(RowWeightPolarsType::get_dtype());
+                    weight_exp = weight_exp + col(*name);
                 }
                 weight_exp = weight_exp.alias("weight");
 
@@ -179,7 +179,7 @@ impl <'a> PlanExecution<'a> {
             item_union.push(
                 df.clone().lazy().select([
                     col("block_number"),
-                    col("weight")
+                    col("weight").strict_cast(RowWeightPolarsType::get_dtype())
                 ])
             )
         }
@@ -188,7 +188,7 @@ impl <'a> PlanExecution<'a> {
             item_union.push(
                 header_rows.clone().lazy().select([
                     col("block_number"),
-                    col("weight")
+                    col("weight").strict_cast(RowWeightPolarsType::get_dtype())
                 ])
             );
             concat(item_union, UnionArgs::default())?
@@ -205,12 +205,12 @@ impl <'a> PlanExecution<'a> {
 
             let mut block_numbers = agg.column("first_block").unwrap().clone();
             block_numbers.append(agg.column("last_block").unwrap())?;
-            block_numbers.rename("block_number");
+            block_numbers.rename("block_number".into());
 
             item_union.push(
                 DataFrame::new(vec![
                     block_numbers,
-                    Series::new("weight", &[0 as RowWeight, 0 as RowWeight])
+                    Series::new("weight".into(), &[0 as RowWeight, 0 as RowWeight])
                 ])?.lazy()
             );
 

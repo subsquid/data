@@ -1,12 +1,12 @@
 use arrow::array::{Array, ArrayRef, BooleanArray, RecordBatch};
 use polars::prelude::{DataFrame, IntoLazy, LazyFrame, Series, UnionArgs};
 use polars_arrow::array::to_data;
-use polars_core::prelude::{BooleanChunked, SortMultipleOptions};
+use polars_core::prelude::{BooleanChunked, CompatLevel, SortMultipleOptions};
 
 
 pub fn array_series(name: &str, arr: &dyn Array) -> anyhow::Result<Series> {
     let s = Series::from_arrow(
-        name,
+        name.into(),
         Box::<dyn polars_arrow::array::Array>::from(&*arr),
     )?;
     Ok(s)
@@ -57,7 +57,7 @@ pub fn polars_series_to_row_index_iter(series: &Series) -> impl Iterator<Item = 
 pub fn polars_series_to_arrow_array(series: &Series) -> ArrayRef {
     let series = series.rechunk();
     assert_eq!(series.chunks().len(), 1);
-    let polars_array = series.to_arrow(0, false);
+    let polars_array = series.to_arrow(0, CompatLevel::oldest());
     ArrayRef::from(polars_array)
 }
 
