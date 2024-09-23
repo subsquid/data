@@ -34,6 +34,7 @@ lazy_static! {
             "block_number",
             "index"
         ])
+        .add_child("calls", vec!["block_number", "extrinsic_index"])
         .set_weight("signature", 4 * 32);
 
         tables
