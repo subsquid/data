@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 use arrow::array::ArrowPrimitiveType;
 use arrow_buffer::{ArrowNativeType, MutableBuffer};
 use crate::array_builder::nullmask::NullmaskBuilder;
-use crate::array_builder::writer::BufferWriter;
-use crate::data_builder::{DataBuilder, Writer};
+use crate::array_builder::buffer_writer::BufferWriter;
+use crate::writer::{ArrayWriter, Writer};
 use crate::util::invalid_buffer_access;
 
 
@@ -39,7 +39,7 @@ impl <T: ArrowPrimitiveType> PrimitiveBuilder<T> {
 }
 
 
-impl <T: ArrowPrimitiveType> DataBuilder for PrimitiveBuilder<T> {
+impl <T: ArrowPrimitiveType> ArrayWriter for PrimitiveBuilder<T> {
     type Writer = BufferWriter;
 
     fn bitmask(&mut self, _buf: usize) -> &mut <Self::Writer as Writer>::Bitmask {

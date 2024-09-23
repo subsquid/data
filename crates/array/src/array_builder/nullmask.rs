@@ -1,6 +1,6 @@
-use arrow_buffer::bit_chunk_iterator::UnalignedBitChunk;
 use crate::array_builder::bitmask::BitmaskBuilder;
-use crate::data_builder::BitmaskWriter;
+use crate::writer::BitmaskWriter;
+use arrow_buffer::bit_chunk_iterator::UnalignedBitChunk;
 
 
 pub struct NullmaskBuilder {
@@ -81,11 +81,15 @@ impl NullmaskBuilder {
 
 
 impl BitmaskWriter for NullmaskBuilder {
-    fn write_packed_bits(&mut self, data: &[u8], offset: usize, len: usize) {
-        self.append_packed_nulls(data, offset, len)
+    #[inline]
+    fn write_packed_bits(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()> {
+        self.append_packed_nulls(data, offset, len);
+        Ok(())
     }
 
-    fn write_many(&mut self, val: bool, count: usize) {
-        self.append_many(val, count)
+    #[inline]
+    fn write_many(&mut self, val: bool, count: usize) -> anyhow::Result<()> {
+        self.append_many(val, count);
+        Ok(())
     }
 }

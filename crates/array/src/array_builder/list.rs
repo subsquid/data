@@ -1,8 +1,8 @@
 use crate::array_builder::ArrayBuilder;
 use crate::array_builder::nullmask::NullmaskBuilder;
 use crate::array_builder::offsets::OffsetsBuilder;
-use crate::array_builder::writer::BufferWriter;
-use crate::data_builder::{DataBuilder, Writer};
+use crate::array_builder::buffer_writer::BufferWriter;
+use crate::writer::{ArrayWriter, Writer};
 use crate::util::invalid_buffer_access;
 
 
@@ -30,7 +30,7 @@ impl <T: ArrayBuilder> ListBuilder<T> {
 }
 
 
-impl <T: ArrayBuilder> DataBuilder for ListBuilder<T> {
+impl <T: ArrayBuilder> ArrayWriter for ListBuilder<T> {
     type Writer = BufferWriter;
 
     #[inline]

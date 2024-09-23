@@ -1,7 +1,7 @@
 use crate::array_builder::bitmask::BitmaskBuilder;
 use crate::array_builder::nullmask::NullmaskBuilder;
-use crate::array_builder::writer::BufferWriter;
-use crate::data_builder::{DataBuilder, Writer};
+use crate::array_builder::buffer_writer::BufferWriter;
+use crate::writer::{ArrayWriter, Writer};
 use crate::util::invalid_buffer_access;
 
 
@@ -35,7 +35,7 @@ impl BooleanBuilder {
 }
 
 
-impl DataBuilder for BooleanBuilder {
+impl ArrayWriter for BooleanBuilder {
     type Writer = BufferWriter;
 
     #[inline]

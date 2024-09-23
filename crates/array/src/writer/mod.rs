@@ -1,27 +1,31 @@
+mod any;
+
+
 use arrow::array::Array;
 use arrow_buffer::{ArrowNativeType, ToByteSlice};
+pub use any::*;
 
 
 pub trait BitmaskWriter {
-    fn write_packed_bits(&mut self, data: &[u8], offset: usize, len: usize);
+    fn write_packed_bits(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()>;
 
-    fn write_many(&mut self, val: bool, count: usize);
+    fn write_many(&mut self, val: bool, count: usize) -> anyhow::Result<()>;
 }
 
 
 pub trait NativeWriter {
-    fn write_slice<T: ArrowNativeType>(&mut self, values: &[T]);
+    fn write_slice<T: ArrowNativeType>(&mut self, values: &[T]) -> anyhow::Result<()>;
 
-    fn write<T: ToByteSlice>(&mut self, value: T);
+    fn write<T: ToByteSlice>(&mut self, value: T) -> anyhow::Result<()>;
 }
 
 
 pub trait OffsetsWriter {
-    fn write_slice(&mut self, offsets: &[i32]);
+    fn write_slice(&mut self, offsets: &[i32]) -> anyhow::Result<()>;
 
-    fn write_len(&mut self, len: usize);
+    fn write_len(&mut self, len: usize) -> anyhow::Result<()>;
     
-    fn write(&mut self, offset: i32);
+    fn write(&mut self, offset: i32) -> anyhow::Result<()>;
 }
 
 
@@ -33,7 +37,7 @@ pub trait Writer {
 }
 
 
-pub trait DataBuilder: Sized {
+pub trait ArrayWriter: Sized {
     type Writer: Writer;
 
     fn bitmask(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Bitmask;
@@ -45,8 +49,8 @@ pub trait DataBuilder: Sized {
     fn offset(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Offset;
 
     #[inline]
-    fn shift(&mut self, pos: usize) -> impl DataBuilder<Writer = Self::Writer> + '_ {
-        DataBuilderView {
+    fn shift(&mut self, pos: usize) -> impl ArrayWriter<Writer = Self::Writer> + '_ {
+        ArrayWriterView {
             builder: self,
             pos
         }
@@ -58,13 +62,13 @@ pub trait DataBuilder: Sized {
 }
 
 
-struct DataBuilderView<'a, T> {
+struct ArrayWriterView<'a, T> {
     builder: &'a mut T,
     pos: usize
 }
 
 
-impl <'a, T: DataBuilder> DataBuilder for DataBuilderView<'a, T> {
+impl <'a, T: ArrayWriter> ArrayWriter for ArrayWriterView<'a, T> {
     type Writer = T::Writer;
 
     #[inline]
@@ -88,8 +92,8 @@ impl <'a, T: DataBuilder> DataBuilder for DataBuilderView<'a, T> {
     }
     
     #[inline]
-    fn shift(&mut self, pos: usize) -> impl DataBuilder<Writer = Self::Writer> + '_ {
-        DataBuilderView {
+    fn shift(&mut self, pos: usize) -> impl ArrayWriter<Writer = Self::Writer> + '_ {
+        ArrayWriterView {
             builder: self.builder,
             pos: self.pos + pos
         }

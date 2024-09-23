@@ -1,13 +1,17 @@
 use arrow_buffer::{ArrowNativeType, MutableBuffer, ToByteSlice};
-use crate::data_builder::NativeWriter;
+use crate::writer::NativeWriter;
 
 
 impl NativeWriter for MutableBuffer {
-    fn write_slice<T: ArrowNativeType>(&mut self, values: &[T]) {
-        self.extend_from_slice(values)
+    #[inline]
+    fn write_slice<T: ArrowNativeType>(&mut self, values: &[T]) -> anyhow::Result<()> {
+        self.extend_from_slice(values);
+        Ok(())
     }
 
-    fn write<T: ToByteSlice>(&mut self, value: T) {
-        self.push(value)
+    #[inline]
+    fn write<T: ToByteSlice>(&mut self, value: T) -> anyhow::Result<()> {
+        self.push(value);
+        Ok(())
     }
 }

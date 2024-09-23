@@ -1,5 +1,5 @@
 use arrow_buffer::MutableBuffer;
-use crate::data_builder::OffsetsWriter;
+use crate::writer::OffsetsWriter;
 use crate::util::validate_offsets;
 
 
@@ -53,17 +53,20 @@ impl OffsetsBuilder {
 
 impl OffsetsWriter for OffsetsBuilder {
     #[inline]
-    fn write_slice(&mut self, offsets: &[i32]) {
-        self.append_slice(offsets)
+    fn write_slice(&mut self, offsets: &[i32]) -> anyhow::Result<()> {
+        self.append_slice(offsets);
+        Ok(())
     }
 
     #[inline]
-    fn write_len(&mut self, len: usize) {
-        self.append_len(len)
+    fn write_len(&mut self, len: usize) -> anyhow::Result<()> {
+        self.append_len(len);
+        Ok(())
     }
 
     #[inline]
-    fn write(&mut self, offset: i32) {
-        self.append(offset)
+    fn write(&mut self, offset: i32) -> anyhow::Result<()> {
+        self.append(offset);
+        Ok(())
     }
 }

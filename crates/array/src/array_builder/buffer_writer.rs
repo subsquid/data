@@ -2,7 +2,7 @@ use arrow_buffer::MutableBuffer;
 use crate::array_builder::bitmask::BitmaskBuilder;
 use crate::array_builder::nullmask::NullmaskBuilder;
 use crate::array_builder::offsets::OffsetsBuilder;
-use crate::data_builder::Writer;
+use crate::writer::Writer;
 
 
 pub struct BufferWriter;
