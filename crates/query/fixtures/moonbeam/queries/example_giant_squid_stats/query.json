@@ -1,0 +1,48 @@
+{
+  "fromBlock": 4668500,
+  "type": "substrate",
+  "fields": {
+    "block": {
+      "specName": true,
+      "specVersion": true,
+      "implName": true,
+      "implVersion": true
+    },
+    "event": {
+      "name": true,
+      "args": true
+    },
+    "call": {
+      "name": true,
+      "args": true,
+      "origin": true
+    },
+    "extrinsic": {
+      "hash": true,
+      "signature": true
+    }
+  },
+  "includeAllBlocks": true,
+  "events": [
+    {
+      "extrinsic": true,
+      "name": [
+        "Balances.Endowed",
+        "Balances.Transfer",
+        "Balances.BalanceSet",
+        "Balances.Reserved",
+        "Balances.Unreserved",
+        "Balances.ReserveRepatriated",
+        "Balances.Deposit",
+        "Balances.Withdraw",
+        "Balances.Slashed"
+      ]
+    }
+  ],
+  "calls": [
+    {
+      "extrinsic": true
+    }
+  ],
+  "toBlock": 4683849
+}

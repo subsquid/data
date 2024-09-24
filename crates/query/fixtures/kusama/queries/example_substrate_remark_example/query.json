@@ -1,0 +1,30 @@
+{
+  "fromBlock": 24136800,
+  "type": "substrate",
+  "fields": {
+    "block": {
+      "specName": true,
+      "specVersion": true,
+      "implName": true,
+      "implVersion": true
+    },
+    "event": {
+      "name": true,
+      "args": true
+    },
+    "call": {
+      "name": true,
+      "args": true,
+      "origin": true
+    },
+    "extrinsic": {}
+  },
+  "calls": [
+    {
+      "name": [
+        "System.remark"
+      ]
+    }
+  ],
+  "toBlock": 24140649
+}

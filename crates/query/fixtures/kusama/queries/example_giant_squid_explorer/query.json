@@ -1,0 +1,52 @@
+{
+  "fromBlock": 24136800,
+  "type": "substrate",
+  "fields": {
+    "block": {
+      "digest": true,
+      "extrinsicsRoot": true,
+      "stateRoot": true,
+      "timestamp": true,
+      "validator": true,
+      "specName": true,
+      "specVersion": true,
+      "implName": true,
+      "implVersion": true
+    },
+    "event": {
+      "name": true,
+      "args": true,
+      "phase": true
+    },
+    "call": {
+      "name": true,
+      "args": true,
+      "error": true,
+      "origin": true,
+      "success": true
+    },
+    "extrinsic": {
+      "hash": true,
+      "error": true,
+      "fee": true,
+      "signature": true,
+      "success": true,
+      "tip": true,
+      "version": true
+    }
+  },
+  "includeAllBlocks": true,
+  "events": [
+    {
+      "call": true,
+      "extrinsic": true
+    }
+  ],
+  "calls": [
+    {
+      "extrinsic": true,
+      "stack": true
+    }
+  ],
+  "toBlock": 24140649
+}

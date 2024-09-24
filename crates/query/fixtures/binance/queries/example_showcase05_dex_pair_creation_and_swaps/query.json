@@ -1,0 +1,44 @@
+{
+  "fromBlock": 37623328,
+  "toBlock": 37624890,
+  "logs": [
+    {
+      "address": [
+        "0xbcfccbde45ce874adcb698cc183debcf17952812",
+        "0xca143ce32fe78f1f7019d7d551a6402fc5350c73"
+      ],
+      "topic0": [
+        "0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9"
+      ]
+    },
+    {
+      "topic0": [
+        "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822"
+      ]
+    }
+  ],
+  "fields": {
+    "block": {
+      "timestamp": true
+    },
+    "transaction": {
+      "from": true,
+      "to": true,
+      "hash": true
+    },
+    "log": {
+      "address": true,
+      "topics": true,
+      "data": true,
+      "transactionHash": true
+    },
+    "trace": {
+      "error": true
+    },
+    "stateDiff": {
+      "kind": true,
+      "next": true,
+      "prev": true
+    }
+  }
+}

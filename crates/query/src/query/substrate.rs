@@ -77,7 +77,7 @@ item_field_selection! {
         [this.impl_name],
         [this.impl_version],
         [this.validator],
-        <this.timestamp>: TimestampSecond,
+        <this.timestamp>: TimestampMillisecond,
     }}
 }
 

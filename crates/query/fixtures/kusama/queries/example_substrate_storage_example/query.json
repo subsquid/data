@@ -1,0 +1,29 @@
+{
+  "fromBlock": 24136800,
+  "type": "substrate",
+  "fields": {
+    "block": {
+      "specName": true,
+      "specVersion": true,
+      "implName": true,
+      "implVersion": true
+    },
+    "event": {
+      "name": true,
+      "args": true
+    },
+    "call": {
+      "name": true,
+      "args": true
+    },
+    "extrinsic": {}
+  },
+  "events": [
+    {
+      "name": [
+        "Grandpa.NewAuthorities"
+      ]
+    }
+  ],
+  "toBlock": 24140649
+}

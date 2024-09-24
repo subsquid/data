@@ -1,0 +1,88 @@
+{
+  "fromBlock": 4668500,
+  "type": "substrate",
+  "fields": {
+    "block": {
+      "specName": true,
+      "specVersion": true,
+      "implName": true,
+      "implVersion": true
+    },
+    "event": {
+      "name": true,
+      "args": true
+    },
+    "call": {
+      "name": true,
+      "args": true
+    },
+    "extrinsic": {}
+  },
+  "events": [
+    {
+      "name": [
+        "Democracy.Proposed",
+        "Democracy.Tabled",
+        "Democracy.Started",
+        "Democracy.Passed",
+        "Democracy.NotPassed",
+        "Democracy.Cancelled",
+        "Democracy.Executed",
+        "Democracy.PreimageNoted",
+        "Democracy.PreimageUsed",
+        "Democracy.PreimageInvalid",
+        "Democracy.PreimageMissing",
+        "Democracy.PreimageReaped",
+        "Council.Proposed",
+        "Council.Approved",
+        "Council.Dissaproved",
+        "Council.Closed",
+        "Council.Voted",
+        "Council.Executed",
+        "TechnicalCommittee.Proposed",
+        "TechnicalCommittee.Approved",
+        "TechnicalCommittee.Dissaproved",
+        "TechnicalCommittee.Closed",
+        "TechnicalCommittee.Voted",
+        "TechnicalCommittee.Executed",
+        "Treasury.Proposed",
+        "Treasury.Awarded",
+        "Treasury.Rejected",
+        "Treasury.BountyProposed",
+        "Treasury.BountyRejected",
+        "Treasury.BountyBecameActive",
+        "Treasury.BountyAwarded",
+        "Treasury.BountyClaimed",
+        "Treasury.BountyCanceled",
+        "Treasury.BountyExtended",
+        "Treasury.NewTip",
+        "Treasury.TipsClosed",
+        "Treasury.TipsRetracted",
+        "Treasury.TipsSlashed",
+        "Tips.NewTip",
+        "Tips.TipsClosed",
+        "Tips.TipsRetracted",
+        "Tips.TipsSlashed",
+        "Bounties.BountyProposed",
+        "Bounties.BountyRejected",
+        "Bounties.BountyBecameActive",
+        "Bounties.BountyAwarded",
+        "Bounties.BountyClaimed",
+        "Bounties.BountyCanceled",
+        "Bounties.BountyExtended"
+      ]
+    }
+  ],
+  "calls": [
+    {
+      "name": [
+        "Democracy.vote",
+        "Treasury.accept_curator",
+        "Treasury.unassign_curator",
+        "Bounties.accept_curator",
+        "Bounties.unassign_curator"
+      ]
+    }
+  ],
+  "toBlock": 4683849
+}

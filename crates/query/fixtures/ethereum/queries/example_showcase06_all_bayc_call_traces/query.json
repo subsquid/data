@@ -1,0 +1,49 @@
+{
+  "fromBlock": 17881390,
+  "toBlock": 17882786,
+  "traces": [
+    {
+      "type": [
+        "call"
+      ],
+      "callTo": [
+        "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d"
+      ],
+      "transaction": true
+    }
+  ],
+  "stateDiffs": [
+    {
+      "address": [
+        "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d"
+      ],
+      "transaction": true
+    }
+  ],
+  "fields": {
+    "block": {
+      "timestamp": true
+    },
+    "transaction": {
+      "from": true,
+      "to": true,
+      "hash": true
+    },
+    "log": {
+      "address": true,
+      "topics": true,
+      "data": true
+    },
+    "trace": {
+      "error": true,
+      "callFrom": true,
+      "callSighash": true,
+      "callTo": true
+    },
+    "stateDiff": {
+      "kind": true,
+      "next": true,
+      "prev": true
+    }
+  }
+}

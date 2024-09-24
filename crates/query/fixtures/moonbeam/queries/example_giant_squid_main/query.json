@@ -1,0 +1,50 @@
+{
+  "fromBlock": 4668500,
+  "type": "substrate",
+  "fields": {
+    "block": {
+      "specName": true,
+      "specVersion": true,
+      "implName": true,
+      "implVersion": true
+    },
+    "event": {
+      "name": true,
+      "args": true
+    },
+    "call": {
+      "name": true,
+      "args": true,
+      "origin": true
+    },
+    "extrinsic": {
+      "hash": true
+    }
+  },
+  "events": [
+    {
+      "name": [
+        "Balances.Transfer"
+      ],
+      "extrinsic": true
+    },
+    {
+      "name": [
+        "Staking.Reward",
+        "Staking.Rewarded",
+        "Identity.IdentitySubRemoved",
+        "Identity.IdentitySubRevoked",
+        "Identity.set_identity",
+        "Identity.provide_judgement",
+        "Identity.set_subs",
+        "Identity.rename_sub",
+        "Identity.add_sub",
+        "Identity.clear_identity",
+        "Identity.kill_identity"
+      ],
+      "extrinsic": true,
+      "call": true
+    }
+  ],
+  "toBlock": 4683849
+}
