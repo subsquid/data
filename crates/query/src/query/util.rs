@@ -85,6 +85,19 @@ macro_rules! ensure_block_range {
 pub(crate) use ensure_block_range;
 
 
+macro_rules! ensure_item_count {
+    ($query:ident, $i:ident $(, $is:ident)*) => {{
+        let num_items = $query.$i.len() $(+ $query.$is.len())*;
+        anyhow::ensure!(
+            num_items <= 50,
+            "query contains {} item requests, but only 50 is allowed",
+            num_items
+        )
+    }};
+}
+pub(crate) use ensure_item_count;
+
+
 pub struct PredicateBuilder {
     conditions: Vec<RowPredicateRef>,
     is_never: bool

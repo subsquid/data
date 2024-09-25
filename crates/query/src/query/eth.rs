@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{ScanBuilder, TableSet};
-use crate::query::util::{compile_plan, ensure_block_range, field_selection, item_field_selection, request, PredicateBuilder};
+use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
 use crate::{BlockNumber, Plan};
 
 
@@ -581,6 +581,7 @@ request! {
 impl EthQuery {
     pub fn validate(&self) -> anyhow::Result<()> {
         ensure_block_range!(self);
+        ensure_item_count!(self, transactions, logs, traces, statediffs);
         Ok(())
     }
 
