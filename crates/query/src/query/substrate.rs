@@ -71,12 +71,12 @@ item_field_selection! {
         parent_hash, // backwards compatibility
         [this.state_root],
         [this.extrinsics_root],
-        [this.digest],
-        [this.spec_name],
-        [this.spec_version],
-        [this.impl_name],
-        [this.impl_version],
-        [this.validator],
+        <this.digest>: Json,
+        <this.spec_name>: Value,
+        <this.spec_version>: Value,
+        <this.impl_name>: Value,
+        <this.impl_version>: Value,
+        <this.validator>: Value,
         <this.timestamp>: TimestampMillisecond,
     }}
 }
