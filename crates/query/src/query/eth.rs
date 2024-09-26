@@ -16,7 +16,7 @@ lazy_static! {
             "number"
         ])
         .set_weight("logs_bloom", 512)
-        .set_weight_column("extra_data", "extra_daya_size");
+        .set_weight_column("extra_data", "extra_data_size");
 
         tables.add_table("transactions", vec![
             "block_number",
@@ -141,6 +141,13 @@ item_field_selection! {
         effective_gas_price,
         r#type,
         status,
+        l1_fee,
+        l1_fee_scalar,
+        l1_gas_price,
+        l1_gas_used,
+        l1_blob_base_fee,
+        l1_blob_base_fee_scalar,
+        l1_base_fee_scalar,
     }
 
     project(this) json_object! {{
@@ -167,6 +174,13 @@ item_field_selection! {
         [this.effective_gas_price],
         [this.r#type],
         [this.status],
+        [this.l1_fee],
+        [this.l1_fee_scalar],
+        [this.l1_gas_price],
+        [this.l1_gas_used],
+        [this.l1_blob_base_fee],
+        [this.l1_blob_base_fee_scalar],
+        [this.l1_base_fee_scalar],
     }}
 }
 
