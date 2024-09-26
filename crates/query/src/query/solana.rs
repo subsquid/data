@@ -5,7 +5,7 @@ use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
 use crate::primitives::BlockNumber;
-use crate::query::util::{compile_plan, ensure_block_range, field_selection, item_field_selection, PredicateBuilder, request};
+use crate::query::util::{compile_plan, ensure_block_range, field_selection, item_field_selection, PredicateBuilder, request, ensure_item_count};
 
 lazy_static! {
     static ref TABLES: TableSet = {
@@ -565,6 +565,7 @@ request! {
 impl SolanaQuery {
     pub fn validate(&self) -> anyhow::Result<()> {
         ensure_block_range!(self);
+        ensure_item_count!(self, transactions, instructions, logs, balances, token_balances, rewards);
         Ok(())
     }
 

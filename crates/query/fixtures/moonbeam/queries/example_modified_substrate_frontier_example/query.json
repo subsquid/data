@@ -1,0 +1,33 @@
+{
+  "fromBlock": 4668500,
+  "type": "substrate",
+  "fields": {
+    "block": {
+      "specName": true,
+      "specVersion": true,
+      "implName": true,
+      "implVersion": true
+    },
+    "event": {
+      "name": true,
+      "args": true
+    },
+    "call": {
+      "name": true,
+      "args": true
+    },
+    "extrinsic": {}
+  },
+  "evmLogs": [
+    {
+      "topic0": [
+        "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+      ],
+      "call": true,
+      "address": [
+        "0x511ab53f793683763e5a8829738301368a2411e3"
+      ]
+    }
+  ],
+  "toBlock": 4683849
+}

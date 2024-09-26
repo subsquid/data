@@ -1,0 +1,38 @@
+{
+  "fromBlock": 17881390,
+  "logs": [
+    {
+      "address": [
+        "0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d"
+      ],
+      "topic0": [
+        "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+      ],
+      "transaction": true
+    }
+  ],
+  "fields": {
+    "block": {
+      "timestamp": true
+    },
+    "transaction": {
+      "from": true,
+      "to": true,
+      "hash": true
+    },
+    "log": {
+      "address": true,
+      "topics": true,
+      "data": true
+    },
+    "trace": {
+      "error": true
+    },
+    "stateDiff": {
+      "kind": true,
+      "next": true,
+      "prev": true
+    }
+  },
+  "toBlock": 17882786
+}

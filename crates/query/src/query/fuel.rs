@@ -5,7 +5,7 @@ use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
 use crate::primitives::BlockNumber;
-use crate::query::util::{compile_plan, ensure_block_range, field_selection, item_field_selection, request, PredicateBuilder};
+use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
 
 
 lazy_static! {
@@ -615,6 +615,7 @@ request! {
 impl FuelQuery {
     pub fn validate(&self) -> anyhow::Result<()> {
         ensure_block_range!(self);
+        ensure_item_count!(self, transactions, receipts, inputs, outputs);
         Ok(())
     }
 

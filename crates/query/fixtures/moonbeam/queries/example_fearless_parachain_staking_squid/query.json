@@ -1,0 +1,100 @@
+{
+  "fromBlock": 4668500,
+  "type": "substrate",
+  "fields": {
+    "block": {
+      "timestamp": true,
+      "specName": true,
+      "specVersion": true,
+      "implName": true,
+      "implVersion": true
+    },
+    "event": {
+      "name": true,
+      "args": true
+    },
+    "call": {
+      "name": true,
+      "args": true
+    },
+    "extrinsic": {}
+  },
+  "events": [
+    {
+      "name": [
+        "ParachainStaking.NewRound"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.JoinedCollatorCandidates"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.Nomination"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.CandidateBondedMore"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.Compounded"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.CollatorBondedMore"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.Rewarded"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.CandidateBondedLess"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.DelegationIncreased"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.DelegationDecreased"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.CollatorBondedLess"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.Delegation"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.NominationDecreased"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.DelegationRevoked"
+      ]
+    },
+    {
+      "name": [
+        "ParachainStaking.NominationIncreased"
+      ]
+    }
+  ],
+  "toBlock": 4683849
+}

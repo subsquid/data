@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{ScanBuilder, TableSet};
-use crate::query::util::{compile_plan, ensure_block_range, field_selection, item_field_selection, request, PredicateBuilder};
+use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
 use crate::{BlockNumber, Plan};
 
 
@@ -16,7 +16,7 @@ lazy_static! {
             "number"
         ])
         .set_weight("logs_bloom", 512)
-        .set_weight_column("extra_data", "extra_daya_size");
+        .set_weight_column("extra_data", "extra_data_size");
 
         tables.add_table("transactions", vec![
             "block_number",
@@ -141,6 +141,13 @@ item_field_selection! {
         effective_gas_price,
         r#type,
         status,
+        l1_fee,
+        l1_fee_scalar,
+        l1_gas_price,
+        l1_gas_used,
+        l1_blob_base_fee,
+        l1_blob_base_fee_scalar,
+        l1_base_fee_scalar,
     }
 
     project(this) json_object! {{
@@ -167,6 +174,13 @@ item_field_selection! {
         [this.effective_gas_price],
         [this.r#type],
         [this.status],
+        [this.l1_fee],
+        [this.l1_fee_scalar],
+        [this.l1_gas_price],
+        [this.l1_gas_used],
+        [this.l1_blob_base_fee],
+        [this.l1_blob_base_fee_scalar],
+        [this.l1_base_fee_scalar],
     }}
 }
 
@@ -581,6 +595,7 @@ request! {
 impl EthQuery {
     pub fn validate(&self) -> anyhow::Result<()> {
         ensure_block_range!(self);
+        ensure_item_count!(self, transactions, logs, traces, statediffs);
         Ok(())
     }
 

@@ -63,12 +63,30 @@ impl Query {
         }
     }
 
+    pub fn set_first_block(&mut self, block_number: Option<BlockNumber>) {
+        match self {
+            Query::Eth(q) => q.from_block = block_number,
+            Query::Solana(q) => q.from_block = block_number,
+            Query::Substrate(q) => q.from_block = block_number,
+            Query::Fuel(q) => q.from_block = block_number,
+        }
+    }
+
     pub fn last_block(&self) -> Option<BlockNumber> {
         match self {
             Query::Eth(q) => q.to_block,
             Query::Solana(q) => q.to_block,
             Query::Substrate(q) => q.to_block,
             Query::Fuel(q) => q.to_block,
+        }
+    }
+
+    pub fn set_last_block(&mut self, block_number: Option<BlockNumber>) {
+        match self {
+            Query::Eth(q) => q.to_block = block_number,
+            Query::Solana(q) => q.to_block = block_number,
+            Query::Substrate(q) => q.to_block = block_number,
+            Query::Fuel(q) => q.to_block = block_number,
         }
     }
 

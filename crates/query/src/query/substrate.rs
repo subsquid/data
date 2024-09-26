@@ -5,7 +5,7 @@ use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
 use crate::primitives::BlockNumber;
-use crate::query::util::{compile_plan, ensure_block_range, field_selection, item_field_selection, request, PredicateBuilder};
+use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
 
 
 lazy_static! {
@@ -34,6 +34,7 @@ lazy_static! {
             "block_number",
             "index"
         ])
+        .add_child("calls", vec!["block_number", "extrinsic_index"])
         .set_weight("signature", 4 * 32);
 
         tables
@@ -70,13 +71,13 @@ item_field_selection! {
         parent_hash, // backwards compatibility
         [this.state_root],
         [this.extrinsics_root],
-        [this.digest],
-        [this.spec_name],
-        [this.spec_version],
-        [this.impl_name],
-        [this.impl_version],
-        [this.validator],
-        <this.timestamp>: TimestampSecond,
+        <this.digest>: Json,
+        <this.spec_name>: Value,
+        <this.spec_version>: Value,
+        <this.impl_name>: Value,
+        <this.impl_version>: Value,
+        <this.validator>: Value,
+        <this.timestamp>: TimestampMillisecond,
     }}
 }
 
@@ -263,14 +264,30 @@ impl EvmLogRequest {
         p.col_in_list("_evm_log_topic3", self.topic3.clone());
     }
 
-    fn relations(&self, _scan: &mut ScanBuilder) {
-        // if self.transaction {
-        //     scan.join(
-        //         "transactions",
-        //         vec!["block_number", "index"],
-        //         vec!["block_number", "transaction_index"]
-        //     );
-        // }
+    fn relations(&self, scan: &mut ScanBuilder) {
+        if self.extrinsic {
+            scan.join(
+                "extrinsics",
+                vec!["block_number", "index"],
+                vec!["block_number", "extrinsic_index"]
+            );
+        }
+
+        if self.call {
+            scan.join(
+                "calls",
+                vec!["block_number", "extrinsic_index", "address"],
+                vec!["block_number", "extrinsic_index", "call_address"]
+            );
+        }
+
+        if self.stack {
+            scan.include_foreign_parents(
+                "calls",
+                vec!["block_number", "extrinsic_index", "address"],
+                vec!["block_number", "extrinsic_index", "call_address"]
+            );
+        }
     }
 }
 
@@ -293,14 +310,26 @@ impl EthereumTransactionRequest {
         p.col_in_list("_ethereum_transact_sighash", self.sighash.clone());
     }
 
-    fn relations(&self, _scan: &mut ScanBuilder) {
-        // if self.transaction {
-        //     scan.join(
-        //         "transactions",
-        //         vec!["block_number", "index"],
-        //         vec!["block_number", "transaction_index"]
-        //     );
-        // }
+    fn relations(&self, scan: &mut ScanBuilder) {
+        if self.extrinsic {
+            scan.join(
+                "extrinsics",
+                vec!["block_number", "index"],
+                vec!["block_number", "extrinsic_index"]
+            );
+        }
+
+        if self.stack {
+            scan.include_parents();
+        }
+
+        if self.events {
+            scan.include_foreign_children(
+                "events",
+                vec!["block_number", "extrinsic_index", "call_address"],
+                vec!["block_number", "extrinsic_index", "address"]
+            );
+        }
     }
 }
 
@@ -321,14 +350,30 @@ impl ContractsContractEmittedRequest {
         p.col_in_list("_contract_address", self.contract_address.clone());
     }
 
-    fn relations(&self, _scan: &mut ScanBuilder) {
-        // if self.transaction {
-        //     scan.join(
-        //         "transactions",
-        //         vec!["block_number", "index"],
-        //         vec!["block_number", "transaction_index"]
-        //     );
-        // }
+    fn relations(&self, scan: &mut ScanBuilder) {
+        if self.extrinsic {
+            scan.join(
+                "extrinsics",
+                vec!["block_number", "index"],
+                vec!["block_number", "extrinsic_index"]
+            );
+        }
+
+        if self.call {
+            scan.join(
+                "calls",
+                vec!["block_number", "extrinsic_index", "address"],
+                vec!["block_number", "extrinsic_index", "call_address"]
+            );
+        }
+
+        if self.stack {
+            scan.include_foreign_parents(
+                "calls",
+                vec!["block_number", "extrinsic_index", "address"],
+                vec!["block_number", "extrinsic_index", "call_address"]
+            );
+        }
     }
 }
 
@@ -349,14 +394,30 @@ impl GearMessageEnqueuedRequest {
         p.col_in_list("_gear_program_id", self.program_id.clone());
     }
 
-    fn relations(&self, _scan: &mut ScanBuilder) {
-        // if self.transaction {
-        //     scan.join(
-        //         "transactions",
-        //         vec!["block_number", "index"],
-        //         vec!["block_number", "transaction_index"]
-        //     );
-        // }
+    fn relations(&self, scan: &mut ScanBuilder) {
+        if self.extrinsic {
+            scan.join(
+                "extrinsics",
+                vec!["block_number", "index"],
+                vec!["block_number", "extrinsic_index"]
+            );
+        }
+
+        if self.call {
+            scan.join(
+                "calls",
+                vec!["block_number", "extrinsic_index", "address"],
+                vec!["block_number", "extrinsic_index", "call_address"]
+            );
+        }
+
+        if self.stack {
+            scan.include_foreign_parents(
+                "calls",
+                vec!["block_number", "extrinsic_index", "address"],
+                vec!["block_number", "extrinsic_index", "call_address"]
+            );
+        }
     }
 }
 
@@ -377,14 +438,30 @@ impl GearUserMessageSentRequest {
         p.col_in_list("_gear_program_id", self.program_id.clone());
     }
 
-    fn relations(&self, _scan: &mut ScanBuilder) {
-        // if self.extrinsic {
-        //     scan.join(
-        //         "transactions",
-        //         vec!["block_number", "index"],
-        //         vec!["block_number", "transaction_index"]
-        //     );
-        // }
+    fn relations(&self, scan: &mut ScanBuilder) {
+        if self.extrinsic {
+            scan.join(
+                "extrinsics",
+                vec!["block_number", "index"],
+                vec!["block_number", "extrinsic_index"]
+            );
+        }
+
+        if self.call {
+            scan.join(
+                "calls",
+                vec!["block_number", "extrinsic_index", "address"],
+                vec!["block_number", "extrinsic_index", "call_address"]
+            );
+        }
+
+        if self.stack {
+            scan.include_foreign_parents(
+                "calls",
+                vec!["block_number", "extrinsic_index", "address"],
+                vec!["block_number", "extrinsic_index", "call_address"]
+            );
+        }
     }
 }
 
@@ -409,6 +486,16 @@ request! {
 impl SubstrateQuery {
     pub fn validate(&self) -> anyhow::Result<()> {
         ensure_block_range!(self);
+        ensure_item_count!(
+            self,
+            calls,
+            events,
+            ethereum_transactions,
+            contracts_events,
+            gear_messages_enqueued,
+            gear_user_messages_sent,
+            evm_logs
+        );
         Ok(())
     }
 
@@ -420,10 +507,10 @@ impl SubstrateQuery {
             [events: self.fields.event.project()],
             calls,
             events,
-            ethereum_transactions,
-            contracts_events,
-            gear_messages_enqueued,
-            gear_user_messages_sent,
+            <ethereum_transactions: calls>,
+            <contracts_events: events>,
+            <gear_messages_enqueued: events>,
+            <gear_user_messages_sent: events>,
             <evm_logs: events>,
         )
     }

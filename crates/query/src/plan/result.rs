@@ -80,9 +80,18 @@ impl DataItem {
         let pos = self.order[self.pos];
         self.pos += 1;
         self.encoders[pos.0].encode(pos.1, out);
+        out.push(b',')
     }
 
     fn write_items(&mut self, block_number: BlockNumber, out: &mut Vec<u8>) {
+        let has_items = self.order.get(self.pos).map_or(false, |pos| {
+            self.block_numbers[pos.0].value(pos.1) == block_number
+        });
+
+        if !has_items {
+            return;
+        }
+
         out.extend_from_slice(&self.prop);
         out.push(b'[');
         while self.pos < self.order.len() {
@@ -94,7 +103,9 @@ impl DataItem {
             self.encoders[pos.0].encode(pos.1, out);
             out.push(b',')
         }
-        json_close(b']', out)
+        json_close(b']', out);
+
+        out.push(b',')
     }
 }
 
@@ -141,10 +152,8 @@ impl BlockWriter {
         let block_number = self.items[0].get_current_block().unwrap();
         out.push(b'{');
         self.items[0].write_header(out);
-        out.push(b',');
         for item in self.items.iter_mut().skip(1) {
             item.write_items(block_number, out);
-            out.push(b',')
         }
         json_close(b'}', out)
     }
