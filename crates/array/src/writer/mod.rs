@@ -1,27 +1,65 @@
 mod any;
+mod range_list;
 
 
+pub use any::*;
 use arrow::array::Array;
 use arrow_buffer::{ArrowNativeType, ToByteSlice};
-pub use any::*;
+pub use range_list::*;
 
 
 pub trait BitmaskWriter {
-    fn write_packed_bits(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()>;
+    fn write_slice(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()>;
+
+    fn write_slice_indexes(
+        &mut self,
+        data: &[u8],
+        indexes: impl Iterator<Item = usize>
+    ) -> anyhow::Result<()>;
+
+    fn write_slice_ranges(
+        &mut self,
+        data: &[u8],
+        ranges: &mut impl RangeList
+    ) -> anyhow::Result<()>;
 
     fn write_many(&mut self, val: bool, count: usize) -> anyhow::Result<()>;
 }
 
 
 pub trait NativeWriter {
+    fn write<T: ToByteSlice>(&mut self, value: T) -> anyhow::Result<()>;
+    
     fn write_slice<T: ArrowNativeType>(&mut self, values: &[T]) -> anyhow::Result<()>;
 
-    fn write<T: ToByteSlice>(&mut self, value: T) -> anyhow::Result<()>;
+    fn write_slice_indexes<T: ArrowNativeType>(
+        &mut self,
+        values: &[T],
+        indexes: impl Iterator<Item = usize>
+    ) -> anyhow::Result<()>;
+
+    fn write_slice_ranges<T: ArrowNativeType>(
+        &mut self,
+        values: &[T],
+        ranges: &mut impl RangeList
+    ) -> anyhow::Result<()>;
 }
 
 
 pub trait OffsetsWriter {
     fn write_slice(&mut self, offsets: &[i32]) -> anyhow::Result<()>;
+
+    fn write_slice_indexes(
+        &mut self,
+        offsets: &[i32],
+        indexes: impl Iterator<Item = usize>
+    ) -> anyhow::Result<()>;
+
+    fn write_slice_ranges(
+        &mut self,
+        offsets: &[i32],
+        ranges: &mut impl RangeList
+    ) -> anyhow::Result<()>;
 
     fn write_len(&mut self, len: usize) -> anyhow::Result<()>;
     

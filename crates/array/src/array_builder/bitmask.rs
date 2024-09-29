@@ -1,5 +1,5 @@
+use crate::writer::{BitmaskWriter, RangeList};
 use arrow_buffer::{bit_mask, bit_util, MutableBuffer};
-use crate::writer::BitmaskWriter;
 
 
 pub struct BitmaskBuilder {
@@ -95,11 +95,19 @@ impl BitmaskBuilder {
 
 impl BitmaskWriter for BitmaskBuilder {
     #[inline]
-    fn write_packed_bits(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()> {
+    fn write_slice(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()> {
         self.append_packed_bits(data, offset, len);
         Ok(())
     }
-    
+
+    fn write_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item=usize>) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    fn write_slice_ranges(&mut self, data: &[u8], ranges: &mut impl RangeList) -> anyhow::Result<()> {
+        todo!()
+    }
+
     #[inline]
     fn write_many(&mut self, val: bool, count: usize) -> anyhow::Result<()> {
         self.append_many(val, count);

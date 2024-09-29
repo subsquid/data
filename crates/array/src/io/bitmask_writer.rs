@@ -1,4 +1,4 @@
-use crate::writer::BitmaskWriter;
+use crate::writer::{BitmaskWriter, RangeList};
 use arrow_buffer::bit_chunk_iterator::BitChunks;
 use arrow_buffer::{bit_util, ToByteSlice};
 use std::io::Write;
@@ -28,7 +28,7 @@ impl<W> BitmaskIOWriter<W> {
 
 
 impl <W: Write> BitmaskWriter for BitmaskIOWriter<W> {
-    fn write_packed_bits(&mut self, data: &[u8], mut offset: usize, mut len: usize) -> anyhow::Result<()> {
+    fn write_slice(&mut self, data: &[u8], mut offset: usize, mut len: usize) -> anyhow::Result<()> {
         if self.len > 0 {
             let to_set = std::cmp::min(64 - self.len, len);
             assert!(data.len() >= bit_util::ceil(offset + len, 8));
@@ -56,6 +56,14 @@ impl <W: Write> BitmaskWriter for BitmaskIOWriter<W> {
         self.len = bit_chunks.remainder_len();
         
         Ok(())
+    }
+
+    fn write_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item = usize>) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    fn write_slice_ranges(&mut self, data: &[u8], ranges: &mut impl RangeList) -> anyhow::Result<()> {
+        todo!()
     }
 
     fn write_many(&mut self, val: bool, count: usize) -> anyhow::Result<()> {

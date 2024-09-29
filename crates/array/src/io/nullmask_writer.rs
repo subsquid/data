@@ -1,6 +1,6 @@
 use std::io::Write;
 use crate::io::bitmask_writer::BitmaskIOWriter;
-use crate::writer::BitmaskWriter;
+use crate::writer::{BitmaskWriter, RangeList};
 
 
 pub struct NullmaskIOWriter<W> {
@@ -22,7 +22,15 @@ impl <W: Write> NullmaskIOWriter<W> {
 
 
 impl<W: Write> BitmaskWriter for NullmaskIOWriter<W> {
-    fn write_packed_bits(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()> {
+    fn write_slice(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    fn write_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item=usize>) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    fn write_slice_ranges(&mut self, data: &[u8], ranges: &mut impl RangeList) -> anyhow::Result<()> {
         todo!()
     }
 

@@ -1,6 +1,6 @@
-use arrow_buffer::MutableBuffer;
-use crate::writer::OffsetsWriter;
 use crate::util::validate_offsets;
+use crate::writer::{OffsetsWriter, RangeList};
+use arrow_buffer::MutableBuffer;
 
 
 pub struct OffsetsBuilder {
@@ -56,6 +56,14 @@ impl OffsetsWriter for OffsetsBuilder {
     fn write_slice(&mut self, offsets: &[i32]) -> anyhow::Result<()> {
         self.append_slice(offsets);
         Ok(())
+    }
+
+    fn write_slice_indexes(&mut self, offsets: &[i32], indexes: impl Iterator<Item=usize>) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    fn write_slice_ranges(&mut self, offsets: &[i32], ranges: &mut impl RangeList) -> anyhow::Result<()> {
+        todo!()
     }
 
     #[inline]

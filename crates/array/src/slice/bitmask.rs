@@ -1,8 +1,9 @@
-use crate::writer::BitmaskWriter;
+use crate::writer::{BitmaskWriter, RangeList};
 use arrow_buffer::bit_util;
 use std::ops::Range;
 
 
+#[derive(Clone)]
 pub struct BitmaskSlice<'a> {
     data: &'a [u8],
     offset: usize,
@@ -12,58 +13,57 @@ pub struct BitmaskSlice<'a> {
 
 impl<'a> BitmaskSlice<'a> {
     #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+    
+    pub fn slice(&self, offset: usize, len: usize) -> Self {
+        assert!(offset + len <= self.len);
+        Self {
+            data: self.data,
+            offset: self.offset + offset,
+            len
+        }
+    }
+    
+    #[inline]
     pub fn value(&self, i: usize) -> bool {
         assert!(self.offset + i < self.len);
-        // Safety: bounds should be guaranteed by construction and the above assertion
+        // SAFETY: bounds should be guaranteed by construction and the above assertion
         unsafe {
             bit_util::get_bit_raw(self.data.as_ptr(), self.offset + i)
         }
     }
 
     pub fn write(&self, dst: &mut impl BitmaskWriter) -> anyhow::Result<()> {
-        dst.write_packed_bits(self.data, self.offset, self.len)
+        dst.write_slice(self.data, self.offset, self.len)
     }
 
     pub fn write_range(&self, dst: &mut impl BitmaskWriter, range: Range<usize>) -> anyhow::Result<()> {
         if range.is_empty() {
             return Ok(())
         }
-        dst.write_packed_bits(self.data, self.offset + range.start, range.len())
+        dst.write_slice(self.data, self.offset + range.start, range.len())
+    }
+    
+    pub fn write_ranges(
+        &self, 
+        dst: &mut impl BitmaskWriter, 
+        ranges: &mut impl RangeList
+    ) -> anyhow::Result<()> 
+    {
+        todo!()
     }
 
     pub fn write_indexes(
         &self,
         dst: &mut impl BitmaskWriter,
-        indexes: impl IntoIterator<Item = usize>
+        indexes: impl Iterator<Item = usize>
     ) -> anyhow::Result<()>
     {
-        // TODO: is it any good?
-        let mut buf: [u8; 32] = [0; 32];
-        let mut it = indexes.into_iter();
-        let mut pos = 0;
-
-        'L: loop {
-            while pos < buf.len() * 8 {
-                if let Some(i) = it.next() {
-                    if self.value(i) {
-                        unsafe {
-                            bit_util::set_bit_raw(buf.as_mut_ptr(), pos);
-                        }
-                    }
-                    pos += 1;
-                } else {
-                    break 'L;
-                }
-            }
-            dst.write_packed_bits(&buf, 0, pos)?;
-            pos = 0;
-            buf.fill(0);
-        }
-
-        if pos > 0 {
-            dst.write_packed_bits(&buf, 0, pos)?;
-        }
-
-        Ok(())
+        dst.write_slice_indexes(&self.data, indexes.map(|i| {
+            assert!(i < self.len);
+            self.offset + i
+        }))
     }
 }

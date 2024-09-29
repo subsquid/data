@@ -1,5 +1,5 @@
 use crate::array_builder::bitmask::BitmaskBuilder;
-use crate::writer::BitmaskWriter;
+use crate::writer::{BitmaskWriter, RangeList};
 use arrow_buffer::bit_chunk_iterator::UnalignedBitChunk;
 
 
@@ -82,9 +82,22 @@ impl NullmaskBuilder {
 
 impl BitmaskWriter for NullmaskBuilder {
     #[inline]
-    fn write_packed_bits(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()> {
+    fn write_slice(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()> {
         self.append_packed_nulls(data, offset, len);
         Ok(())
+    }
+
+    fn write_slice_indexes(
+        &mut self,
+        data: &[u8],
+        indexes: impl IntoIterator<Item=usize>
+    ) -> anyhow::Result<()>
+    {
+        todo!()
+    }
+
+    fn write_slice_ranges(&mut self, data: &[u8], ranges: &mut impl RangeList) -> anyhow::Result<()> {
+        todo!()
     }
 
     #[inline]
