@@ -25,7 +25,10 @@ impl <W: Write> NativeWriter for NativeIOWriter<W> {
         values: &[T], 
         indexes: impl Iterator<Item=usize>
     ) -> anyhow::Result<()> {
-        todo!()
+        for i in indexes {
+            self.write(values[i])?;
+        }
+        Ok(())
     }
 
     fn write_slice_ranges<T: ArrowNativeType>(
@@ -33,6 +36,9 @@ impl <W: Write> NativeWriter for NativeIOWriter<W> {
         values: &[T], 
         ranges: &mut impl RangeList
     ) -> anyhow::Result<()> {
-        todo!()
+        for r in ranges.iter() {
+            self.write_slice(&values[r])?;
+        }
+        Ok(())
     }
 }

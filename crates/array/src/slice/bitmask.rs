@@ -58,7 +58,7 @@ impl<'a> BitmaskSlice<'a> {
     pub fn write_indexes(
         &self,
         dst: &mut impl BitmaskWriter,
-        indexes: impl Iterator<Item = usize>
+        indexes: impl Iterator<Item = usize> + Clone
     ) -> anyhow::Result<()>
     {
         dst.write_slice_indexes(&self.data, indexes.map(|i| {

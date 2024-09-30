@@ -47,6 +47,10 @@ impl <W: Write> BitmaskWriter for BitmaskIOWriter<W> {
             len -= to_set;
         }
 
+        if len == 0 {
+            return Ok(())
+        }
+
         let bit_chunks = BitChunks::new(data, offset, len);
         for chunk in bit_chunks.iter() {
             self.writer.write_all(chunk.to_byte_slice())?;
@@ -58,16 +62,74 @@ impl <W: Write> BitmaskWriter for BitmaskIOWriter<W> {
         Ok(())
     }
 
-    fn write_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item = usize>) -> anyhow::Result<()> {
-        todo!()
+    fn write_slice_indexes(&mut self, data: &[u8], mut indexes: impl Iterator<Item = usize>) -> anyhow::Result<()> {
+        loop {
+            while self.len < 64 {
+                if let Some(i) = indexes.next() {
+                    if bit_util::get_bit(data, i) {
+                        unsafe {
+                            bit_util::set_bit_raw(self.buf_mut_prt(), self.len);
+                        }
+                    }
+                    self.len += 1;
+                } else {
+                    return Ok(())
+                }
+            }
+            self.writer.write_all(self.buf.to_byte_slice())?;
+            self.buf = 0;
+            self.len = 0;
+        }
     }
 
     fn write_slice_ranges(&mut self, data: &[u8], ranges: &mut impl RangeList) -> anyhow::Result<()> {
-        todo!()
+        for r in ranges.iter() {
+            self.write_slice(data, r.start, r.len())?;
+        }
+        Ok(())
     }
 
-    fn write_many(&mut self, val: bool, count: usize) -> anyhow::Result<()> {
-        todo!()
+    fn write_many(&mut self, val: bool, mut count: usize) -> anyhow::Result<()> {
+        let ones: u64 = 0xffffffffffffffff;
+        
+        if self.len > 0 {
+            let to_set = std::cmp::min(64 - self.len, count);
+            let new_len = self.len + to_set;
+            
+            if val {
+                self.buf |= ones >> self.len;
+                self.buf &= ones << (64 - new_len);
+            }
+            
+            if new_len == 64 {
+                self.writer.write_all(self.buf.to_byte_slice())?;
+                self.buf = 0;
+                self.len = 0;
+                count -= to_set;
+            } else {
+                self.len = new_len;
+                return Ok(())
+            }
+        }
+
+        if val {
+            while count >= 64 {
+                self.writer.write_all(ones.to_byte_slice())?;
+                count -= 64;
+            }
+            if count > 0 {
+                self.len = count;
+                self.buf = ones << (64 - count);
+            }
+        } else {
+            while count >= 64 {
+                self.writer.write_all(0u64.to_byte_slice())?;
+                count -= 64;
+            }
+            self.len = count;
+        }
+        
+        Ok(())
     }
 }
 

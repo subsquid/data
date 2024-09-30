@@ -59,7 +59,7 @@ impl<'a> NullmaskSlice<'a> {
     pub fn write_indexes(
         &self,
         dst: &mut impl BitmaskWriter,
-        indexes: impl Iterator<Item = usize>
+        indexes: impl Iterator<Item = usize> + Clone
     ) -> anyhow::Result<()>
     {
         if let Some(nulls) = self.nulls.as_ref() {

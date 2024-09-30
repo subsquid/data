@@ -1,4 +1,3 @@
-use crate::util::validate_offsets;
 use crate::writer::{OffsetsWriter, RangeList};
 use arrow_buffer::MutableBuffer;
 
@@ -20,13 +19,6 @@ impl OffsetsBuilder {
     }
 
     pub fn append_slice(&mut self, offsets: &[i32]) {
-        validate_offsets(offsets).expect("invalid offsets slice");
-        unsafe {
-            self.append_valid_slice(offsets)
-        }
-    }
-
-    pub unsafe fn append_valid_slice(&mut self, offsets: &[i32]) {
         let beg = offsets[0];
 
         self.buffer.extend(offsets[1..].iter().map(|o| {
@@ -34,6 +26,24 @@ impl OffsetsBuilder {
         }));
 
         self.last_offset += offsets[offsets.len() - 1] - beg;
+    }
+    
+    pub fn append_slice_indexes(&mut self, offsets: &[i32], indexes: impl Iterator<Item=usize>) {
+        self.buffer.reserve(indexes.size_hint().0 * size_of::<i32>());
+        
+        for i in indexes {
+            let len = offsets[i + 1] - offsets[i];
+            self.last_offset += len;
+            self.buffer.push(self.last_offset)
+        }
+    }
+    
+    pub fn append_slice_ranges(&mut self, offsets: &[i32], ranges: &mut impl RangeList) {
+        self.buffer.reserve(ranges.size() * size_of::<i32>());
+        
+        for r in ranges.iter() {
+            self.append_slice(&offsets[r.start..r.end + 1])
+        }
     }
 
     #[inline]
@@ -58,12 +68,16 @@ impl OffsetsWriter for OffsetsBuilder {
         Ok(())
     }
 
+    #[inline]
     fn write_slice_indexes(&mut self, offsets: &[i32], indexes: impl Iterator<Item=usize>) -> anyhow::Result<()> {
-        todo!()
+        self.append_slice_indexes(offsets, indexes);
+        Ok(())
     }
 
+    #[inline]
     fn write_slice_ranges(&mut self, offsets: &[i32], ranges: &mut impl RangeList) -> anyhow::Result<()> {
-        todo!()
+        self.append_slice_ranges(offsets, ranges);
+        Ok(())
     }
 
     #[inline]

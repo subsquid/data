@@ -14,7 +14,7 @@ pub trait BitmaskWriter {
     fn write_slice_indexes(
         &mut self,
         data: &[u8],
-        indexes: impl Iterator<Item = usize>
+        indexes: impl Iterator<Item = usize> + Clone
     ) -> anyhow::Result<()>;
 
     fn write_slice_ranges(
