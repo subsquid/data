@@ -1,7 +1,6 @@
 use crate::array_builder::bitmask::BitmaskBuilder;
+use crate::util::bit_tools;
 use crate::writer::{BitmaskWriter, RangeList};
-use arrow_buffer::bit_chunk_iterator::UnalignedBitChunk;
-use arrow_buffer::bit_util;
 
 
 pub struct NullmaskBuilder {
@@ -25,7 +24,7 @@ impl NullmaskBuilder {
             nulls.append_slice(data, offset, len);
             self.len = nulls.len()
         } else {
-            if is_all_valid(data, offset, len) {
+            if bit_tools::all_valid(data, offset, len) {
                 self.len += len
             } else {
                 let mut nulls = self.make_nulls(len);
@@ -41,16 +40,7 @@ impl NullmaskBuilder {
             nulls.append_slice_indexes(data, indexes);
             self.len = nulls.len()
         } else {
-            let mut all_valid = true;
-            let mut len = 0;
-            for i in indexes.clone() {
-                if !bit_util::get_bit(data, i) {
-                    all_valid = false;
-                    break
-                }
-                len += 1
-            }
-            if all_valid {
+            if let Some(len) = bit_tools::all_indexes_valid(data, indexes.clone()) {
                 self.len += len
             } else {
                 let mut nulls = self.make_nulls(indexes.size_hint().0);
@@ -66,16 +56,7 @@ impl NullmaskBuilder {
             nulls.append_slice_ranges(data, ranges);
             self.len = nulls.len()
         } else {
-            let mut all_valid = true;
-            let mut len = 0;
-            for r in ranges.iter() {
-                if !is_all_valid(data, r.start, r.len()) {
-                    all_valid = false;
-                    break
-                }
-                len += r.len()
-            }
-            if all_valid {
+            if let Some(len) = bit_tools::all_ranges_valid(data, ranges.iter()) {
                 self.len += len;
             } else {
                 let mut nulls = self.make_nulls(ranges.size());
@@ -126,12 +107,6 @@ impl NullmaskBuilder {
         nulls.append_many(true, self.len);
         nulls
     }
-}
-
-
-fn is_all_valid(data: &[u8], offset: usize, len: usize) -> bool {
-    // TODO: optimize
-    UnalignedBitChunk::new(data, offset, len).count_ones() == len
 }
 
 
