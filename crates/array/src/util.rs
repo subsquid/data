@@ -26,6 +26,8 @@ macro_rules! invalid_buffer_access {
         panic!("invalid arrow buffer access")
     };
 }
+
+use arrow::datatypes::DataType;
 pub(crate) use invalid_buffer_access;
 
 
@@ -59,5 +61,43 @@ pub(crate) mod bit_tools {
             len += r.len()
         }
         Some(len)
+    }
+}
+
+
+pub(crate) fn get_num_buffers(data_type: &DataType) -> usize {
+    match data_type {
+        DataType::Boolean |
+        DataType::Int8 |
+        DataType::Int16 |
+        DataType::Int32 |
+        DataType::Int64 |
+        DataType::UInt8 |
+        DataType::UInt16 |
+        DataType::UInt32 |
+        DataType::UInt64 |
+        DataType::Float16 |
+        DataType::Float32 |
+        DataType::Float64 |
+        DataType::Timestamp(_, _) |
+        DataType::Date32 |
+        DataType::Date64 |
+        DataType::Time32(_) |
+        DataType::Time64(_) |
+        DataType::Duration(_) |
+        DataType::Interval(_) => {
+            2
+        }
+        DataType::Binary |
+        DataType::Utf8 => {
+            3
+        }
+        DataType::List(f) => {
+            2 + get_num_buffers(f.data_type())
+        }
+        DataType::Struct(fields) => {
+            1 + fields.iter().map(|f| get_num_buffers(f.data_type())).sum::<usize>()
+        }
+        ty => panic!("unsupported arrow data type - {}", ty)
     }
 }

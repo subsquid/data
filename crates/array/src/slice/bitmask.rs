@@ -52,7 +52,7 @@ impl<'a> BitmaskSlice<'a> {
         ranges: &mut impl RangeList
     ) -> anyhow::Result<()> 
     {
-        todo!()
+        dst.write_slice_ranges(self.data, &mut ranges.shift(self.offset, self.len))
     }
 
     pub fn write_indexes(

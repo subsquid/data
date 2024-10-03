@@ -1,5 +1,6 @@
 mod array_builder;
-mod io;
+pub mod io;
 mod util;
 pub mod slice;
 pub mod writer;
+mod reader;

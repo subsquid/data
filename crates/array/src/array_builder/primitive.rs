@@ -64,7 +64,7 @@ impl <T: ArrowPrimitiveType> ArrayWriter for PrimitiveBuilder<T> {
         }
     }
 
-    fn offset(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Offset {
+    fn offset(&mut self, _buf: usize) -> &mut <Self::Writer as Writer>::Offset {
         invalid_buffer_access!()
     }
 }
