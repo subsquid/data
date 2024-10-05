@@ -11,6 +11,10 @@ pub struct BooleanReader<R> {
 
 
 impl <R: ByteReader> ArrowReader for BooleanReader<R> {
+    fn num_buffers(&self) -> usize {
+        2
+    }
+
     fn len(&self) -> usize {
         self.nulls.len()
     }

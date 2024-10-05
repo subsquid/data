@@ -11,6 +11,10 @@ pub struct PrimitiveReader<R> {
 
 
 impl <R: ByteReader> ArrowReader for PrimitiveReader<R> {
+    fn num_buffers(&self) -> usize {
+        2
+    }
+
     fn len(&self) -> usize {
         self.nulls.len()
     }

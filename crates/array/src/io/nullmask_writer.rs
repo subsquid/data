@@ -1,5 +1,5 @@
 use std::io::Write;
-use crate::io::writer::bitmask::BitmaskIOWriter;
+use crate::io::bitmask_writer::BitmaskIOWriter;
 use crate::util::bit_tools;
 use crate::writer::{BitmaskWriter, RangeList};
 

@@ -137,3 +137,16 @@ impl <'a, T: ArrayWriter> ArrayWriter for ArrayWriterView<'a, T> {
         }
     }
 }
+
+
+pub trait WriterFactory {
+    type Writer: Writer;
+
+    fn nullmask(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Nullmask>;
+
+    fn bitmask(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Bitmask>;
+
+    fn native(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Native>;
+
+    fn offset(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Offset>;
+}

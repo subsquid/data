@@ -28,6 +28,10 @@ impl <R: ByteReader> NativeReader<R> {
 
 
 impl<R: ByteReader> ArrowReader for NativeReader<R> {
+    fn num_buffers(&self) -> usize {
+        1
+    }
+
     #[inline]
     fn len(&self) -> usize {
         self.len()

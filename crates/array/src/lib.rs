@@ -3,4 +3,5 @@ pub mod io;
 mod util;
 pub mod slice;
 pub mod writer;
-mod reader;
+pub mod reader;
+mod visitor;

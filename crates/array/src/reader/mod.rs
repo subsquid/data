@@ -9,6 +9,14 @@ mod boolean;
 mod offsets;
 mod list;
 mod any;
+mod r#struct;
+
+
+pub use any::*;
+pub use boolean::*;
+pub use list::*;
+pub use primitive::*;
+pub use r#struct::*;
 
 
 pub trait ByteReader {
@@ -35,6 +43,8 @@ pub trait ByteReader {
 
 
 pub trait ArrowReader {
+    fn num_buffers(&self) -> usize;
+    
     fn len(&self) -> usize;
     
     fn read_slice(

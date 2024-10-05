@@ -1,19 +1,18 @@
+use crate::reader::any::AnyReader;
 use crate::reader::{ArrowReader, ByteReader};
 use crate::reader::nullmask::NullmaskReader;
-use crate::reader::offsets::OffsetsReader;
 use crate::writer::ArrayWriter;
 
 
-pub struct ListReader<R, T> {
+pub struct StructReader<R> {
     nulls: NullmaskReader<R>,
-    offsets: OffsetsReader<R>,
-    values: T
+    columns: Vec<AnyReader<R>>
 }
 
 
-impl <R: ByteReader, T: ArrowReader> ArrowReader for ListReader<R, T> {
+impl <R: ByteReader> ArrowReader for StructReader<R> {
     fn num_buffers(&self) -> usize {
-        2 + self.values.num_buffers()
+        1 + self.columns.iter().map(|c| c.num_buffers()).sum::<usize>()
     }
 
     fn len(&self) -> usize {
@@ -22,9 +21,13 @@ impl <R: ByteReader, T: ArrowReader> ArrowReader for ListReader<R, T> {
 
     fn read_slice(&mut self, dst: &mut impl ArrayWriter, offset: usize, len: usize) -> anyhow::Result<()> {
         self.nulls.read_slice(dst.nullmask(0), offset, len)?;
-        
-        let value_range = self.offsets.read_slice(dst.offset(1), offset, len)?;
-        
-        self.values.read_slice(&mut dst.shift(2), value_range.start, value_range.len())
+
+        let mut shift = 1;
+        for col in self.columns.iter_mut() {
+            col.read_slice(&mut dst.shift(shift), offset, len)?;
+            shift += col.num_buffers()
+        }
+
+        Ok(())
     }
 }
