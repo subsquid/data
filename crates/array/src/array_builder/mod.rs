@@ -1,4 +1,5 @@
-use crate::array_builder::buffer_writer::BufferWriter;
+use arrow::array::ArrayRef;
+use crate::array_builder::memory_writer::MemoryWriter;
 use crate::writer::ArrayWriter;
 use arrow::datatypes::DataType;
 
@@ -8,13 +9,15 @@ mod nullmask;
 mod native;
 mod offsets;
 mod boolean;
-mod buffer_writer;
+mod memory_writer;
 mod primitive;
 mod list;
 
 
-pub trait ArrayBuilder: ArrayWriter<Writer = BufferWriter> {
+pub trait ArrayBuilder: ArrayWriter<Writer=MemoryWriter> {
     fn len(&self) -> usize;
     
     fn data_type(&self) -> DataType;
+
+    fn finish(self) -> ArrayRef;
 }

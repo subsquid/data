@@ -1,5 +1,5 @@
 use crate::writer::{BitmaskWriter, RangeList};
-use arrow_buffer::{bit_mask, bit_util, MutableBuffer};
+use arrow_buffer::{bit_mask, bit_util, BooleanBuffer, MutableBuffer};
 
 
 pub struct BitmaskBuilder {
@@ -125,6 +125,10 @@ impl BitmaskBuilder {
         }
         self.buffer.truncate(new_byte_len);
         self.len = self.len - byte_offset * 8;
+    }
+
+    pub fn finish(self) -> BooleanBuffer {
+        BooleanBuffer::new(self.buffer.into(), 0, self.len)
     }
 }
 

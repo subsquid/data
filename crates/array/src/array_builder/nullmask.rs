@@ -1,6 +1,7 @@
 use crate::array_builder::bitmask::BitmaskBuilder;
 use crate::util::bit_tools;
 use crate::writer::{BitmaskWriter, RangeList};
+use arrow_buffer::NullBuffer;
 
 
 pub struct NullmaskBuilder {
@@ -17,6 +18,10 @@ impl NullmaskBuilder {
             len: 0,
             capacity
         }
+    }
+    
+    pub fn len(&self) -> usize {
+        self.len
     }
     
     pub fn append_slice(&mut self, data: &[u8], offset: usize, len: usize) {
@@ -106,6 +111,10 @@ impl NullmaskBuilder {
         let mut nulls = BitmaskBuilder::new(cap);
         nulls.append_many(true, self.len);
         nulls
+    }
+    
+    pub fn finish(self) -> Option<NullBuffer> {
+        self.nulls.map(|nulls| NullBuffer::new(nulls.finish()))
     }
 }
 

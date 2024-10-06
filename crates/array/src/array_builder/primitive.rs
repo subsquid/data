@@ -1,10 +1,13 @@
-use std::marker::PhantomData;
-use arrow::array::ArrowPrimitiveType;
-use arrow_buffer::{ArrowNativeType, MutableBuffer};
+use crate::array_builder::memory_writer::MemoryWriter;
 use crate::array_builder::nullmask::NullmaskBuilder;
-use crate::array_builder::buffer_writer::BufferWriter;
-use crate::writer::{ArrayWriter, Writer};
 use crate::util::invalid_buffer_access;
+use crate::writer::{ArrayWriter, Writer};
+use arrow::array::{ArrayRef, ArrowPrimitiveType, PrimitiveArray};
+use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer};
+use std::marker::PhantomData;
+use std::sync::Arc;
+use arrow::datatypes::DataType;
+use crate::array_builder::ArrayBuilder;
 
 
 pub struct PrimitiveBuilder<T: ArrowPrimitiveType> {
@@ -36,11 +39,30 @@ impl <T: ArrowPrimitiveType> PrimitiveBuilder<T> {
             self.values.push(T::default_value())
         }
     }
+    
+    pub fn finish(self) -> PrimitiveArray<T> {
+        PrimitiveArray::new(ScalarBuffer::from(self.values), self.nulls.finish())
+    }
+}
+
+
+impl <T: ArrowPrimitiveType> ArrayBuilder for PrimitiveBuilder<T> {
+    fn len(&self) -> usize {
+        self.nulls.len()
+    }
+
+    fn data_type(&self) -> DataType {
+        T::DATA_TYPE
+    }
+
+    fn finish(self) -> ArrayRef {
+        Arc::new(self.finish())
+    }
 }
 
 
 impl <T: ArrowPrimitiveType> ArrayWriter for PrimitiveBuilder<T> {
-    type Writer = BufferWriter;
+    type Writer = MemoryWriter;
 
     fn bitmask(&mut self, _buf: usize) -> &mut <Self::Writer as Writer>::Bitmask {
         invalid_buffer_access!()

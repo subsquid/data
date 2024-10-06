@@ -1,9 +1,12 @@
-use crate::array_builder::ArrayBuilder;
+use crate::array_builder::memory_writer::MemoryWriter;
 use crate::array_builder::nullmask::NullmaskBuilder;
 use crate::array_builder::offsets::OffsetsBuilder;
-use crate::array_builder::buffer_writer::BufferWriter;
-use crate::writer::{ArrayWriter, Writer};
+use crate::array_builder::ArrayBuilder;
 use crate::util::invalid_buffer_access;
+use crate::writer::{ArrayWriter, Writer};
+use arrow::array::{ArrayRef, ListArray};
+use arrow::datatypes::{DataType, Field};
+use std::sync::Arc;
 
 
 pub struct ListBuilder<T> {
@@ -27,11 +30,31 @@ impl <T: ArrayBuilder> ListBuilder<T> {
     pub fn values(&mut self) -> &mut T {
         &mut self.values
     }
+    
+    pub fn finish(self) -> ListArray {
+        let field = Arc::new(Field::new_list_field(self.values.data_type(), true));
+        ListArray::new(field, self.offsets.finish(), self.values.finish(), self.nulls.finish())
+    }
+}
+
+
+impl <T: ArrayBuilder> ArrayBuilder for ListBuilder<T> {
+    fn len(&self) -> usize {
+        self.nulls.len()
+    }
+
+    fn data_type(&self) -> DataType {
+        DataType::List(Arc::new(Field::new_list_field(self.values.data_type(), true)))
+    }
+
+    fn finish(self) -> ArrayRef {
+        Arc::new(self.finish())
+    }
 }
 
 
 impl <T: ArrayBuilder> ArrayWriter for ListBuilder<T> {
-    type Writer = BufferWriter;
+    type Writer = MemoryWriter;
 
     #[inline]
     fn bitmask(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Bitmask {

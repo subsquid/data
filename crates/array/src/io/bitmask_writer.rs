@@ -5,7 +5,7 @@ use std::io::Write;
 
 
 pub struct BitmaskIOWriter<W> {
-    writer: W,
+    write: W,
     buf: u64,
     len: usize
 }
@@ -14,7 +14,7 @@ pub struct BitmaskIOWriter<W> {
 impl<W> BitmaskIOWriter<W> {
     pub fn new(writer: W) -> Self {
         Self {
-            writer,
+            write: writer,
             buf: 0,
             len: 0
         }
@@ -37,7 +37,7 @@ impl <W: Write> BitmaskWriter for BitmaskIOWriter<W> {
             }
             self.len += to_set;
             if self.len == 64 {
-                self.writer.write_all(self.buf.to_byte_slice())?;
+                self.write.write_all(self.buf.to_byte_slice())?;
                 self.buf = 0;
                 self.len = 0;
             } else {
@@ -53,7 +53,7 @@ impl <W: Write> BitmaskWriter for BitmaskIOWriter<W> {
 
         let bit_chunks = BitChunks::new(data, offset, len);
         for chunk in bit_chunks.iter() {
-            self.writer.write_all(chunk.to_byte_slice())?;
+            self.write.write_all(chunk.to_byte_slice())?;
         }
         
         self.buf = bit_chunks.remainder_bits();
@@ -76,7 +76,7 @@ impl <W: Write> BitmaskWriter for BitmaskIOWriter<W> {
                     return Ok(())
                 }
             }
-            self.writer.write_all(self.buf.to_byte_slice())?;
+            self.write.write_all(self.buf.to_byte_slice())?;
             self.buf = 0;
             self.len = 0;
         }
@@ -102,7 +102,7 @@ impl <W: Write> BitmaskWriter for BitmaskIOWriter<W> {
             }
             
             if new_len == 64 {
-                self.writer.write_all(self.buf.to_byte_slice())?;
+                self.write.write_all(self.buf.to_byte_slice())?;
                 self.buf = 0;
                 self.len = 0;
                 count -= to_set;
@@ -114,7 +114,7 @@ impl <W: Write> BitmaskWriter for BitmaskIOWriter<W> {
 
         if val {
             while count >= 64 {
-                self.writer.write_all(ones.to_byte_slice())?;
+                self.write.write_all(ones.to_byte_slice())?;
                 count -= 64;
             }
             if count > 0 {
@@ -123,7 +123,7 @@ impl <W: Write> BitmaskWriter for BitmaskIOWriter<W> {
             }
         } else {
             while count >= 64 {
-                self.writer.write_all(0u64.to_byte_slice())?;
+                self.write.write_all(0u64.to_byte_slice())?;
                 count -= 64;
             }
             self.len = count;
@@ -139,5 +139,15 @@ unsafe fn set_bits_slow(dst: *mut u8, dst_offset: usize, data: *const u8, offset
         if bit_util::get_bit_raw(data, offset + 1) {
             bit_util::set_bit_raw(dst, dst_offset + i)
         }
+    }
+}
+
+
+impl<W: Write> BitmaskIOWriter<W> {
+    pub fn finish(mut self) -> anyhow::Result<W> {
+        if self.len > 0 {
+            self.write.write_all(&self.buf.to_byte_slice()[0..self.len])?;
+        }
+        Ok(self.write)
     }
 }

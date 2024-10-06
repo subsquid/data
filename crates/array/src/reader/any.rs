@@ -6,7 +6,7 @@ use crate::reader::{ArrowReader, BooleanReader, ByteReader};
 use crate::visitor::DataTypeVisitor;
 use crate::writer::ArrayWriter;
 use arrow::array::ArrowPrimitiveType;
-use arrow::datatypes::{DataType, Fields};
+use arrow::datatypes::{DataType, FieldRef};
 
 
 pub enum AnyReader<R> {
@@ -52,7 +52,7 @@ impl <R: ByteReader> ArrowReader for AnyReader<R> {
 
 
 impl <R: ByteReader> AnyReader<R> {
-    pub fn from_byte_readers(
+    pub fn from_byte_reader_factory(
         data_type: &DataType,
         next_reader: impl FnMut() -> anyhow::Result<R>,
     ) -> anyhow::Result<Self> 
@@ -86,7 +86,7 @@ impl <'a, B: ByteReader, F: FnMut() -> anyhow::Result<B>> DataTypeVisitor for An
         todo!()
     }
 
-    fn r#struct(&mut self, fields: &Fields) -> Self::Result {
+    fn r#struct(&mut self, fields: &[FieldRef]) -> Self::Result {
         todo!()
     }
 }

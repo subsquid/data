@@ -19,6 +19,10 @@ impl <W: Write> NullmaskIOWriter<W> {
             has_bitmask: false
         }
     }
+
+    pub fn finish(self) -> anyhow::Result<W> {
+        self.bitmask.finish()
+    }
     
     #[inline]
     fn check_bitmask_presence(&mut self, all_valid: impl FnOnce() -> Option<usize>) -> anyhow::Result<bool> {

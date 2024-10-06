@@ -1,8 +1,12 @@
+use std::sync::Arc;
 use crate::array_builder::bitmask::BitmaskBuilder;
+use crate::array_builder::memory_writer::MemoryWriter;
 use crate::array_builder::nullmask::NullmaskBuilder;
-use crate::array_builder::buffer_writer::BufferWriter;
-use crate::writer::{ArrayWriter, Writer};
 use crate::util::invalid_buffer_access;
+use crate::writer::{ArrayWriter, Writer};
+use arrow::array::{ArrayRef, BooleanArray};
+use arrow::datatypes::DataType;
+use crate::array_builder::ArrayBuilder;
 
 
 pub struct BooleanBuilder {
@@ -32,11 +36,30 @@ impl BooleanBuilder {
             self.values.append(false)
         }
     }
+    
+    pub fn finish(self) -> BooleanArray {
+        BooleanArray::new(self.values.finish(), self.nulls.finish())
+    }
+}
+
+
+impl ArrayBuilder for BooleanBuilder {
+    fn len(&self) -> usize {
+        self.nulls.len()
+    }
+
+    fn data_type(&self) -> DataType {
+        DataType::Boolean
+    }
+
+    fn finish(self) -> ArrayRef {
+        Arc::new(self.finish())
+    }
 }
 
 
 impl ArrayWriter for BooleanBuilder {
-    type Writer = BufferWriter;
+    type Writer = MemoryWriter;
 
     #[inline]
     fn bitmask(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Bitmask {

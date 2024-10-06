@@ -1,5 +1,5 @@
 use arrow::array::ArrowPrimitiveType;
-use arrow::datatypes::{DataType, Fields, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit, TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
+use arrow::datatypes::{DataType, FieldRef, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit, TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 use std::sync::Arc;
 
 
@@ -28,7 +28,7 @@ pub trait DataTypeVisitor {
     
     fn list(&mut self, item: &DataType) -> Self::Result;
     
-    fn r#struct(&mut self, fields: &Fields) -> Self::Result;
+    fn r#struct(&mut self, fields: &[FieldRef]) -> Self::Result;
     
     fn visit(&mut self, data_type: &DataType) -> Self::Result {
         match data_type {

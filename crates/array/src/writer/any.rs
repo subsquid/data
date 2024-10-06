@@ -1,11 +1,11 @@
-use arrow::array::ArrowPrimitiveType;
-use arrow::datatypes::{DataType, Fields};
 use crate::util::{get_num_buffers, invalid_buffer_access};
 use crate::visitor::DataTypeVisitor;
 use crate::writer::{ArrayWriter, Writer, WriterFactory};
+use arrow::array::ArrowPrimitiveType;
+use arrow::datatypes::{DataType, FieldRef};
 
 
-pub enum AnyBufferWriter<W: Writer> {
+pub enum AnyWriter<W: Writer> {
     Bitmask(W::Bitmask),
     Nullmask(W::Nullmask),
     Native(W::Native),
@@ -14,7 +14,7 @@ pub enum AnyBufferWriter<W: Writer> {
 
 
 pub struct AnyArrayWriter<W: Writer> {
-    buffers: Vec<AnyBufferWriter<W>>
+    buffers: Vec<AnyWriter<W>>
 }
 
 
@@ -23,28 +23,28 @@ impl <W: Writer> ArrayWriter for AnyArrayWriter<W> {
 
     fn bitmask(&mut self, buf: usize) -> &mut W::Bitmask {
         match self.buffers.get_mut(buf) {
-            Some(AnyBufferWriter::Bitmask(w)) => w,
+            Some(AnyWriter::Bitmask(w)) => w,
             _ => invalid_buffer_access!()
         }
     }
 
     fn nullmask(&mut self, buf: usize) -> &mut W::Nullmask {
         match self.buffers.get_mut(buf) {
-            Some(AnyBufferWriter::Nullmask(w)) => w,
+            Some(AnyWriter::Nullmask(w)) => w,
             _ => invalid_buffer_access!()
         }
     }
 
     fn native(&mut self, buf: usize) -> &mut W::Native {
         match self.buffers.get_mut(buf) {
-            Some(AnyBufferWriter::Native(w)) => w,
+            Some(AnyWriter::Native(w)) => w,
             _ => invalid_buffer_access!()
         }
     }
 
     fn offset(&mut self, buf: usize) -> &mut W::Offset {
         match self.buffers.get_mut(buf) {
-            Some(AnyBufferWriter::Offsets(w)) => w,
+            Some(AnyWriter::Offsets(w)) => w,
             _ => invalid_buffer_access!()
         }
     }
@@ -52,6 +52,10 @@ impl <W: Writer> ArrayWriter for AnyArrayWriter<W> {
 
 
 impl <W: Writer> AnyArrayWriter<W> {
+    pub fn into_inner(self) -> Vec<AnyWriter<W>> {
+        self.buffers
+    }
+    
     pub fn from_factory(
         factory: &mut impl WriterFactory<Writer=W>,
         data_type: &DataType
@@ -72,7 +76,7 @@ impl <W: Writer> AnyArrayWriter<W> {
 
 
 struct AnyArrayFactory<'a, W: Writer, F> {
-    buffers: &'a mut Vec<AnyBufferWriter<W>>,
+    buffers: &'a mut Vec<AnyWriter<W>>,
     writer_factory: &'a mut F,
 }
 
@@ -96,7 +100,7 @@ impl <'a, W: Writer, F: WriterFactory> DataTypeVisitor for AnyArrayFactory<'a, W
         todo!()
     }
 
-    fn r#struct(&mut self, fields: &Fields) -> Self::Result {
+    fn r#struct(&mut self, fields: &[FieldRef]) -> Self::Result {
         todo!()
     }
 }

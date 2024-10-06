@@ -5,26 +5,31 @@ use std::io::Write;
 
 
 pub struct OffsetsIOWriter<W> {
-    writer: W,
+    write: W,
     last_offset: i32,
     first_offset: bool
 }
 
 
 impl <W: Write> OffsetsIOWriter<W> {
-    pub fn new(writer: W) -> Self {
+    pub fn new(write: W) -> Self {
         Self {
-            writer,
+            write,
             last_offset: 0,
             first_offset: true
         }
+    }
+    
+    pub fn finish(mut self) -> anyhow::Result<W> {
+        self.write_first_offset()?;
+        Ok(self.write)
     }
 
     #[inline]
     fn write_first_offset(&mut self) -> anyhow::Result<()> {
         if self.first_offset {
             self.first_offset = false;
-            self.writer.write_all(self.last_offset.to_byte_slice())?;
+            self.write.write_all(self.last_offset.to_byte_slice())?;
         }
         Ok(())
     }
@@ -35,7 +40,7 @@ impl <W: Write> OffsetsIOWriter<W> {
         
         for offset in offsets[1..].iter().copied() {
             let val = offset - beg + self.last_offset;
-            self.writer.write_all(val.to_byte_slice())?;
+            self.write.write_all(val.to_byte_slice())?;
             self.last_offset = val
         }
         
@@ -56,7 +61,7 @@ impl <W: Write> OffsetsWriter for OffsetsIOWriter<W> {
         for i in indexes {
             let len = offsets[i + 1] - offsets[i];
             self.last_offset += len;
-            self.writer.write_all(self.last_offset.to_byte_slice())?;
+            self.write.write_all(self.last_offset.to_byte_slice())?;
         }
         
         Ok(())
@@ -76,7 +81,7 @@ impl <W: Write> OffsetsWriter for OffsetsIOWriter<W> {
     fn write_len(&mut self, len: usize) -> anyhow::Result<()> {
         self.write_first_offset()?;
         self.last_offset += len as i32;
-        self.writer.write_all(self.last_offset.to_byte_slice())?;
+        self.write.write_all(self.last_offset.to_byte_slice())?;
         Ok(())
     }
 
@@ -85,7 +90,7 @@ impl <W: Write> OffsetsWriter for OffsetsIOWriter<W> {
         ensure!(self.last_offset <= offset);
         self.write_first_offset()?;
         self.last_offset = offset;
-        self.writer.write_all(self.last_offset.to_byte_slice())?;
+        self.write.write_all(self.last_offset.to_byte_slice())?;
         Ok(())
     }
 }

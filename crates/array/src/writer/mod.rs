@@ -3,7 +3,6 @@ mod range_list;
 
 
 pub use any::*;
-use arrow::array::Array;
 use arrow_buffer::{ArrowNativeType, ToByteSlice};
 pub use range_list::*;
 
@@ -92,10 +91,6 @@ pub trait ArrayWriter: Sized {
             builder: self,
             pos
         }
-    }
-
-    fn push_array(&mut self, _array: &dyn Array) {
-        todo!()
     }
 }
 

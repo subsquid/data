@@ -1,5 +1,5 @@
 use crate::writer::{OffsetsWriter, RangeList};
-use arrow_buffer::MutableBuffer;
+use arrow_buffer::{MutableBuffer, OffsetBuffer, ScalarBuffer};
 
 
 pub struct OffsetsBuilder {
@@ -57,6 +57,11 @@ impl OffsetsBuilder {
         assert!(self.last_offset <= offset);
         self.last_offset = offset;
         self.buffer.push(offset)
+    }
+
+    pub fn finish(self) -> OffsetBuffer<i32> {
+        let scalar = ScalarBuffer::from(self.buffer);
+        OffsetBuffer::new(scalar)
     }
 }
 

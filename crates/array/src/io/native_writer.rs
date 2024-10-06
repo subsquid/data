@@ -4,20 +4,29 @@ use crate::writer::{NativeWriter, RangeList};
 
 
 pub struct NativeIOWriter<W> {
-    writer: W
+    write: W
+}
+
+
+impl <W> NativeIOWriter<W> {
+    pub fn new(write: W) -> Self {
+        Self {
+            write
+        }
+    }
 }
 
 
 impl <W: Write> NativeWriter for NativeIOWriter<W> {
     #[inline]
     fn write<T: ToByteSlice>(&mut self, value: T) -> anyhow::Result<()> {
-        self.writer.write_all(value.to_byte_slice())?;
+        self.write.write_all(value.to_byte_slice())?;
         Ok(())
     }
 
     #[inline]
     fn write_slice<T: ArrowNativeType>(&mut self, values: &[T]) -> anyhow::Result<()> {
-        self.writer.write_all(values.to_byte_slice())?;
+        self.write.write_all(values.to_byte_slice())?;
         Ok(())
     }
 
@@ -43,5 +52,12 @@ impl <W: Write> NativeWriter for NativeIOWriter<W> {
             self.write_slice(&values[r])?;
         }
         Ok(())
+    }
+}
+
+
+impl <W: Write> NativeIOWriter<W> {
+    pub fn into_inner(self) -> W {
+        self.write
     }
 }
