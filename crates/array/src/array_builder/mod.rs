@@ -1,22 +1,30 @@
-use arrow::array::ArrayRef;
 use crate::array_builder::memory_writer::MemoryWriter;
 use crate::writer::ArrayWriter;
+use arrow::array::ArrayRef;
 use arrow::datatypes::DataType;
 
 
+mod binary;
 mod bitmask;
-mod nullmask;
-mod native;
-mod offsets;
 mod boolean;
-mod memory_writer;
-mod primitive;
 mod list;
+mod memory_writer;
+mod native;
+mod nullmask;
+mod offsets;
+mod primitive;
 
 
-pub trait ArrayBuilder: ArrayWriter<Writer=MemoryWriter> {
+use crate::slice::AsSlice;
+pub use binary::*;
+pub use boolean::*;
+pub use list::*;
+pub use primitive::*;
+
+
+pub trait ArrayBuilder: ArrayWriter<Writer=MemoryWriter> + AsSlice + 'static {
     fn len(&self) -> usize;
-    
+
     fn data_type(&self) -> DataType;
 
     fn finish(self) -> ArrayRef;

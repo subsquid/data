@@ -12,6 +12,15 @@ pub struct BitmaskSlice<'a> {
 
 
 impl<'a> BitmaskSlice<'a> {
+    pub fn new(data: &'a [u8], offset: usize, len: usize) -> Self {
+        assert!(offset + len <= data.len() * 8);
+        Self {
+            data,
+            offset,
+            len
+        }
+    }
+    
     #[inline]
     pub fn len(&self) -> usize {
         self.len

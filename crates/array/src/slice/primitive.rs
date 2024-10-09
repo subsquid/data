@@ -3,12 +3,23 @@ use crate::slice::Slice;
 use crate::writer::{ArrayWriter, NativeWriter, RangeList};
 use arrow_buffer::ArrowNativeType;
 use std::ops::Range;
+use crate::slice::bitmask::BitmaskSlice;
 
 
 #[derive(Clone)]
 pub struct PrimitiveSlice<'a, T> {
     nulls: NullmaskSlice<'a>,
     values: &'a [T]
+}
+
+
+impl <'a, T> PrimitiveSlice<'a, T> {
+    pub fn new(values: &'a [T], nulls: Option<BitmaskSlice<'a>>) -> Self {
+        Self {
+            nulls: NullmaskSlice::new(values.len(), nulls),
+            values
+        }
+    }
 }
 
 

@@ -1,5 +1,5 @@
+use crate::offsets::Offsets;
 use crate::writer::{OffsetsWriter, RangeList};
-use anyhow::ensure;
 use arrow_buffer::ToByteSlice;
 use std::io::Write;
 
@@ -35,10 +35,10 @@ impl <W: Write> OffsetsIOWriter<W> {
     }
     
     #[inline]
-    fn write_slice(&mut self, offsets: &[i32]) -> anyhow::Result<()> {
-        let beg = offsets[0];
+    fn write_slice(&mut self, offsets: Offsets<'_>) -> anyhow::Result<()> {
+        let beg = offsets.first_offset();
         
-        for offset in offsets[1..].iter().copied() {
+        for offset in offsets.values()[1..].iter().copied() {
             let val = offset - beg + self.last_offset;
             self.write.write_all(val.to_byte_slice())?;
             self.last_offset = val
@@ -50,16 +50,16 @@ impl <W: Write> OffsetsIOWriter<W> {
 
 
 impl <W: Write> OffsetsWriter for OffsetsIOWriter<W> {
-    fn write_slice(&mut self, offsets: &[i32]) -> anyhow::Result<()> {
+    fn write_slice(&mut self, offsets: Offsets<'_>) -> anyhow::Result<()> {
         self.write_first_offset()?;
         self.write_slice(offsets)
     }
 
-    fn write_slice_indexes(&mut self, offsets: &[i32], indexes: impl Iterator<Item=usize>) -> anyhow::Result<()> {
+    fn write_slice_indexes(&mut self, offsets: Offsets<'_>, indexes: impl Iterator<Item=usize>) -> anyhow::Result<()> {
         self.write_first_offset()?;
         
         for i in indexes {
-            let len = offsets[i + 1] - offsets[i];
+            let len = offsets.values()[i + 1] - offsets.values()[i];
             self.last_offset += len;
             self.write.write_all(self.last_offset.to_byte_slice())?;
         }
@@ -67,11 +67,11 @@ impl <W: Write> OffsetsWriter for OffsetsIOWriter<W> {
         Ok(())
     }
 
-    fn write_slice_ranges(&mut self, offsets: &[i32], ranges: &mut impl RangeList) -> anyhow::Result<()> {
+    fn write_slice_ranges(&mut self, offsets: Offsets<'_>, ranges: &mut impl RangeList) -> anyhow::Result<()> {
         self.write_first_offset()?;
         
         for r in ranges.iter() {
-            self.write_slice(&offsets[r.start..r.end + 1])?
+            self.write_slice(offsets.slice_by_range(r))?
         }
         
         Ok(())
@@ -81,15 +81,6 @@ impl <W: Write> OffsetsWriter for OffsetsIOWriter<W> {
     fn write_len(&mut self, len: usize) -> anyhow::Result<()> {
         self.write_first_offset()?;
         self.last_offset += len as i32;
-        self.write.write_all(self.last_offset.to_byte_slice())?;
-        Ok(())
-    }
-
-    #[inline]
-    fn write(&mut self, offset: i32) -> anyhow::Result<()> {
-        ensure!(self.last_offset <= offset);
-        self.write_first_offset()?;
-        self.last_offset = offset;
         self.write.write_all(self.last_offset.to_byte_slice())?;
         Ok(())
     }

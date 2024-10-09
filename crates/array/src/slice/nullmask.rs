@@ -11,6 +11,16 @@ pub struct NullmaskSlice<'a> {
 
 
 impl<'a> NullmaskSlice<'a> {
+    pub fn new(len: usize, nulls: Option<BitmaskSlice<'a>>) -> Self {
+        if let Some(nulls) = nulls.as_ref() {
+            assert_eq!(nulls.len(), len);
+        }
+        Self {
+            nulls,
+            len
+        }
+    }
+    
     pub fn len(&self) -> usize {
         self.len
     }
@@ -27,6 +37,10 @@ impl<'a> NullmaskSlice<'a> {
     pub fn is_valid(&self, i: usize) -> bool {
         assert!(i < self.len);
         self.nulls.as_ref().map(|nulls| nulls.value(i)).unwrap_or(true)
+    }
+    
+    pub fn bitmask(&self) -> Option<BitmaskSlice<'a>> {
+        self.nulls.clone()
     }
     
     pub fn write(&self, dst: &mut impl BitmaskWriter) -> anyhow::Result<()> {

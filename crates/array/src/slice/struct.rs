@@ -16,6 +16,19 @@ pub struct AnyStructSlice<'a> {
 
 
 impl<'a> AnyStructSlice<'a> {
+    pub fn new(nulls: NullmaskSlice<'a>, columns: Arc<[AnySlice<'a>]>) -> Self {
+        let len = nulls.len();
+        for c in columns.iter() {
+            assert_eq!(c.len(), len);
+        }
+        Self {
+            nulls,
+            columns,
+            offset: 0,
+            len
+        }
+    }
+    
     fn write_src_range(&self, dst: &mut impl ArrayWriter, range: Range<usize>) -> anyhow::Result<()> {
         self.nulls.write_range(dst.nullmask(0), range.clone())?;
 

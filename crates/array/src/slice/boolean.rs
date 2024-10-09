@@ -1,6 +1,7 @@
 use std::ops::Range;
-use crate::slice::{BitmaskSlice, Slice};
+use crate::slice::bitmask::BitmaskSlice;
 use crate::slice::nullmask::NullmaskSlice;
+use crate::slice::Slice;
 use crate::writer::{ArrayWriter, RangeList};
 
 
@@ -8,6 +9,24 @@ use crate::writer::{ArrayWriter, RangeList};
 pub struct BooleanSlice<'a> {
     nulls: NullmaskSlice<'a>,
     values: BitmaskSlice<'a>
+}
+
+
+impl <'a> BooleanSlice<'a> {
+    pub fn new(values: BitmaskSlice<'a>, nulls: Option<BitmaskSlice<'a>>) -> Self {
+        Self {
+            nulls: NullmaskSlice::new(values.len(), nulls),
+            values
+        }
+    }
+    
+    pub fn with_nullmask(values: BitmaskSlice<'a>, nulls: NullmaskSlice<'a>) -> Self {
+        assert_eq!(values.len(), nulls.len());
+        Self {
+            nulls,
+            values
+        }
+    }
 }
 
 

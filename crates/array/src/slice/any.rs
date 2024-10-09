@@ -20,7 +20,7 @@ pub enum AnySlice<'a> {
     Int32(PrimitiveSlice<'a, i32>),
     Int64(PrimitiveSlice<'a, i64>),
     Binary(ListSlice<'a, &'a [u8]>),
-    List(ListSlice<'a, Arc<AnySlice<'a>>>),
+    List(ListSlice<'a, AnyListItem<'a>>),
     Struct(AnyStructSlice<'a>)
 }
 
@@ -143,5 +143,58 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::List(s) => s.write_indexes(dst, indexes),
             AnySlice::Struct(s) => s.write_indexes(dst, indexes),
         }
+    }
+}
+
+
+#[derive(Clone)]
+pub struct AnyListItem<'a> {
+    item: Arc<AnySlice<'a>>
+}
+
+
+impl<'a> AnyListItem<'a> {
+    pub fn new(item: AnySlice<'a>) -> Self {
+        Self {
+            item: Arc::new(item)
+        }
+    }
+}
+
+
+impl<'a> Slice for AnyListItem<'a> {
+    #[inline]
+    fn num_buffers(&self) -> usize {
+        self.item.num_buffers()
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.item.len()
+    }
+
+    #[inline]
+    fn slice(&self, _offset: usize, _len: usize) -> Self {
+        unimplemented!("list item does not support slicing")
+    }
+
+    #[inline]
+    fn write(&self, dst: &mut impl ArrayWriter) -> anyhow::Result<()> {
+        self.item.write(dst)
+    }
+
+    #[inline]
+    fn write_range(&self, dst: &mut impl ArrayWriter, range: Range<usize>) -> anyhow::Result<()> {
+        self.item.write_range(dst, range)
+    }
+
+    #[inline]
+    fn write_ranges(&self, dst: &mut impl ArrayWriter, ranges: &mut impl RangeList) -> anyhow::Result<()> {
+        self.item.write_ranges(dst, ranges)
+    }
+
+    #[inline]
+    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl IntoIterator<Item=usize, IntoIter: Clone>) -> anyhow::Result<()> {
+        self.item.write_indexes(dst, indexes)
     }
 }

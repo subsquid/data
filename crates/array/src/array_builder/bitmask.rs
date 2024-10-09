@@ -1,5 +1,6 @@
 use crate::writer::{BitmaskWriter, RangeList};
 use arrow_buffer::{bit_mask, bit_util, BooleanBuffer, MutableBuffer};
+use crate::slice::bitmask::BitmaskSlice;
 
 
 pub struct BitmaskBuilder {
@@ -110,6 +111,10 @@ impl BitmaskBuilder {
 
     pub fn data(&self) -> &[u8] {
         &self.buffer
+    }
+    
+    pub fn as_slice(&self) -> BitmaskSlice<'_> {
+        BitmaskSlice::new(self.data(), 0, self.len)
     }
 
     pub fn len(&self) -> usize {

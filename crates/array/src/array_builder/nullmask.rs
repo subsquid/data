@@ -2,6 +2,7 @@ use crate::array_builder::bitmask::BitmaskBuilder;
 use crate::util::bit_tools;
 use crate::writer::{BitmaskWriter, RangeList};
 use arrow_buffer::NullBuffer;
+use crate::slice::nullmask::NullmaskSlice;
 
 
 pub struct NullmaskBuilder {
@@ -115,6 +116,10 @@ impl NullmaskBuilder {
     
     pub fn finish(self) -> Option<NullBuffer> {
         self.nulls.map(|nulls| NullBuffer::new(nulls.finish()))
+    }
+    
+    pub fn as_slice(&self) -> NullmaskSlice<'_> {
+        NullmaskSlice::new(self.len, self.nulls.as_ref().map(|b| b.as_slice()))
     }
 }
 

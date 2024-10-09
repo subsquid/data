@@ -7,6 +7,7 @@ use crate::writer::{ArrayWriter, Writer};
 use arrow::array::{ArrayRef, BooleanArray};
 use arrow::datatypes::DataType;
 use crate::array_builder::ArrayBuilder;
+use crate::slice::{AsSlice, BooleanSlice};
 
 
 pub struct BooleanBuilder {
@@ -85,5 +86,14 @@ impl ArrayWriter for BooleanBuilder {
 
     fn offset(&mut self, _buf: usize) -> &mut <Self::Writer as Writer>::Offset {
         invalid_buffer_access!()
+    }
+}
+
+
+impl AsSlice for BooleanBuilder {
+    type Slice<'a> = BooleanSlice<'a>;
+
+    fn as_slice(&self) -> Self::Slice<'_> {
+        BooleanSlice::with_nullmask(self.values.as_slice(), self.nulls.as_slice())
     }
 }

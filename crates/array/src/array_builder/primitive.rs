@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use arrow::datatypes::DataType;
 use crate::array_builder::ArrayBuilder;
+use crate::slice::{AsSlice, PrimitiveSlice};
 
 
 pub struct PrimitiveBuilder<T: ArrowPrimitiveType> {
@@ -41,7 +42,10 @@ impl <T: ArrowPrimitiveType> PrimitiveBuilder<T> {
     }
     
     pub fn finish(self) -> PrimitiveArray<T> {
-        PrimitiveArray::new(ScalarBuffer::from(self.values), self.nulls.finish())
+        PrimitiveArray::new(
+            ScalarBuffer::from(self.values), 
+            self.nulls.finish()
+        )
     }
 }
 
@@ -88,5 +92,17 @@ impl <T: ArrowPrimitiveType> ArrayWriter for PrimitiveBuilder<T> {
 
     fn offset(&mut self, _buf: usize) -> &mut <Self::Writer as Writer>::Offset {
         invalid_buffer_access!()
+    }
+}
+
+
+impl <T: ArrowPrimitiveType> AsSlice for PrimitiveBuilder<T> {
+    type Slice<'a> = PrimitiveSlice<'a, T::Native>;
+
+    fn as_slice(&self) -> Self::Slice<'_> {
+        PrimitiveSlice::new(
+            self.values.typed_data::<T::Native>(),
+            self.nulls.as_slice().bitmask()
+        )
     }
 }

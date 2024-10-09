@@ -1,17 +1,20 @@
-mod bitmask;
-mod primitive;
-mod nullmask;
+mod any;
+pub mod bitmask;
+mod boolean;
 mod list;
 mod native;
-mod any;
-mod boolean;
+pub mod nullmask;
+mod primitive;
 mod r#struct;
 
 
 use crate::writer::{ArrayWriter, RangeList};
-pub use bitmask::*;
+pub use any::*;
+pub use boolean::*;
+pub use list::*;
+pub use primitive::*;
+pub use r#struct::*;
 use std::ops::Range;
-use std::sync::Arc;
 
 
 pub trait Slice: Clone {
@@ -38,36 +41,8 @@ pub trait Slice: Clone {
 }
 
 
-impl <T: Slice> Slice for Arc<T> {
-    fn num_buffers(&self) -> usize {
-        self.as_ref().num_buffers()
-    }
+pub trait AsSlice {
+    type Slice<'a>: Slice where Self: 'a;
 
-    fn len(&self) -> usize {
-        self.as_ref().len()
-    }
-
-    fn slice(&self, offset: usize, len: usize) -> Self {
-        Arc::new(self.as_ref().slice(offset, len))
-    }
-
-    #[inline]
-    fn write(&self, dst: &mut impl ArrayWriter) -> anyhow::Result<()> {
-        self.as_ref().write(dst)
-    }
-
-    #[inline]
-    fn write_range(&self, dst: &mut impl ArrayWriter, range: Range<usize>) -> anyhow::Result<()> {
-        self.as_ref().write_range(dst, range)
-    }
-
-    #[inline]
-    fn write_ranges(&self, dst: &mut impl ArrayWriter, ranges: &mut impl RangeList) -> anyhow::Result<()> {
-        self.as_ref().write_ranges(dst, ranges)
-    }
-
-    #[inline]
-    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl IntoIterator<Item=usize, IntoIter: Clone>) -> anyhow::Result<()> {
-        self.as_ref().write_indexes(dst, indexes)
-    }
+    fn as_slice(&self) -> Self::Slice<'_>;
 }
