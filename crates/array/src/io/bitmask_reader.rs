@@ -1,4 +1,4 @@
-use crate::reader::ByteReader;
+use crate::io::byte_reader::ByteReader;
 use crate::writer::BitmaskWriter;
 use arrow_buffer::bit_util;
 

@@ -1,24 +1,50 @@
+use crate::chunking::ChunkRange;
+use crate::reader::chunked::ChunkedArrayReader;
 use crate::reader::list::ListReader;
-use crate::reader::native::NativeReader;
 use crate::reader::primitive::PrimitiveReader;
 use crate::reader::r#struct::StructReader;
-use crate::reader::{ArrowReader, BooleanReader, ByteReader};
+use crate::reader::{ArrayReader, BinaryReader, BitmaskReader, BooleanReader, NativeReader, Reader, ReaderFactory};
 use crate::visitor::DataTypeVisitor;
 use crate::writer::ArrayWriter;
+use anyhow::ensure;
 use arrow::array::ArrowPrimitiveType;
 use arrow::datatypes::{DataType, FieldRef};
 
 
-pub enum AnyReader<R> {
+pub type AnyList<R> = ListReader<R, AnyReader<R>>;
+
+
+pub enum AnyReader<R: Reader> {
     Boolean(BooleanReader<R>),
     Primitive(PrimitiveReader<R>),
-    Binary(ListReader<R, NativeReader<R>>),
-    List(Box<ListReader<R, AnyReader<R>>>),
+    Binary(BinaryReader<R>),
+    List(Box<AnyList<R>>),
     Struct(StructReader<R>)
 }
 
 
-impl <R: ByteReader> ArrowReader for AnyReader<R> {
+impl <R: Reader> AnyReader<R> {
+    pub fn from_factory(
+        factory: &mut impl ReaderFactory<Reader=R>,
+        data_type: &DataType
+    ) -> anyhow::Result<Self>
+    {
+        AnyReaderFactory {
+            factory
+        }.visit(data_type)
+    }
+    
+    #[inline]
+    pub fn as_boolean(&mut self) -> &mut BooleanReader<R> {
+        match self {
+            AnyReader::Boolean(r) => r,
+            _ => panic!("not a BooleanReader")
+        }
+    }
+}
+
+
+impl <R: Reader> ArrayReader for AnyReader<R> {
     fn num_buffers(&self) -> usize {
         match self {
             AnyReader::Boolean(r) => r.num_buffers(),
@@ -48,34 +74,113 @@ impl <R: ByteReader> ArrowReader for AnyReader<R> {
             AnyReader::Struct(r) => r.read_slice(dst, offset, len),
         }
     }
-}
 
-
-impl <R: ByteReader> AnyReader<R> {
-    pub fn from_byte_reader_factory(
-        data_type: &DataType,
-        next_reader: impl FnMut() -> anyhow::Result<R>,
-    ) -> anyhow::Result<Self> 
+    fn read_chunk_ranges(
+        chunks: &mut impl ChunkedArrayReader<ArrayReader=Self>,
+        dst: &mut impl ArrayWriter,
+        mut ranges: impl Iterator<Item=ChunkRange> + Clone
+    ) -> anyhow::Result<()>
     {
-        AnyReaderFactory { next_reader }.visit(data_type)
+        if chunks.num_chunks() == 0 {
+            if ranges.next().is_some() {
+                panic!("attempt to extract a range from an empty chunked array")
+            } else {
+                return Ok(())
+            }
+        }
+
+        match chunks.chunk(0) {
+            AnyReader::Boolean(_) => {
+                BooleanReader::read_chunk_ranges(
+                    &mut chunks.map(|c| c.as_boolean()),
+                    dst,
+                    ranges
+                )?;
+            },
+            AnyReader::Primitive(_) => {
+                todo!()
+            },
+            AnyReader::Binary(_) => {
+                todo!()
+            },
+            AnyReader::List(_) => {
+                todo!()
+            },
+            AnyReader::Struct(_) => {
+                todo!()
+            }
+        }
+
+        Ok(())
     }
 }
 
 
-struct AnyReaderFactory<F> {
-    next_reader: F
+impl <R: Reader> From<BooleanReader<R>> for AnyReader<R> {
+    fn from(value: BooleanReader<R>) -> Self {
+        AnyReader::Boolean(value)
+    }
 }
 
 
-impl <'a, B: ByteReader, F: FnMut() -> anyhow::Result<B>> DataTypeVisitor for AnyReaderFactory<F> {
-    type Result = anyhow::Result<AnyReader<B>>;
+impl <R: Reader> From<PrimitiveReader<R>> for AnyReader<R> {
+    fn from(value: PrimitiveReader<R>) -> Self {
+        AnyReader::Primitive(value)
+    }
+}
+
+
+impl <R: Reader> From<BinaryReader<R>> for AnyReader<R> {
+    fn from(value: BinaryReader<R>) -> Self {
+        AnyReader::Binary(value)
+    }
+}
+
+
+impl <R: Reader> From<AnyList<R>> for AnyReader<R> {
+    fn from(value: AnyList<R>) -> Self {
+        AnyReader::List(Box::new(value))
+    }
+}
+
+
+impl <R: Reader> From<StructReader<R>> for AnyReader<R> {
+    fn from(value: StructReader<R>) -> Self {
+        AnyReader::Struct(value)
+    }
+}
+
+
+struct AnyReaderFactory<'a, F> {
+    factory: &'a mut F,
+}
+
+
+impl <'a, F: ReaderFactory> DataTypeVisitor for AnyReaderFactory<'a, F> {
+    type Result = anyhow::Result<AnyReader<F::Reader>>;
 
     fn boolean(&mut self) -> Self::Result {
-        todo!()
+        let nulls = self.factory.nullmask()?;
+        let values = self.factory.bitmask()?;
+        ensure!(
+            nulls.len() == values.len(), 
+            "nulls and values of a boolean array have different lengths"
+        );
+        Ok(
+            BooleanReader::new(nulls, values).into()
+        )
     }
 
     fn primitive<T: ArrowPrimitiveType>(&mut self) -> Self::Result {
-        todo!()
+        let nulls = self.factory.nullmask()?;
+        let values = self.factory.native::<T::Native>()?;
+        ensure!(
+            nulls.len() == values.len(), 
+            "nulls and values of a primitive array have different lengths"
+        );
+        Ok(
+            PrimitiveReader::new(nulls, values).into()
+        )
     }
 
     fn binary(&mut self) -> Self::Result {

@@ -1,17 +1,28 @@
-use crate::reader::{ArrowReader, ByteReader};
-use crate::reader::nullmask::NullmaskReader;
-use crate::reader::offsets::OffsetsReader;
+use crate::chunking::ChunkRange;
+use crate::reader::chunked::ChunkedArrayReader;
+use crate::reader::{ArrayReader, BitmaskReader, OffsetsReader, Reader};
 use crate::writer::ArrayWriter;
 
 
-pub struct ListReader<R, T> {
-    nulls: NullmaskReader<R>,
-    offsets: OffsetsReader<R>,
+pub struct ListReader<R: Reader, T> {
+    nulls: R::Nullmask,
+    offsets: R::Offset,
     values: T
 }
 
 
-impl <R: ByteReader, T: ArrowReader> ArrowReader for ListReader<R, T> {
+impl <R: Reader, T> ListReader<R, T> {
+    pub fn new(nulls: R::Nullmask, offsets: R::Offset, values: T) -> Self {
+        Self {
+            nulls,
+            offsets,
+            values
+        }
+    }
+}
+
+
+impl <R: Reader, T: ArrayReader> ArrayReader for ListReader<R, T> {
     fn num_buffers(&self) -> usize {
         2 + self.values.num_buffers()
     }
@@ -26,5 +37,40 @@ impl <R: ByteReader, T: ArrowReader> ArrowReader for ListReader<R, T> {
         let value_range = self.offsets.read_slice(dst.offset(1), offset, len)?;
         
         self.values.read_slice(&mut dst.shift(2), value_range.start, value_range.len())
+    }
+
+    fn read_chunk_ranges(
+        chunks: &mut impl ChunkedArrayReader<ArrayReader=Self>, 
+        dst: &mut impl ArrayWriter, 
+        ranges: impl Iterator<Item=ChunkRange> + Clone
+    ) -> anyhow::Result<()> 
+    {
+        let nullmask_dst = dst.nullmask(0);
+        let mut span = 0;
+        for r in ranges.clone() {
+            chunks.chunk(r.chunk).nulls.read_slice(nullmask_dst, r.offset, r.len)?;
+            span += 1;
+        }
+
+        let offsets_dst = dst.offset(1);
+        let mut value_ranges = Vec::with_capacity(span);
+        for r in ranges {
+            let value_range = chunks.chunk(r.chunk).offsets.read_slice(offsets_dst, r.offset, r.len)?;
+            if !value_range.is_empty() {
+                value_ranges.push(ChunkRange {
+                    chunk: r.chunk,
+                    offset: value_range.start,
+                    len: value_range.len()
+                })
+            }
+        }
+
+        T::read_chunk_ranges(
+            &mut chunks.map(|r| &mut r.values),
+            &mut dst.shift(2),
+            value_ranges.iter().cloned()
+        )?;
+
+        Ok(())
     }
 }

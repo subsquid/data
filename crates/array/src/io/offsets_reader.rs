@@ -1,4 +1,4 @@
-use crate::reader::ByteReader;
+use crate::io::byte_reader::ByteReader;
 use crate::writer::OffsetsWriter;
 use std::ops::Range;
 

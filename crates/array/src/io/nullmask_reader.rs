@@ -1,5 +1,5 @@
-use crate::reader::bitmask::BitmaskReader;
-use crate::reader::ByteReader;
+use crate::io::bitmask_reader::BitmaskReader;
+use crate::io::byte_reader::ByteReader;
 use crate::writer::BitmaskWriter;
 
 

@@ -146,7 +146,8 @@ unsafe fn set_bits_slow(dst: *mut u8, dst_offset: usize, data: *const u8, offset
 impl<W: Write> BitmaskIOWriter<W> {
     pub fn finish(mut self) -> anyhow::Result<W> {
         if self.len > 0 {
-            self.write.write_all(&self.buf.to_byte_slice()[0..self.len])?;
+            let byte_len = bit_util::ceil(self.len, 8);
+            self.write.write_all(&self.buf.to_byte_slice()[0..byte_len])?;
         }
         Ok(self.write)
     }

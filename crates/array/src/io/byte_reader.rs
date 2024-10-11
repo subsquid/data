@@ -1,4 +1,3 @@
-use crate::reader::ByteReader;
 use std::io::{BufRead, Seek};
 
 
@@ -27,5 +26,28 @@ impl <R: BufRead + Seek> ByteReader for IOByteReader<R> {
 
     fn read(&mut self, offset: usize, len: usize) -> anyhow::Result<&[u8]> {
         todo!()
+    }
+}
+
+
+pub trait ByteReader {
+    fn len(&self) -> usize;
+    
+    fn read(&mut self, offset: usize, len: usize) -> anyhow::Result<&[u8]>;
+    
+    fn read_exact(
+        &mut self, 
+        mut offset: usize, 
+        len: usize, 
+        mut cb: impl FnMut(&[u8]) -> anyhow::Result<()>
+    ) -> anyhow::Result<()> 
+    {
+        let end = offset + len;
+        while offset < end {
+            let bytes = self.read(offset, end - offset)?;
+            cb(bytes)?;
+            offset += bytes.len()
+        }
+        Ok(())
     }
 }

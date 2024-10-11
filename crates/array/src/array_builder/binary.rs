@@ -208,7 +208,6 @@ impl ArrayWriter for StringBuilder {
 
     #[inline]
     fn nullmask(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Nullmask {
-        self.mark_maybe_invalid();
         if buf == 0 {
             &mut self.nulls
         } else {

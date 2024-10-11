@@ -6,3 +6,4 @@ pub mod writer;
 pub mod reader;
 mod visitor;
 mod offsets;
+mod chunking;

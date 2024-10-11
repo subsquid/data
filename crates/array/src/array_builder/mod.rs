@@ -1,7 +1,8 @@
-use crate::array_builder::memory_writer::MemoryWriter;
-use crate::writer::ArrayWriter;
 use arrow::array::ArrayRef;
 use arrow::datatypes::DataType;
+use crate::array_builder::memory_writer::MemoryWriter;
+use crate::slice::AsSlice;
+use crate::writer::ArrayWriter;
 
 
 mod binary;
@@ -15,7 +16,6 @@ mod offsets;
 mod primitive;
 
 
-use crate::slice::AsSlice;
 pub use binary::*;
 pub use boolean::*;
 pub use list::*;
