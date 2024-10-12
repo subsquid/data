@@ -1,7 +1,7 @@
-use crate::array_builder::memory_writer::MemoryWriter;
-use crate::array_builder::nullmask::NullmaskBuilder;
-use crate::array_builder::offsets::OffsetsBuilder;
-use crate::array_builder::ArrayBuilder;
+use crate::builder::memory_writer::MemoryWriter;
+use crate::builder::nullmask::NullmaskBuilder;
+use crate::builder::offsets::OffsetsBuilder;
+use crate::builder::ArrayBuilder;
 use crate::util::invalid_buffer_access;
 use crate::writer::{ArrayWriter, Writer};
 use arrow::array::{ArrayRef, ListArray};

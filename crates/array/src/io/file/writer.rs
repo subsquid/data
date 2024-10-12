@@ -1,11 +1,9 @@
-use crate::io::{BitmaskIOWriter, NativeIOWriter, NullmaskIOWriter, OffsetsIOWriter};
+use crate::io::writer::{BitmaskIOWriter, NativeIOWriter, NullmaskIOWriter, OffsetsIOWriter};
 use crate::writer::{AnyArrayWriter, AnyWriter, Writer, WriterFactory};
-use arrow::datatypes::DataType;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
 use std::path::Path;
-use crate::util::get_num_buffers;
 
 
 pub struct FileWriter<'a> {
@@ -21,35 +19,25 @@ impl <'a> Writer for FileWriter<'a> {
 }
 
 
-pub type ArrowFileWriter<'a> = AnyArrayWriter<FileWriter<'a>>;
+pub type ArrayFileWriter<'a> = AnyArrayWriter<FileWriter<'a>>;
 
 
-pub struct ArrowFile<F> {
-    data_type: DataType,
-    buffers: Vec<F>
-}
-
-
-impl <F: AsRef<Path>> ArrowFile<F> {
-    pub fn write(&mut self) -> anyhow::Result<ArrowFileWriter<'_>> {
-        let mut factory = FileWriterFactory {
-            buffers: &self.buffers,
-            pos: 0
-        };
-        AnyArrayWriter::from_factory(&mut factory, &self.data_type)
-    }
-}
-
-
-struct FileWriterFactory<'a, F> {
+pub(super) struct FileWriterFactory<'a, F> {
     buffers: &'a [F],
     pos: usize
 }
 
 
 impl <'a, F: AsRef<Path>> FileWriterFactory<'a, F> {
+    pub fn new(buffers: &'a [F]) -> Self {
+        Self { 
+            buffers, 
+            pos: 0 
+        }
+    }
+    
     fn next_file(&mut self) -> anyhow::Result<BufWriter<File>> {
-        let file = File::open(&self.buffers[self.pos])?;
+        let file = File::options().write(true).open(&self.buffers[self.pos])?;
         self.pos += 1;
         Ok(BufWriter::new(file))
     }
@@ -81,7 +69,7 @@ impl <'a, F: AsRef<Path>> WriterFactory for FileWriterFactory<'a, F> {
 }
 
 
-impl<'a> ArrowFileWriter<'a> {
+impl<'a> ArrayFileWriter<'a> {
     pub fn finish(self) -> anyhow::Result<()> {
         for buf in self.into_inner() {
             let mut file = match buf {
@@ -93,20 +81,5 @@ impl<'a> ArrowFileWriter<'a> {
             file.flush()?;
         }
         Ok(())
-    }
-}
-
-
-#[cfg(feature = "tempfile")]
-impl ArrowFile<tempfile::NamedTempFile> {
-    pub fn new_temporary(data_type: DataType) -> anyhow::Result<Self> {
-        let buffers = std::iter::repeat_with(tempfile::NamedTempFile::new)
-            .take(get_num_buffers(&data_type))
-            .collect::<Result<Vec<_>, _>>()?;
-        
-        Ok(Self {
-            data_type,
-            buffers
-        })
     }
 }

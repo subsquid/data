@@ -1,5 +1,5 @@
-use crate::array_builder::memory_writer::MemoryWriter;
-use crate::array_builder::nullmask::NullmaskBuilder;
+use crate::builder::memory_writer::MemoryWriter;
+use crate::builder::nullmask::NullmaskBuilder;
 use crate::util::invalid_buffer_access;
 use crate::writer::{ArrayWriter, Writer};
 use arrow::array::{ArrayRef, ArrowPrimitiveType, PrimitiveArray};
@@ -7,7 +7,7 @@ use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use arrow::datatypes::DataType;
-use crate::array_builder::ArrayBuilder;
+use crate::builder::ArrayBuilder;
 use crate::slice::{AsSlice, PrimitiveSlice};
 
 

@@ -1,4 +1,4 @@
-use crate::array_builder::bitmask::BitmaskBuilder;
+use crate::builder::bitmask::BitmaskBuilder;
 use crate::util::bit_tools;
 use crate::writer::{BitmaskWriter, RangeList};
 use arrow_buffer::NullBuffer;

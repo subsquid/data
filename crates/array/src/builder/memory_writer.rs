@@ -1,7 +1,7 @@
 use arrow_buffer::MutableBuffer;
-use crate::array_builder::bitmask::BitmaskBuilder;
-use crate::array_builder::nullmask::NullmaskBuilder;
-use crate::array_builder::offsets::OffsetsBuilder;
+use crate::builder::bitmask::BitmaskBuilder;
+use crate::builder::nullmask::NullmaskBuilder;
+use crate::builder::offsets::OffsetsBuilder;
 use crate::writer::Writer;
 
 
