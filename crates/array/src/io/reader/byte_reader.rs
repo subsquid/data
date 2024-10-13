@@ -17,6 +17,7 @@ pub trait ByteReader {
         let end = offset + len;
         while offset < end {
             let bytes = self.read(offset, end - offset)?;
+            assert!(bytes.len() > 0);
             cb(bytes)?;
             offset += bytes.len()
         }
@@ -50,22 +51,25 @@ impl <R: Read + Seek> ByteReader for IOByteReader<R> {
 
     fn read(&mut self, offset: usize, len: usize) -> anyhow::Result<&[u8]> {
         ensure!(offset + len <= self.len, "out of bounds read");
-        
+
         if len == 0 {
             return Ok(&[])
         }
-        
+
         if let Some(pos) = self.pos {
+            self.pos = None;
             let rel = offset as i64 - pos as i64;
             self.read.seek_relative(rel)?;
         } else {
             self.read.seek(SeekFrom::Start(offset as u64))?;
         }
-        
+
         let bytes = self.read.fill_buf()?;
-        let take = std::cmp::min(len, bytes.len());
-        self.pos = Some(offset + take);
+        ensure!(bytes.len() > 0, "reached EOF");
         
+        let take = std::cmp::min(len, bytes.len());
+        self.pos = Some(offset);
+
         Ok(&bytes[0..take])
     }
 }
