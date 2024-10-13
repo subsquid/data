@@ -75,7 +75,7 @@ impl<'a> ArrayFileWriter<'a> {
             let mut file = match buf {
                 AnyWriter::Bitmask(w) => w.finish()?,
                 AnyWriter::Nullmask(w) => w.finish()?,
-                AnyWriter::Native(w) => w.into_inner(),
+                AnyWriter::Native(w) => w.into_write(),
                 AnyWriter::Offsets(w) => w.finish()?,
             };
             file.flush()?;

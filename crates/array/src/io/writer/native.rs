@@ -10,9 +10,11 @@ pub struct NativeIOWriter<W> {
 
 impl <W> NativeIOWriter<W> {
     pub fn new(write: W) -> Self {
-        Self {
-            write
-        }
+        Self { write }
+    }
+
+    pub fn into_write(self) -> W {
+        self.write
     }
 }
 
@@ -52,12 +54,5 @@ impl <W: Write> NativeWriter for NativeIOWriter<W> {
             self.write_slice(&values[r])?;
         }
         Ok(())
-    }
-}
-
-
-impl <W: Write> NativeIOWriter<W> {
-    pub fn into_inner(self) -> W {
-        self.write
     }
 }

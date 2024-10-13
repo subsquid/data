@@ -10,7 +10,7 @@ pub struct NativeIOReader<R> {
 
 
 impl <R> NativeIOReader<R> {
-    pub fn new(byte_reader: R, value_size: usize) -> Self {
+    pub fn new_unchecked(byte_reader: R, value_size: usize) -> Self {
         Self {
             byte_reader,
             value_size

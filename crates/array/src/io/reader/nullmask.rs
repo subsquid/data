@@ -3,6 +3,7 @@ use crate::io::reader::byte_reader::ByteReader;
 use crate::reader::BitmaskReader;
 use crate::writer::BitmaskWriter;
 use anyhow::ensure;
+use arrow_buffer::bit_util;
 
 
 pub struct NullmaskIOReader<R> {
@@ -12,11 +13,22 @@ pub struct NullmaskIOReader<R> {
 
 
 impl <R: ByteReader> NullmaskIOReader<R> {
-    pub fn new(len: usize, bitmask: Option<BitmaskIOReader<R>>) -> Self {
-        assert_eq!(len, bitmask.as_ref().map(|m| m.len()).unwrap_or(len));
-        Self {
-            bitmask,
-            len
+    pub fn new(mut byte_reader: R) -> anyhow::Result<Self> {
+        let (byte_len, bit_len) = BitmaskIOReader::<R>::read_length(&mut byte_reader)?;
+        if byte_len == 0 {
+            Ok(Self {
+                bitmask: None,
+                len: bit_len
+            })
+        } else {
+            ensure!(
+                byte_len == bit_util::ceil(bit_len, 8),
+                "bitmask buffer has unexpected length"
+            );
+            Ok(Self {
+                bitmask: Some(BitmaskIOReader::new_unchecked(byte_reader, bit_len)),
+                len: bit_len
+            })
         }
     }
 }

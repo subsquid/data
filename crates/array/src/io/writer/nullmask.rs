@@ -1,4 +1,5 @@
 use std::io::Write;
+use arrow_buffer::ToByteSlice;
 use crate::io::writer::bitmask::BitmaskIOWriter;
 use crate::util::bit_tools;
 use crate::writer::{BitmaskWriter, RangeList};
@@ -21,7 +22,13 @@ impl <W: Write> NullmaskIOWriter<W> {
     }
 
     pub fn finish(self) -> anyhow::Result<W> {
-        self.bitmask.finish()
+        if self.has_bitmask {
+            self.bitmask.finish()
+        } else {
+            let mut write = self.bitmask.into_write();
+            write.write_all((self.len as u32).to_byte_slice())?;
+            Ok(write)
+        }
     }
     
     #[inline]

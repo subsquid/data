@@ -1,5 +1,5 @@
-use std::io::{BufRead, Seek};
 use anyhow::ensure;
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 
 
 pub trait ByteReader {
@@ -26,16 +26,16 @@ pub trait ByteReader {
 
 
 pub struct IOByteReader<R> {
-    read: R,
+    read: BufReader<R>,
     len: usize,
     pos: Option<usize>
 }
 
 
-impl <R> IOByteReader<R> {
+impl <R: Read + Seek> IOByteReader<R> {
     pub fn new(read: R, len: usize) -> Self {
         Self {
-            read,
+            read: BufReader::new(read),
             len,
             pos: None
         }
@@ -43,13 +43,29 @@ impl <R> IOByteReader<R> {
 }
 
 
-impl <R: BufRead + Seek> ByteReader for IOByteReader<R> {
+impl <R: Read + Seek> ByteReader for IOByteReader<R> {
     fn len(&self) -> usize {
         self.len
     }
 
     fn read(&mut self, offset: usize, len: usize) -> anyhow::Result<&[u8]> {
         ensure!(offset + len <= self.len, "out of bounds read");
-        todo!()
+        
+        if len == 0 {
+            return Ok(&[])
+        }
+        
+        if let Some(pos) = self.pos {
+            let rel = offset as i64 - pos as i64;
+            self.read.seek_relative(rel)?;
+        } else {
+            self.read.seek(SeekFrom::Start(offset as u64))?;
+        }
+        
+        let bytes = self.read.fill_buf()?;
+        let take = std::cmp::min(len, bytes.len());
+        self.pos = Some(offset + take);
+        
+        Ok(&bytes[0..take])
     }
 }

@@ -14,7 +14,7 @@ impl <'a> Offsets<'a> {
     }
     
     pub fn try_new(offsets: &'a [i32]) -> Result<Self, &'static str> {
-        validate_offsets(offsets)?;
+        validate_offsets(offsets, 0)?;
         Ok(Self { 
             offsets 
         })
