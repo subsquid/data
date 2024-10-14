@@ -9,7 +9,7 @@ pub trait DataTypeVisitor {
     fn boolean(&mut self) -> Self::Result;
 
     fn primitive<T: ArrowPrimitiveType>(&mut self) -> Self::Result;
-    
+
     fn timestamp(&mut self, time_unit: &TimeUnit, _tz: &Option<Arc<str>>) -> Self::Result {
         match time_unit {
             TimeUnit::Second => self.primitive::<TimestampSecondType>(),

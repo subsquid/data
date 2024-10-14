@@ -1,3 +1,6 @@
+use std::cmp::Ordering;
+use arrow::datatypes::DataType;
+
 
 #[inline]
 pub fn validate_offsets<I: Ord + Default + Copy>(
@@ -31,8 +34,6 @@ macro_rules! invalid_buffer_access {
         panic!("invalid arrow buffer access")
     };
 }
-
-use arrow::datatypes::DataType;
 pub(crate) use invalid_buffer_access;
 
 
@@ -66,6 +67,29 @@ pub(crate) mod bit_tools {
             len += r.len()
         }
         Some(len)
+    }
+}
+
+
+pub(crate) fn bisect_offsets<I: Ord + Copy>(offsets: &[I], idx: I) -> Option<usize> {
+    let mut beg = 0;
+    let mut end = offsets.len() - 1;
+    while end - beg > 1 { 
+        let mid = beg + (end - beg) / 2;
+        match offsets[mid].cmp(&idx) {
+            Ordering::Equal => return Some(mid),
+            Ordering::Less => {
+                beg = mid
+            },
+            Ordering::Greater => {
+                end = mid
+            }
+        }
+    }
+    if offsets[beg] <= idx && idx < offsets[end] {
+        Some(beg)
+    } else {
+        None
     }
 }
 

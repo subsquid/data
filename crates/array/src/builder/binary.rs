@@ -171,15 +171,12 @@ impl StringBuilder {
         todo!()
     }
 
-    pub fn finish(mut self) -> StringArray {
-        self.validate();
-        unsafe {
-            StringArray::new_unchecked(
-                self.offsets.finish(),
-                self.values.into(),
-                self.nulls.finish()
-            )
-        }
+    pub fn finish(self) -> StringArray {
+        StringArray::new(
+            self.offsets.finish(),
+            self.values.into(),
+            self.nulls.finish()
+        )
     }
 }
 

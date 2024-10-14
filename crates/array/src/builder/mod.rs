@@ -14,8 +14,11 @@ mod native;
 mod nullmask;
 mod offsets;
 mod primitive;
+mod any;
+mod r#struct;
 
 
+pub use any::*;
 pub use binary::*;
 pub use boolean::*;
 pub use list::*;
