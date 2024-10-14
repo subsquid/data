@@ -1,3 +1,4 @@
+use anyhow::ensure;
 use crate::chunking::ChunkRange;
 use crate::reader::any::AnyReader;
 use crate::reader::{ArrayReader, BitmaskReader, Reader};
@@ -12,11 +13,19 @@ pub struct StructReader<R: Reader> {
 
 
 impl <R: Reader> StructReader<R> {
-    pub fn new(nulls: R::Nullmask, columns: Vec<AnyReader<R>>) -> Self {
-        Self {
+    pub fn try_new(nulls: R::Nullmask, columns: Vec<AnyReader<R>>) -> anyhow::Result<Self> {
+        let len = nulls.len();
+        for (i, c) in columns.iter().enumerate() {
+            ensure!(
+                len == c.len(),
+                "null mask and column {} have incompatible lengths",
+                i
+            );
+        }
+        Ok(Self {
             nulls,
             columns
-        }
+        })
     }
 }
 

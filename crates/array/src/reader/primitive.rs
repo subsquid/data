@@ -1,7 +1,8 @@
 use crate::chunking::ChunkRange;
-use crate::reader::{ArrayReader, BitmaskReader, NativeReader, Reader};
 use crate::reader::chunked::ChunkedArrayReader;
+use crate::reader::{ArrayReader, BitmaskReader, NativeReader, Reader};
 use crate::writer::ArrayWriter;
+use anyhow::ensure;
 
 
 pub struct PrimitiveReader<R: Reader> {
@@ -11,12 +12,15 @@ pub struct PrimitiveReader<R: Reader> {
 
 
 impl <R: Reader> PrimitiveReader<R> {
-    pub fn new(nulls: R::Nullmask, values: R::Native) -> Self {
-        assert_eq!(nulls.len(), values.len());
-        Self {
+    pub fn try_new(nulls: R::Nullmask, values: R::Native) -> anyhow::Result<Self> {
+        ensure!(
+            nulls.len() == values.len(), 
+            "null and value buffers have incompatible lengths"
+        );
+        Ok(Self {
             nulls,
             values
-        }
+        })
     }
 }
 

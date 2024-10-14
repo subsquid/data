@@ -81,26 +81,60 @@ struct AnyArrayFactory<'a, W: Writer, F> {
 }
 
 
-impl <'a, W: Writer, F: WriterFactory> DataTypeVisitor for AnyArrayFactory<'a, W, F> {
+impl <'a, W: Writer, F: WriterFactory<Writer=W>> DataTypeVisitor for AnyArrayFactory<'a, W, F> {
     type Result = anyhow::Result<()>;
 
     fn boolean(&mut self) -> Self::Result {
-        todo!()
+        let nulls = self.writer_factory.nullmask()?;
+        self.buffers.push(AnyWriter::Nullmask(nulls));
+
+        let values = self.writer_factory.bitmask()?;
+        self.buffers.push(AnyWriter::Bitmask(values));
+
+        Ok(())
     }
 
     fn primitive<T: ArrowPrimitiveType>(&mut self) -> Self::Result {
-        todo!()
+        let nulls = self.writer_factory.nullmask()?;
+        self.buffers.push(AnyWriter::Nullmask(nulls));
+
+        let values = self.writer_factory.native()?;
+        self.buffers.push(AnyWriter::Native(values));
+
+        Ok(())
     }
 
     fn binary(&mut self) -> Self::Result {
-        todo!()
+        let nulls = self.writer_factory.nullmask()?;
+        self.buffers.push(AnyWriter::Nullmask(nulls));
+
+        let offsets = self.writer_factory.offset()?;
+        self.buffers.push(AnyWriter::Offsets(offsets));
+
+        let values = self.writer_factory.native()?;
+        self.buffers.push(AnyWriter::Native(values));
+
+        Ok(())
     }
 
     fn list(&mut self, item: &DataType) -> Self::Result {
-        todo!()
+        let nulls = self.writer_factory.nullmask()?;
+        self.buffers.push(AnyWriter::Nullmask(nulls));
+
+        let offsets = self.writer_factory.offset()?;
+        self.buffers.push(AnyWriter::Offsets(offsets));
+
+        self.visit(item)
     }
 
     fn r#struct(&mut self, fields: &[FieldRef]) -> Self::Result {
-        todo!()
+        let nulls = self.writer_factory.nullmask()?;
+        self.buffers.push(AnyWriter::Nullmask(nulls));
+
+        for f in fields.iter() {
+            self.visit(f.data_type())?;
+        }
+
+        Ok(())
     }
 }

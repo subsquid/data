@@ -1,24 +1,21 @@
 use crate::chunking::ChunkRange;
 use crate::reader::chunked::ChunkedArrayReader;
-use crate::reader::list::ListReader;
-use crate::reader::primitive::PrimitiveReader;
-use crate::reader::r#struct::StructReader;
-use crate::reader::{ArrayReader, BinaryReader, BitmaskReader, BooleanReader, NativeReader, Reader, ReaderFactory};
+use crate::reader::native::NativeArrayReader;
+use crate::reader::{ArrayReader, BinaryReader, BooleanReader, ListReader, PrimitiveReader, Reader, ReaderFactory, StructReader};
 use crate::visitor::DataTypeVisitor;
 use crate::writer::ArrayWriter;
-use anyhow::ensure;
 use arrow::array::ArrowPrimitiveType;
 use arrow::datatypes::{DataType, FieldRef};
 
 
-pub type AnyList<R> = ListReader<R, AnyReader<R>>;
+pub type AnyListReader<R> = ListReader<R, AnyReader<R>>;
 
 
 pub enum AnyReader<R: Reader> {
     Boolean(BooleanReader<R>),
     Primitive(PrimitiveReader<R>),
     Binary(BinaryReader<R>),
-    List(Box<AnyList<R>>),
+    List(Box<AnyListReader<R>>),
     Struct(StructReader<R>)
 }
 
@@ -39,6 +36,38 @@ impl <R: Reader> AnyReader<R> {
         match self {
             AnyReader::Boolean(r) => r,
             _ => panic!("not a BooleanReader")
+        }
+    }
+
+    #[inline]
+    pub fn as_primitive(&mut self) -> &mut PrimitiveReader<R> {
+        match self {
+            AnyReader::Primitive(r) => r,
+            _ => panic!("not a PrimitiveReader")
+        }
+    }
+
+    #[inline]
+    pub fn as_binary(&mut self) -> &mut BinaryReader<R> {
+        match self {
+            AnyReader::Binary(r) => r,
+            _ => panic!("not a BinaryReader")
+        }
+    }
+
+    #[inline]
+    pub fn as_list(&mut self) -> &mut AnyListReader<R> {
+        match self {
+            AnyReader::List(r) => r,
+            _ => panic!("not a AnyListReader")
+        }
+    }
+
+    #[inline]
+    pub fn as_struct(&mut self) -> &mut StructReader<R> {
+        match self {
+            AnyReader::Struct(r) => r,
+            _ => panic!("not a StructReader")
         }
     }
 }
@@ -98,16 +127,32 @@ impl <R: Reader> ArrayReader for AnyReader<R> {
                 )?;
             },
             AnyReader::Primitive(_) => {
-                todo!()
+                PrimitiveReader::read_chunk_ranges(
+                    &mut chunks.map(|c| c.as_primitive()),
+                    dst,
+                    ranges
+                )?;
             },
             AnyReader::Binary(_) => {
-                todo!()
+                BinaryReader::read_chunk_ranges(
+                    &mut chunks.map(|c| c.as_binary()),
+                    dst,
+                    ranges
+                )?;
             },
             AnyReader::List(_) => {
-                todo!()
+                ListReader::read_chunk_ranges(
+                    &mut chunks.map(|c| c.as_list()),
+                    dst,
+                    ranges
+                )?;
             },
             AnyReader::Struct(_) => {
-                todo!()
+                StructReader::read_chunk_ranges(
+                    &mut chunks.map(|c| c.as_struct()),
+                    dst,
+                    ranges
+                )?;
             }
         }
 
@@ -137,8 +182,8 @@ impl <R: Reader> From<BinaryReader<R>> for AnyReader<R> {
 }
 
 
-impl <R: Reader> From<AnyList<R>> for AnyReader<R> {
-    fn from(value: AnyList<R>) -> Self {
+impl <R: Reader> From<AnyListReader<R>> for AnyReader<R> {
+    fn from(value: AnyListReader<R>) -> Self {
         AnyReader::List(Box::new(value))
     }
 }
@@ -162,36 +207,50 @@ impl <'a, F: ReaderFactory> DataTypeVisitor for AnyReaderFactory<'a, F> {
     fn boolean(&mut self) -> Self::Result {
         let nulls = self.factory.nullmask()?;
         let values = self.factory.bitmask()?;
-        ensure!(
-            nulls.len() == values.len(), 
-            "nulls and values of a boolean array have different lengths"
-        );
-        Ok(
-            BooleanReader::new(nulls, values).into()
-        )
+        let reader = BooleanReader::try_new(nulls, values)?;
+        Ok(reader.into())
     }
 
     fn primitive<T: ArrowPrimitiveType>(&mut self) -> Self::Result {
         let nulls = self.factory.nullmask()?;
         let values = self.factory.native::<T::Native>()?;
-        ensure!(
-            nulls.len() == values.len(), 
-            "nulls and values of a primitive array have different lengths"
-        );
-        Ok(
-            PrimitiveReader::new(nulls, values).into()
-        )
+        let reader = PrimitiveReader::try_new(nulls, values)?;
+        Ok(reader.into())
     }
 
     fn binary(&mut self) -> Self::Result {
-        todo!()
+        let nulls = self.factory.nullmask()?;
+        let offsets = self.factory.offset()?;
+        let values = self.factory.native::<u8>()?;
+        let reader = BinaryReader::try_new(
+            nulls, 
+            offsets, 
+            NativeArrayReader::new(values)
+        )?;
+        Ok(reader.into())
     }
 
     fn list(&mut self, item: &DataType) -> Self::Result {
-        todo!()
+        let nulls = self.factory.nullmask()?;
+        let offsets = self.factory.offset()?;
+        let values = self.visit(item)?;
+        let reader = ListReader::try_new(
+            nulls,
+            offsets,
+            values
+        )?;
+        Ok(reader.into())
     }
 
     fn r#struct(&mut self, fields: &[FieldRef]) -> Self::Result {
-        todo!()
+        let nulls = self.factory.nullmask()?;
+        
+        let columns = fields.iter()
+            .map(|f| self.visit(f.data_type()))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        
+        let reader = StructReader::try_new(nulls, columns)?;
+        
+        Ok(reader.into())
     }
 }

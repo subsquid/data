@@ -1,3 +1,4 @@
+use anyhow::ensure;
 use crate::chunking::ChunkRange;
 use crate::reader::chunked::ChunkedArrayReader;
 use crate::reader::{ArrayReader, BitmaskReader, Reader};
@@ -11,11 +12,22 @@ pub struct BooleanReader<R: Reader> {
 
 
 impl <R: Reader> BooleanReader<R> {
-    pub fn new(nulls: R::Nullmask, values: R::Bitmask) -> Self {
+    pub fn new_unchecked(nulls: R::Nullmask, values: R::Bitmask) -> Self {
         Self {
             nulls,
             values
         }
+    }
+    
+    pub fn try_new(nulls: R::Nullmask, values: R::Bitmask) -> anyhow::Result<Self> {
+        ensure!(
+            nulls.len() == values.len(), 
+            "null and value buffers have incompatible lengths"
+        );
+        Ok(Self {
+            nulls,
+            values
+        })
     }
 }
 

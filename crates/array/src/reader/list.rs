@@ -2,6 +2,7 @@ use crate::chunking::ChunkRange;
 use crate::reader::chunked::ChunkedArrayReader;
 use crate::reader::{ArrayReader, BitmaskReader, OffsetsReader, Reader};
 use crate::writer::ArrayWriter;
+use anyhow::ensure;
 
 
 pub struct ListReader<R: Reader, T> {
@@ -12,12 +13,16 @@ pub struct ListReader<R: Reader, T> {
 
 
 impl <R: Reader, T> ListReader<R, T> {
-    pub fn new(nulls: R::Nullmask, offsets: R::Offset, values: T) -> Self {
-        Self {
+    pub fn try_new(nulls: R::Nullmask, offsets: R::Offset, values: T) -> anyhow::Result<Self> {
+        ensure!(
+            nulls.len() == offsets.len(), 
+            "null and offset buffers have incompatible lengths"
+        );
+        Ok(Self {
             nulls,
             offsets,
             values
-        }
+        })
     }
 }
 

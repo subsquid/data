@@ -2,12 +2,11 @@ use crate::io::reader::{BitmaskIOReader, IOByteReader, NativeIOReader, NullmaskI
 use crate::reader::{AnyReader, Reader, ReaderFactory};
 use arrow_buffer::ArrowNativeType;
 use std::fs::File;
-use std::io::BufReader;
 use std::marker::PhantomData;
 use std::path::Path;
 
 
-pub type FileByteReader = IOByteReader<BufReader<File>>;
+pub type FileByteReader = IOByteReader<File>;
 
 
 pub struct FileReader<'a> {
@@ -43,7 +42,7 @@ impl <'a, F: AsRef<Path>> FileReaderFactory<'a, F> {
     fn next_file(&mut self) -> anyhow::Result<FileByteReader> {
         let file = File::open(&self.buffers[self.pos])?;
         let len = file.metadata()?.len() as usize;
-        let reader = IOByteReader::new(BufReader::new(file), len);
+        let reader = IOByteReader::new(file, len);
         self.pos += 1;
         Ok(reader)
     }
@@ -54,18 +53,22 @@ impl <'a, F: AsRef<Path>> ReaderFactory for FileReaderFactory<'a, F> {
     type Reader = FileReader<'a>;
 
     fn nullmask(&mut self) -> anyhow::Result<<Self::Reader as Reader>::Nullmask> {
-        todo!()
+        let byte_reader = self.next_file()?;
+        NullmaskIOReader::new(byte_reader)
     }
 
     fn bitmask(&mut self) -> anyhow::Result<<Self::Reader as Reader>::Bitmask> {
-        todo!()
+        let byte_reader = self.next_file()?;
+        BitmaskIOReader::new(byte_reader)
     }
 
     fn native<T: ArrowNativeType>(&mut self) -> anyhow::Result<<Self::Reader as Reader>::Native> {
-        todo!()
+        let byte_reader = self.next_file()?;
+        NativeIOReader::new(byte_reader, T::get_byte_width())
     }
 
     fn offset(&mut self) -> anyhow::Result<<Self::Reader as Reader>::Offset> {
-        todo!()
+        let byte_reader = self.next_file()?;
+        OffsetsIOReader::new(byte_reader)
     }
 }

@@ -12,16 +12,26 @@ const OS: usize = size_of::<i32>();
 
 pub struct OffsetsIOReader<R> {
     byte_reader: R,
+    len: usize,
     buf: MutableBuffer
 }
 
 
 impl<R: ByteReader> OffsetsIOReader<R> {
-    pub fn new_unchecked(byte_reader: R) -> Self {
-        Self {
+    pub fn new(byte_reader: R) -> anyhow::Result<Self> {
+        let len = byte_reader.len();
+        ensure!(len > 0, "offsets buffer can't be empty");
+        ensure!(
+            len % OS == 0,
+            "invalid offsets buffer length: {} is not a multiple of {}",
+            len,
+            OS
+        );
+        Ok(Self {
             byte_reader,
+            len: len / OS - 1,
             buf: MutableBuffer::new(256)
-        }
+        })
     }
 
     fn buffered_offsets(&self) -> &[i32] {
@@ -53,7 +63,7 @@ impl<R: ByteReader> OffsetsIOReader<R> {
 
 impl <R: ByteReader> OffsetsReader for OffsetsIOReader<R> {
     fn len(&self) -> usize {
-        self.byte_reader.len() / OS - 1
+        self.len
     }
     
     fn read_slice(
@@ -63,7 +73,7 @@ impl <R: ByteReader> OffsetsReader for OffsetsIOReader<R> {
         len: usize
     ) -> anyhow::Result<Range<usize>> 
     {
-        ensure!(offset + len <= self.len());
+        ensure!(offset + len <= self.len);
         self.buf.clear();
         
         let mut byte_offset = offset * OS;

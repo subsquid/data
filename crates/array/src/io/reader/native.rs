@@ -1,3 +1,4 @@
+use anyhow::ensure;
 use crate::io::reader::byte_reader::ByteReader;
 use crate::reader::NativeReader;
 use crate::writer::NativeWriter;
@@ -9,12 +10,25 @@ pub struct NativeIOReader<R> {
 }
 
 
-impl <R> NativeIOReader<R> {
+impl <R: ByteReader> NativeIOReader<R> {
     pub fn new_unchecked(byte_reader: R, value_size: usize) -> Self {
         Self {
             byte_reader,
             value_size
         }
+    }
+    
+    pub fn new(byte_reader: R, value_size: usize) -> anyhow::Result<Self> {
+        ensure!(
+            byte_reader.len() % value_size == 0,
+            "invalid buffer length: {} is not a multiple of {}",
+            byte_reader.len(),
+            value_size
+        );
+        Ok(Self {
+            byte_reader,
+            value_size
+        })
     }
 }
 
