@@ -1,9 +1,11 @@
+use crate::offsets::Offsets;
 use crate::slice::bitmask::BitmaskSlice;
 use crate::slice::nullmask::NullmaskSlice;
-use crate::slice::Slice;
+use crate::slice::{AnyListItem, AnySlice, Slice};
 use crate::writer::{ArrayWriter, OffsetsWriter, RangeList, RangesIterable};
+use arrow::array::{GenericByteArray, ListArray};
+use arrow::datatypes::ByteArrayType;
 use std::ops::Range;
-use crate::offsets::Offsets;
 
 
 #[derive(Clone)]
@@ -101,5 +103,38 @@ impl <'a, T: Slice> Slice for ListSlice<'a, T> {
         });
 
         self.values.write_ranges(&mut dst.shift(2), &mut RangesIterable::new(value_ranges))
+    }
+}
+
+
+impl <'a, T: ByteArrayType<Offset=i32>> From<&'a GenericByteArray<T>> for ListSlice<'a, &'a [u8]> {
+    fn from(value: &'a GenericByteArray<T>) -> Self {
+        Self {
+            nulls: NullmaskSlice::from_array(value),
+            offsets: value.offsets().into(),
+            values: value.values()
+        }
+    }
+}
+
+
+impl<'a> From<&'a ListArray> for ListSlice<'a, AnySlice<'a>> {
+    fn from(value: &'a ListArray) -> Self {
+        Self {
+            nulls: NullmaskSlice::from_array(value),
+            offsets: value.offsets().into(),
+            values: value.values().as_ref().into()
+        }
+    }
+}
+
+
+impl<'a> From<&'a ListArray> for ListSlice<'a, AnyListItem<'a>> {
+    fn from(value: &'a ListArray) -> Self {
+        Self {
+            nulls: NullmaskSlice::from_array(value),
+            offsets: value.offsets().into(),
+            values: AnyListItem::new(value.values().as_ref().into())
+        }
     }
 }

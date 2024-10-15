@@ -2,8 +2,10 @@ use crate::slice::boolean::BooleanSlice;
 use crate::slice::list::ListSlice;
 use crate::slice::primitive::PrimitiveSlice;
 use crate::slice::r#struct::AnyStructSlice;
-use crate::slice::Slice;
+use crate::slice::{AsSlice, Slice};
 use crate::writer::{ArrayWriter, RangeList};
+use arrow::array::{Array, AsArray};
+use arrow::datatypes::{DataType, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit, TimestampMillisecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -196,5 +198,42 @@ impl<'a> Slice for AnyListItem<'a> {
     #[inline]
     fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl IntoIterator<Item=usize, IntoIter: Clone>) -> anyhow::Result<()> {
         self.item.write_indexes(dst, indexes)
+    }
+}
+
+
+impl <'a> From<&'a dyn Array> for AnySlice<'a> {
+    fn from(value: &'a dyn Array) -> Self {
+        match value.data_type() {
+            DataType::Boolean => AnySlice::Boolean(value.as_boolean().into()),
+            DataType::Int8 => AnySlice::Int8(value.as_primitive::<Int8Type>().into()),
+            DataType::Int16 => AnySlice::Int16(value.as_primitive::<Int16Type>().into()),
+            DataType::Int32 => AnySlice::Int32(value.as_primitive::<Int32Type>().into()),
+            DataType::Int64 => AnySlice::Int64(value.as_primitive::<Int64Type>().into()),
+            DataType::UInt8 => AnySlice::UInt8(value.as_primitive::<UInt8Type>().into()),
+            DataType::UInt16 => AnySlice::UInt16(value.as_primitive::<UInt16Type>().into()),
+            DataType::UInt32 => AnySlice::UInt32(value.as_primitive::<UInt32Type>().into()),
+            DataType::UInt64 => AnySlice::UInt64(value.as_primitive::<UInt64Type>().into()),
+            DataType::Timestamp(TimeUnit::Second, _) => {
+                AnySlice::Int64(value.as_primitive::<TimestampSecondType>().into())
+            },
+            DataType::Timestamp(TimeUnit::Millisecond, _) => {
+                AnySlice::Int64(value.as_primitive::<TimestampMillisecondType>().into())
+            },
+            DataType::Binary => AnySlice::Binary(value.as_binary::<i32>().into()),
+            DataType::Utf8 => AnySlice::Binary(value.as_string::<i32>().into()),
+            DataType::List(_) => AnySlice::List(value.as_list::<i32>().into()),
+            DataType::Struct(_) => AnySlice::Struct(value.as_struct().into()),
+            ty => panic!("unsupported arrow type - {}", ty)
+        }
+    }
+}
+
+
+impl AsSlice for dyn Array {
+    type Slice<'a> = AnySlice<'a>;
+
+    fn as_slice(&self) -> Self::Slice<'_> {
+        self.into()
     }
 }

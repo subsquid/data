@@ -259,7 +259,11 @@ impl AnyBuilder {
             },
             DataType::Binary => BinaryBuilder::new(0, 0).into(),
             DataType::Utf8 => StringBuilder::new(0, 0).into(),
-            DataType::List(f) => ListBuilder::new(0, Self::new(f.data_type())).into(),
+            DataType::List(f) => {
+                ListBuilder::new(0, Self::new(f.data_type()))
+                    .with_field_name(f.name().to_string())
+                    .into()
+            },
             DataType::Struct(fields) => AnyStructBuilder::new(fields.iter().cloned().collect()).into(),
             ty => panic!("unsupported arrow type - {}", ty)
         }

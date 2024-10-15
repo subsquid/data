@@ -1,9 +1,10 @@
+use crate::slice::bitmask::BitmaskSlice;
 use crate::slice::nullmask::NullmaskSlice;
 use crate::slice::Slice;
 use crate::writer::{ArrayWriter, NativeWriter, RangeList};
+use arrow::array::{ArrowPrimitiveType, PrimitiveArray};
 use arrow_buffer::ArrowNativeType;
 use std::ops::Range;
-use crate::slice::bitmask::BitmaskSlice;
 
 
 #[derive(Clone)]
@@ -66,5 +67,15 @@ impl <'a, T: ArrowNativeType> Slice for PrimitiveSlice<'a, T> {
         let indexes = indexes.into_iter();
         self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
         dst.native(1).write_slice_indexes(self.values, indexes)
+    }
+}
+
+
+impl <'a, T: ArrowPrimitiveType> From<&'a PrimitiveArray<T>> for PrimitiveSlice<'a, T::Native> {
+    fn from(value: &'a PrimitiveArray<T>) -> Self {
+        Self {
+            nulls: NullmaskSlice::from_array(value),
+            values: value.values()
+        }
     }
 }

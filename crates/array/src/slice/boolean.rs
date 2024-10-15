@@ -1,8 +1,9 @@
-use std::ops::Range;
 use crate::slice::bitmask::BitmaskSlice;
 use crate::slice::nullmask::NullmaskSlice;
 use crate::slice::Slice;
 use crate::writer::{ArrayWriter, RangeList};
+use arrow::array::BooleanArray;
+use std::ops::Range;
 
 
 #[derive(Clone)]
@@ -65,5 +66,15 @@ impl <'a> Slice for BooleanSlice<'a> {
         let indexes = indexes.into_iter();
         self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
         self.values.write_indexes(dst.bitmask(1), indexes)
+    }
+}
+
+
+impl <'a> From<&'a BooleanArray> for BooleanSlice<'a> {
+    fn from(value: &'a BooleanArray) -> Self {
+        Self {
+            nulls: NullmaskSlice::from_array(value),
+            values: value.values().into()
+        }
     }
 }

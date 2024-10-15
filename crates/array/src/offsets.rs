@@ -1,5 +1,6 @@
 use crate::util::validate_offsets;
 use std::ops::Range;
+use arrow_buffer::OffsetBuffer;
 
 
 #[derive(Copy, Clone)]
@@ -72,5 +73,14 @@ impl <'a> Offsets<'a> {
     #[inline]
     pub fn values(&self) -> &[i32] {
         self.offsets
+    }
+}
+
+
+impl <'a> From<&'a OffsetBuffer<i32>> for Offsets<'a> {
+    fn from(value: &'a OffsetBuffer<i32>) -> Self {
+        Self {
+            offsets: value.inner()
+        }
     }
 }

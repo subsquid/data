@@ -8,3 +8,6 @@ anyhow = { workspace = true }
 arrow = { workspace = true }
 arrow-buffer = { workspace = true }
 tempfile = { workspace = true, optional = true }
+
+[dev-dependencies]
+parquet = { workspace = true }

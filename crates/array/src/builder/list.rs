@@ -2,18 +2,19 @@ use crate::builder::memory_writer::MemoryWriter;
 use crate::builder::nullmask::NullmaskBuilder;
 use crate::builder::offsets::OffsetsBuilder;
 use crate::builder::ArrayBuilder;
+use crate::slice::{AsSlice, ListSlice};
 use crate::util::invalid_buffer_access;
 use crate::writer::{ArrayWriter, Writer};
 use arrow::array::{ArrayRef, ListArray};
 use arrow::datatypes::{DataType, Field, FieldRef};
 use std::sync::Arc;
-use crate::slice::{AsSlice, ListSlice};
 
 
 pub struct ListBuilder<T> {
     nulls: NullmaskBuilder,
     offsets: OffsetsBuilder,
-    values: T
+    values: T,
+    field_name: Option<String>
 }
 
 
@@ -22,8 +23,14 @@ impl <T: ArrayBuilder> ListBuilder<T> {
         Self {
             nulls: NullmaskBuilder::new(capacity),
             offsets: OffsetsBuilder::new(capacity),
-            values
+            values,
+            field_name: None
         }
+    }
+    
+    pub fn with_field_name(mut self, field_name: impl Into<Option<String>>) -> Self {
+        self.field_name = field_name.into();
+        self
     }
     
     pub fn append(&mut self) {
@@ -50,7 +57,11 @@ impl <T: ArrayBuilder> ListBuilder<T> {
     }
     
     fn field(&self) -> FieldRef {
-        let field = Field::new_list_field(self.values.data_type(), true);
+        let field = Field::new(
+            self.field_name.as_ref().map_or("item", |n| n.as_str()).to_string(),
+            self.values.data_type(), 
+            true
+        );
         Arc::new(field)
     }
 }

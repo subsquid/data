@@ -1,5 +1,6 @@
 use crate::slice::bitmask::BitmaskSlice;
 use crate::writer::{BitmaskWriter, RangeList};
+use arrow::array::Array;
 use std::ops::Range;
 
 
@@ -11,6 +12,10 @@ pub struct NullmaskSlice<'a> {
 
 
 impl<'a> NullmaskSlice<'a> {
+    pub fn from_array(array: &'a dyn Array) -> Self {
+        Self::new(array.len(), array.nulls().map(|b| b.inner().into()))
+    }
+    
     pub fn new(len: usize, nulls: Option<BitmaskSlice<'a>>) -> Self {
         if let Some(nulls) = nulls.as_ref() {
             assert_eq!(nulls.len(), len);

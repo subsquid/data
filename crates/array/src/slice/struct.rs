@@ -1,7 +1,8 @@
 use crate::slice::any::AnySlice;
 use crate::slice::nullmask::NullmaskSlice;
-use crate::slice::Slice;
+use crate::slice::{AsSlice, Slice};
 use crate::writer::{ArrayWriter, RangeList};
+use arrow::array::{Array, StructArray};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -98,5 +99,26 @@ impl<'a> Slice for AnyStructSlice<'a> {
             shift += c.num_buffers();
         }
         Ok(())
+    }
+}
+
+
+impl<'a> From<&'a StructArray> for AnyStructSlice<'a> {
+    fn from(value: &'a StructArray) -> Self {
+        Self {
+            nulls: NullmaskSlice::from_array(value),
+            columns: value.columns().iter().map(|c| c.as_ref().into()).collect(),
+            offset: 0,
+            len: value.len()
+        }
+    }
+}
+
+
+impl AsSlice for StructArray {
+    type Slice<'a> = AnyStructSlice<'a>;
+
+    fn as_slice(&self) -> Self::Slice<'_> {
+        self.into()
     }
 }

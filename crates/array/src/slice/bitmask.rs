@@ -1,5 +1,5 @@
 use crate::writer::{BitmaskWriter, RangeList};
-use arrow_buffer::bit_util;
+use arrow_buffer::{bit_util, BooleanBuffer};
 use std::ops::Range;
 
 
@@ -74,5 +74,16 @@ impl<'a> BitmaskSlice<'a> {
             assert!(i < self.len);
             self.offset + i
         }))
+    }
+}
+
+
+impl<'a> From<&'a BooleanBuffer> for BitmaskSlice<'a> {
+    fn from(value: &'a BooleanBuffer) -> Self {
+        Self {
+            data: value.values(),
+            offset: value.offset(),
+            len: value.len()
+        }
     }
 }
