@@ -5,5 +5,5 @@ pub mod slice;
 pub mod writer;
 pub mod reader;
 mod visitor;
-mod offsets;
+pub mod offsets;
 mod chunking;

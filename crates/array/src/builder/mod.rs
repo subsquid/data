@@ -6,13 +6,13 @@ use crate::writer::ArrayWriter;
 
 
 mod binary;
-mod bitmask;
+pub mod bitmask;
 mod boolean;
 mod list;
 mod memory_writer;
-mod native;
-mod nullmask;
-mod offsets;
+pub mod native;
+pub mod nullmask;
+pub mod offsets;
 mod primitive;
 mod any;
 mod r#struct;

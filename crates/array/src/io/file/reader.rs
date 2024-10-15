@@ -42,7 +42,7 @@ impl <'a, F: AsRef<Path>> FileReaderFactory<'a, F> {
     fn next_file(&mut self) -> anyhow::Result<FileByteReader> {
         let file = File::open(&self.buffers[self.pos])?;
         let len = file.metadata()?.len() as usize;
-        let reader = IOByteReader::new(file, len);
+        let reader = IOByteReader::new(len, file);
         self.pos += 1;
         Ok(reader)
     }

@@ -34,7 +34,7 @@ pub struct IOByteReader<R> {
 
 
 impl <R: Read + Seek> IOByteReader<R> {
-    pub fn new(read: R, len: usize) -> Self {
+    pub fn new(len: usize, read: R) -> Self {
         Self {
             read: BufReader::new(read),
             len,

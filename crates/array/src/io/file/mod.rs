@@ -36,7 +36,6 @@ impl <F: AsRef<Path>> ArrayFile<F> {
 }
 
 
-#[cfg(feature = "tempfile")]
 impl ArrayFile<tempfile::NamedTempFile> {
     pub fn new_temporary(data_type: DataType) -> anyhow::Result<Self> {
         use crate::util::get_num_buffers;

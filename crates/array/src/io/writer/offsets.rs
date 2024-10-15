@@ -37,9 +37,10 @@ impl <W: Write> OffsetsIOWriter<W> {
     #[inline]
     fn write_slice(&mut self, offsets: Offsets<'_>) -> anyhow::Result<()> {
         let beg = offsets.first_offset();
+        let last_offset = self.last_offset;
         
         for offset in offsets.values()[1..].iter().copied() {
-            let val = offset - beg + self.last_offset;
+            let val = offset - beg + last_offset;
             self.write.write_all(val.to_byte_slice())?;
             self.last_offset = val
         }
