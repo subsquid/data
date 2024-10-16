@@ -30,6 +30,14 @@ impl<'a> AnyStructSlice<'a> {
         }
     }
     
+    pub fn column(&self, i: usize) -> AnySlice<'a> {
+        self.columns[i].slice(self.offset, self.len)
+    }
+    
+    pub fn has_nulls(&self) -> bool {
+        self.nulls.has_nulls()
+    }
+    
     fn write_src_range(&self, dst: &mut impl ArrayWriter, range: Range<usize>) -> anyhow::Result<()> {
         self.nulls.write_range(dst.nullmask(0), range.clone())?;
 
@@ -55,8 +63,8 @@ impl<'a> Slice for AnyStructSlice<'a> {
     fn slice(&self, offset: usize, len: usize) -> Self {
         assert!(offset + len <= self.len);
         Self {
-            columns: self.columns.clone(),
             nulls: self.nulls.clone(),
+            columns: self.columns.clone(),
             offset: self.offset + offset,
             len
         }
@@ -85,8 +93,8 @@ impl<'a> Slice for AnyStructSlice<'a> {
         Ok(())
     }
 
-    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl IntoIterator<Item=usize, IntoIter: Clone>) -> anyhow::Result<()> {
-        let indexes = indexes.into_iter().map(|i| {
+    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl Iterator<Item = usize> + Clone) -> anyhow::Result<()> {
+        let indexes = indexes.map(|i| {
             assert!(i < self.len);
             i + self.offset
         });

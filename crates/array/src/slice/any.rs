@@ -130,7 +130,7 @@ impl <'a> Slice for AnySlice<'a> {
         }
     }
 
-    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl IntoIterator<Item=usize, IntoIter: Clone>) -> anyhow::Result<()> {
+    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl Iterator<Item = usize> + Clone) -> anyhow::Result<()> {
         match self {
             AnySlice::Boolean(s) => s.write_indexes(dst, indexes),
             AnySlice::UInt8(s) => s.write_indexes(dst, indexes),
@@ -160,6 +160,10 @@ impl<'a> AnyListItem<'a> {
         Self {
             item: Arc::new(item)
         }
+    }
+    
+    pub fn item(&self) -> AnySlice<'a> {
+        self.item.as_ref().clone()
     }
 }
 
@@ -196,7 +200,7 @@ impl<'a> Slice for AnyListItem<'a> {
     }
 
     #[inline]
-    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl IntoIterator<Item=usize, IntoIter: Clone>) -> anyhow::Result<()> {
+    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl Iterator<Item = usize> + Clone) -> anyhow::Result<()> {
         self.item.write_indexes(dst, indexes)
     }
 }

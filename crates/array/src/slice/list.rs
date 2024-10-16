@@ -6,6 +6,8 @@ use crate::writer::{ArrayWriter, OffsetsWriter, RangeList, RangesIterable};
 use arrow::array::{GenericByteArray, ListArray};
 use arrow::datatypes::ByteArrayType;
 use std::ops::Range;
+use arrow_buffer::ArrowNativeType;
+use crate::access::Access;
 
 
 #[derive(Clone)]
@@ -24,6 +26,18 @@ impl<'a, T: Slice> ListSlice<'a, T> {
             offsets,
             values
         }
+    }
+    
+    pub fn nulls(&self) -> &NullmaskSlice<'a> {
+        &self.nulls
+    }
+    
+    pub fn offsets(&self) -> Offsets<'a> {
+        self.offsets
+    }
+    
+    pub fn values(&self) -> &T {
+        &self.values
     }
 }
 
@@ -87,11 +101,9 @@ impl <'a, T: Slice> Slice for ListSlice<'a, T> {
     fn write_indexes(
         &self,
         dst: &mut impl ArrayWriter,
-        indexes: impl IntoIterator<Item=usize, IntoIter: Clone>
+        indexes: impl Iterator<Item = usize> + Clone
     ) -> anyhow::Result<()>
     {
-        let indexes = indexes.into_iter();
-
         self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
 
         dst.offset(1).write_slice_indexes(self.offsets, indexes.clone())?;
@@ -136,5 +148,27 @@ impl<'a> From<&'a ListArray> for ListSlice<'a, AnyListItem<'a>> {
             offsets: value.offsets().into(),
             values: AnyListItem::new(value.values().as_ref().into())
         }
+    }
+}
+
+
+impl <'a, T: ArrowNativeType> Access for ListSlice<'a, &'a [T]>{
+    type Value = &'a [T];
+
+    #[inline]
+    fn get(&self, i: usize) -> Self::Value {
+        let beg = self.offsets.index(i);
+        let end = self.offsets.index(i + 1);
+        &self.values[beg..end]
+    }
+
+    #[inline]
+    fn is_valid(&self, i: usize) -> bool {
+        self.nulls.is_valid(i)
+    }
+
+    #[inline]
+    fn has_nulls(&self) -> bool {
+        self.nulls.has_nulls()
     }
 }

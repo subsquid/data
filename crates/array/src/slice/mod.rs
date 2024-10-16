@@ -36,7 +36,7 @@ pub trait Slice: Clone {
     fn write_indexes(
         &self, 
         dst: &mut impl ArrayWriter, 
-        indexes: impl IntoIterator<Item = usize, IntoIter: Clone>
+        indexes: impl Iterator<Item = usize> + Clone
     ) -> anyhow::Result<()>;
 }
 

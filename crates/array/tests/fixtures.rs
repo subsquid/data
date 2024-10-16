@@ -1,4 +1,4 @@
-use arrow::array::{Array, RecordBatch, StructArray};
+use arrow::array::{Array, RecordBatch, StructArray, UInt32Array};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use sqd_array::builder::{AnyBuilder, ArrayBuilder};
 use sqd_array::io::file::ArrayFile;
@@ -9,7 +9,7 @@ use std::path::Path;
 
 
 #[test]
-fn builder_write() -> anyhow::Result<()> {
+fn test_write_slice_to_builder() -> anyhow::Result<()> {
     let records = load_parquet_fixture("solana-instructions.parquet")?;
     let src = StructArray::from(records);
     
@@ -24,7 +24,24 @@ fn builder_write() -> anyhow::Result<()> {
 
 
 #[test]
-fn array_file_write_read() -> anyhow::Result<()> {
+fn test_write_reversed_slice_to_builder() -> anyhow::Result<()> {
+    let records = load_parquet_fixture("solana-instructions.parquet")?;
+    let src = StructArray::from(records);
+    let indexes = UInt32Array::from_iter_values((0..src.len() as u32).rev());
+    let reference = arrow::compute::take(&src, &indexes, None)?;
+
+    let mut builder = AnyBuilder::new(src.data_type());
+    src.as_slice().write_indexes(&mut builder, indexes.values().iter().map(|i| *i as usize))?;
+    let result = builder.finish();
+    
+    assert_eq!(result.to_data(), reference.to_data());
+    
+    Ok(())
+}
+
+
+#[test]
+fn test_array_file_write_read() -> anyhow::Result<()> {
     let records = load_parquet_fixture("solana-instructions.parquet")?;
     let src = StructArray::from(records);
     

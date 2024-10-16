@@ -7,3 +7,5 @@ pub mod reader;
 mod visitor;
 pub mod offsets;
 mod chunking;
+pub mod access;
+pub mod sort;

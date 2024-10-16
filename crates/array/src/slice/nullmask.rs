@@ -48,6 +48,10 @@ impl<'a> NullmaskSlice<'a> {
         self.nulls.clone()
     }
     
+    pub fn has_nulls(&self) -> bool {
+        self.nulls.is_some()
+    }
+    
     pub fn write(&self, dst: &mut impl BitmaskWriter) -> anyhow::Result<()> {
         if let Some(nulls) = self.nulls.as_ref() {
             nulls.write(dst)

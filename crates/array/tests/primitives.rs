@@ -9,7 +9,7 @@ use sqd_array::writer::OffsetsWriter;
 
 
 #[test]
-fn io_offsets_read_all() -> anyhow::Result<()> {
+fn test_io_offsets_read_all() -> anyhow::Result<()> {
     let offsets: Vec<i32> = (0..20001).collect();
     let cursor = Cursor::new(offsets.to_byte_slice());
 
@@ -31,7 +31,7 @@ fn io_offsets_read_all() -> anyhow::Result<()> {
 
 
 #[test]
-fn io_offsets_write_all() -> anyhow::Result<()> {
+fn test_io_offsets_write_all() -> anyhow::Result<()> {
     let offsets: Vec<i32> = (0..20001).collect();
     
     let data = {

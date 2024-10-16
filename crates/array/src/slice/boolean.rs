@@ -4,6 +4,7 @@ use crate::slice::Slice;
 use crate::writer::{ArrayWriter, RangeList};
 use arrow::array::BooleanArray;
 use std::ops::Range;
+use crate::access::Access;
 
 
 #[derive(Clone)]
@@ -62,8 +63,7 @@ impl <'a> Slice for BooleanSlice<'a> {
         self.values.write_ranges(dst.bitmask(1), ranges)
     }
 
-    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl IntoIterator<Item=usize, IntoIter: Clone>) -> anyhow::Result<()> {
-        let indexes = indexes.into_iter();
+    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl Iterator<Item = usize> + Clone) -> anyhow::Result<()> {
         self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
         self.values.write_indexes(dst.bitmask(1), indexes)
     }
@@ -76,5 +76,25 @@ impl <'a> From<&'a BooleanArray> for BooleanSlice<'a> {
             nulls: NullmaskSlice::from_array(value),
             values: value.values().into()
         }
+    }
+}
+
+
+impl <'a> Access for BooleanSlice<'a> {
+    type Value = bool;
+
+    #[inline]
+    fn get(&self, i: usize) -> Self::Value {
+        self.values.value(i)
+    }
+
+    #[inline]
+    fn is_valid(&self, i: usize) -> bool {
+        self.nulls.is_valid(i)
+    }
+
+    #[inline]
+    fn has_nulls(&self) -> bool {
+        self.nulls.has_nulls()
     }
 }

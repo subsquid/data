@@ -1,3 +1,4 @@
+use crate::access::Access;
 use crate::slice::bitmask::BitmaskSlice;
 use crate::slice::nullmask::NullmaskSlice;
 use crate::slice::Slice;
@@ -20,6 +21,10 @@ impl <'a, T> PrimitiveSlice<'a, T> {
             nulls: NullmaskSlice::new(values.len(), nulls),
             values
         }
+    }
+    
+    pub fn values(&self) -> &'a [T] {
+        self.values
     }
 }
 
@@ -61,10 +66,9 @@ impl <'a, T: ArrowNativeType> Slice for PrimitiveSlice<'a, T> {
     fn write_indexes(
         &self, 
         dst: &mut impl ArrayWriter,
-        indexes: impl IntoIterator<Item=usize, IntoIter: Clone>
+        indexes: impl Iterator<Item = usize> + Clone
     ) -> anyhow::Result<()> 
     {
-        let indexes = indexes.into_iter();
         self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
         dst.native(1).write_slice_indexes(self.values, indexes)
     }
@@ -77,5 +81,25 @@ impl <'a, T: ArrowPrimitiveType> From<&'a PrimitiveArray<T>> for PrimitiveSlice<
             nulls: NullmaskSlice::from_array(value),
             values: value.values()
         }
+    }
+}
+
+
+impl <'a, T: ArrowNativeType> Access for PrimitiveSlice<'a, T> {
+    type Value = T;
+
+    #[inline]
+    fn get(&self, i: usize) -> Self::Value {
+        self.values[i]
+    }
+
+    #[inline]
+    fn is_valid(&self, i: usize) -> bool {
+        self.nulls.is_valid(i)
+    }
+
+    #[inline]
+    fn has_nulls(&self) -> bool {
+        self.nulls.has_nulls()
     }
 }

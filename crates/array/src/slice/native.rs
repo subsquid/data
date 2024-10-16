@@ -39,9 +39,9 @@ impl <'a, T: ArrowNativeType> Slice for &'a [T] {
     fn write_indexes(
         &self, 
         dst: &mut impl ArrayWriter, 
-        indexes: impl IntoIterator<Item = usize, IntoIter: Clone>
+        indexes: impl Iterator<Item = usize> + Clone
     ) -> anyhow::Result<()> 
     {
-        dst.native(0).write_slice_indexes(self, indexes.into_iter())
+        dst.native(0).write_slice_indexes(self, indexes)
     }
 }
