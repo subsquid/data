@@ -1,7 +1,8 @@
 use crate::offsets::Offsets;
-use crate::writer::{OffsetsWriter, RangeList};
+use crate::writer::OffsetsWriter;
 use arrow_buffer::ToByteSlice;
 use std::io::Write;
+use crate::index::RangeList;
 
 
 pub struct OffsetsIOWriter<W> {

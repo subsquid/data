@@ -1,13 +1,14 @@
+use crate::access::Access;
+use crate::index::{IndexList, RangeList, RangeListFromIterator};
 use crate::offsets::Offsets;
 use crate::slice::bitmask::BitmaskSlice;
 use crate::slice::nullmask::NullmaskSlice;
 use crate::slice::{AnyListItem, AnySlice, Slice};
-use crate::writer::{ArrayWriter, OffsetsWriter, RangeList, RangesIterable};
+use crate::writer::{ArrayWriter, OffsetsWriter};
 use arrow::array::{GenericByteArray, ListArray};
 use arrow::datatypes::ByteArrayType;
-use std::ops::Range;
 use arrow_buffer::ArrowNativeType;
-use crate::access::Access;
+use std::ops::Range;
 
 
 #[derive(Clone)]
@@ -89,32 +90,26 @@ impl <'a, T: Slice> Slice for ListSlice<'a, T> {
 
         dst.offset(1).write_slice_ranges(self.offsets, ranges)?;
 
-        let value_ranges = ranges.iter().map(|r| {
-            let beg = self.offsets.index(r.start);
-            let end = self.offsets.index(r.end);
-            beg..end
-        });
-
-        self.values.write_ranges(&mut dst.shift(2), &mut RangesIterable::new(value_ranges))
+        self.values.write_ranges(&mut dst.shift(2), &mut ranges.list_items(self.offsets))
     }
 
     fn write_indexes(
         &self,
         dst: &mut impl ArrayWriter,
-        indexes: impl Iterator<Item = usize> + Clone
+        indexes: &(impl IndexList + ?Sized)
     ) -> anyhow::Result<()>
     {
-        self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
+        self.nulls.write_indexes(dst.nullmask(0), indexes)?;
 
-        dst.offset(1).write_slice_indexes(self.offsets, indexes.clone())?;
-
-        let value_ranges = indexes.map(|i| {
+        dst.offset(1).write_slice_indexes(self.offsets, indexes.index_iter())?;
+        
+        let item_ranges = indexes.index_iter().map(|i| {
             let beg = self.offsets.index(i);
             let end = self.offsets.index(i + 1);
             beg..end
         });
-
-        self.values.write_ranges(&mut dst.shift(2), &mut RangesIterable::new(value_ranges))
+        
+        self.values.write_ranges(&mut dst.shift(2), &mut RangeListFromIterator::new(item_ranges))
     }
 }
 

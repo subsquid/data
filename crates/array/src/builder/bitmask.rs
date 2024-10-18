@@ -1,6 +1,7 @@
-use crate::writer::{BitmaskWriter, RangeList};
-use arrow_buffer::{bit_mask, bit_util, BooleanBuffer, MutableBuffer};
+use crate::index::{IndexList, RangeList};
 use crate::slice::bitmask::BitmaskSlice;
+use crate::writer::BitmaskWriter;
+use arrow_buffer::{bit_mask, bit_util, BooleanBuffer, MutableBuffer};
 
 
 pub struct BitmaskBuilder {
@@ -33,7 +34,8 @@ impl BitmaskBuilder {
         self.len += len
     }
 
-    pub fn append_slice_indexes(&mut self, data: &[u8], mut indexes: impl Iterator<Item = usize>) {
+    pub fn append_slice_indexes(&mut self, data: &[u8], indexes: &(impl IndexList + ?Sized)) {
+        let mut indexes = indexes.index_iter();
         let (min_bit_len, _) = indexes.size_hint();
         let min_byte_len = bit_util::ceil(self.len + min_bit_len, 8);
         
@@ -56,7 +58,7 @@ impl BitmaskBuilder {
     }
     
     pub fn append_slice_ranges(&mut self, data: &[u8], ranges: &mut impl RangeList) {
-        let new_byte_len = bit_util::ceil(self.len + ranges.size(), 8);
+        let new_byte_len = bit_util::ceil(self.len + ranges.span(), 8);
         
         self.buffer.resize(new_byte_len, 0);
         
@@ -146,7 +148,7 @@ impl BitmaskWriter for BitmaskBuilder {
     }
 
     #[inline]
-    fn write_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item=usize>) -> anyhow::Result<()> {
+    fn write_slice_indexes(&mut self, data: &[u8], indexes: &(impl IndexList + ?Sized)) -> anyhow::Result<()> {
         self.append_slice_indexes(data, indexes);
         Ok(())
     }

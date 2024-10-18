@@ -1,7 +1,8 @@
-use std::ops::Range;
-use arrow_buffer::ArrowNativeType;
+use crate::index::{IndexList, RangeList};
 use crate::slice::Slice;
-use crate::writer::{ArrayWriter, NativeWriter, RangeList};
+use crate::writer::{ArrayWriter, NativeWriter};
+use arrow_buffer::ArrowNativeType;
+use std::ops::Range;
 
 
 impl <'a, T: ArrowNativeType> Slice for &'a [T] {
@@ -39,9 +40,9 @@ impl <'a, T: ArrowNativeType> Slice for &'a [T] {
     fn write_indexes(
         &self, 
         dst: &mut impl ArrayWriter, 
-        indexes: impl Iterator<Item = usize> + Clone
+        indexes: &(impl IndexList + ?Sized)
     ) -> anyhow::Result<()> 
     {
-        dst.native(0).write_slice_indexes(self, indexes)
+        dst.native(0).write_slice_indexes(self, indexes.index_iter())
     }
 }

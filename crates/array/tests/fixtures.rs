@@ -31,7 +31,7 @@ fn test_write_reversed_slice_to_builder() -> anyhow::Result<()> {
     let reference = arrow::compute::take(&src, &indexes, None)?;
 
     let mut builder = AnyBuilder::new(src.data_type());
-    src.as_slice().write_indexes(&mut builder, indexes.values().iter().map(|i| *i as usize))?;
+    src.as_slice().write_indexes(&mut builder, indexes.values().as_ref())?;
     let result = builder.finish();
     
     assert_eq!(result.to_data(), reference.to_data());

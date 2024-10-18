@@ -1,5 +1,6 @@
+use crate::index::{IndexList, RangeList};
 use crate::slice::bitmask::BitmaskSlice;
-use crate::writer::{BitmaskWriter, RangeList};
+use crate::writer::BitmaskWriter;
 use arrow::array::Array;
 use std::ops::Range;
 
@@ -75,20 +76,20 @@ impl<'a> NullmaskSlice<'a> {
         if let Some(nulls) = self.nulls.as_ref() {
             nulls.write_ranges(dst, ranges)
         } else {
-            dst.write_many(true, ranges.size())
+            dst.write_many(true, ranges.span())
         }
     }
 
     pub fn write_indexes(
         &self,
         dst: &mut impl BitmaskWriter,
-        indexes: impl Iterator<Item = usize> + Clone
+        indexes: &(impl IndexList + ?Sized)
     ) -> anyhow::Result<()>
     {
         if let Some(nulls) = self.nulls.as_ref() {
             nulls.write_indexes(dst, indexes)
         } else {
-            dst.write_many(true, indexes.count())
+            dst.write_many(true, indexes.index_iter().count())
         }
     }
 }

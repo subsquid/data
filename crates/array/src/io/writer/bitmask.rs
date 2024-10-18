@@ -1,4 +1,5 @@
-use crate::writer::{BitmaskWriter, RangeList};
+use crate::index::{IndexList, RangeList};
+use crate::writer::BitmaskWriter;
 use arrow_buffer::bit_chunk_iterator::BitChunks;
 use arrow_buffer::{bit_util, ToByteSlice};
 use std::io::Write;
@@ -71,7 +72,8 @@ impl <W: Write> BitmaskWriter for BitmaskIOWriter<W> {
         Ok(())
     }
 
-    fn write_slice_indexes(&mut self, data: &[u8], mut indexes: impl Iterator<Item = usize>) -> anyhow::Result<()> {
+    fn write_slice_indexes(&mut self, data: &[u8], indexes: &(impl IndexList + ?Sized)) -> anyhow::Result<()> {
+        let mut indexes = indexes.index_iter();
         loop {
             while self.buf_len < 64 {
                 if let Some(i) = indexes.next() {

@@ -1,4 +1,5 @@
-use crate::writer::{BitmaskWriter, RangeList};
+use crate::index::{IndexList, RangeList};
+use crate::writer::BitmaskWriter;
 use arrow_buffer::{bit_util, BooleanBuffer};
 use std::ops::Range;
 
@@ -67,13 +68,13 @@ impl<'a> BitmaskSlice<'a> {
     pub fn write_indexes(
         &self,
         dst: &mut impl BitmaskWriter,
-        indexes: impl Iterator<Item = usize> + Clone
+        indexes: &(impl IndexList + ?Sized)
     ) -> anyhow::Result<()>
     {
-        dst.write_slice_indexes(&self.data, indexes.map(|i| {
-            assert!(i < self.len);
-            self.offset + i
-        }))
+        dst.write_slice_indexes(
+            &self.data, 
+            &indexes.shift(self.offset, self.len)
+        )
     }
 }
 

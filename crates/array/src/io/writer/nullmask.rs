@@ -1,8 +1,9 @@
-use std::io::Write;
-use arrow_buffer::ToByteSlice;
+use crate::index::{IndexList, RangeList};
 use crate::io::writer::bitmask::BitmaskIOWriter;
 use crate::util::bit_tools;
-use crate::writer::{BitmaskWriter, RangeList};
+use crate::writer::BitmaskWriter;
+use arrow_buffer::ToByteSlice;
+use std::io::Write;
 
 
 pub struct NullmaskIOWriter<W> {
@@ -58,10 +59,10 @@ impl<W: Write> BitmaskWriter for NullmaskIOWriter<W> {
     fn write_slice_indexes(
         &mut self, 
         data: &[u8], 
-        indexes: impl Iterator<Item = usize> + Clone
+        indexes: &(impl IndexList + ?Sized)
     ) -> anyhow::Result<()> 
     {
-        if self.check_bitmask_presence(|| bit_tools::all_indexes_valid(data, indexes.clone()))? {
+        if self.check_bitmask_presence(|| bit_tools::all_indexes_valid(data, indexes.index_iter()))? {
             self.bitmask.write_slice_indexes(data, indexes)?;
         }
         Ok(())

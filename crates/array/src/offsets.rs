@@ -69,6 +69,11 @@ impl <'a> Offsets<'a> {
     pub fn range(&self) -> Range<usize> {
         self.offsets[0] as usize .. self.last_index()
     }
+    
+    #[inline]
+    pub fn value(&self, i: usize) -> i32 {
+        self.offsets[i]
+    }
 
     #[inline]
     pub fn values(&self) -> &[i32] {

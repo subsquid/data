@@ -1,8 +1,9 @@
 use crate::builder::bitmask::BitmaskBuilder;
-use crate::util::bit_tools;
-use crate::writer::{BitmaskWriter, RangeList};
-use arrow_buffer::NullBuffer;
+use crate::index::{IndexList, RangeList};
 use crate::slice::nullmask::NullmaskSlice;
+use crate::util::bit_tools;
+use crate::writer::BitmaskWriter;
+use arrow_buffer::NullBuffer;
 
 
 pub struct NullmaskBuilder {
@@ -41,15 +42,15 @@ impl NullmaskBuilder {
         }
     }
 
-    pub fn append_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item=usize> + Clone) {
+    pub fn append_slice_indexes(&mut self, data: &[u8], indexes: &(impl IndexList + ?Sized)) {
         if let Some(nulls) = self.nulls.as_mut() {
             nulls.append_slice_indexes(data, indexes);
             self.len = nulls.len()
         } else {
-            if let Some(len) = bit_tools::all_indexes_valid(data, indexes.clone()) {
+            if let Some(len) = bit_tools::all_indexes_valid(data, indexes.index_iter()) {
                 self.len += len
             } else {
-                let mut nulls = self.make_nulls(indexes.size_hint().0);
+                let mut nulls = self.make_nulls(indexes.len_hint());
                 nulls.append_slice_indexes(data, indexes);
                 self.len = nulls.len();
                 self.nulls = Some(nulls)
@@ -65,7 +66,7 @@ impl NullmaskBuilder {
             if let Some(len) = bit_tools::all_ranges_valid(data, ranges.iter()) {
                 self.len += len;
             } else {
-                let mut nulls = self.make_nulls(ranges.size());
+                let mut nulls = self.make_nulls(ranges.span());
                 nulls.append_slice_ranges(data, ranges);
                 self.len = nulls.len();
                 self.nulls = Some(nulls)
@@ -135,7 +136,7 @@ impl BitmaskWriter for NullmaskBuilder {
     fn write_slice_indexes(
         &mut self,
         data: &[u8],
-        indexes: impl Iterator<Item=usize> + Clone
+        indexes: &(impl IndexList + ?Sized)
     ) -> anyhow::Result<()>
     {
         self.append_slice_indexes(data, indexes);

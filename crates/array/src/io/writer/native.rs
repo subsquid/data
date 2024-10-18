@@ -1,6 +1,7 @@
-use std::io::Write;
+use crate::writer::NativeWriter;
 use arrow_buffer::{ArrowNativeType, ToByteSlice};
-use crate::writer::{NativeWriter, RangeList};
+use std::io::Write;
+use crate::index::RangeList;
 
 
 pub struct NativeIOWriter<W> {

@@ -1,7 +1,8 @@
+use crate::index::{IndexList, RangeList};
 use crate::slice::any::AnySlice;
 use crate::slice::nullmask::NullmaskSlice;
 use crate::slice::{AsSlice, Slice};
-use crate::writer::{ArrayWriter, RangeList};
+use crate::writer::ArrayWriter;
 use arrow::array::{Array, StructArray};
 use std::ops::Range;
 use std::sync::Arc;
@@ -93,17 +94,14 @@ impl<'a> Slice for AnyStructSlice<'a> {
         Ok(())
     }
 
-    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl Iterator<Item = usize> + Clone) -> anyhow::Result<()> {
-        let indexes = indexes.map(|i| {
-            assert!(i < self.len);
-            i + self.offset
-        });
+    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: &(impl IndexList + ?Sized)) -> anyhow::Result<()> {
+        // let indexes = indexes.shift(self.offset, self.len);
         
-        self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
+        self.nulls.write_indexes(dst.nullmask(0), indexes)?;
 
         let mut shift = 1;
         for c in self.columns.iter() {
-            c.write_indexes(&mut dst.shift(shift), indexes.clone())?;
+            c.write_indexes(&mut dst.shift(shift), indexes)?;
             shift += c.num_buffers();
         }
         Ok(())

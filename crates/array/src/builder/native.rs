@@ -1,4 +1,5 @@
-use crate::writer::{NativeWriter, RangeList};
+use crate::index::RangeList;
+use crate::writer::NativeWriter;
 use arrow_buffer::{ArrowNativeType, MutableBuffer, ToByteSlice};
 
 
@@ -61,7 +62,7 @@ impl NativeWriter for MutableBuffer {
         ranges: &mut impl RangeList
     ) -> anyhow::Result<()>
     {
-        self.reserve(ranges.size() * size_of::<T>());
+        self.reserve(ranges.span() * size_of::<T>());
 
         for r in ranges.iter() {
             self.extend_from_slice(&values[r])        
