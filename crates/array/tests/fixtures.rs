@@ -5,7 +5,10 @@ use sqd_array::io::file::ArrayFile;
 use sqd_array::reader::ArrayReader;
 use sqd_array::slice::{AsSlice, Slice};
 use std::fs::File;
+use std::ops::Deref;
 use std::path::Path;
+use arrow::datatypes::DataType;
+use sqd_array::sort::sort_table_to_indexes;
 
 
 #[test]
@@ -36,6 +39,31 @@ fn test_write_reversed_slice_to_builder() -> anyhow::Result<()> {
     
     assert_eq!(result.to_data(), reference.to_data());
     
+    Ok(())
+}
+
+
+#[test]
+fn test_in_memory_sort() -> anyhow::Result<()> {
+    let src = load_parquet_fixture("solana-instructions.parquet")?;
+
+    let indexes = sort_table_to_indexes(&src.as_slice(), &[
+        src.schema_ref().index_of("program_id")?,
+        src.schema_ref().index_of("block_number")?,
+        src.schema_ref().index_of("transaction_index")?,
+        src.schema_ref().index_of("instruction_address")?,
+    ]);
+
+    let result = {
+        let mut builder = AnyBuilder::new(&DataType::Struct(src.schema_ref().fields.clone()));
+        src.as_slice().write_indexes(&mut builder, indexes.deref())?;
+        builder.finish()
+    };
+    
+    let reference = load_parquet_fixture("solana-instructions.sorted.parquet")?;
+    
+    assert_eq!(result.to_data(), StructArray::from(reference).to_data());
+
     Ok(())
 }
 

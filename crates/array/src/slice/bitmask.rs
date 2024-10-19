@@ -73,7 +73,7 @@ impl<'a> BitmaskSlice<'a> {
     {
         dst.write_slice_indexes(
             &self.data, 
-            &indexes.shift(self.offset, self.len)
+            indexes.shift(self.offset, self.len).index_iter()
         )
     }
 }

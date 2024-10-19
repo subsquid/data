@@ -1,4 +1,4 @@
-use crate::index::{IndexList, RangeList};
+use crate::index::RangeList;
 use crate::io::writer::bitmask::BitmaskIOWriter;
 use crate::util::bit_tools;
 use crate::writer::BitmaskWriter;
@@ -59,10 +59,10 @@ impl<W: Write> BitmaskWriter for NullmaskIOWriter<W> {
     fn write_slice_indexes(
         &mut self, 
         data: &[u8], 
-        indexes: &(impl IndexList + ?Sized)
+        indexes: impl Iterator<Item=usize> + Clone
     ) -> anyhow::Result<()> 
     {
-        if self.check_bitmask_presence(|| bit_tools::all_indexes_valid(data, indexes.index_iter()))? {
+        if self.check_bitmask_presence(|| bit_tools::all_indexes_valid(data, indexes.clone()))? {
             self.bitmask.write_slice_indexes(data, indexes)?;
         }
         Ok(())

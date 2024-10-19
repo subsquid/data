@@ -53,7 +53,7 @@ macro_rules! dispatch_nulls {
 
 macro_rules! sort {
     ($indexes:ident, $order:ident) => {
-        $indexes.sort_by(|&a, &b| $order.compare(a, b))
+        $indexes.sort_unstable_by(|&a, &b| $order.compare(a, b))
     };
 }
 

@@ -1,5 +1,5 @@
 use crate::builder::bitmask::BitmaskBuilder;
-use crate::index::{IndexList, RangeList};
+use crate::index::RangeList;
 use crate::slice::nullmask::NullmaskSlice;
 use crate::util::bit_tools;
 use crate::writer::BitmaskWriter;
@@ -42,15 +42,15 @@ impl NullmaskBuilder {
         }
     }
 
-    pub fn append_slice_indexes(&mut self, data: &[u8], indexes: &(impl IndexList + ?Sized)) {
+    pub fn append_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item=usize> + Clone) {
         if let Some(nulls) = self.nulls.as_mut() {
             nulls.append_slice_indexes(data, indexes);
             self.len = nulls.len()
         } else {
-            if let Some(len) = bit_tools::all_indexes_valid(data, indexes.index_iter()) {
+            if let Some(len) = bit_tools::all_indexes_valid(data, indexes.clone()) {
                 self.len += len
             } else {
-                let mut nulls = self.make_nulls(indexes.len_hint());
+                let mut nulls = self.make_nulls(indexes.size_hint().0);
                 nulls.append_slice_indexes(data, indexes);
                 self.len = nulls.len();
                 self.nulls = Some(nulls)
@@ -136,7 +136,7 @@ impl BitmaskWriter for NullmaskBuilder {
     fn write_slice_indexes(
         &mut self,
         data: &[u8],
-        indexes: &(impl IndexList + ?Sized)
+        indexes: impl Iterator<Item=usize> + Clone
     ) -> anyhow::Result<()>
     {
         self.append_slice_indexes(data, indexes);

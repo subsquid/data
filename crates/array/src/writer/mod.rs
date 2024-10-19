@@ -1,8 +1,10 @@
-use crate::index::{IndexList, RangeList};
+use crate::index::RangeList;
 use crate::offsets::Offsets;
 use arrow_buffer::{ArrowNativeType, ToByteSlice};
 
+
 mod any;
+
 
 pub use any::*;
 
@@ -13,7 +15,7 @@ pub trait BitmaskWriter {
     fn write_slice_indexes(
         &mut self,
         data: &[u8],
-        indexes: &(impl IndexList + ?Sized)
+        indexes: impl Iterator<Item=usize> + Clone
     ) -> anyhow::Result<()>;
 
     fn write_slice_ranges(

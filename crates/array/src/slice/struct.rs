@@ -3,7 +3,7 @@ use crate::slice::any::AnySlice;
 use crate::slice::nullmask::NullmaskSlice;
 use crate::slice::{AsSlice, Slice};
 use crate::writer::ArrayWriter;
-use arrow::array::{Array, StructArray};
+use arrow::array::{Array, RecordBatch, StructArray};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -122,6 +122,27 @@ impl<'a> From<&'a StructArray> for AnyStructSlice<'a> {
 
 
 impl AsSlice for StructArray {
+    type Slice<'a> = AnyStructSlice<'a>;
+
+    fn as_slice(&self) -> Self::Slice<'_> {
+        self.into()
+    }
+}
+
+
+impl<'a> From<&'a RecordBatch> for AnyStructSlice<'a>  {
+    fn from(value: &'a RecordBatch) -> Self {
+        Self {
+            nulls: NullmaskSlice::new(value.num_rows(), None),
+            columns: value.columns().iter().map(|c| c.as_ref().into()).collect(),
+            offset: 0,
+            len: value.num_rows()
+        }
+    }
+}
+
+
+impl AsSlice for RecordBatch {
     type Slice<'a> = AnyStructSlice<'a>;
 
     fn as_slice(&self) -> Self::Slice<'_> {
