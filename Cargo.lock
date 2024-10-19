@@ -3057,6 +3057,7 @@ dependencies = [
  "anyhow",
  "arrow",
  "arrow-buffer",
+ "criterion",
  "parquet",
  "tempfile",
 ]

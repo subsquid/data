@@ -10,4 +10,9 @@ arrow-buffer = { workspace = true }
 tempfile = { workspace = true }
 
 [dev-dependencies]
+criterion = "0.5.1"
 parquet = { workspace = true }
+
+[[bench]]
+name = "main"
+harness = false

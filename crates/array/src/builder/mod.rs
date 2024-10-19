@@ -23,6 +23,7 @@ pub use binary::*;
 pub use boolean::*;
 pub use list::*;
 pub use primitive::*;
+pub use r#struct::*;
 
 
 pub trait ArrayBuilder: ArrayWriter<Writer=MemoryWriter> + AsSlice + 'static {
