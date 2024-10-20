@@ -1,5 +1,5 @@
 use crate::access::Access;
-use crate::index::{IndexList, RangeList};
+use crate::index::RangeList;
 use crate::slice::bitmask::BitmaskSlice;
 use crate::slice::nullmask::NullmaskSlice;
 use crate::slice::Slice;
@@ -67,11 +67,11 @@ impl <'a, T: ArrowNativeType> Slice for PrimitiveSlice<'a, T> {
     fn write_indexes(
         &self, 
         dst: &mut impl ArrayWriter,
-        indexes: &(impl IndexList + ?Sized)
+        indexes: impl Iterator<Item=usize> + Clone
     ) -> anyhow::Result<()> 
     {
-        self.nulls.write_indexes(dst.nullmask(0), indexes)?;
-        dst.native(1).write_slice_indexes(self.values, indexes.index_iter())
+        self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
+        dst.native(1).write_slice_indexes(self.values, indexes)
     }
 }
 

@@ -6,13 +6,13 @@ use sqd_array::sort::sort_record_batch;
 fn sort_setup(c: &mut Criterion) {
     let records = read_parquet("fixtures/solana-transactions.parquet").unwrap();
     
-    c.bench_function("SQD: sort solana transaction by idx", |bench| {
+    c.bench_function("sort solana transactions by idx: SQD", |bench| {
         bench.iter(|| {
             sort_record_batch(&records, ["_idx"]).expect("sorting failed")
         })
     });
     
-    c.bench_function("ARROW: sort solana transaction by idx", |bench| {
+    c.bench_function("sort solana transactions by idx: ARROW", |bench| {
         bench.iter(|| {
             use arrow::compute::*;
             

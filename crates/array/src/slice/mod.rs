@@ -8,7 +8,7 @@ mod primitive;
 mod r#struct;
 
 
-use crate::index::{IndexList, RangeList};
+use crate::index::RangeList;
 use crate::writer::ArrayWriter;
 pub use any::*;
 pub use boolean::*;
@@ -37,7 +37,7 @@ pub trait Slice: Clone {
     fn write_indexes(
         &self, 
         dst: &mut impl ArrayWriter, 
-        indexes: &(impl IndexList + ?Sized)
+        indexes: impl Iterator<Item=usize> + Clone
     ) -> anyhow::Result<()>;
 }
 

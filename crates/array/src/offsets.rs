@@ -71,7 +71,7 @@ impl <'a> Offsets<'a> {
     }
     
     #[inline]
-    pub fn value(&self, i: usize) -> i32 {
+    pub fn at(&self, i: usize) -> i32 {
         self.offsets[i]
     }
 

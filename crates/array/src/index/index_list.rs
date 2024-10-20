@@ -21,6 +21,7 @@ struct ShiftedIndexList<'a, T: ?Sized> {
 
 
 impl <'a, T: IndexList + ?Sized> IndexList for ShiftedIndexList<'a, T> {
+    #[inline]
     fn index_iter(&self) -> impl Iterator<Item=usize> + Clone {
         self.inner.index_iter().map(|i| {
             assert!(i < self.len);

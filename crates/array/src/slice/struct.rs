@@ -1,4 +1,4 @@
-use crate::index::{IndexList, RangeList};
+use crate::index::RangeList;
 use crate::slice::any::AnySlice;
 use crate::slice::nullmask::NullmaskSlice;
 use crate::slice::{AsSlice, Slice};
@@ -82,26 +82,27 @@ impl<'a> Slice for AnyStructSlice<'a> {
     }
 
     fn write_ranges(&self, dst: &mut impl ArrayWriter, ranges: &mut impl RangeList) -> anyhow::Result<()> {
-        let mut ranges = ranges.shift(self.offset, self.len);
+        self.nulls.slice(self.offset, self.len).write_ranges(dst.nullmask(0), ranges)?;
         
-        self.nulls.write_ranges(dst.nullmask(0), &mut ranges)?;
-
         let mut shift = 1;
         for c in self.columns.iter() {
-            c.write_ranges(&mut dst.shift(shift), &mut ranges)?;
+            c.slice(self.offset, self.len).write_ranges(&mut dst.shift(shift), ranges)?;
             shift += c.num_buffers();
         }
         Ok(())
     }
 
-    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: &(impl IndexList + ?Sized)) -> anyhow::Result<()> {
-        // let indexes = indexes.shift(self.offset, self.len);
-        
-        self.nulls.write_indexes(dst.nullmask(0), indexes)?;
+    fn write_indexes(
+        &self, 
+        dst: &mut impl ArrayWriter, 
+        indexes: impl Iterator<Item=usize> + Clone
+    ) -> anyhow::Result<()> 
+    {
+        self.nulls.slice(self.offset, self.len).write_indexes(dst.nullmask(0), indexes.clone())?;
 
         let mut shift = 1;
         for c in self.columns.iter() {
-            c.write_indexes(&mut dst.shift(shift), indexes)?;
+            c.slice(self.offset, self.len).write_indexes(&mut dst.shift(shift), indexes.clone())?;
             shift += c.num_buffers();
         }
         Ok(())

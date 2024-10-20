@@ -1,5 +1,5 @@
 use crate::access::Access;
-use crate::index::{IndexList, RangeList, RangeListFromIterator};
+use crate::index::{RangeList, RangeListFromIterator};
 use crate::offsets::Offsets;
 use crate::slice::bitmask::BitmaskSlice;
 use crate::slice::nullmask::NullmaskSlice;
@@ -89,21 +89,24 @@ impl <'a, T: Slice> Slice for ListSlice<'a, T> {
         self.nulls.write_ranges(dst.nullmask(0), ranges)?;
 
         dst.offset(1).write_slice_ranges(self.offsets, ranges)?;
-
-        self.values.write_ranges(&mut dst.shift(2), &mut ranges.list_items(self.offsets))
+        
+        self.values.write_ranges(
+            &mut dst.shift(2), 
+            &mut ranges.expand(self.offsets)
+        )
     }
 
     fn write_indexes(
         &self,
         dst: &mut impl ArrayWriter,
-        indexes: &(impl IndexList + ?Sized)
+        indexes: impl Iterator<Item=usize> + Clone
     ) -> anyhow::Result<()>
     {
-        self.nulls.write_indexes(dst.nullmask(0), indexes)?;
+        self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
 
-        dst.offset(1).write_slice_indexes(self.offsets, indexes.index_iter())?;
+        dst.offset(1).write_slice_indexes(self.offsets, indexes.clone())?;
         
-        let item_ranges = indexes.index_iter().map(|i| {
+        let item_ranges = indexes.map(|i| {
             let beg = self.offsets.index(i);
             let end = self.offsets.index(i + 1);
             beg..end

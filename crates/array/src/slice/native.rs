@@ -1,4 +1,4 @@
-use crate::index::{IndexList, RangeList};
+use crate::index::RangeList;
 use crate::slice::Slice;
 use crate::writer::{ArrayWriter, NativeWriter};
 use arrow_buffer::ArrowNativeType;
@@ -40,9 +40,9 @@ impl <'a, T: ArrowNativeType> Slice for &'a [T] {
     fn write_indexes(
         &self, 
         dst: &mut impl ArrayWriter, 
-        indexes: &(impl IndexList + ?Sized)
+        indexes: impl Iterator<Item=usize>
     ) -> anyhow::Result<()> 
     {
-        dst.native(0).write_slice_indexes(self, indexes.index_iter())
+        dst.native(0).write_slice_indexes(self, indexes)
     }
 }

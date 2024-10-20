@@ -30,3 +30,4 @@ debug = 1
 
 [profile.bench]
 debug = 1
+codegen-units = 128

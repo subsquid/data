@@ -1,4 +1,4 @@
-use crate::index::{IndexList, RangeList};
+use crate::index::RangeList;
 use crate::slice::boolean::BooleanSlice;
 use crate::slice::list::ListSlice;
 use crate::slice::primitive::PrimitiveSlice;
@@ -131,7 +131,12 @@ impl <'a> Slice for AnySlice<'a> {
         }
     }
 
-    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: &(impl IndexList + ?Sized)) -> anyhow::Result<()> {
+    fn write_indexes(
+        &self, 
+        dst: &mut impl ArrayWriter, 
+        indexes: impl Iterator<Item=usize> + Clone
+    ) -> anyhow::Result<()> 
+    {
         match self {
             AnySlice::Boolean(s) => s.write_indexes(dst, indexes),
             AnySlice::UInt8(s) => s.write_indexes(dst, indexes),
@@ -201,7 +206,12 @@ impl<'a> Slice for AnyListItem<'a> {
     }
 
     #[inline]
-    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: &(impl IndexList + ?Sized)) -> anyhow::Result<()> {
+    fn write_indexes(
+        &self, 
+        dst: &mut impl ArrayWriter, 
+        indexes: impl Iterator<Item=usize> + Clone
+    ) -> anyhow::Result<()> 
+    {
         self.item.write_indexes(dst, indexes)
     }
 }

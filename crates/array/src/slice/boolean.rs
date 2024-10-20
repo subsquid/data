@@ -1,5 +1,5 @@
 use crate::access::Access;
-use crate::index::{IndexList, RangeList};
+use crate::index::RangeList;
 use crate::slice::bitmask::BitmaskSlice;
 use crate::slice::nullmask::NullmaskSlice;
 use crate::slice::Slice;
@@ -64,8 +64,13 @@ impl <'a> Slice for BooleanSlice<'a> {
         self.values.write_ranges(dst.bitmask(1), ranges)
     }
 
-    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: &(impl IndexList + ?Sized)) -> anyhow::Result<()> {
-        self.nulls.write_indexes(dst.nullmask(0), indexes)?;
+    fn write_indexes(
+        &self, 
+        dst: &mut impl ArrayWriter, 
+        indexes: impl Iterator<Item=usize> + Clone
+    ) -> anyhow::Result<()> 
+    {
+        self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
         self.values.write_indexes(dst.bitmask(1), indexes)
     }
 }
