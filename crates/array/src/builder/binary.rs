@@ -166,13 +166,17 @@ impl StringBuilder {
             self.validity = Some(self.offsets.as_slice().len())
         }
     }
-    
-    pub fn validate(&mut self) {
-        todo!()
-    }
 
     pub fn finish(self) -> StringArray {
         StringArray::new(
+            self.offsets.finish(),
+            self.values.into(),
+            self.nulls.finish()
+        )
+    }
+    
+    pub unsafe fn finish_unchecked(self) -> StringArray {
+        StringArray::new_unchecked(
             self.offsets.finish(),
             self.values.into(),
             self.nulls.finish()
@@ -192,6 +196,10 @@ impl ArrayBuilder for StringBuilder {
 
     fn finish(self) -> ArrayRef {
         Arc::new(self.finish())
+    }
+
+    unsafe fn finish_unchecked(self) -> ArrayRef {
+        Arc::new(self.finish_unchecked())
     }
 }
 

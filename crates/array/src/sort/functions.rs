@@ -26,5 +26,9 @@ fn sort_record_batch_impl(records: &RecordBatch, columns: &[usize]) -> anyhow::R
     let mut builder = AnyStructBuilder::new(records.schema_ref().fields().clone());
     slice.write_indexes(&mut builder, indexes.iter().copied())?;
     
-    Ok(builder.finish().into())
+    let array = unsafe {
+        builder.finish_unchecked()
+    };
+    
+    Ok(array.into())
 }

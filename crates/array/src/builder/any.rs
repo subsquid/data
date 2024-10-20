@@ -180,6 +180,26 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::Struct(b) => ArrayBuilder::finish(b),
         }
     }
+
+    unsafe fn finish_unchecked(self) -> ArrayRef {
+        match self {
+            AnyBuilder::Boolean(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::Int8(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::Int16(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::Int32(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::Int64(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::UInt8(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::UInt16(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::UInt32(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::UInt64(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::TimestampSecond(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::TimestampMillisecond(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::Binary(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::String(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::List(b) => ArrayBuilder::finish_unchecked(*b),
+            AnyBuilder::Struct(b) => ArrayBuilder::finish_unchecked(b),
+        }
+    }
 }
 
 

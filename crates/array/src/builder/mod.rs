@@ -32,4 +32,8 @@ pub trait ArrayBuilder: ArrayWriter<Writer=MemoryWriter> + AsSlice + 'static {
     fn data_type(&self) -> DataType;
 
     fn finish(self) -> ArrayRef;
+    
+    unsafe fn finish_unchecked(self) -> ArrayRef {
+        self.finish()
+    }
 }

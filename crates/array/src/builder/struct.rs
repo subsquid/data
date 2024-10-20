@@ -50,6 +50,14 @@ impl AnyStructBuilder {
         )
     }
     
+    pub unsafe fn finish_unchecked(self) -> StructArray {
+        StructArray::new_unchecked(
+            self.fields,
+            self.columns.into_iter().map(|c| c.finish_unchecked()).collect(),
+            self.nulls.finish()
+        )
+    }
+    
     fn find_column(&self, buf: usize) -> (usize, usize) {
         if let Some(col) = bisect_offsets(&self.buffers, buf) {
             (col, buf - self.buffers[col])
@@ -109,5 +117,9 @@ impl ArrayBuilder for AnyStructBuilder {
 
     fn finish(self) -> ArrayRef {
         Arc::new(self.finish())
+    }
+
+    unsafe fn finish_unchecked(self) -> ArrayRef {
+        Arc::new(self.finish_unchecked())
     }
 }
