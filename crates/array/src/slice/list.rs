@@ -1,5 +1,5 @@
 use crate::access::Access;
-use crate::index::{RangeList, RangeListFromIterator};
+use crate::index::{MaterializedRangeList, RangeList, RangeListFromIterator};
 use crate::offsets::Offsets;
 use crate::slice::bitmask::BitmaskSlice;
 use crate::slice::nullmask::NullmaskSlice;
@@ -90,9 +90,17 @@ impl <'a, T: Slice> Slice for ListSlice<'a, T> {
 
         dst.offset(1).write_slice_ranges(self.offsets, ranges)?;
         
+        let mut value_ranges = MaterializedRangeList::from_iter(
+            ranges.iter().map(|r| {
+                let beg = self.offsets.index(r.start);
+                let end = self.offsets.index(r.end);
+                beg..end
+            })
+        );
+        
         self.values.write_ranges(
             &mut dst.shift(2), 
-            &mut ranges.expand(self.offsets)
+            &mut value_ranges
         )
     }
 
@@ -106,10 +114,14 @@ impl <'a, T: Slice> Slice for ListSlice<'a, T> {
 
         dst.offset(1).write_slice_indexes(self.offsets, indexes.clone())?;
         
-        let item_ranges = indexes.map(|i| {
+        let item_ranges = indexes.filter_map(|i| {
             let beg = self.offsets.index(i);
             let end = self.offsets.index(i + 1);
-            beg..end
+            if beg < end {
+                Some(beg..end)
+            } else {
+                None
+            }
         });
         
         self.values.write_ranges(&mut dst.shift(2), &mut RangeListFromIterator::new(item_ranges))
