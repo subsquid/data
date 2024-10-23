@@ -51,12 +51,21 @@ impl <T: ArrowPrimitiveType> PrimitiveBuilder<T> {
 
 
 impl <T: ArrowPrimitiveType> ArrayBuilder for PrimitiveBuilder<T> {
+    fn data_type(&self) -> DataType {
+        T::DATA_TYPE
+    }
+
     fn len(&self) -> usize {
         self.nulls.len()
     }
 
-    fn data_type(&self) -> DataType {
-        T::DATA_TYPE
+    fn byte_size(&self) -> usize {
+        self.nulls.byte_size() + self.values.len()
+    }
+
+    fn clear(&mut self) {
+        self.nulls.clear();
+        self.values.clear()
     }
 
     fn finish(self) -> ArrayRef {
@@ -104,5 +113,12 @@ impl <T: ArrowPrimitiveType> AsSlice for PrimitiveBuilder<T> {
             self.values.typed_data::<T::Native>(),
             self.nulls.as_slice().bitmask()
         )
+    }
+}
+
+
+impl <T: ArrowPrimitiveType> Default for PrimitiveBuilder<T> {
+    fn default() -> Self {
+        Self::new(0)
     }
 }

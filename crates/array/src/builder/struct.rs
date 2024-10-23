@@ -2,7 +2,7 @@ use crate::builder::memory_writer::MemoryWriter;
 use crate::builder::nullmask::NullmaskBuilder;
 use crate::builder::{AnyBuilder, ArrayBuilder};
 use crate::slice::{AnyStructSlice, AsSlice};
-use crate::util::{bisect_offsets, get_num_buffers, invalid_buffer_access};
+use crate::util::{bisect_offsets, build_field_offsets, invalid_buffer_access};
 use crate::writer::{ArrayWriter, Writer};
 use arrow::array::{ArrayRef, StructArray};
 use arrow::datatypes::{DataType, Fields};
@@ -19,16 +19,7 @@ pub struct AnyStructBuilder {
 
 impl AnyStructBuilder {
     pub fn new(fields: Fields) -> Self {
-        let buffers = {
-            let mut buffers = Vec::with_capacity(fields.len() + 1);
-            let mut last_offset = 1;
-            buffers.push(last_offset);
-            for f in fields.iter() {
-                last_offset += get_num_buffers(f.data_type());
-                buffers.push(last_offset)
-            }
-            buffers
-        };
+        let buffers = build_field_offsets(&fields, 1);
         
         let columns = fields.iter()
             .map(|f| AnyBuilder::new(f.data_type()))
@@ -107,12 +98,23 @@ impl AsSlice for AnyStructBuilder {
 
 
 impl ArrayBuilder for AnyStructBuilder {
+    fn data_type(&self) -> DataType {
+        DataType::Struct(self.fields.clone())
+    }
+
     fn len(&self) -> usize {
         self.nulls.len()
     }
 
-    fn data_type(&self) -> DataType {
-        DataType::Struct(self.fields.clone())
+    fn byte_size(&self) -> usize {
+        self.nulls.byte_size() + self.columns.iter().map(|c| c.byte_size()).sum::<usize>()
+    }
+
+    fn clear(&mut self) {
+        self.nulls.clear();
+        for c in self.columns.iter_mut() {
+            c.clear()
+        }
     }
 
     fn finish(self) -> ArrayRef {

@@ -252,3 +252,50 @@ impl AsSlice for dyn Array {
         self.into()
     }
 }
+
+
+impl <'a> From<BooleanSlice<'a>> for AnySlice<'a> {
+    fn from(value: BooleanSlice<'a>) -> Self {
+        AnySlice::Boolean(value)
+    }
+}
+
+
+impl <'a> From<ListSlice<'a, &'a [u8]>> for AnySlice<'a> {
+    fn from(value: ListSlice<'a, &'a [u8]>) -> Self {
+        AnySlice::Binary(value)
+    }
+}
+
+
+impl <'a> From<ListSlice<'a, AnyListItem<'a>>> for AnySlice<'a> {
+    fn from(value: ListSlice<'a, AnyListItem<'a>>) -> Self {
+        AnySlice::List(value)
+    }
+}
+
+
+impl <'a> From<AnyStructSlice<'a>> for AnySlice<'a> {
+    fn from(value: AnyStructSlice<'a>) -> Self {
+        AnySlice::Struct(value)
+    }
+}
+
+
+macro_rules! impl_from_prim {
+    ($t:ty, $v:ident) => {
+        impl <'a> From<PrimitiveSlice<'a, $t>> for AnySlice<'a> {
+            fn from(value: PrimitiveSlice<'a, $t>) -> Self {
+                AnySlice::$v(value)
+            }
+        }
+    };
+}
+impl_from_prim!(u8, UInt8);
+impl_from_prim!(u16, UInt16);
+impl_from_prim!(u32, UInt32);
+impl_from_prim!(u64, UInt64);
+impl_from_prim!(i8, Int8);
+impl_from_prim!(i16, Int16);
+impl_from_prim!(i32, Int32);
+impl_from_prim!(i64, Int64);

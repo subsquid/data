@@ -14,23 +14,23 @@ pub struct ListBuilder<T> {
     nulls: NullmaskBuilder,
     offsets: OffsetsBuilder,
     values: T,
-    field_name: Option<String>
+    field: FieldRef
 }
 
 
 impl <T: ArrayBuilder> ListBuilder<T> {
-    pub fn new(capacity: usize, values: T) -> Self {
+    pub fn new(capacity: usize, values: T, field_name: Option<String>) -> Self {
+        let field = Field::new(
+            field_name.unwrap_or_else(|| "item".to_string()),
+            values.data_type(),
+            true
+        );
         Self {
             nulls: NullmaskBuilder::new(capacity),
             offsets: OffsetsBuilder::new(capacity),
             values,
-            field_name: None
+            field: Arc::new(field)
         }
-    }
-    
-    pub fn with_field_name(mut self, field_name: impl Into<Option<String>>) -> Self {
-        self.field_name = field_name.into();
-        self
     }
     
     pub fn append(&mut self) {
@@ -49,31 +49,32 @@ impl <T: ArrayBuilder> ListBuilder<T> {
     
     pub fn finish(self) -> ListArray {
         ListArray::new(
-            self.field(), 
+            self.field, 
             self.offsets.finish(), 
             self.values.finish(), 
             self.nulls.finish()
         )
     }
-    
-    fn field(&self) -> FieldRef {
-        let field = Field::new(
-            self.field_name.as_ref().map_or("item", |n| n.as_str()).to_string(),
-            self.values.data_type(), 
-            true
-        );
-        Arc::new(field)
-    }
 }
 
 
 impl <T: ArrayBuilder> ArrayBuilder for ListBuilder<T> {
+    fn data_type(&self) -> DataType {
+        DataType::List(self.field.clone())
+    }
+
     fn len(&self) -> usize {
         self.nulls.len()
     }
 
-    fn data_type(&self) -> DataType {
-        DataType::List(self.field())
+    fn byte_size(&self) -> usize {
+        self.nulls.byte_size() + self.offsets.byte_size() + self.values.byte_size()
+    }
+
+    fn clear(&mut self) {
+        self.nulls.clear();
+        self.offsets.clear();
+        self.values.clear()
     }
 
     fn finish(self) -> ArrayRef {
@@ -82,7 +83,7 @@ impl <T: ArrayBuilder> ArrayBuilder for ListBuilder<T> {
 }
 
 
-impl <T: ArrayBuilder> ArrayWriter for ListBuilder<T> {
+impl <T: ArrayWriter<Writer=MemoryWriter>> ArrayWriter for ListBuilder<T> {
     type Writer = MemoryWriter;
 
     #[inline]
@@ -123,7 +124,7 @@ impl <T: ArrayBuilder> ArrayWriter for ListBuilder<T> {
 }
 
 
-impl <T: ArrayBuilder> AsSlice for ListBuilder<T> {
+impl <T: AsSlice + 'static> AsSlice for ListBuilder<T> {
     type Slice<'a> = ListSlice<'a, T::Slice<'a>>;
 
     fn as_slice(&self) -> Self::Slice<'_> {
@@ -132,5 +133,12 @@ impl <T: ArrayBuilder> AsSlice for ListBuilder<T> {
             self.values.as_slice(),
             self.nulls.as_slice().bitmask()
         )
+    }
+}
+
+
+impl <T: ArrayBuilder + Default> Default for ListBuilder<T> {
+    fn default() -> Self {
+        Self::new(0, T::default(), None)
     }
 }

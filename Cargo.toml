@@ -2,6 +2,7 @@
 members = [
     "crates/array",
     "crates/data",
+    "crates/datacore",
     "crates/dataset",
     "crates/node",
     "crates/polars",
@@ -27,6 +28,7 @@ tempfile = "3.13.0"
 
 [profile.release]
 debug = 1
+codegen-units = 128
 
 [profile.bench]
 debug = 1

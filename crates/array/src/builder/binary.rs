@@ -59,12 +59,22 @@ impl BinaryBuilder {
 
 
 impl ArrayBuilder for BinaryBuilder {
+    fn data_type(&self) -> DataType {
+        DataType::Binary
+    }
+
     fn len(&self) -> usize {
         self.nulls.len()
     }
 
-    fn data_type(&self) -> DataType {
-        DataType::Binary
+    fn byte_size(&self) -> usize {
+        self.nulls.byte_size() + self.offsets.byte_size() + self.values.len()
+    }
+
+    fn clear(&mut self) {
+        self.nulls.clear();
+        self.offsets.clear();
+        self.values.clear()
     }
 
     fn finish(self) -> ArrayRef {
@@ -118,6 +128,13 @@ impl AsSlice for BinaryBuilder {
             self.values.as_slice(),
             self.nulls.as_slice().bitmask()
         )
+    }
+}
+
+
+impl Default for BinaryBuilder {
+    fn default() -> Self {
+        Self::new(0, 0)
     }
 }
 
@@ -186,12 +203,23 @@ impl StringBuilder {
 
 
 impl ArrayBuilder for StringBuilder {
+    fn data_type(&self) -> DataType {
+        DataType::Utf8
+    }
+
     fn len(&self) -> usize {
         self.nulls.len()
     }
 
-    fn data_type(&self) -> DataType {
-        DataType::Utf8
+    fn byte_size(&self) -> usize {
+        self.nulls.byte_size() + self.offsets.byte_size() + self.values.len()
+    }
+
+    fn clear(&mut self) {
+        self.nulls.clear();
+        self.offsets.clear();
+        self.values.clear();
+        self.validity = None
     }
 
     fn finish(self) -> ArrayRef {
@@ -251,5 +279,12 @@ impl AsSlice for StringBuilder {
             self.values.as_slice(),
             self.nulls.as_slice().bitmask()
         )
+    }
+}
+
+
+impl Default for StringBuilder {
+    fn default() -> Self {
+        Self::new(0, 0)
     }
 }

@@ -7,69 +7,76 @@ use arrow_buffer::NullBuffer;
 
 
 pub struct NullmaskBuilder {
-    nulls: Option<BitmaskBuilder>,
+    nulls: BitmaskBuilder,
     len: usize,
-    capacity: usize
+    capacity: usize,
+    has_nulls: bool
 }
 
 
 impl NullmaskBuilder {
     pub fn new(capacity: usize) -> Self {
         Self {
-            nulls: None,
+            nulls: BitmaskBuilder::new(0),
             len: 0,
-            capacity
+            capacity,
+            has_nulls: false
         }
+    }
+
+    pub fn byte_size(&self) -> usize {
+        self.nulls.bytes_size()
     }
     
     pub fn len(&self) -> usize {
-        self.len
+        if self.has_nulls {
+            self.nulls.len()
+        } else {
+            self.len
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.nulls.clear();
+        self.len = 0;
+        self.has_nulls = false
     }
     
     pub fn append_slice(&mut self, data: &[u8], offset: usize, len: usize) {
-        if let Some(nulls) = self.nulls.as_mut() {
-            nulls.append_slice(data, offset, len);
-            self.len = nulls.len()
+        if self.has_nulls {
+            self.nulls.append_slice(data, offset, len);
         } else {
             if bit_tools::all_valid(data, offset, len) {
                 self.len += len
             } else {
-                let mut nulls = self.make_nulls(len);
-                nulls.append_slice(data, offset, len);
-                self.len = nulls.len();
-                self.nulls = Some(nulls);
+                self.init_nulls(len);
+                self.nulls.append_slice(data, offset, len);
             }
         }
     }
 
     pub fn append_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item=usize> + Clone) {
-        if let Some(nulls) = self.nulls.as_mut() {
-            nulls.append_slice_indexes(data, indexes);
-            self.len = nulls.len()
+        if self.has_nulls {
+            self.nulls.append_slice_indexes(data, indexes);
         } else {
             if let Some(len) = bit_tools::all_indexes_valid(data, indexes.clone()) {
                 self.len += len
             } else {
-                let mut nulls = self.make_nulls(indexes.size_hint().0);
-                nulls.append_slice_indexes(data, indexes);
-                self.len = nulls.len();
-                self.nulls = Some(nulls)
+                self.init_nulls(indexes.size_hint().0);
+                self.nulls.append_slice_indexes(data, indexes);
             }
         }
     }
 
     pub fn append_slice_ranges(&mut self, data: &[u8], ranges: &mut impl RangeList) {
-        if let Some(nulls) = self.nulls.as_mut() {
-            nulls.append_slice_ranges(data, ranges);
-            self.len = nulls.len()
+        if self.has_nulls {
+            self.nulls.append_slice_ranges(data, ranges);
         } else {
             if let Some(len) = bit_tools::all_ranges_valid(data, ranges.iter()) {
                 self.len += len;
             } else {
-                let mut nulls = self.make_nulls(ranges.span());
-                nulls.append_slice_ranges(data, ranges);
-                self.len = nulls.len();
-                self.nulls = Some(nulls)
+                self.init_nulls(ranges.span());
+                self.nulls.append_slice_ranges(data, ranges);
             }
         }
     }
@@ -78,49 +85,49 @@ impl NullmaskBuilder {
         if count == 0 {
             return;
         }
-        match (self.nulls.as_mut(), val) {
-            (Some(nulls), val) => nulls.append_many(val, count),
-            (None, true) => {
+        match (self.has_nulls, val) {
+            (true, val) => self.nulls.append_many(val, count),
+            (false, true) => {
                 self.len += count
             }, 
-            (None, false) => {
-                let mut nulls = self.make_nulls(count);
-                nulls.append_many(false, count);
-                self.len = nulls.len();
-                self.nulls = Some(nulls);
-            }, 
+            (false, false) => {
+                self.init_nulls(count);
+                self.nulls.append_many(false, count)
+            }
         }
     }
     
     #[inline]
     pub fn append(&mut self, val: bool) {
-        match (self.nulls.as_mut(), val) { 
-            (Some(nulls), val) => nulls.append(val),
-            (None, true) => {
+        match (self.has_nulls, val) { 
+            (true, val) => self.nulls.append(val),
+            (false, true) => {
                 self.len += 1;
             },
-            (None, false) => {
-                let mut nulls = self.make_nulls(1);
-                nulls.append(false);
-                self.len += 1;
-                self.nulls = Some(nulls);
-            },
+            (false, false) => {
+                self.init_nulls(1);
+                self.nulls.append(false)
+            }
         }
     }
     
-    fn make_nulls(&self, additional: usize) -> BitmaskBuilder {
+    fn init_nulls(&mut self, additional: usize) {
         let cap = std::cmp::max(self.capacity, self.len + additional);
-        let mut nulls = BitmaskBuilder::new(cap);
-        nulls.append_many(true, self.len);
-        nulls
+        self.nulls.reserve(cap);
+        self.nulls.append_many(true, self.len);
+        self.has_nulls = true
     }
     
     pub fn finish(self) -> Option<NullBuffer> {
-        self.nulls.map(|nulls| NullBuffer::new(nulls.finish()))
+        self.has_nulls.then(|| NullBuffer::new(self.nulls.finish()))
     }
     
     pub fn as_slice(&self) -> NullmaskSlice<'_> {
-        NullmaskSlice::new(self.len, self.nulls.as_ref().map(|b| b.as_slice()))
+        if self.has_nulls {
+            NullmaskSlice::new(self.nulls.len(), Some(self.nulls.as_slice()))
+        } else {
+            NullmaskSlice::new(self.len, None)
+        }
     }
 }
 

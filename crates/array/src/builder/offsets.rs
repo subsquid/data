@@ -1,7 +1,7 @@
+use crate::index::RangeList;
 use crate::offsets::Offsets;
 use crate::writer::OffsetsWriter;
 use arrow_buffer::{MutableBuffer, OffsetBuffer, ScalarBuffer};
-use crate::index::RangeList;
 
 
 pub struct OffsetsBuilder {
@@ -18,6 +18,15 @@ impl OffsetsBuilder {
             buffer,
             last_offset: 0
         }
+    }
+    
+    pub fn byte_size(&self) -> usize {
+        self.buffer.len()
+    }
+    
+    pub fn clear(&mut self) {
+        self.buffer.truncate(size_of::<i32>());
+        self.last_offset = 0
     }
 
     pub fn append_slice(&mut self, offsets: Offsets<'_>) {

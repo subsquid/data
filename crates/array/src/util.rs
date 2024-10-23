@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use arrow::datatypes::DataType;
+use arrow::datatypes::{DataType, Fields};
 
 
 #[inline]
@@ -71,7 +71,7 @@ pub(crate) mod bit_tools {
 }
 
 
-pub(crate) fn bisect_offsets<I: Ord + Copy>(offsets: &[I], idx: I) -> Option<usize> {
+pub fn bisect_offsets<I: Ord + Copy>(offsets: &[I], idx: I) -> Option<usize> {
     let mut beg = 0;
     let mut end = offsets.len() - 1;
     while end - beg > 1 { 
@@ -94,7 +94,19 @@ pub(crate) fn bisect_offsets<I: Ord + Copy>(offsets: &[I], idx: I) -> Option<usi
 }
 
 
-pub(crate) fn get_num_buffers(data_type: &DataType) -> usize {
+pub fn build_field_offsets(fields: &Fields, start_pos: usize) -> Vec<usize> {
+    let mut last_offset = start_pos;
+    let mut offsets = Vec::with_capacity(fields.len() + 1);
+    offsets.push(last_offset);
+    for f in fields.iter() {
+        last_offset += get_num_buffers(f.data_type());
+        offsets.push(last_offset)
+    }
+    offsets
+}
+
+
+pub fn get_num_buffers(data_type: &DataType) -> usize {
     match data_type {
         DataType::Boolean |
         DataType::Int8 |

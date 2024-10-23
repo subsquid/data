@@ -1,13 +1,13 @@
-use std::sync::Arc;
 use crate::builder::bitmask::BitmaskBuilder;
 use crate::builder::memory_writer::MemoryWriter;
 use crate::builder::nullmask::NullmaskBuilder;
+use crate::builder::ArrayBuilder;
+use crate::slice::{AsSlice, BooleanSlice};
 use crate::util::invalid_buffer_access;
 use crate::writer::{ArrayWriter, Writer};
 use arrow::array::{ArrayRef, BooleanArray};
 use arrow::datatypes::DataType;
-use crate::builder::ArrayBuilder;
-use crate::slice::{AsSlice, BooleanSlice};
+use std::sync::Arc;
 
 
 pub struct BooleanBuilder {
@@ -45,12 +45,21 @@ impl BooleanBuilder {
 
 
 impl ArrayBuilder for BooleanBuilder {
+    fn data_type(&self) -> DataType {
+        DataType::Boolean
+    }
+
     fn len(&self) -> usize {
         self.nulls.len()
     }
 
-    fn data_type(&self) -> DataType {
-        DataType::Boolean
+    fn byte_size(&self) -> usize {
+        self.nulls.byte_size() + self.values.bytes_size()
+    }
+
+    fn clear(&mut self) {
+        self.nulls.clear();
+        self.values.clear()
     }
 
     fn finish(self) -> ArrayRef {
@@ -95,5 +104,12 @@ impl AsSlice for BooleanBuilder {
 
     fn as_slice(&self) -> Self::Slice<'_> {
         BooleanSlice::with_nullmask(self.values.as_slice(), self.nulls.as_slice())
+    }
+}
+
+
+impl Default for BooleanBuilder {
+    fn default() -> Self {
+        Self::new(0)
     }
 }

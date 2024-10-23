@@ -121,6 +121,26 @@ impl AsSlice for AnyBuilder {
 
 
 impl ArrayBuilder for AnyBuilder {
+    fn data_type(&self) -> DataType {
+        match self {
+            AnyBuilder::Boolean(b) => b.data_type(),
+            AnyBuilder::Int8(b) => b.data_type(),
+            AnyBuilder::Int16(b) => b.data_type(),
+            AnyBuilder::Int32(b) => b.data_type(),
+            AnyBuilder::Int64(b) => b.data_type(),
+            AnyBuilder::UInt8(b) => b.data_type(),
+            AnyBuilder::UInt16(b) => b.data_type(),
+            AnyBuilder::UInt32(b) => b.data_type(),
+            AnyBuilder::UInt64(b) => b.data_type(),
+            AnyBuilder::TimestampSecond(b) => b.data_type(),
+            AnyBuilder::TimestampMillisecond(b) => b.data_type(),
+            AnyBuilder::Binary(b) => b.data_type(),
+            AnyBuilder::String(b) => b.data_type(),
+            AnyBuilder::List(b) => b.data_type(),
+            AnyBuilder::Struct(b) => b.data_type(),
+        }
+    }
+
     fn len(&self) -> usize {
         match self {
             AnyBuilder::Boolean(b) => b.len(),
@@ -141,23 +161,43 @@ impl ArrayBuilder for AnyBuilder {
         }
     }
 
-    fn data_type(&self) -> DataType {
+    fn byte_size(&self) -> usize {
         match self {
-            AnyBuilder::Boolean(b) => b.data_type(),
-            AnyBuilder::Int8(b) => b.data_type(),
-            AnyBuilder::Int16(b) => b.data_type(),
-            AnyBuilder::Int32(b) => b.data_type(),
-            AnyBuilder::Int64(b) => b.data_type(),
-            AnyBuilder::UInt8(b) => b.data_type(),
-            AnyBuilder::UInt16(b) => b.data_type(),
-            AnyBuilder::UInt32(b) => b.data_type(),
-            AnyBuilder::UInt64(b) => b.data_type(),
-            AnyBuilder::TimestampSecond(b) => b.data_type(),
-            AnyBuilder::TimestampMillisecond(b) => b.data_type(),
-            AnyBuilder::Binary(b) => b.data_type(),
-            AnyBuilder::String(b) => b.data_type(),
-            AnyBuilder::List(b) => b.data_type(),
-            AnyBuilder::Struct(b) => b.data_type(),
+            AnyBuilder::Boolean(b) => b.byte_size(),
+            AnyBuilder::Int8(b) => b.byte_size(),
+            AnyBuilder::Int16(b) => b.byte_size(),
+            AnyBuilder::Int32(b) => b.byte_size(),
+            AnyBuilder::Int64(b) => b.byte_size(),
+            AnyBuilder::UInt8(b) => b.byte_size(),
+            AnyBuilder::UInt16(b) => b.byte_size(),
+            AnyBuilder::UInt32(b) => b.byte_size(),
+            AnyBuilder::UInt64(b) => b.byte_size(),
+            AnyBuilder::TimestampSecond(b) => b.byte_size(),
+            AnyBuilder::TimestampMillisecond(b) => b.byte_size(),
+            AnyBuilder::Binary(b) => b.byte_size(),
+            AnyBuilder::String(b) => b.byte_size(),
+            AnyBuilder::List(b) => b.byte_size(),
+            AnyBuilder::Struct(b) => b.byte_size(),
+        }
+    }
+
+    fn clear(&mut self) {
+        match self {
+            AnyBuilder::Boolean(b) => b.clear(),
+            AnyBuilder::Int8(b) => b.clear(),
+            AnyBuilder::Int16(b) => b.clear(),
+            AnyBuilder::Int32(b) => b.clear(),
+            AnyBuilder::Int64(b) => b.clear(),
+            AnyBuilder::UInt8(b) => b.clear(),
+            AnyBuilder::UInt16(b) => b.clear(),
+            AnyBuilder::UInt32(b) => b.clear(),
+            AnyBuilder::UInt64(b) => b.clear(),
+            AnyBuilder::TimestampSecond(b) => b.clear(),
+            AnyBuilder::TimestampMillisecond(b) => b.clear(),
+            AnyBuilder::Binary(b) => b.clear(),
+            AnyBuilder::String(b) => b.clear(),
+            AnyBuilder::List(b) => b.clear(),
+            AnyBuilder::Struct(b) => b.clear(),
         }
     }
 
@@ -280,9 +320,11 @@ impl AnyBuilder {
             DataType::Binary => BinaryBuilder::new(0, 0).into(),
             DataType::Utf8 => StringBuilder::new(0, 0).into(),
             DataType::List(f) => {
-                ListBuilder::new(0, Self::new(f.data_type()))
-                    .with_field_name(f.name().to_string())
-                    .into()
+                ListBuilder::new(
+                    0, 
+                    Self::new(f.data_type()), 
+                    Some(f.name().to_string())
+                ).into()
             },
             DataType::Struct(fields) => AnyStructBuilder::new(fields.iter().cloned().collect()).into(),
             ty => panic!("unsupported arrow type - {}", ty)

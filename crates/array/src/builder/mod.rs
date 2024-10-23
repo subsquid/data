@@ -1,8 +1,5 @@
 use arrow::array::ArrayRef;
 use arrow::datatypes::DataType;
-use crate::builder::memory_writer::MemoryWriter;
-use crate::slice::AsSlice;
-use crate::writer::ArrayWriter;
 
 
 mod binary;
@@ -26,10 +23,14 @@ pub use primitive::*;
 pub use r#struct::*;
 
 
-pub trait ArrayBuilder: ArrayWriter<Writer=MemoryWriter> + AsSlice + 'static {
-    fn len(&self) -> usize;
-
+pub trait ArrayBuilder: Sized {
     fn data_type(&self) -> DataType;
+    
+    fn len(&self) -> usize;
+    
+    fn byte_size(&self) -> usize;
+    
+    fn clear(&mut self);
 
     fn finish(self) -> ArrayRef;
     

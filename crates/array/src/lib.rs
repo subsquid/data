@@ -1,5 +1,5 @@
 mod chunking;
-mod util;
+pub mod util;
 mod visitor;
 pub mod access;
 pub mod builder;

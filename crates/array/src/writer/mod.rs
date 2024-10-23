@@ -30,7 +30,7 @@ pub trait BitmaskWriter {
 
 pub trait NativeWriter {
     fn write<T: ToByteSlice>(&mut self, value: T) -> anyhow::Result<()>;
-    
+
     fn write_slice<T: ArrowNativeType>(&mut self, values: &[T]) -> anyhow::Result<()>;
 
     fn write_slice_indexes<T: ArrowNativeType>(

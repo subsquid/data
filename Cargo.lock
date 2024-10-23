@@ -3079,6 +3079,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqd-datacore"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "paste",
+ "sqd-array",
+ "sqd-dataset",
+]
+
+[[package]]
 name = "sqd-dataset"
 version = "0.1.0"
 

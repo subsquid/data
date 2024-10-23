@@ -18,10 +18,23 @@ impl BitmaskBuilder {
         }
     }
 
+    pub fn bytes_size(&self) -> usize {
+        bit_util::ceil(self.len, 8)
+    }
+
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        self.len = 0
+    }
+    
+    #[inline]
+    pub fn reserve(&mut self, additional: usize) {
+        let new_byte_len = bit_util::ceil(self.len + additional, 8);
+        self.buffer.resize(new_byte_len, 0)
+    }
+
     pub fn append_slice(&mut self, data: &[u8], offset: usize, len: usize) {
-        let new_byte_len = bit_util::ceil(self.len + len, 8);
-        
-        self.buffer.resize(new_byte_len, 0);
+        self.reserve(len);
 
         bit_mask::set_bits(
             self.buffer.as_slice_mut(),
@@ -36,9 +49,7 @@ impl BitmaskBuilder {
 
     pub fn append_slice_indexes(&mut self, data: &[u8], mut indexes: impl Iterator<Item=usize>) {
         let (min_bit_len, _) = indexes.size_hint();
-        let min_byte_len = bit_util::ceil(self.len + min_bit_len, 8);
-        
-        self.buffer.resize(min_byte_len, 0);
+        self.reserve(min_bit_len);
 
         while self.len < self.buffer.len() * 8 {
             if let Some(i) = indexes.next() {
@@ -57,9 +68,7 @@ impl BitmaskBuilder {
     }
     
     pub fn append_slice_ranges(&mut self, data: &[u8], ranges: &mut impl RangeList) {
-        let new_byte_len = bit_util::ceil(self.len + ranges.span(), 8);
-        
-        self.buffer.resize(new_byte_len, 0);
+        self.reserve(ranges.span());
         
         for r in ranges.iter() {
             bit_mask::set_bits(
@@ -101,13 +110,11 @@ impl BitmaskBuilder {
     }
 
     pub fn append(&mut self, val: bool) {
-        let new_len = self.len + 1;
-        let new_len_bytes = bit_util::ceil(new_len, 8);
-        self.buffer.resize(new_len_bytes, 0);
+        self.reserve(1);
         if val {
             unsafe { bit_util::set_bit_raw(self.buffer.as_mut_ptr(), self.len) };
         }
-        self.len = new_len
+        self.len += 1
     }
 
     pub fn data(&self) -> &[u8] {

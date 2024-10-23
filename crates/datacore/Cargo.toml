@@ -1,0 +1,10 @@
+[package]
+name = "sqd-datacore"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arrow = { workspace = true }
+paste = "1.0.15"
+sqd-array = { path = "../array" }
+sqd-dataset = { path = "../dataset" }
