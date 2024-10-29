@@ -1,5 +1,4 @@
 use crate::chunking::ChunkRange;
-use crate::reader::chunked::ChunkedArrayReader;
 use crate::writer::{ArrayWriter, BitmaskWriter, NativeWriter, OffsetsWriter};
 use arrow_buffer::ArrowNativeType;
 use std::ops::Range;
@@ -85,9 +84,9 @@ pub trait ArrayReader {
     ) -> anyhow::Result<()>;
 
     fn read_chunk_ranges(
-        chunks: &mut impl ChunkedArrayReader<ArrayReader=Self>,
+        chunks: &mut (impl ChunkedArrayReader<ArrayReader=Self> + ?Sized),
         dst: &mut impl ArrayWriter,
-        ranges: impl Iterator<Item = ChunkRange> + Clone
+        ranges: impl Iterator<Item=ChunkRange> + Clone
     ) -> anyhow::Result<()>;
 }
 

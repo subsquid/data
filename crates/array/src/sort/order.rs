@@ -51,8 +51,8 @@ impl <T: Access<Value: Ord>> Order<usize> for T {
     fn compare(&self, a: usize, b: usize) -> Ordering {
         match (self.is_valid(a), self.is_valid(b)) {
             (true, true) => self.get(a).cmp(&self.get(b)),
-            (true, false) => Ordering::Greater,
-            (false, true) => Ordering::Less,
+            (true, false) => Ordering::Less,
+            (false, true) => Ordering::Greater,
             (false, false) => Ordering::Equal
         }
     }

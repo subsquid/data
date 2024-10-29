@@ -105,7 +105,7 @@ impl <R: Reader> ArrayReader for AnyReader<R> {
     }
 
     fn read_chunk_ranges(
-        chunks: &mut impl ChunkedArrayReader<ArrayReader=Self>,
+        chunks: &mut (impl ChunkedArrayReader<ArrayReader=Self> + ?Sized),
         dst: &mut impl ArrayWriter,
         mut ranges: impl Iterator<Item=ChunkRange> + Clone
     ) -> anyhow::Result<()>

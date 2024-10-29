@@ -4,7 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = { workspace = true }
 arrow = { workspace = true }
-paste = "1.0.15"
+parking_lot = { workspace = true }
 sqd-array = { path = "../array" }
 sqd-dataset = { path = "../dataset" }
+tempfile = { workspace = true }
+
+[dev-dependencies]
+parquet = { workspace = true }

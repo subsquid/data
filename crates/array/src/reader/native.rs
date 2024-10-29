@@ -35,14 +35,17 @@ impl <R: NativeReader> ArrayReader for NativeArrayReader<R> {
     }
 
     fn read_chunk_ranges(
-        chunks: &mut impl ChunkedArrayReader<ArrayReader=Self>, 
+        chunks: &mut (impl ChunkedArrayReader<ArrayReader=Self> + ?Sized), 
         dst: &mut impl ArrayWriter, 
         ranges: impl Iterator<Item=ChunkRange> + Clone
     ) -> anyhow::Result<()> 
     {
         let dst = dst.native(0);
         for r in ranges {
-            chunks.chunk(r.chunk).native_reader.read_slice(dst, r.offset, r.len)?
+            chunks
+                .chunk(r.chunk_index())
+                .native_reader
+                .read_slice(dst, r.offset_index(), r.len_index())?
         }
         Ok(())
     }

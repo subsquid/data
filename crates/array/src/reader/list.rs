@@ -45,7 +45,7 @@ impl <R: Reader, T: ArrayReader> ArrayReader for ListReader<R, T> {
     }
 
     fn read_chunk_ranges(
-        chunks: &mut impl ChunkedArrayReader<ArrayReader=Self>, 
+        chunks: &mut (impl ChunkedArrayReader<ArrayReader=Self> + ?Sized), 
         dst: &mut impl ArrayWriter, 
         ranges: impl Iterator<Item=ChunkRange> + Clone
     ) -> anyhow::Result<()> 
@@ -53,19 +53,26 @@ impl <R: Reader, T: ArrayReader> ArrayReader for ListReader<R, T> {
         let nullmask_dst = dst.nullmask(0);
         let mut span = 0;
         for r in ranges.clone() {
-            chunks.chunk(r.chunk).nulls.read_slice(nullmask_dst, r.offset, r.len)?;
+            chunks
+                .chunk(r.chunk_index())
+                .nulls
+                .read_slice(nullmask_dst, r.offset_index(), r.len_index())?;
             span += 1;
         }
 
         let offsets_dst = dst.offset(1);
         let mut value_ranges = Vec::with_capacity(span);
         for r in ranges {
-            let value_range = chunks.chunk(r.chunk).offsets.read_slice(offsets_dst, r.offset, r.len)?;
+            let value_range = chunks
+                .chunk(r.chunk_index())
+                .offsets
+                .read_slice(offsets_dst, r.offset_index(), r.len_index())?;
+            
             if !value_range.is_empty() {
                 value_ranges.push(ChunkRange {
                     chunk: r.chunk,
-                    offset: value_range.start,
-                    len: value_range.len()
+                    offset: value_range.start as u32,
+                    len: value_range.len() as u32
                 })
             }
         }

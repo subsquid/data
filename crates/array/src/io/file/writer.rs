@@ -1,17 +1,15 @@
+use crate::io::file::ArrayFile;
 use crate::io::writer::{BitmaskIOWriter, NativeIOWriter, NullmaskIOWriter, OffsetsIOWriter};
-use crate::writer::{AnyArrayWriter, AnyWriter, Writer, WriterFactory};
+use crate::writer::{AnyArrayWriter, AnyWriter, ArrayWriter, Writer, WriterFactory};
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::marker::PhantomData;
 use std::path::Path;
 
 
-pub struct FileWriter<'a> {
-    phantom_data: PhantomData<&'a ()>
-}
+pub struct FileWriter;
 
 
-impl <'a> Writer for FileWriter<'a> {
+impl Writer for FileWriter {
     type Bitmask = BitmaskIOWriter<BufWriter<File>>;
     type Nullmask = NullmaskIOWriter<BufWriter<File>>;
     type Native = NativeIOWriter<BufWriter<File>>;
@@ -19,23 +17,47 @@ impl <'a> Writer for FileWriter<'a> {
 }
 
 
-pub type ArrayFileWriter<'a> = AnyArrayWriter<FileWriter<'a>>;
+pub struct ArrayFileWriter<F> {
+    file: ArrayFile<F>,
+    writer: AnyArrayWriter<FileWriter>
+}
 
 
-pub(super) struct FileWriterFactory<'a, F> {
+impl <F: AsRef<Path>> ArrayFileWriter<F> {
+    pub fn new(file: ArrayFile<F>) -> anyhow::Result<Self> {
+        let mut factory = FileWriterFactory {
+            buffers: &file.buffers,
+            pos: 0
+        };
+        let writer = AnyArrayWriter::from_factory(&mut factory, &file.data_type)?;
+        Ok(Self {
+            file,
+            writer
+        })
+    }
+    
+    pub fn finish(self) -> anyhow::Result<ArrayFile<F>> {
+        for buf in self.writer.into_inner() {
+            let mut file = match buf {
+                AnyWriter::Bitmask(w) => w.finish()?,
+                AnyWriter::Nullmask(w) => w.finish()?,
+                AnyWriter::Native(w) => w.into_write(),
+                AnyWriter::Offsets(w) => w.finish()?,
+            };
+            file.flush()?;
+        }
+        Ok(self.file)
+    }
+}
+
+
+struct FileWriterFactory<'a, F> {
     buffers: &'a [F],
     pos: usize
 }
 
 
 impl <'a, F: AsRef<Path>> FileWriterFactory<'a, F> {
-    pub fn new(buffers: &'a [F]) -> Self {
-        Self { 
-            buffers, 
-            pos: 0 
-        }
-    }
-    
     fn next_file(&mut self) -> anyhow::Result<BufWriter<File>> {
         let file = File::options().write(true).open(&self.buffers[self.pos])?;
         self.pos += 1;
@@ -45,7 +67,7 @@ impl <'a, F: AsRef<Path>> FileWriterFactory<'a, F> {
 
 
 impl <'a, F: AsRef<Path>> WriterFactory for FileWriterFactory<'a, F> {
-    type Writer = FileWriter<'a>;
+    type Writer = FileWriter;
 
     fn nullmask(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Nullmask> {
         let file = self.next_file()?;
@@ -69,17 +91,26 @@ impl <'a, F: AsRef<Path>> WriterFactory for FileWriterFactory<'a, F> {
 }
 
 
-impl<'a> ArrayFileWriter<'a> {
-    pub fn finish(self) -> anyhow::Result<()> {
-        for buf in self.into_inner() {
-            let mut file = match buf {
-                AnyWriter::Bitmask(w) => w.finish()?,
-                AnyWriter::Nullmask(w) => w.finish()?,
-                AnyWriter::Native(w) => w.into_write(),
-                AnyWriter::Offsets(w) => w.finish()?,
-            };
-            file.flush()?;
-        }
-        Ok(())
+impl <F> ArrayWriter for ArrayFileWriter<F> {
+    type Writer = FileWriter;
+
+    #[inline]
+    fn bitmask(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Bitmask {
+        self.writer.bitmask(buf)
+    }
+
+    #[inline]
+    fn nullmask(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Nullmask {
+        self.writer.nullmask(buf)
+    }
+
+    #[inline]
+    fn native(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Native {
+        self.writer.native(buf)
+    }
+
+    #[inline]
+    fn offset(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Offset {
+        self.writer.offset(buf)
     }
 }

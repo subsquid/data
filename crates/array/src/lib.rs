@@ -1,4 +1,4 @@
-mod chunking;
+pub mod chunking;
 pub mod util;
 mod visitor;
 pub mod access;

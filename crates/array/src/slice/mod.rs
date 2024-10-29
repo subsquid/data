@@ -1,3 +1,8 @@
+use crate::index::RangeList;
+use crate::writer::ArrayWriter;
+use std::ops::Range;
+
+
 mod any;
 pub mod bitmask;
 mod boolean;
@@ -8,14 +13,11 @@ mod primitive;
 mod r#struct;
 
 
-use crate::index::RangeList;
-use crate::writer::ArrayWriter;
 pub use any::*;
 pub use boolean::*;
 pub use list::*;
 pub use primitive::*;
 pub use r#struct::*;
-use std::ops::Range;
 
 
 pub trait Slice: Clone {

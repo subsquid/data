@@ -54,7 +54,7 @@ macro_rules! struct_builder {
                     self._fields,
                     vec![
                         $(
-                        sqd_array::builder::ArrayBuilder::finish(self.$field) ,
+                        sqd_array::builder::ArrayBuilder::finish(self.$field),
                         )*
                     ],
                     self._nulls.finish()

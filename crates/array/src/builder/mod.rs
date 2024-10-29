@@ -13,6 +13,7 @@ pub mod offsets;
 mod primitive;
 mod any;
 mod r#struct;
+mod table;
 
 
 pub use any::*;
@@ -21,6 +22,7 @@ pub use boolean::*;
 pub use list::*;
 pub use primitive::*;
 pub use r#struct::*;
+pub use table::*;
 
 
 pub trait ArrayBuilder: Sized {

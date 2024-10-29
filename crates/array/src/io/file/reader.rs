@@ -2,19 +2,16 @@ use crate::io::reader::{BitmaskIOReader, IOByteReader, NativeIOReader, NullmaskI
 use crate::reader::{AnyReader, Reader, ReaderFactory};
 use arrow_buffer::ArrowNativeType;
 use std::fs::File;
-use std::marker::PhantomData;
 use std::path::Path;
 
 
 pub type FileByteReader = IOByteReader<File>;
 
 
-pub struct FileReader<'a> {
-    phantom_data: PhantomData<&'a ()>
-}
+pub struct FileReader;
 
 
-impl <'a> Reader for FileReader<'a> {
+impl Reader for FileReader {
     type Nullmask = NullmaskIOReader<FileByteReader>;
     type Bitmask = BitmaskIOReader<FileByteReader>;
     type Native = NativeIOReader<FileByteReader>;
@@ -22,7 +19,7 @@ impl <'a> Reader for FileReader<'a> {
 }
 
 
-pub type ArrayFileReader<'a> = AnyReader<FileReader<'a>>;
+pub type ArrayFileReader = AnyReader<FileReader>;
 
 
 pub(super) struct FileReaderFactory<'a, F> {
@@ -50,7 +47,7 @@ impl <'a, F: AsRef<Path>> FileReaderFactory<'a, F> {
 
 
 impl <'a, F: AsRef<Path>> ReaderFactory for FileReaderFactory<'a, F> {
-    type Reader = FileReader<'a>;
+    type Reader = FileReader;
 
     fn nullmask(&mut self) -> anyhow::Result<<Self::Reader as Reader>::Nullmask> {
         let byte_reader = self.next_file()?;

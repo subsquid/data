@@ -72,12 +72,11 @@ fn test_array_file_write_read() -> anyhow::Result<()> {
     let records = load_parquet_fixture("solana-instructions.parquet")?;
     let src = StructArray::from(records);
     
-    let mut file = ArrayFile::new_temporary(src.data_type().clone())?;
-    {
-        let mut writer = file.write()?;
+    let file = {
+        let mut writer = ArrayFile::new_temporary(src.data_type().clone())?.write()?;
         src.as_slice().write(&mut writer)?;
-        writer.finish()?;
-    }
+        writer.finish()?
+    };
     
     let result = {
         let mut builder = AnyBuilder::new(src.data_type());

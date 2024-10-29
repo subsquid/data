@@ -52,7 +52,7 @@ impl <R: Reader> ArrayReader for StructReader<R> {
     }
 
     fn read_chunk_ranges(
-        chunks: &mut impl ChunkedArrayReader<ArrayReader=Self>,
+        chunks: &mut (impl ChunkedArrayReader<ArrayReader=Self> + ?Sized),
         dst: &mut impl ArrayWriter,
         mut ranges: impl Iterator<Item=ChunkRange> + Clone
     ) -> anyhow::Result<()>
@@ -69,7 +69,10 @@ impl <R: Reader> ArrayReader for StructReader<R> {
         
         let nullmask_dst = dst.nullmask(0);
         for r in ranges.clone() {
-            chunks.chunk(r.chunk).nulls.read_slice(nullmask_dst, r.offset, r.len)?
+            chunks
+                .chunk(r.chunk_index())
+                .nulls
+                .read_slice(nullmask_dst, r.offset_index(), r.len_index())?
         }
 
         let mut shift = 1;

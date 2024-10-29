@@ -1,7 +1,7 @@
 use crate::builder::memory_writer::MemoryWriter;
 use crate::builder::r#struct::AnyStructBuilder;
 use crate::builder::{ArrayBuilder, BinaryBuilder, BooleanBuilder, ListBuilder, PrimitiveBuilder, StringBuilder};
-use crate::slice::{AnySlice, AsSlice};
+use crate::slice::{AnyListItem, AnySlice, AsSlice, ListSlice};
 use crate::writer::{ArrayWriter, Writer};
 use arrow::array::ArrayRef;
 use arrow::datatypes::{DataType, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit, TimestampMillisecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
@@ -115,7 +115,30 @@ impl AsSlice for AnyBuilder {
     type Slice<'a> = AnySlice<'a>;
 
     fn as_slice(&self) -> Self::Slice<'_> {
-        todo!()
+        match self {
+            AnyBuilder::Boolean(b) => b.as_slice().into(),
+            AnyBuilder::Int8(b) => b.as_slice().into(),
+            AnyBuilder::Int16(b) => b.as_slice().into(),
+            AnyBuilder::Int32(b) => b.as_slice().into(),
+            AnyBuilder::Int64(b) => b.as_slice().into(),
+            AnyBuilder::UInt8(b) => b.as_slice().into(),
+            AnyBuilder::UInt16(b) => b.as_slice().into(),
+            AnyBuilder::UInt32(b) => b.as_slice().into(),
+            AnyBuilder::UInt64(b) => b.as_slice().into(),
+            AnyBuilder::TimestampSecond(b) => b.as_slice().into(),
+            AnyBuilder::TimestampMillisecond(b) => b.as_slice().into(),
+            AnyBuilder::Binary(b) => b.as_slice().into(),
+            AnyBuilder::String(b) => b.as_slice().into(),
+            AnyBuilder::List(b) => {
+                let slice = b.as_slice();
+                ListSlice::new(
+                    slice.offsets(), 
+                    AnyListItem::new(slice.values().clone()), 
+                    slice.nulls().bitmask()
+                ).into()
+            },
+            AnyBuilder::Struct(b) => b.as_slice().into(),
+        }
     }
 }
 

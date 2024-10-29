@@ -1,5 +1,5 @@
 use crate::access::Access;
-use crate::slice::{AnySlice, AnyStructSlice, ListSlice, Slice};
+use crate::slice::{AnySlice, ListSlice, Slice, AnyTableSlice};
 use crate::sort::order::{IgnoreNulls, Order, OrderList, OrderPair};
 
 
@@ -73,13 +73,10 @@ pub fn sort_to_indexes(array: &AnySlice<'_>) -> Vec<usize> {
 
 
 pub fn sort_table_to_indexes(
-    table: &AnyStructSlice<'_>,
+    table: &AnyTableSlice<'_>,
     columns: &[usize]
 ) -> Vec<usize>
 {
-    assert!(columns.len() > 0);
-    assert!(!table.has_nulls());
-
     macro_rules! col {
         ($i:expr) => {
             table.column(columns[$i])
@@ -113,7 +110,7 @@ fn sort_2(indexes: &mut Vec<usize>, c1: AnySlice<'_>, c2: AnySlice<'_>) {
 }
 
 
-fn sort_many(indexes: &mut Vec<usize>, table: &AnyStructSlice<'_>, columns: &[usize]) {
+fn sort_many(indexes: &mut Vec<usize>, table: &AnyTableSlice<'_>, columns: &[usize]) {
     let order2 = OrderList::new(
         columns[1..].iter().copied()
             .map(|i| to_dyn_order(table.column(i)))

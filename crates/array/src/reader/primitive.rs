@@ -40,19 +40,25 @@ impl <R: Reader> ArrayReader for PrimitiveReader<R> {
     }
 
     fn read_chunk_ranges(
-        chunks: &mut impl ChunkedArrayReader<ArrayReader=Self>, 
+        chunks: &mut (impl ChunkedArrayReader<ArrayReader=Self> + ?Sized), 
         dst: &mut impl ArrayWriter, 
         ranges: impl Iterator<Item=ChunkRange> + Clone
     ) -> anyhow::Result<()> 
     {
         let nullmask_dst = dst.nullmask(0);
         for r in ranges.clone() {
-            chunks.chunk(r.chunk).nulls.read_slice(nullmask_dst, r.offset, r.len)?
+            chunks
+                .chunk(r.chunk_index())
+                .nulls
+                .read_slice(nullmask_dst, r.offset_index(), r.len_index())?
         }
         
         let native_dst = dst.native(1);
         for r in ranges {
-            chunks.chunk(r.chunk).values.read_slice(native_dst, r.offset, r.len)?
+            chunks
+                .chunk(r.chunk_index())
+                .values
+                .read_slice(native_dst, r.offset_index(), r.len_index())?
         }
         Ok(())
     }

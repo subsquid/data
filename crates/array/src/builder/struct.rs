@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 pub struct AnyStructBuilder {
     fields: Fields,
-    buffers: Vec<usize>,
+    column_offsets: Vec<usize>,
     nulls: NullmaskBuilder,
     columns: Vec<AnyBuilder>
 }
@@ -19,7 +19,7 @@ pub struct AnyStructBuilder {
 
 impl AnyStructBuilder {
     pub fn new(fields: Fields) -> Self {
-        let buffers = build_field_offsets(&fields, 1);
+        let column_offsets = build_field_offsets(&fields, 1);
         
         let columns = fields.iter()
             .map(|f| AnyBuilder::new(f.data_type()))
@@ -27,7 +27,7 @@ impl AnyStructBuilder {
         
         Self {
             fields,
-            buffers,
+            column_offsets,
             nulls: NullmaskBuilder::new(0),
             columns
         }
@@ -50,8 +50,8 @@ impl AnyStructBuilder {
     }
     
     fn find_column(&self, buf: usize) -> (usize, usize) {
-        if let Some(col) = bisect_offsets(&self.buffers, buf) {
-            (col, buf - self.buffers[col])
+        if let Some(col) = bisect_offsets(&self.column_offsets, buf) {
+            (col, buf - self.column_offsets[col])
         } else {
             invalid_buffer_access!()
         }
@@ -92,7 +92,10 @@ impl AsSlice for AnyStructBuilder {
     type Slice<'a> = AnyStructSlice<'a>;
 
     fn as_slice(&self) -> Self::Slice<'_> {
-        todo!()
+        AnyStructSlice::new(
+            self.nulls.as_slice(),
+            self.columns.iter().map(|c| c.as_slice()).collect()
+        )
     }
 }
 

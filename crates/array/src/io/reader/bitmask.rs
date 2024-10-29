@@ -69,8 +69,8 @@ impl <R: ByteReader> BitmaskReader for BitmaskIOReader<R> {
         }
         
         let byte_offset = offset / 8;
-        let byte_len = bit_util::ceil(len, 8);
         let mut bit_offset = offset - byte_offset * 8;
+        let byte_len = bit_util::ceil(len + bit_offset, 8);
         
         self.byte_reader.read_exact(byte_offset, byte_len, |data| {
             let bits_to_write = std::cmp::min(data.len() * 8 - bit_offset, len);
@@ -79,6 +79,8 @@ impl <R: ByteReader> BitmaskReader for BitmaskIOReader<R> {
             bit_offset = 0;
             Ok(())
         })?;
+        
+        debug_assert_eq!(len, 0, "got unexpected number of bytes from .read_exact()");
         
         Ok(())
     }

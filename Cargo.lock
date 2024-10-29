@@ -3082,10 +3082,13 @@ dependencies = [
 name = "sqd-datacore"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arrow",
- "paste",
+ "parking_lot",
+ "parquet",
  "sqd-array",
  "sqd-dataset",
+ "tempfile",
 ]
 
 [[package]]
