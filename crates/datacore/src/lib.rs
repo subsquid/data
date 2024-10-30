@@ -5,3 +5,4 @@ mod table_file;
 mod table_sort;
 
 pub use table_processor::*;
+pub use table_sort::*;

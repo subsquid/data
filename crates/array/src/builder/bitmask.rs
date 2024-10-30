@@ -27,14 +27,19 @@ impl BitmaskBuilder {
         self.len = 0
     }
     
-    #[inline]
     pub fn reserve(&mut self, additional: usize) {
+        let new_byte_len = bit_util::ceil(self.len + additional, 8);
+        self.buffer.reserve(new_byte_len - self.buffer.len())
+    }
+    
+    #[inline]
+    fn resize(&mut self, additional: usize) {
         let new_byte_len = bit_util::ceil(self.len + additional, 8);
         self.buffer.resize(new_byte_len, 0)
     }
 
     pub fn append_slice(&mut self, data: &[u8], offset: usize, len: usize) {
-        self.reserve(len);
+        self.resize(len);
 
         bit_mask::set_bits(
             self.buffer.as_slice_mut(),
@@ -49,7 +54,7 @@ impl BitmaskBuilder {
 
     pub fn append_slice_indexes(&mut self, data: &[u8], mut indexes: impl Iterator<Item=usize>) {
         let (min_bit_len, _) = indexes.size_hint();
-        self.reserve(min_bit_len);
+        self.resize(min_bit_len);
 
         while self.len < self.buffer.len() * 8 {
             if let Some(i) = indexes.next() {
@@ -68,7 +73,7 @@ impl BitmaskBuilder {
     }
     
     pub fn append_slice_ranges(&mut self, data: &[u8], ranges: &mut impl RangeList) {
-        self.reserve(ranges.span());
+        self.resize(ranges.span());
         
         for r in ranges.iter() {
             bit_mask::set_bits(
@@ -85,32 +90,32 @@ impl BitmaskBuilder {
     pub fn append_many(&mut self, val: bool, count: usize) {
         let new_len = self.len + count;
         let new_len_bytes = bit_util::ceil(new_len, 8);
-        match val {
-            true => {
-                let cur_remainder = self.len % 8;
-                let new_remainder = new_len % 8;
+        if val {
+            let cur_remainder = self.len % 8;
+            let new_remainder = new_len % 8;
 
-                if cur_remainder != 0 {
-                    // Pad last byte with 1s
-                    *self.buffer.as_slice_mut().last_mut().unwrap() |= !((1 << cur_remainder) - 1)
-                }
-                self.buffer.resize(new_len_bytes, 0xFF);
-                if new_remainder != 0 {
-                    // Clear remaining bits
-                    *self.buffer.as_slice_mut().last_mut().unwrap() &= (1 << new_remainder) - 1
-                }
-            },
-            false => {
-                if new_len_bytes > self.buffer.len() {
-                    self.buffer.resize(new_len_bytes, 0);
-                }
+            if cur_remainder != 0 {
+                // Pad last byte with 1s
+                *self.buffer.as_slice_mut().last_mut().unwrap() |= !((1 << cur_remainder) - 1)
+            }
+            
+            self.buffer.truncate(bit_util::ceil(self.len, 8));
+            self.buffer.resize(new_len_bytes, 0xFF);
+            
+            if new_remainder != 0 {
+                // Clear remaining bits
+                *self.buffer.as_slice_mut().last_mut().unwrap() &= (1 << new_remainder) - 1
+            }
+        } else {
+            if new_len_bytes > self.buffer.len() {
+                self.buffer.resize(new_len_bytes, 0);
             }
         }
         self.len = new_len;
     }
 
     pub fn append(&mut self, val: bool) {
-        self.reserve(1);
+        self.resize(1);
         if val {
             unsafe { bit_util::set_bit_raw(self.buffer.as_mut_ptr(), self.len) };
         }
