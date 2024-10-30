@@ -454,6 +454,7 @@ request! {
         pub transaction: bool,
         pub transaction_traces: bool,
         pub transaction_logs: bool,
+        pub transaction_state_diffs: bool,
     }
 }
 
@@ -485,6 +486,13 @@ impl LogRequest {
         if self.transaction_logs {
             scan.join(
                 "logs",
+                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
+            );
+        }
+        if self.transaction_state_diffs {
+            scan.join(
+                "statediffs",
                 vec!["block_number", "transaction_index"],
                 vec!["block_number", "transaction_index"]
             );
