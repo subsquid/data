@@ -88,6 +88,8 @@ item_field_selection! {
         difficulty,
         total_difficulty,
         base_fee_per_gas,
+        blob_gas_used,
+        excess_blob_gas,
         l1_block_number,
     }
 
@@ -111,6 +113,8 @@ item_field_selection! {
         <this.difficulty>: Value,
         <this.total_difficulty>: Value,
         <this.base_fee_per_gas>: Value,
+        <this.blob_gas_used>: Value,
+        <this.excess_blob_gas>: Value,
         <this.l1_block_number>: Value,
     }}
 }
@@ -141,6 +145,8 @@ item_field_selection! {
         effective_gas_price,
         r#type,
         status,
+        max_fee_per_blob_gas,
+        blob_versioned_hashes,
         l1_fee,
         l1_fee_scalar,
         l1_gas_price,
@@ -174,6 +180,8 @@ item_field_selection! {
         [this.effective_gas_price],
         [this.r#type],
         [this.status],
+        [this.max_fee_per_blob_gas],
+        [this.blob_versioned_hashes],
         [this.l1_fee],
         [this.l1_fee_scalar],
         [this.l1_gas_price],
