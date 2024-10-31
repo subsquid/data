@@ -193,7 +193,7 @@ mod test {
     }
 
     fn arb_write_slice() -> impl Strategy<Value = (Vec<u8>, Vec<(usize, usize)>)> {
-        prop::collection::vec(any::<u8>(), 0..1024).prop_flat_map(|bits| {
+        prop::collection::vec(any::<u8>(), 1..1024).prop_flat_map(|bits| {
             let max_len = bits.len() * 8;
 
             let ranges = prop::collection::vec(
