@@ -1,7 +1,10 @@
 use arrow::datatypes::Fields;
-use tempfile::NamedTempFile;
-use sqd_array::io::file::{ArrayFile, ArrayFileWriter};
+use sqd_array::io::file::{ArrayFile, ArrayFileReader, ArrayFileWriter};
+use sqd_array::reader::ArrayReader;
 use sqd_array::slice::{AnyTableSlice, Slice};
+use sqd_array::writer::ArrayWriter;
+use std::ops::Range;
+use tempfile::NamedTempFile;
 
 
 type ColumnFile = ArrayFile<NamedTempFile>;
@@ -40,11 +43,49 @@ impl TableFileWriter {
     }
     
     pub fn finish(self) -> anyhow::Result<TableFile> {
-        todo!()
+        let columns = self.columns.into_iter()
+            .map(|col| col.finish())
+            .collect::<Result<Vec<_>, _>>()?;
+        
+        let readers = columns.iter()
+            .map(|c| c.read())
+            .collect::<Result<Vec<_>, _>>()?;
+        
+        Ok(TableFile {
+            columns,
+            readers
+        })
     }
 }
 
 
 pub struct TableFile {
-    columns: Vec<ColumnWriter>,
+    columns: Vec<ColumnFile>,
+    readers: Vec<ArrayFileReader>
+}
+
+
+impl TableFile {
+    pub fn read_column(
+        &mut self, 
+        dst: &mut impl ArrayWriter, 
+        i: usize, 
+        range: Range<usize>
+    ) -> anyhow::Result<()> 
+    {
+        self.readers[i].read_slice(dst, range.start, range.len())
+    }
+    
+    pub fn into_writer(self) -> anyhow::Result<TableFileWriter> {
+        drop(self.readers);
+        
+        let columns = self.columns.into_iter()
+            .map(|file| file.write())
+            .collect::<Result<Vec<_>, _>>()?;
+        
+        Ok(TableFileWriter {
+            columns,
+            num_rows: 0
+        })
+    }
 }

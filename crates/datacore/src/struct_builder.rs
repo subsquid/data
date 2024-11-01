@@ -112,10 +112,3 @@ macro_rules! struct_builder {
         }
     };
 }
-
-
-// struct_builder! {
-//     Hello {
-//         msg: StringBuilder,
-//     }
-// }

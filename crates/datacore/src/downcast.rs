@@ -4,15 +4,15 @@ use std::sync::Arc;
 
 
 #[derive(Clone)]
-pub struct DowncastRef {
-    inner: Arc<parking_lot::Mutex<Downcast>>
+pub struct Downcast {
+    inner: Arc<parking_lot::Mutex<DowncastState>>
 }
 
 
-impl DowncastRef {
+impl Downcast {
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(parking_lot::Mutex::new(Downcast::new()))
+            inner: Arc::new(parking_lot::Mutex::new(DowncastState::new()))
         }
     }
     
@@ -40,13 +40,13 @@ impl DowncastRef {
 }
 
 
-pub struct Downcast {
+pub struct DowncastState {
     max_block_number: u64,
     max_item_index: u64
 }
 
 
-impl Downcast {
+impl DowncastState {
     pub fn new() -> Self {
         Self {
             max_block_number: u32::MAX as u64,
@@ -91,9 +91,8 @@ fn get_max(array: &AnySlice<'_>) -> u64 {
         AnySlice::UInt64(s) => s.values().iter().copied().max().unwrap_or(0),
         AnySlice::Int32(s) => s.values().iter().copied().max().unwrap_or(0) as u64,
         AnySlice::List(s) => {
-            let beg = s.offsets().index(0);
-            let end = s.offsets().last_index();
-            get_max(&s.values().item().slice(beg, end - beg))
+            let range = s.offsets().range();
+            get_max(&s.values().item().slice(range.start, range.len()))
         },
         _ => panic!("invalid index type")
     }

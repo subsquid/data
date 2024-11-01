@@ -24,6 +24,10 @@ impl <'a, T> PrimitiveSlice<'a, T> {
         }
     }
     
+    pub fn nulls(&self) -> NullmaskSlice<'a> {
+        self.nulls.clone()
+    } 
+    
     pub fn values(&self) -> &'a [T] {
         self.values
     }

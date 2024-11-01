@@ -1,6 +1,6 @@
 use crate::util::validate_offsets;
-use std::ops::Range;
 use arrow_buffer::OffsetBuffer;
+use std::ops::Range;
 
 
 #[derive(Copy, Clone)]
@@ -32,6 +32,21 @@ impl <'a> Offsets<'a> {
     }
 
     #[inline]
+    pub fn values(&self) -> &[i32] {
+        self.offsets
+    }
+
+    #[inline]
+    pub fn at(&self, i: usize) -> i32 {
+        self.offsets[i]
+    }
+
+    #[inline]
+    pub fn index(&self, i: usize) -> usize {
+        self.offsets[i] as usize
+    }
+
+    #[inline]
     pub fn first_offset(&self) -> i32 {
         self.offsets[0]
     }
@@ -40,10 +55,20 @@ impl <'a> Offsets<'a> {
     pub fn last_offset(&self) -> i32 {
         self.offsets[self.len()]
     }
+    
+    #[inline]
+    pub fn first_index(&self) -> usize {
+        self.first_offset() as usize
+    }
 
     #[inline]
     pub fn last_index(&self) -> usize {
         self.last_offset() as usize
+    }
+    
+    #[inline]
+    pub fn range(&self) -> Range<usize> {
+        self.first_index().. self.last_index()
     }
 
     #[inline]
@@ -58,26 +83,6 @@ impl <'a> Offsets<'a> {
         Self {
             offsets: &self.offsets[range.start..range.end + 1]
         }
-    }
-
-    #[inline]
-    pub fn index(&self, i: usize) -> usize {
-        self.offsets[i] as usize
-    }
-
-    #[inline]
-    pub fn range(&self) -> Range<usize> {
-        self.offsets[0] as usize .. self.last_index()
-    }
-    
-    #[inline]
-    pub fn at(&self, i: usize) -> i32 {
-        self.offsets[i]
-    }
-
-    #[inline]
-    pub fn values(&self) -> &[i32] {
-        self.offsets
     }
 }
 

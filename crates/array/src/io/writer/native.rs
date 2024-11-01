@@ -1,7 +1,7 @@
+use crate::index::RangeList;
 use crate::writer::NativeWriter;
 use arrow_buffer::{ArrowNativeType, ToByteSlice};
 use std::io::Write;
-use crate::index::RangeList;
 
 
 pub struct NativeIOWriter<W> {
@@ -24,6 +24,14 @@ impl <W: Write> NativeWriter for NativeIOWriter<W> {
     #[inline]
     fn write<T: ToByteSlice>(&mut self, value: T) -> anyhow::Result<()> {
         self.write.write_all(value.to_byte_slice())?;
+        Ok(())
+    }
+
+    #[inline]
+    fn write_iter<T: ArrowNativeType>(&mut self, values: impl Iterator<Item=T>) -> anyhow::Result<()> {
+        for v in values {
+            self.write.write_all(v.to_byte_slice())?
+        }
         Ok(())
     }
 

@@ -11,6 +11,12 @@ impl NativeWriter for MutableBuffer {
     }
 
     #[inline]
+    fn write_iter<T: ArrowNativeType>(&mut self, values: impl Iterator<Item=T>) -> anyhow::Result<()> {
+        self.extend(values);
+        Ok(())
+    }
+
+    #[inline]
     fn write_slice<T: ArrowNativeType>(&mut self, values: &[T]) -> anyhow::Result<()> {
         self.extend_from_slice(values);
         Ok(())
