@@ -288,3 +288,12 @@ impl Default for StringBuilder {
         Self::new(0, 0)
     }
 }
+
+
+impl std::fmt::Write for StringBuilder {
+    #[inline]
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.values.extend_from_slice(s.as_bytes());
+        Ok(())
+    }
+}

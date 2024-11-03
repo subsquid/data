@@ -1,7 +1,7 @@
 use crate::builder::memory_writer::MemoryWriter;
 use crate::builder::r#struct::AnyStructBuilder;
 use crate::builder::{ArrayBuilder, BinaryBuilder, BooleanBuilder, ListBuilder, PrimitiveBuilder, StringBuilder};
-use crate::slice::{AnyListItem, AnySlice, AsSlice, ListSlice};
+use crate::slice::{AnySlice, AsSlice};
 use crate::writer::{ArrayWriter, Writer};
 use arrow::array::ArrayRef;
 use arrow::datatypes::{DataType, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit, TimestampMillisecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
@@ -129,14 +129,7 @@ impl AsSlice for AnyBuilder {
             AnyBuilder::TimestampMillisecond(b) => b.as_slice().into(),
             AnyBuilder::Binary(b) => b.as_slice().into(),
             AnyBuilder::String(b) => b.as_slice().into(),
-            AnyBuilder::List(b) => {
-                let slice = b.as_slice();
-                ListSlice::new(
-                    slice.offsets(), 
-                    AnyListItem::new(slice.values().clone()), 
-                    slice.nulls().bitmask()
-                ).into()
-            },
+            AnyBuilder::List(b) => b.as_slice().into(),
             AnyBuilder::Struct(b) => b.as_slice().into(),
         }
     }

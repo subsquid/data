@@ -2,6 +2,7 @@ use arrow::array::ArrayRef;
 use arrow::datatypes::DataType;
 
 
+mod aliases;
 mod binary;
 pub mod bitmask;
 mod boolean;
@@ -16,6 +17,7 @@ mod r#struct;
 mod table;
 
 
+pub use aliases::*;
 pub use any::*;
 pub use binary::*;
 pub use boolean::*;

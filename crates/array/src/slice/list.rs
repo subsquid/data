@@ -29,16 +29,19 @@ impl<'a, T: Slice> ListSlice<'a, T> {
         }
     }
     
-    pub fn nulls(&self) -> &NullmaskSlice<'a> {
-        &self.nulls
+    #[inline]
+    pub fn nulls(&self) -> NullmaskSlice<'a> {
+        self.nulls.clone()
     }
-    
+
+    #[inline]
     pub fn offsets(&self) -> Offsets<'a> {
         self.offsets
     }
-    
-    pub fn values(&self) -> &T {
-        &self.values
+
+    #[inline]
+    pub fn values(&self) -> T {
+        self.values.clone()
     }
 }
 

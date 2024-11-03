@@ -1,9 +1,10 @@
 mod downcast;
-mod table_processor;
+pub mod serde;
 mod struct_builder;
-mod table_file;
-mod table_sort;
 mod table_builder;
+mod table_file;
+mod table_processor;
+mod table_sort;
 
 
 pub use downcast::Downcast;

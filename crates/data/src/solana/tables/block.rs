@@ -1,8 +1,7 @@
-use arrow::array::{TimestampSecondBuilder, UInt64Builder};
-
 use crate::solana::model::BlockHeader;
 use crate::solana::tables::common::*;
-use crate::table_builder;
+use sqd_array::builder::{TimestampSecondBuilder, UInt64Builder};
+use sqd_data_core::table_builder;
 
 
 table_builder! {
@@ -25,11 +24,11 @@ table_builder! {
 
 impl BlockBuilder {
     pub fn push(&mut self, row: &BlockHeader) {
-        self.number.append_value(row.height);
-        self.hash.append_value(&row.parent_hash);
-        self.slot.append_value(row.slot);
-        self.parent_slot.append_value(row.parent_slot);
-        self.parent_hash.append_value(&row.parent_hash);
-        self.timestamp.append_value(row.timestamp);
+        self.number.append(row.height);
+        self.hash.append(&row.parent_hash);
+        self.slot.append(row.slot);
+        self.parent_slot.append(row.parent_slot);
+        self.parent_hash.append(&row.parent_hash);
+        self.timestamp.append(row.timestamp);
     }
 }

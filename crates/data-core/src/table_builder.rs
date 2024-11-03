@@ -61,7 +61,7 @@ macro_rules! table_builder {
             }
             
             pub fn len(&self) -> usize {
-                _table_builder_len_impl!(self, $($field,)*)
+                sqd_data_core::_table_builder_len_impl!(self, $($field,)*)
             }
             
             pub fn byte_size(&self) -> usize {

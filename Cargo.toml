@@ -4,7 +4,7 @@ members = [
     "crates/data",
     "crates/data-core",
     "crates/dataset",
-    "crates/node",
+#    "crates/node",
     "crates/polars",
     "crates/primitives",
     "crates/query",

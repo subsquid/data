@@ -289,9 +289,22 @@ impl <'a> From<ListSlice<'a, &'a [u8]>> for AnySlice<'a> {
 }
 
 
-impl <'a> From<ListSlice<'a, AnyListItem<'a>>> for AnySlice<'a> {
-    fn from(value: ListSlice<'a, AnyListItem<'a>>) -> Self {
-        AnySlice::List(value)
+// impl <'a> From<ListSlice<'a, AnyListItem<'a>>> for AnySlice<'a> {
+//     fn from(value: ListSlice<'a, AnyListItem<'a>>) -> Self {
+//         AnySlice::List(value)
+//     }
+// }
+
+impl <'a, T: Slice + Into<AnySlice<'a>>> From<ListSlice<'a, T>> for AnySlice<'a> {
+    fn from(value: ListSlice<'a, T>) -> Self {
+        let nulls = value.nulls();
+        let offsets = value.offsets();
+        let items = AnyListItem::new(
+            value.values().into()
+        );
+        AnySlice::List(
+            ListSlice::new(offsets, items, nulls.bitmask())
+        )
     }
 }
 
