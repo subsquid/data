@@ -1,4 +1,4 @@
-use arrow::array::{ListBuilder, StringBuilder, UInt32Builder, UInt8Builder};
+use sqd_array::builder::{ListBuilder, StringBuilder, UInt32Builder, UInt8Builder};
 
 
 pub type Base58Builder = StringBuilder;

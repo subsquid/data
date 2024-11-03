@@ -1,10 +1,8 @@
-use arrow::array::{StringBuilder, UInt32Builder, UInt64Builder};
-
-use sqd_primitives::BlockNumber;
-
 use crate::solana::model::LogMessage;
 use crate::solana::tables::common::{Base58Builder, InstructionAddressListBuilder};
-use crate::table_builder;
+use crate::types::BlockNumber;
+use sqd_array::builder::{StringBuilder, UInt32Builder, UInt64Builder};
+use sqd_data_core::table_builder;
 
 
 table_builder! {
@@ -30,17 +28,17 @@ table_builder! {
 
 impl LogMessageBuilder {
     pub fn push(&mut self, block_number: BlockNumber, row: &LogMessage) {
-        self.block_number.append_value(block_number);
-        self.transaction_index.append_value(row.transaction_index);
-        self.log_index.append_value(row.log_index);
+        self.block_number.append(block_number);
+        self.transaction_index.append(row.transaction_index);
+        self.log_index.append(row.log_index);
 
         for address in &row.instruction_address {
-            self.instruction_address.values().append_value(*address);
+            self.instruction_address.values().append(*address);
         }
-        self.instruction_address.append(true);
+        self.instruction_address.append();
 
-        self.program_id.append_value(&row.program_id);
-        self.kind.append_value(row.kind.to_str());
-        self.message.append_value(&row.message);
+        self.program_id.append(&row.program_id);
+        self.kind.append(row.kind.to_str());
+        self.message.append(&row.message);
     }
 }

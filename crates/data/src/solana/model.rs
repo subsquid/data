@@ -1,8 +1,5 @@
+use crate::types::{Base58Bytes, BlockNumber, ItemIndex, JsonValue};
 use serde::{Deserialize, Serialize};
-
-use sqd_primitives::{BlockNumber, ItemIndex};
-
-use crate::types::{Base58Bytes, JsonValue};
 
 
 #[derive(Deserialize)]
@@ -55,9 +52,9 @@ pub struct Transaction {
     pub recent_blockhash: Base58Bytes,
     pub signatures: Vec<Base58Bytes>,
     pub err: Option<JsonValue>,
-    #[serde(deserialize_with="crate::types::decode_string_option", default)]
+    #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
     pub compute_units_consumed: Option<u64>,
-    #[serde(deserialize_with="crate::types::decode_string")]
+    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
     pub fee: u64,
     pub loaded_addresses: LoadedAddresses,
     pub has_dropped_log_messages: bool,
@@ -72,7 +69,7 @@ pub struct Instruction {
     pub program_id: Base58Bytes,
     pub accounts: Vec<Base58Bytes>,
     pub data: Base58Bytes,
-    #[serde(deserialize_with="crate::types::decode_string_option", default)]
+    #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
     pub compute_units_consumed: Option<u64>,
     #[serde(default)]
     pub error: Option<JsonValue>,
@@ -118,9 +115,9 @@ pub struct LogMessage {
 pub struct Balance {
     pub transaction_index: ItemIndex,
     pub account: Base58Bytes,
-    #[serde(deserialize_with="crate::types::decode_string")]
+    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
     pub pre: u64,
-    #[serde(deserialize_with="crate::types::decode_string")]
+    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
     pub post: u64,
 }
 
@@ -146,9 +143,9 @@ pub struct TokenBalance {
     pub pre_owner: Option<Base58Bytes>,
     #[serde(default)]
     pub post_owner: Option<Base58Bytes>,
-    #[serde(deserialize_with="crate::types::decode_string_option", default)]
+    #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
     pub pre_amount: Option<u64>,
-    #[serde(deserialize_with="crate::types::decode_string_option", default)]
+    #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
     pub post_amount: Option<u64>,
 }
 
@@ -157,9 +154,9 @@ pub struct TokenBalance {
 #[serde(rename_all = "camelCase")]
 pub struct Reward {
     pub pubkey: Base58Bytes,
-    #[serde(deserialize_with="crate::types::decode_string")]
+    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
     pub lamports: i64,
-    #[serde(deserialize_with="crate::types::decode_string")]
+    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
     pub post_balance: u64,
     #[serde(default)]
     pub reward_type: Option<String>,

@@ -1,10 +1,9 @@
-use arrow::array::{Int64Builder, StringBuilder, UInt64Builder, UInt8Builder};
-
-use sqd_primitives::BlockNumber;
-
 use crate::solana::model::Reward;
 use crate::solana::tables::common::Base58Builder;
-use crate::table_builder;
+use crate::types::BlockNumber;
+use sqd_array::builder::{Int64Builder, StringBuilder, UInt64Builder, UInt8Builder};
+use sqd_data_core::table_builder;
+
 
 table_builder! {
     RewardBuilder {
@@ -26,11 +25,11 @@ table_builder! {
 
 impl RewardBuilder {
     pub fn push(&mut self, block_number: BlockNumber, row: &Reward) {
-        self.block_number.append_value(block_number);
-        self.pubkey.append_value(&row.pubkey);
-        self.lamports.append_value(row.lamports);
-        self.post_balance.append_value(row.post_balance);
-        self.reward_type.append_option(row.reward_type.as_ref());
+        self.block_number.append(block_number);
+        self.pubkey.append(&row.pubkey);
+        self.lamports.append(row.lamports);
+        self.post_balance.append(row.post_balance);
+        self.reward_type.append_option(row.reward_type.as_ref().map(|s| s.as_str()));
         self.commission.append_option(row.commission);
     }
 }

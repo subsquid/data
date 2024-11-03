@@ -1,12 +1,9 @@
-use std::fmt::Write;
-
-use arrow::array::{BooleanBuilder, StringBuilder, UInt32Builder, UInt64Builder};
-
-use sqd_primitives::BlockNumber;
-
 use crate::solana::model::Instruction;
 use crate::solana::tables::common::{AccountListBuilder, Base58Builder, BytesBuilder, InstructionAddressListBuilder};
-use crate::table_builder;
+use crate::types::BlockNumber;
+use sqd_array::builder::{BooleanBuilder, StringBuilder, UInt32Builder, UInt64Builder};
+use sqd_data_core::table_builder;
+use std::fmt::Write;
 
 
 table_builder! {
@@ -69,51 +66,55 @@ table_builder! {
 
 impl InstructionBuilder {
     pub fn push(&mut self, block_number: BlockNumber, row: &Instruction) {
-        self.block_number.append_value(block_number);
-        self.transaction_index.append_value(row.transaction_index);
+        self.block_number.append(block_number);
+        self.transaction_index.append(row.transaction_index);
 
         for address in &row.instruction_address {
-            self.instruction_address.values().append_value(*address);
+            self.instruction_address.values().append(*address);
         }
-        self.instruction_address.append(true);
+        self.instruction_address.append();
 
-        self.program_id.append_value(&row.program_id);
-        self.data.append_value(&row.data);
-        self.data_size.append_value(row.data.len() as u64);
-        self.a0.append_option(row.accounts.get(0));
-        self.a1.append_option(row.accounts.get(1));
-        self.a2.append_option(row.accounts.get(2));
-        self.a3.append_option(row.accounts.get(3));
-        self.a4.append_option(row.accounts.get(4));
-        self.a5.append_option(row.accounts.get(5));
-        self.a6.append_option(row.accounts.get(6));
-        self.a7.append_option(row.accounts.get(7));
-        self.a8.append_option(row.accounts.get(8));
-        self.a9.append_option(row.accounts.get(9));
-        self.a10.append_option(row.accounts.get(10));
-        self.a11.append_option(row.accounts.get(11));
-        self.a12.append_option(row.accounts.get(12));
-        self.a13.append_option(row.accounts.get(13));
-        self.a14.append_option(row.accounts.get(14));
-        self.a15.append_option(row.accounts.get(15));
+        self.program_id.append(&row.program_id);
+        self.data.append(&row.data);
+        self.data_size.append(row.data.len() as u64);
+        self.a0.append_option(row.accounts.get(0).map(|s| s.as_str()));
+        self.a1.append_option(row.accounts.get(1).map(|s| s.as_str()));
+        self.a2.append_option(row.accounts.get(2).map(|s| s.as_str()));
+        self.a3.append_option(row.accounts.get(3).map(|s| s.as_str()));
+        self.a4.append_option(row.accounts.get(4).map(|s| s.as_str()));
+        self.a5.append_option(row.accounts.get(5).map(|s| s.as_str()));
+        self.a6.append_option(row.accounts.get(6).map(|s| s.as_str()));
+        self.a7.append_option(row.accounts.get(7).map(|s| s.as_str()));
+        self.a8.append_option(row.accounts.get(8).map(|s| s.as_str()));
+        self.a9.append_option(row.accounts.get(9).map(|s| s.as_str()));
+        self.a10.append_option(row.accounts.get(10).map(|s| s.as_str()));
+        self.a11.append_option(row.accounts.get(11).map(|s| s.as_str()));
+        self.a12.append_option(row.accounts.get(12).map(|s| s.as_str()));
+        self.a13.append_option(row.accounts.get(13).map(|s| s.as_str()));
+        self.a14.append_option(row.accounts.get(14).map(|s| s.as_str()));
+        self.a15.append_option(row.accounts.get(15).map(|s| s.as_str()));
 
         if let Some(accounts) = row.accounts.get(16..) {
             for account in accounts {
-                self.rest_accounts.values().append_value(account);
+                self.rest_accounts.values().append(account);
             }
-            self.rest_accounts.append(true);
+            self.rest_accounts.append();
         } else {
             self.rest_accounts.append_null();
         }
 
         let accounts_size = row.accounts.iter().map(|val| val.len() as u64).sum();
-        self.accounts_size.append_value(accounts_size);
+        self.accounts_size.append(accounts_size);
 
         // meta
         self.compute_units_consumed.append_option(row.compute_units_consumed);
-        self.error.append_option(row.error.as_ref().map(|json| json.to_string()));
-        self.is_committed.append_value(row.is_committed);
-        self.has_dropped_log_messages.append_value(row.has_dropped_log_messages);
+        {
+            let err = row.error.as_ref().map(|json| json.to_string());
+            let err = err.as_ref().map(|s| s.as_str());
+            self.error.append_option(err);
+        }
+        self.is_committed.append(row.is_committed);
+        self.has_dropped_log_messages.append(row.has_dropped_log_messages);
 
         // discriminators
         let data = bs58::decode(&row.data).into_vec().unwrap();
@@ -130,5 +131,5 @@ fn write_hex(builder: &mut BytesBuilder, bytes: &[u8]) {
     for b in bytes.iter().copied() {
         write!(builder, "{:02x}", b).unwrap();
     }
-    builder.append_value("")
+    builder.append("")
 }

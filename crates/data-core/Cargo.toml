@@ -1,0 +1,16 @@
+[package]
+name = "sqd-data-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+arrow = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+sqd-array = { path = "../array" }
+sqd-dataset = { path = "../dataset" }
+tempfile = { workspace = true }
+
+[dev-dependencies]
+parquet = { workspace = true }
