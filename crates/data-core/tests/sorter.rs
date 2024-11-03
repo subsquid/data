@@ -2,7 +2,7 @@ use arrow::array::RecordBatchReader;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use sqd_array::builder::AnyTableBuilder;
 use sqd_array::slice::AsSlice;
-use sqd_datacore::TableSorter;
+use sqd_data_core::TableSorter;
 use std::fs::File;
 use std::path::Path;
 

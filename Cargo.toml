@@ -2,7 +2,7 @@
 members = [
     "crates/array",
     "crates/data",
-    "crates/datacore",
+    "crates/data-core",
     "crates/dataset",
     "crates/node",
     "crates/polars",
