@@ -7,6 +7,7 @@ edition = "2021"
 anyhow = { workspace = true }
 arrow = { workspace = true }
 arrow-buffer = { workspace = true }
+parking_lot = { workspace = true }
 tempfile = { workspace = true }
 
 [dev-dependencies]

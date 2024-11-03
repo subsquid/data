@@ -1,9 +1,10 @@
+use crate::io::file::shared_file::SharedFileRef;
 use crate::io::file::ArrayFile;
 use crate::io::writer::{BitmaskIOWriter, NativeIOWriter, NullmaskIOWriter, OffsetsIOWriter};
 use crate::writer::{AnyArrayWriter, AnyWriter, ArrayWriter, Writer, WriterFactory};
+use arrow::datatypes::DataType;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::Path;
 
 
 pub struct FileWriter;
@@ -17,56 +18,60 @@ impl Writer for FileWriter {
 }
 
 
-pub struct ArrayFileWriter<F> {
-    file: ArrayFile<F>,
-    writer: AnyArrayWriter<FileWriter>
+pub struct ArrayFileWriter {
+    data_type: DataType,
+    inner: AnyArrayWriter<FileWriter>
 }
 
 
-impl <F: AsRef<Path>> ArrayFileWriter<F> {
-    pub fn new(file: ArrayFile<F>) -> anyhow::Result<Self> {
+impl ArrayFileWriter {
+    pub(super) fn new(data_type: DataType, buffers: Vec<SharedFileRef>) -> anyhow::Result<Self> {
         let mut factory = FileWriterFactory {
-            buffers: &file.buffers,
-            pos: 0
+            buffers: buffers.into_iter()
         };
-        let writer = AnyArrayWriter::from_factory(&mut factory, &file.data_type)?;
+        
+        let inner = AnyArrayWriter::from_factory(&mut factory, &data_type)?;
+        
         Ok(Self {
-            file,
-            writer
+            data_type,
+            inner
         })
     }
     
-    pub fn finish(self) -> anyhow::Result<ArrayFile<F>> {
-        for buf in self.writer.into_inner() {
-            let mut file = match buf {
+    pub fn finish(self) -> anyhow::Result<ArrayFile> {
+        let buffers = self.inner.into_inner().into_iter().map(|buf| {
+            let mut buf_writer = match buf {
                 AnyWriter::Bitmask(w) => w.finish()?,
                 AnyWriter::Nullmask(w) => w.finish()?,
                 AnyWriter::Native(w) => w.into_write(),
                 AnyWriter::Offsets(w) => w.finish()?,
             };
-            file.flush()?;
-        }
-        Ok(self.file)
+            buf_writer.flush()?;
+            let file = buf_writer.into_inner().expect("buffer was already flushed");
+            Ok(SharedFileRef::new(file))
+        }).collect::<anyhow::Result<Vec<_>>>()?;
+        
+        Ok(ArrayFile::new(self.data_type, buffers))
     }
 }
 
 
-struct FileWriterFactory<'a, F> {
-    buffers: &'a [F],
-    pos: usize
+struct FileWriterFactory<I> {
+    buffers: I
 }
 
 
-impl <'a, F: AsRef<Path>> FileWriterFactory<'a, F> {
+impl<I: Iterator<Item=SharedFileRef>> FileWriterFactory<I> {
     fn next_file(&mut self) -> anyhow::Result<BufWriter<File>> {
-        let file = File::options().write(true).open(&self.buffers[self.pos])?;
-        self.pos += 1;
+        let shared = self.buffers.next().expect("no more buffers left");
+        let file = shared.into_file();
+        file.set_len(0)?;
         Ok(BufWriter::new(file))
     }
 }
 
 
-impl <'a, F: AsRef<Path>> WriterFactory for FileWriterFactory<'a, F> {
+impl<I: Iterator<Item=SharedFileRef>> WriterFactory for FileWriterFactory<I> {
     type Writer = FileWriter;
 
     fn nullmask(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Nullmask> {
@@ -91,26 +96,26 @@ impl <'a, F: AsRef<Path>> WriterFactory for FileWriterFactory<'a, F> {
 }
 
 
-impl <F> ArrayWriter for ArrayFileWriter<F> {
+impl ArrayWriter for ArrayFileWriter {
     type Writer = FileWriter;
 
     #[inline]
     fn bitmask(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Bitmask {
-        self.writer.bitmask(buf)
+        self.inner.bitmask(buf)
     }
 
     #[inline]
     fn nullmask(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Nullmask {
-        self.writer.nullmask(buf)
+        self.inner.nullmask(buf)
     }
 
     #[inline]
     fn native(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Native {
-        self.writer.native(buf)
+        self.inner.native(buf)
     }
 
     #[inline]
     fn offset(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Offset {
-        self.writer.offset(buf)
+        self.inner.offset(buf)
     }
 }

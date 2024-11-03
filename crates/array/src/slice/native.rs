@@ -11,6 +11,10 @@ impl <'a, T: ArrowNativeType> Slice for &'a [T] {
         1
     }
 
+    fn byte_size(&self) -> usize {
+        self.len() * size_of::<T>()
+    }
+
     #[inline]
     fn len(&self) -> usize {
         self.as_ref().len()

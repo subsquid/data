@@ -7,16 +7,10 @@ use sqd_array::slice::{AnyTableSlice, AsSlice, Slice};
 use sqd_array::sort::sort_table_to_indexes;
 use sqd_array::util::bisect_offsets;
 use sqd_array::writer::ArrayWriter;
-use std::ops::Range;
-use tempfile::NamedTempFile;
-
-
-type ColumnFile = ArrayFile<NamedTempFile>;
-type ColumnWriter = ArrayFileWriter<NamedTempFile>;
 
 
 pub struct TableSorter {
-    data_table: Vec<ColumnWriter>,
+    data_table: Vec<ArrayFileWriter>,
     data_key: Vec<usize>,
     sort_table: Vec<AnyBuilder>,
     sort_key: Vec<usize>,
@@ -112,7 +106,7 @@ impl TableSorter {
 
 
 pub struct SortedTable {
-    data_table: Vec<ColumnFile>,
+    data_table: Vec<ArrayFile>,
     data_key: Vec<usize>,
     sort_table: Vec<AnyBuilder>,
     sort_key: Vec<usize>,
@@ -151,29 +145,30 @@ impl SortedTable {
         &mut self,
         dst: &mut impl ArrayWriter,
         i: usize,
-        range: Range<usize>,
+        offset: usize,
+        len: usize
     ) -> anyhow::Result<()>
     {
-        assert!(range.start <= self.num_rows() && range.end <= self.num_rows());
+        assert!(offset + len <= self.num_rows());
         assert!(
             i < self.sort_key.len() + self.data_key.len(),
             "column {} does not exist",
             i
         );
 
-        if range.len() == 0 {
+        if len == 0 {
             return Ok(());
         }
 
         if let Some(pos) = self.sort_key.iter().position(|c| *c == i) {
             self.sort_table[pos].as_slice().write_indexes(
                 dst,
-                self.order[range].iter().copied(),
+                self.order[offset..offset + len].iter().copied(),
             )
         } else {
             let pos = self.data_key.iter().position(|c| *c == i).unwrap();
             let readers = self.readers[pos].as_mut_slice();
-            let (first, middle, last) = self.chunk_tracker.find(range);
+            let (first, middle, last) = self.chunk_tracker.find(offset, len);
 
             if let Some(first) = first {
                 readers[first.chunk_index()].read_slice(
@@ -256,31 +251,33 @@ impl ChunkTracker {
         }
     }
 
-    fn find(&mut self, range: Range<usize>) -> (Option<ChunkRange>, &[ChunkRange], Option<ChunkRange>) {
-        let range = range.start as u32..range.end as u32;
+    fn find(&mut self, offset: usize, len: usize) -> (Option<ChunkRange>, &[ChunkRange], Option<ChunkRange>) {
+        let start = offset as u32;
+        let len = len as u32;
+        let end = start + len;
 
-        let mut sp = self.find_start_position(range.start);
+        let mut sp = self.find_start_position(start);
 
         let mut first_chunk = None;
 
-        if self.offsets[sp] < range.start {
-            let offset = range.start - self.offsets[sp];
+        if self.offsets[sp] < start {
+            let ch_offset = start - self.offsets[sp];
             let ch = &self.chunks[sp];
             first_chunk = Some(ChunkRange {
                 chunk: ch.chunk,
-                offset: ch.offset + offset,
-                len: std::cmp::min(ch.len - offset, range.len() as u32),
+                offset: ch.offset + ch_offset,
+                len: std::cmp::min(ch.len - ch_offset, len),
             });
         }
 
-        if self.offsets[sp + 1] >= range.end {
+        if self.offsets[sp + 1] >= end {
             return (
                 first_chunk.or_else(|| {
                     let ch = &self.chunks[sp];
                     Some(ChunkRange {
                         chunk: ch.chunk,
                         offset: ch.offset,
-                        len: range.len() as u32,
+                        len,
                     })
                 }),
                 &[],
@@ -292,9 +289,9 @@ impl ChunkTracker {
             sp += 1;
         }
 
-        let ep = self.find_end_position(range.end - 1);
+        let ep = self.find_end_position(end - 1);
 
-        if self.offsets[ep + 1] > range.end {
+        if self.offsets[ep + 1] > end {
             let ch = &self.chunks[ep];
             (
                 first_chunk,
@@ -302,7 +299,7 @@ impl ChunkTracker {
                 Some(ChunkRange {
                     chunk: ch.chunk,
                     offset: ch.offset,
-                    len: ch.len + range.end - self.offsets[ep + 1],
+                    len: ch.len + end - self.offsets[ep + 1],
                 })
             )
         } else {

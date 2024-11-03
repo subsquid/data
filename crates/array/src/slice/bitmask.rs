@@ -26,7 +26,13 @@ impl<'a> BitmaskSlice<'a> {
     pub fn len(&self) -> usize {
         self.len
     }
-    
+
+    #[inline]
+    pub fn bytes_size(&self) -> usize {
+        bit_util::ceil(self.len, 8)
+    }
+
+    #[inline]
     pub fn slice(&self, offset: usize, len: usize) -> Self {
         assert!(offset + len <= self.len);
         Self {

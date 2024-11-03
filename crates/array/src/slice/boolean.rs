@@ -38,6 +38,10 @@ impl <'a> Slice for BooleanSlice<'a> {
         2
     }
 
+    fn byte_size(&self) -> usize {
+        self.nulls.byte_size() + self.values.bytes_size()
+    }
+
     fn len(&self) -> usize {
         self.values.len()
     }

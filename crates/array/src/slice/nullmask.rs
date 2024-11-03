@@ -31,6 +31,10 @@ impl<'a> NullmaskSlice<'a> {
         self.len
     }
     
+    pub fn byte_size(&self) -> usize {
+        self.nulls.as_ref().map(|m| m.bytes_size()).unwrap_or(0)
+    }
+    
     pub fn slice(&self, offset: usize, len: usize) -> Self {
         assert!(offset + len <= self.len);
         Self {

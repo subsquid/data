@@ -37,15 +37,11 @@ fn sort_ethereum_transactions() -> anyhow::Result<()> {
     let mut pos = 0;
     while let Some(record_batch) = ref_reader.next() {
         let record_batch = record_batch?;
-        let range = pos..pos + record_batch.num_rows();
-
+        
         let mut builder = AnyTableBuilder::new(record_batch.schema());
         for i in 0..builder.num_columns() {
             let mut dst = builder.column_writer(i);
-            if pos == 429 && i == 16 {
-                println!("problematic column")
-            }
-            sorted.read_column(&mut dst, i, range.clone())?;
+            sorted.read_column(&mut dst, i, pos, record_batch.num_rows())?;
         }
 
         let result = builder.finish();
@@ -62,7 +58,7 @@ fn sort_ethereum_transactions() -> anyhow::Result<()> {
             panic!("record batches at pos={} are different", pos);
         }
 
-        pos = range.end;
+        pos += record_batch.num_rows();
     }
 
     Ok(())

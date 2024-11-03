@@ -50,6 +50,11 @@ impl <'a, T: Slice> Slice for ListSlice<'a, T> {
     }
 
     #[inline]
+    fn byte_size(&self) -> usize {
+        self.nulls.byte_size() + self.offsets.values().byte_size() + self.values.byte_size()
+    }
+
+    #[inline]
     fn len(&self) -> usize {
         self.nulls.len()
     }

@@ -3,17 +3,10 @@ use sqd_array::io::file::{ArrayFile, ArrayFileReader, ArrayFileWriter};
 use sqd_array::reader::ArrayReader;
 use sqd_array::slice::{AnyTableSlice, Slice};
 use sqd_array::writer::ArrayWriter;
-use std::ops::Range;
-use tempfile::NamedTempFile;
-
-
-type ColumnFile = ArrayFile<NamedTempFile>;
-type ColumnWriter = ArrayFileWriter<NamedTempFile>;
 
 
 pub struct TableFileWriter {
-    columns: Vec<ColumnWriter>,
-    num_rows: usize
+    columns: Vec<ArrayFileWriter>
 }
 
 
@@ -25,8 +18,7 @@ impl TableFileWriter {
         }).collect::<anyhow::Result<Vec<_>>>()?;
 
         Ok(Self {
-            columns,
-            num_rows: 0
+            columns
         })
     }
 
@@ -34,14 +26,9 @@ impl TableFileWriter {
         for (i, c) in self.columns.iter_mut().enumerate() {
             records.column(i).write(c)?
         }
-        self.num_rows += records.len();
         Ok(())
     }
-    
-    pub fn num_rows(&self) -> usize {
-        self.num_rows
-    }
-    
+
     pub fn finish(self) -> anyhow::Result<TableFile> {
         let columns = self.columns.into_iter()
             .map(|col| col.finish())
@@ -60,7 +47,7 @@ impl TableFileWriter {
 
 
 pub struct TableFile {
-    columns: Vec<ColumnFile>,
+    columns: Vec<ArrayFile>,
     readers: Vec<ArrayFileReader>
 }
 
@@ -70,10 +57,11 @@ impl TableFile {
         &mut self, 
         dst: &mut impl ArrayWriter, 
         i: usize, 
-        range: Range<usize>
+        offset: usize,
+        len: usize
     ) -> anyhow::Result<()> 
     {
-        self.readers[i].read_slice(dst, range.start, range.len())
+        self.readers[i].read_slice(dst, offset, len)
     }
     
     pub fn into_writer(self) -> anyhow::Result<TableFileWriter> {
@@ -84,8 +72,7 @@ impl TableFile {
             .collect::<Result<Vec<_>, _>>()?;
         
         Ok(TableFileWriter {
-            columns,
-            num_rows: 0
+            columns
         })
     }
 }

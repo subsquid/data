@@ -9,7 +9,6 @@ use sqd_array::util::build_field_offsets;
 use sqd_array::writer::{ArrayWriter, NativeWriter, OffsetsWriter};
 use sqd_dataset::TableDescription;
 use std::collections::HashMap;
-use std::ops::Range;
 use std::sync::Arc;
 
 
@@ -24,13 +23,6 @@ impl TableWriter {
         match self {
             TableWriter::Plain(w) => w.push_batch(records),
             TableWriter::Sort(w) => w.push_batch(records),
-        }
-    }
-    
-    fn num_rows(&self) -> usize {
-        match self {
-            TableWriter::Plain(w) => w.num_rows(),
-            TableWriter::Sort(w) => w.num_rows()
         }
     }
     
@@ -50,13 +42,19 @@ enum TableReader {
 
 
 impl TableReader {
-    fn read_column(&mut self, dst: &mut impl ArrayWriter, i: usize, range: Range<usize>) -> anyhow::Result<()> {
+    fn read_column(
+        &mut self,
+        dst: &mut impl ArrayWriter,
+        i: usize,
+        offset: usize,
+        len: usize
+    ) -> anyhow::Result<()> {
         match self {
             TableReader::Plain(reader) => {
-                reader.read_column(dst, i, range)
+                reader.read_column(dst, i, offset, len)
             },
             TableReader::Sort(reader) => {
-                reader.read_column(dst, i, range)
+                reader.read_column(dst, i, offset, len)
             }
         }
     }
@@ -76,6 +74,8 @@ pub struct TableProcessor {
     block_number_columns: Vec<usize>,
     item_index_columns: Vec<usize>,
     writer: TableWriter,
+    num_rows: usize,
+    byte_size: usize
 }
 
 
@@ -113,8 +113,18 @@ impl TableProcessor {
             schema,
             block_number_columns,
             item_index_columns,
-            writer
+            writer,
+            num_rows: 0,
+            byte_size: 0
         })
+    }
+
+    pub fn num_rows(&self) -> usize {
+        self.num_rows
+    }
+    
+    pub fn byte_size(&self) -> usize {
+        self.byte_size
     }
 
     pub fn push_batch(&mut self, records: &AnyTableSlice<'_>) -> anyhow::Result<()> {
@@ -125,6 +135,9 @@ impl TableProcessor {
         for i in self.item_index_columns.iter().copied() {
             self.downcast.reg_item_index(&records.column(i))
         }
+        
+        self.num_rows += records.len();
+        self.byte_size += records.byte_size();
         
         self.writer.push_batch(records)
     }
@@ -144,8 +157,7 @@ pub struct PreparedTable {
     reader: TableReader,
     column_offsets: Vec<usize>,
     buffers: HashMap<DataType, AnyBuilder>,
-    num_rows: usize,
-    pos: usize
+    num_rows: usize
 }
 
 
@@ -160,7 +172,7 @@ impl PreparedTable {
         );
         
         let column_offsets = build_field_offsets(processor.schema.fields(), 0);
-        let num_rows = processor.writer.num_rows();
+        let num_rows = processor.num_rows;
         let reader = processor.writer.into_reader()?;
         
         Ok(Self {
@@ -172,8 +184,7 @@ impl PreparedTable {
             reader,
             column_offsets,
             buffers: HashMap::with_capacity(3),
-            num_rows,
-            pos: 0
+            num_rows
         })
     }
     
@@ -183,7 +194,9 @@ impl PreparedTable {
             schema: self.writer_schema,
             block_number_columns: self.block_number_columns,
             item_index_columns: self.item_index_columns,
-            writer: self.reader.into_writer()?
+            writer: self.reader.into_writer()?,
+            num_rows: 0,
+            byte_size: 0
         })
     }
 
@@ -198,58 +211,65 @@ impl PreparedTable {
     pub fn num_rows(&self) -> usize {
         self.num_rows
     }
-
-    pub fn num_rows_left(&self) -> usize {
-        self.num_rows - self.pos
-    }
     
-    pub fn read_next_record_batch(&mut self, len: usize) -> anyhow::Result<RecordBatch> {
+    pub fn read_record_batch(&mut self, offset: usize, len: usize) -> anyhow::Result<RecordBatch> {
         let mut builder = AnyTableBuilder::new(self.prepared_schema.clone());
-        self.read_next(&mut builder, len)?;
+        self.read(&mut builder, offset, len)?;
         Ok(builder.finish())
     }
 
-    pub fn read_next(&mut self, dst: &mut impl ArrayWriter, len: usize) -> anyhow::Result<usize> {
-        let len = std::cmp::min(self.num_rows - self.pos, len);
+    pub fn read(
+        &mut self,
+        dst: &mut impl ArrayWriter,
+        offset: usize,
+        len: usize
+    ) -> anyhow::Result<()>
+    {
+        assert!(offset + len <= self.num_rows());
         if len == 0 {
-            return Ok(0)
+            return Ok(())
         }
-
-        let range = self.pos..self.pos + len;
 
         for i in 0..self.num_columns() {
             let mut dst = dst.shift(self.column_offsets[i]);
-            self.read_column(&mut dst, i, range.clone())?;
+            self.read_column(&mut dst, i, offset, len)?;
         }
 
-        self.pos += len;
-        Ok(len)
+        Ok(())
     }
 
-    fn read_column(
+    pub fn read_column(
         &mut self,
         dst: &mut impl ArrayWriter,
         i: usize,
-        mut range: Range<usize>
+        mut offset: usize,
+        mut len: usize
     ) -> anyhow::Result<()>
     {
+        assert!(i < self.num_columns());
+        assert!(offset + len <= self.num_rows());
+        if len == 0 {
+            return Ok(())
+        }
+
         let src_dt = self.writer_schema.field(i).data_type();
         let target_dt = self.prepared_schema.field(i).data_type();
         if src_dt == target_dt {
-            self.reader.read_column(dst, i, range)
+            self.reader.read_column(dst, i, offset, len)
         } else {
             let buf = self.buffers.entry(src_dt.clone()).or_insert_with(|| {
                AnyBuilder::new(src_dt)
             });
 
-            while range.len() > 0 {
-                let end = std::cmp::min(range.end, range.start + 1000);
+            while len > 0 {
+                let step_len = std::cmp::min(len, 1000);
 
                 buf.clear();
-                self.reader.read_column(buf, i, range.start..end)?;
+                self.reader.read_column(buf, i, offset, step_len)?;
                 index_downcast(buf.as_slice(), target_dt, dst)?;
 
-                range.start = end;
+                offset += step_len;
+                len -= step_len;
             }
 
             Ok(())

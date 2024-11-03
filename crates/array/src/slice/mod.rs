@@ -22,6 +22,8 @@ pub use r#struct::*;
 
 pub trait Slice: Clone {
     fn num_buffers(&self) -> usize;
+
+    fn byte_size(&self) -> usize;
     
     fn len(&self) -> usize;
     

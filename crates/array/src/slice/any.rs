@@ -46,6 +46,23 @@ impl <'a> Slice for AnySlice<'a> {
         }
     }
 
+    fn byte_size(&self) -> usize {
+        match self {
+            AnySlice::Boolean(s) => s.byte_size(),
+            AnySlice::UInt8(s) => s.byte_size(),
+            AnySlice::UInt16(s) => s.byte_size(),
+            AnySlice::UInt32(s) => s.byte_size(),
+            AnySlice::UInt64(s) => s.byte_size(),
+            AnySlice::Int8(s) => s.byte_size(),
+            AnySlice::Int16(s) => s.byte_size(),
+            AnySlice::Int32(s) => s.byte_size(),
+            AnySlice::Int64(s) => s.byte_size(),
+            AnySlice::Binary(s) => s.byte_size(),
+            AnySlice::List(s) => s.byte_size(),
+            AnySlice::Struct(s) => s.byte_size(),
+        }
+    }
+
     fn len(&self) -> usize {
         match self {
             AnySlice::Boolean(s) => s.len(),
@@ -178,6 +195,10 @@ impl<'a> Slice for AnyListItem<'a> {
     #[inline]
     fn num_buffers(&self) -> usize {
         self.item.num_buffers()
+    }
+
+    fn byte_size(&self) -> usize {
+        self.item.byte_size()
     }
 
     #[inline]

@@ -75,6 +75,10 @@ impl<'a> Slice for AnyStructSlice<'a> {
         1 + self.columns.iter().map(|c| c.num_buffers()).sum::<usize>()
     }
 
+    fn byte_size(&self) -> usize {
+        self.nulls.byte_size() + self.columns.iter().map(|c| c.byte_size()).sum::<usize>()
+    }
+
     fn len(&self) -> usize {
         self.len
     }
@@ -192,6 +196,10 @@ impl<'a> AnyTableSlice<'a> {
 impl<'a> Slice for AnyTableSlice<'a> {
     fn num_buffers(&self) -> usize {
         self.columns.iter().map(|c| c.num_buffers()).sum()
+    }
+
+    fn byte_size(&self) -> usize {
+        self.columns.iter().map(|c| c.byte_size()).sum()
     }
 
     fn len(&self) -> usize {

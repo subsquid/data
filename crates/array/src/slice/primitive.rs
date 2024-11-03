@@ -41,6 +41,11 @@ impl <'a, T: ArrowNativeType> Slice for PrimitiveSlice<'a, T> {
     }
 
     #[inline]
+    fn byte_size(&self) -> usize {
+        self.nulls.byte_size() + self.values.byte_size()
+    }
+
+    #[inline]
     fn len(&self) -> usize {
         self.values.len()
     }

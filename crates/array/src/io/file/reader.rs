@@ -1,11 +1,11 @@
-use crate::io::reader::{BitmaskIOReader, IOByteReader, NativeIOReader, NullmaskIOReader, OffsetsIOReader};
+use crate::io::file::byte_reader::FileByteReader;
+use crate::io::file::shared_file::SharedFileRef;
+use crate::io::reader::{BitmaskIOReader, NativeIOReader, NullmaskIOReader, OffsetsIOReader};
 use crate::reader::{AnyReader, Reader, ReaderFactory};
 use arrow_buffer::ArrowNativeType;
-use std::fs::File;
-use std::path::Path;
 
 
-pub type FileByteReader = IOByteReader<File>;
+pub type ArrayFileReader = AnyReader<FileReader>;
 
 
 pub struct FileReader;
@@ -19,17 +19,14 @@ impl Reader for FileReader {
 }
 
 
-pub type ArrayFileReader = AnyReader<FileReader>;
-
-
-pub(super) struct FileReaderFactory<'a, F> {
-    buffers: &'a [F],
+pub(super) struct FileReaderFactory<'a> {
+    buffers: &'a [SharedFileRef],
     pos: usize
 }
 
 
-impl <'a, F: AsRef<Path>> FileReaderFactory<'a, F> {
-    pub fn new(buffers: &'a [F]) -> Self {
+impl<'a> FileReaderFactory<'a> {
+    pub fn new(buffers: &'a [SharedFileRef]) -> Self {
         Self {
             buffers,
             pos: 0
@@ -37,16 +34,14 @@ impl <'a, F: AsRef<Path>> FileReaderFactory<'a, F> {
     }
 
     fn next_file(&mut self) -> anyhow::Result<FileByteReader> {
-        let file = File::open(&self.buffers[self.pos])?;
-        let len = file.metadata()?.len() as usize;
-        let reader = IOByteReader::new(len, file);
+        let byte_reader = FileByteReader::new(self.buffers[self.pos].clone())?;
         self.pos += 1;
-        Ok(reader)
+        Ok(byte_reader)
     }
 }
 
 
-impl <'a, F: AsRef<Path>> ReaderFactory for FileReaderFactory<'a, F> {
+impl <'a> ReaderFactory for FileReaderFactory<'a> {
     type Reader = FileReader;
 
     fn nullmask(&mut self) -> anyhow::Result<<Self::Reader as Reader>::Nullmask> {
