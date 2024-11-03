@@ -66,7 +66,7 @@ fn to_dyn_order<'a>(slice: AnySlice<'a>) -> Box<dyn Order<usize> + 'a> {
 
 
 pub fn sort_to_indexes(array: &AnySlice<'_>) -> Vec<usize> {
-    let mut indexes = (0..array.len()).collect();
+    let mut indexes: Vec<usize> = (0..array.len()).collect();
     sort_1(&mut indexes, array);
     indexes
 }
@@ -96,12 +96,12 @@ pub fn sort_table_to_indexes(
 }
 
 
-fn sort_1(indexes: &mut Vec<usize>, col: &AnySlice<'_>) {
+fn sort_1(indexes: &mut [usize], col: &AnySlice<'_>) {
     with_order!(col, order, sort!(indexes, order))
 }
 
 
-fn sort_2(indexes: &mut Vec<usize>, c1: AnySlice<'_>, c2: AnySlice<'_>) {
+fn sort_2(indexes: &mut [usize], c1: AnySlice<'_>, c2: AnySlice<'_>) {
     let order2 = to_dyn_order(c2);
     with_order!(c1, order1, {
         let order = OrderPair(order1, order2.as_ref());
@@ -110,7 +110,7 @@ fn sort_2(indexes: &mut Vec<usize>, c1: AnySlice<'_>, c2: AnySlice<'_>) {
 }
 
 
-fn sort_many(indexes: &mut Vec<usize>, table: &AnyTableSlice<'_>, columns: &[usize]) {
+fn sort_many(indexes: &mut [usize], table: &AnyTableSlice<'_>, columns: &[usize]) {
     let order2 = OrderList::new(
         columns[1..].iter().copied()
             .map(|i| to_dyn_order(table.column(i)))
