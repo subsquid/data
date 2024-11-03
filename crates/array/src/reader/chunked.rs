@@ -96,7 +96,7 @@ where
         F2: 'b + FnMut(&mut Self::ArrayReader) -> &mut R2,
     {
         FinalReader::<R2> {
-            phantom_data: PhantomData::default()
+            phantom_data: PhantomData
         }
     }
 }
@@ -124,7 +124,7 @@ impl <T: ArrayReader> ChunkedArrayReader for FinalReader<T> {
         F2: 'b + FnMut(&mut Self::ArrayReader) -> &mut R2,
     {
         FinalReader::<R2> {
-            phantom_data: PhantomData::default()
+            phantom_data: PhantomData
         }
     }
 }

@@ -179,7 +179,7 @@ impl StringBuilder {
     }
     
     fn mark_maybe_invalid(&mut self) {
-        if self.validity == None {
+        if self.validity.is_none() {
             self.validity = Some(self.offsets.as_slice().len())
         }
     }

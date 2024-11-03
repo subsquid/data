@@ -20,7 +20,7 @@ pub fn sort_record_batch<'a>(
 #[inline(never)]
 fn sort_record_batch_impl(records: &RecordBatch, columns: &[usize]) -> anyhow::Result<RecordBatch> {
     let slice = records.as_slice();
-    let indexes = sort_table_to_indexes(&slice, &columns);
+    let indexes = sort_table_to_indexes(&slice, columns);
     
     let mut builder = AnyTableBuilder::new(records.schema());
     slice.write_indexes(&mut builder, indexes.iter().copied())?;

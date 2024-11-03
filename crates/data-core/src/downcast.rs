@@ -9,6 +9,12 @@ pub struct Downcast {
 }
 
 
+impl Default for Downcast {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Downcast {
     pub fn new() -> Self {
         Self {

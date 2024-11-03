@@ -96,9 +96,9 @@ impl <const N: usize> SID<N> {
 }
 
 
-impl <'a, const N: usize> Into<&'a str> for &'a SID<N> {
-    fn into(self) -> &'a str {
-        self.as_str()
+impl <'a, const N: usize> From<&'a SID<N>> for &'a str {
+    fn from(val: &'a SID<N>) -> Self {
+        val.as_str()
     }
 }
 

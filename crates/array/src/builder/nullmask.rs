@@ -45,39 +45,33 @@ impl NullmaskBuilder {
     pub fn append_slice(&mut self, data: &[u8], offset: usize, len: usize) {
         if self.has_nulls {
             self.nulls.append_slice(data, offset, len);
+        } else if bit_tools::all_valid(data, offset, len) {
+            self.len += len
         } else {
-            if bit_tools::all_valid(data, offset, len) {
-                self.len += len
-            } else {
-                self.init_nulls(len);
-                self.nulls.append_slice(data, offset, len);
-            }
+            self.init_nulls(len);
+            self.nulls.append_slice(data, offset, len);
         }
     }
 
     pub fn append_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item=usize> + Clone) {
         if self.has_nulls {
             self.nulls.append_slice_indexes(data, indexes);
+        } else if let Some(len) = bit_tools::all_indexes_valid(data, indexes.clone()) {
+            self.len += len
         } else {
-            if let Some(len) = bit_tools::all_indexes_valid(data, indexes.clone()) {
-                self.len += len
-            } else {
-                self.init_nulls(indexes.size_hint().0);
-                self.nulls.append_slice_indexes(data, indexes);
-            }
+            self.init_nulls(indexes.size_hint().0);
+            self.nulls.append_slice_indexes(data, indexes);
         }
     }
 
     pub fn append_slice_ranges(&mut self, data: &[u8], ranges: &mut impl RangeList) {
         if self.has_nulls {
             self.nulls.append_slice_ranges(data, ranges);
+        } else if let Some(len) = bit_tools::all_ranges_valid(data, ranges.iter()) {
+            self.len += len;
         } else {
-            if let Some(len) = bit_tools::all_ranges_valid(data, ranges.iter()) {
-                self.len += len;
-            } else {
-                self.init_nulls(ranges.span());
-                self.nulls.append_slice_ranges(data, ranges);
-            }
+            self.init_nulls(ranges.span());
+            self.nulls.append_slice_ranges(data, ranges);
         }
     }
     

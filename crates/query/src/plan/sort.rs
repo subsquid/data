@@ -196,7 +196,7 @@ impl <T> Cmp for T where T: Key,
 {
     #[inline]
     fn compare(&self, idx: usize, other: &Self, other_idx: usize) -> Ordering {
-        self.get(idx).cmp(&other.get(other_idx))
+        self.get(idx).cmp(other.get(other_idx))
     }
 }
 

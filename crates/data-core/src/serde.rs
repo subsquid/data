@@ -10,7 +10,7 @@ struct StringParser<T> {
 impl <T> StringParser<T> {
     pub fn new() -> Self {
         Self {
-            phantom_data: PhantomData::default()
+            phantom_data: PhantomData
         }
     }
 }
@@ -44,7 +44,7 @@ struct StringOptionParser<T> {
 impl <T> StringOptionParser<T> {
     pub fn new() -> Self {
         Self {
-            phantom_data: PhantomData::default()
+            phantom_data: PhantomData
         }
     }
 }

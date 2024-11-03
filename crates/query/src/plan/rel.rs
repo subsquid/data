@@ -47,11 +47,11 @@ pub enum Rel {
 impl Rel {
     pub fn output_table(&self) -> Name {
         match self {
-            Rel::Join { output_table, .. } => *output_table,
-            Rel::ForeignChildren { output_table, .. } => *output_table,
-            Rel::ForeignParents { output_table, .. } => *output_table,
-            Rel::Children { table, .. } => *table,
-            Rel::Parents { table, .. } => *table
+            Rel::Join { output_table, .. } => output_table,
+            Rel::ForeignChildren { output_table, .. } => output_table,
+            Rel::ForeignParents { output_table, .. } => output_table,
+            Rel::Children { table, .. } => table,
+            Rel::Parents { table, .. } => table
         }
     }
 

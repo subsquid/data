@@ -8,6 +8,12 @@ pub struct JsonObject {
 }
 
 
+impl Default for JsonObject {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JsonObject {
     pub fn new() -> Self {
         Self {
@@ -31,9 +37,9 @@ impl JsonObject {
 }
 
 
-impl Into<Exp> for JsonObject {
-    fn into(self) -> Exp {
-        Exp::Object(self.props)
+impl From<JsonObject> for Exp {
+    fn from(val: JsonObject) -> Self {
+        Exp::Object(val.props)
     }
 }
 

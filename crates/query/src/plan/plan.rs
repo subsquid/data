@@ -309,7 +309,7 @@ impl <'a> PlanExecution<'a> {
         Ok(BlockWriter::new(data_items_mutex
             .into_inner()
             .into_iter()
-            .filter_map(|i| i)
+            .flatten()
             .collect()
         ))
     }
@@ -601,7 +601,7 @@ impl PlanBuilder{
             Rel::Join { input_table, input_key, output_table, output_key } => {
                 let input_desc = self.tables.get(input_table);
                 input_key == &input_desc.primary_key
-                    && input_desc.children.get(output_table) == Some(&output_key)
+                    && input_desc.children.get(output_table) == Some(output_key)
             },
             Rel::Children { .. } => true,
             Rel::Parents { .. } => true,

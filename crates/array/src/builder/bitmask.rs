@@ -67,7 +67,7 @@ impl BitmaskBuilder {
             }
         }
 
-        while let Some(i) = indexes.next() {
+        for i in indexes {
             self.append(bit_util::get_bit(data, i))
         }
     }
@@ -106,10 +106,8 @@ impl BitmaskBuilder {
                 // Clear remaining bits
                 *self.buffer.as_slice_mut().last_mut().unwrap() &= (1 << new_remainder) - 1
             }
-        } else {
-            if new_len_bytes > self.buffer.len() {
-                self.buffer.resize(new_len_bytes, 0);
-            }
+        } else if new_len_bytes > self.buffer.len() {
+            self.buffer.resize(new_len_bytes, 0);
         }
         self.len = new_len;
     }
@@ -142,7 +140,7 @@ impl BitmaskBuilder {
             bytes.copy_within(byte_offset.., 0);
         }
         self.buffer.truncate(new_byte_len);
-        self.len = self.len - byte_offset * 8;
+        self.len -= byte_offset * 8;
     }
 
     pub fn finish(self) -> BooleanBuffer {

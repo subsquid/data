@@ -46,7 +46,7 @@ impl TableOptions {
     }
     
     pub fn add_stats(&mut self, name: Name) {
-        let options = self.column_options.entry(name).or_insert(ColumnOptions::default());
+        let options = self.column_options.entry(name).or_default();
         options.stats_enable = true
     }
 }

@@ -364,7 +364,7 @@ fn tower_cast_impl<FROM, TO, C>(array: &dyn Array) -> CastResult
           C: Ord
 {
     let value = array.as_primitive::<FROM>().value(0);
-    let target_value = if let Some(val) = TO::Native::try_from(value).ok() {
+    let target_value = if let Ok(val) = TO::Native::try_from(value) {
         val
     } else {
         let value = C::from(value);

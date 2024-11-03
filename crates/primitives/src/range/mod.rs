@@ -153,7 +153,7 @@ impl RangeList<ItemIndex> {
         if let Some(idx) = iter.next() {
             let mut beg = idx;
             let mut end = idx + 1;
-            while let Some(idx) = iter.next() {
+            for idx in iter {
                 match end.cmp(&idx) {
                     Ordering::Less => {
                         ranges.push(beg..end);

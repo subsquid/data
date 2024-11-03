@@ -23,7 +23,7 @@ impl <T: ArrowPrimitiveType> PrimitiveBuilder<T> {
         Self {
             nulls: NullmaskBuilder::new(capacity),
             values: MutableBuffer::new(capacity * T::Native::get_byte_width()),
-            phantom_data: PhantomData::default()
+            phantom_data: PhantomData
         }
     }
     

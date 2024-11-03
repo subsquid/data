@@ -72,7 +72,7 @@ impl TableSet {
 
     pub fn add_table(&mut self, name: Name, pk: Vec<Name>) -> &mut Table {
         assert!(
-            self.tables.iter().position(|t| t.name == name).is_none(),
+            !self.tables.iter().any(|t| t.name == name),
             "table '{}' was already defined", name
         );
         assert!(

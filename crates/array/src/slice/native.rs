@@ -12,7 +12,7 @@ impl <'a, T: ArrowNativeType> Slice for &'a [T] {
     }
 
     fn byte_size(&self) -> usize {
-        self.len() * size_of::<T>()
+        std::mem::size_of_val(self)
     }
 
     #[inline]

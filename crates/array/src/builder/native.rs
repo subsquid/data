@@ -55,7 +55,7 @@ impl NativeWriter for MutableBuffer {
             self.set_len(byte_len)
         }
 
-        while let Some(i) = indexes.next() {
+        for i in indexes {
             self.push(values[i])
         }
 

@@ -77,7 +77,7 @@ impl InstructionBuilder {
         self.program_id.append(&row.program_id);
         self.data.append(&row.data);
         self.data_size.append(row.data.len() as u64);
-        self.a0.append_option(row.accounts.get(0).map(|s| s.as_str()));
+        self.a0.append_option(row.accounts.first().map(|s| s.as_str()));
         self.a1.append_option(row.accounts.get(1).map(|s| s.as_str()));
         self.a2.append_option(row.accounts.get(2).map(|s| s.as_str()));
         self.a3.append_option(row.accounts.get(3).map(|s| s.as_str()));
@@ -110,7 +110,7 @@ impl InstructionBuilder {
         self.compute_units_consumed.append_option(row.compute_units_consumed);
         {
             let err = row.error.as_ref().map(|json| json.to_string());
-            let err = err.as_ref().map(|s| s.as_str());
+            let err = err.as_deref();
             self.error.append_option(err);
         }
         self.is_committed.append(row.is_committed);
@@ -128,7 +128,7 @@ impl InstructionBuilder {
 
 fn write_hex(builder: &mut BytesBuilder, bytes: &[u8]) {
     write!(builder, "0x").unwrap();
-    for b in bytes.iter().copied() {
+    for b in bytes {
         write!(builder, "{:02x}", b).unwrap();
     }
     builder.append("")

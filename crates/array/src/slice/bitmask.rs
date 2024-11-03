@@ -78,7 +78,7 @@ impl<'a> BitmaskSlice<'a> {
     ) -> anyhow::Result<()>
     {
         dst.write_slice_indexes(
-            &self.data, 
+            self.data, 
             indexes.map(|i| {
                 assert!(i < self.len);
                 self.offset + i

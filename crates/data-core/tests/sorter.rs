@@ -19,11 +19,11 @@ fn sort_ethereum_transactions() -> anyhow::Result<()> {
             "block_number",
             "transaction_index"
         ].iter().map(|name| {
-            src_reader.schema().index_of(*name).unwrap()
+            src_reader.schema().index_of(name).unwrap()
         }).collect(),
     )?;
 
-    while let Some(record_batch) = src_reader.next() {
+    for record_batch in src_reader {
         let record_batch = record_batch?;
         sorter.push_batch(&record_batch.as_slice())?
     }
@@ -35,7 +35,7 @@ fn sort_ethereum_transactions() -> anyhow::Result<()> {
         .build()?;
 
     let mut pos = 0;
-    while let Some(record_batch) = ref_reader.next() {
+    for record_batch in ref_reader {
         let record_batch = record_batch?;
         
         let mut builder = AnyTableBuilder::new(record_batch.schema());

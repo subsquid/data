@@ -49,14 +49,14 @@ impl TokenBalanceBuilder {
         self.block_number.append(block_number);
         self.transaction_index.append(row.transaction_index);
         self.account.append(&row.account);
-        self.pre_mint.append_option(row.pre_mint.as_ref().map(|s| s.as_str()));
-        self.post_mint.append_option(row.post_mint.as_ref().map(|s| s.as_str()));
+        self.pre_mint.append_option(row.pre_mint.as_deref());
+        self.post_mint.append_option(row.post_mint.as_deref());
         self.pre_decimals.append_option(row.pre_decimals);
         self.post_decimals.append_option(row.post_decimals);
-        self.pre_program_id.append_option(row.pre_program_id.as_ref().map(|s| s.as_str()));
-        self.post_program_id.append_option(row.post_program_id.as_ref().map(|s| s.as_str()));
-        self.pre_owner.append_option(row.pre_owner.as_ref().map(|s| s.as_str()));
-        self.post_owner.append_option(row.post_owner.as_ref().map(|s| s.as_str()));
+        self.pre_program_id.append_option(row.pre_program_id.as_deref());
+        self.post_program_id.append_option(row.post_program_id.as_deref());
+        self.pre_owner.append_option(row.pre_owner.as_deref());
+        self.post_owner.append_option(row.post_owner.as_deref());
         self.pre_amount.append_option(row.pre_amount);
         self.post_amount.append_option(row.post_amount);
     }

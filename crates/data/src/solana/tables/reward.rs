@@ -29,7 +29,7 @@ impl RewardBuilder {
         self.pubkey.append(&row.pubkey);
         self.lamports.append(row.lamports);
         self.post_balance.append(row.post_balance);
-        self.reward_type.append_option(row.reward_type.as_ref().map(|s| s.as_str()));
+        self.reward_type.append_option(row.reward_type.as_deref());
         self.commission.append_option(row.commission);
     }
 }

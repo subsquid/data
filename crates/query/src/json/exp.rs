@@ -39,13 +39,13 @@ impl Exp {
                 })
             },
             Exp::Prop(name, _) => {
-                f(*name)
+                f(name)
             },
             Exp::Roll { columns, .. } => {
-                columns.iter().for_each(|name| f(*name))
+                columns.iter().for_each(|name| f(name))
             },
             Exp::Enum { tag_column, variants } => {
-                f(*tag_column);
+                f(tag_column);
                 variants.iter().for_each(|(_name, exp)| {
                     exp.for_each_column(f);
                 })
@@ -166,7 +166,7 @@ fn eval_object(array: &dyn Array, props: &Vec<(Name, Exp)>) -> Result<EncoderObj
     let mut fields = Vec::with_capacity(props.len());
     for (name, exp) in props.iter() {
         let encoder = exp.eval(array)?;
-        let field = StructField::new(*name, encoder);
+        let field = StructField::new(name, encoder);
         fields.push(field)
     }
     let struct_encoder = StructEncoder::new(fields);

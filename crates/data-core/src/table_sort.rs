@@ -27,7 +27,7 @@ impl TableSorter {
         }).collect();
 
         let data_key: Vec<usize> = (0..fields.len())
-            .filter(|i| !sort_key.contains(&i))
+            .filter(|i| !sort_key.contains(i))
             .collect();
 
         let data_table = data_key.iter().map(|i| {

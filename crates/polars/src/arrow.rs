@@ -7,7 +7,7 @@ use polars_core::prelude::{BooleanChunked, CompatLevel, SortMultipleOptions};
 pub fn array_series(name: &str, arr: &dyn Array) -> anyhow::Result<Series> {
     let s = Series::from_arrow(
         name.into(),
-        Box::<dyn polars_arrow::array::Array>::from(&*arr),
+        Box::<dyn polars_arrow::array::Array>::from(arr),
     )?;
     Ok(s)
 }
@@ -18,7 +18,7 @@ pub fn record_batch_to_polars_df(batch: &RecordBatch) -> anyhow::Result<DataFram
     let mut columns = Vec::with_capacity(batch.num_columns());
     for (i, column) in batch.columns().iter().enumerate() {
         columns.push(array_series(
-            &schema.fields().get(i).unwrap().name(),
+            schema.fields().get(i).unwrap().name(),
             column
         )?);
     }
