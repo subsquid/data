@@ -127,6 +127,7 @@ impl SortedTable {
 
         self.sort_table.iter_mut().for_each(|c| c.clear());
         self.batch_offsets.clear();
+        self.batch_offsets.push(0);
 
         Ok(TableSorter {
             data_table,
