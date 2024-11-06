@@ -1,37 +1,26 @@
-use crate::index::RangeList;
-use crate::io::writer::bitmask::BitmaskIOWriter;
-use crate::util::bit_tools;
-use crate::writer::BitmaskWriter;
-use arrow_buffer::ToByteSlice;
-use std::io::Write;
+use crate::table::write::bitmask::BitmaskPageWriter;
+use crate::table::write::page::PageWriter;
+use sqd_array::index::RangeList;
+use sqd_array::util::bit_tools;
+use sqd_array::writer::BitmaskWriter;
 
 
-pub struct NullmaskIOWriter<W> {
-    nulls: BitmaskIOWriter<W>,
+pub struct NullmaskPageWriter<P> {
+    nulls: BitmaskPageWriter<P>,
     has_nulls: bool,
-    len: usize,
+    len: usize
 }
 
 
-impl <W: Write> NullmaskIOWriter<W> {
-    pub fn new(writer: W) -> Self {
+impl<P: PageWriter> NullmaskPageWriter<P> {
+    pub fn new(page_writer: P) -> Self {
         Self {
-            nulls: BitmaskIOWriter::new(writer),
+            nulls: BitmaskPageWriter::new(page_writer),
             has_nulls: false,
-            len: 0,
+            len: 0
         }
     }
 
-    pub fn finish(self) -> anyhow::Result<W> {
-        if self.has_nulls {
-            self.nulls.finish()
-        } else {
-            let mut write = self.nulls.into_write();
-            write.write_all((self.len as u32).to_byte_slice())?;
-            Ok(write)
-        }
-    }
-    
     #[inline]
     fn check_bitmask_presence(&mut self, all_valid: impl FnOnce() -> Option<usize>) -> anyhow::Result<bool> {
         if self.has_nulls {
@@ -45,10 +34,14 @@ impl <W: Write> NullmaskIOWriter<W> {
         self.nulls.write_many(true, self.len)?;
         Ok(true)
     }
+    
+    pub fn finish(self) -> anyhow::Result<P> {
+        self.nulls.finish()
+    }
 }
 
 
-impl<W: Write> BitmaskWriter for NullmaskIOWriter<W> {
+impl<P: PageWriter> BitmaskWriter for NullmaskPageWriter<P> {
     fn write_slice(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()> {
         if self.check_bitmask_presence(|| bit_tools::all_valid(data, offset, len).then_some(len))? {
             self.nulls.write_slice(data, offset, len)?;
@@ -56,12 +49,7 @@ impl<W: Write> BitmaskWriter for NullmaskIOWriter<W> {
         Ok(())
     }
 
-    fn write_slice_indexes(
-        &mut self, 
-        data: &[u8], 
-        indexes: impl Iterator<Item=usize> + Clone
-    ) -> anyhow::Result<()> 
-    {
+    fn write_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item=usize> + Clone) -> anyhow::Result<()> {
         if self.check_bitmask_presence(|| bit_tools::all_indexes_valid(data, indexes.clone()))? {
             self.nulls.write_slice_indexes(data, indexes)?;
         }

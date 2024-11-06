@@ -94,7 +94,7 @@ impl Database {
         }
     }
 
-    pub fn new_chunk_builder(&self, ds: DatasetDescriptionRef) -> ChunkBuilder<'_> {
+    pub fn new_chunk_builder(&self, ds: Option<DatasetDescriptionRef>) -> ChunkBuilder<'_> {
         ChunkBuilder::new(&self.db, ds)
     }
 

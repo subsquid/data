@@ -5,6 +5,7 @@ use crate::writer::{AnyArrayWriter, AnyWriter, ArrayWriter, Writer, WriterFactor
 use arrow::datatypes::DataType;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use arrow_buffer::ArrowNativeType;
 
 
 pub struct FileWriter;
@@ -84,7 +85,7 @@ impl<I: Iterator<Item=SharedFileRef>> WriterFactory for FileWriterFactory<I> {
         Ok(BitmaskIOWriter::new(file))
     }
 
-    fn native(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Native> {
+    fn native<T: ArrowNativeType>(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Native> {
         let file = self.next_file()?;
         Ok(NativeIOWriter::new(file))
     }

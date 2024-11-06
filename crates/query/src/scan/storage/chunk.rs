@@ -27,7 +27,7 @@ impl <'a> Chunk for StorageChunk<'a> {
     fn scan_table(&self, name: Name) -> anyhow::Result<Scan<'a>> {
         let entry = self.cache.entry(name);
         let table = entry.or_try_insert_with(|| {
-            self.reader.get_table(name).map(Arc::new)
+            self.reader.get_table_reader(name).map(Arc::new)
         }).map(|t| {
             t.clone()
         })?;

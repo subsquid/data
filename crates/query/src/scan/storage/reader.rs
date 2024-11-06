@@ -99,7 +99,7 @@ impl <'a> RowStats for ChunkTableReader<'a> {
         let stats = self.get_column_stats(index)?;
         Ok(stats.map(|stats| {
             ColumnStats {
-                offsets: stats.offsets,
+                offsets: stats.offsets.into_inner(),
                 min: stats.min,
                 max: stats.max
             }

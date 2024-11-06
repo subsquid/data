@@ -69,7 +69,7 @@ impl NativeWriter for MutableBuffer {
     ) -> anyhow::Result<()>
     {
         self.reserve(ranges.span() * size_of::<T>());
-
+        
         for r in ranges.iter() {
             self.extend_from_slice(&values[r])        
         }

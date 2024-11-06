@@ -132,15 +132,19 @@ impl BitmaskBuilder {
         self.len
     }
 
-    pub fn shift(&mut self, byte_offset: usize) {
-        assert!(byte_offset * 8 <= self.len);
-        let new_byte_len = self.buffer.len() - byte_offset;
+    pub fn shift(&mut self, len: usize) {
+        if len == 0 {
+            return;
+        }
+        assert!(len <= self.len);
+        assert_eq!(len % 8, 0, "only byte aligned shifts are allowed");
+        let byte_len = len / 8;
+        let new_byte_len = self.buffer.len() - byte_len;
         if new_byte_len > 0 {
-            let bytes = self.buffer.as_slice_mut();
-            bytes.copy_within(byte_offset.., 0);
+            self.buffer.as_slice_mut().copy_within(byte_len.., 0);
         }
         self.buffer.truncate(new_byte_len);
-        self.len -= byte_offset * 8;
+        self.len -= len;
     }
 
     pub fn finish(self) -> BooleanBuffer {

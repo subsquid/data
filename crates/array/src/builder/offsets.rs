@@ -24,8 +24,24 @@ impl OffsetsBuilder {
         self.buffer.len()
     }
     
+    pub fn len(&self) -> usize {
+        self.buffer.len() / size_of::<i32>() - 1
+    }
+    
+    pub fn shift(&mut self, len: usize) {
+        if len == 0 {
+            return;
+        }
+        assert!(len <= self.len());
+        let byte_len = len * size_of::<i32>();
+        self.buffer.as_slice_mut().copy_within(byte_len.., 0);
+        let new_byte_len = self.buffer.len() - byte_len;
+        self.buffer.truncate(new_byte_len)
+    }
+    
     pub fn clear(&mut self) {
         self.buffer.truncate(size_of::<i32>());
+        self.buffer.typed_data_mut::<i32>()[0] = 0;
         self.last_offset = 0
     }
 

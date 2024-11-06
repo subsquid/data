@@ -1,6 +1,6 @@
 use rocksdb::{ColumnFamily, WriteBatchWithTransaction};
 
-use crate::db::db::{CF_DIRTY_TABLES, CF_TABLES, RocksDB};
+use crate::db::db::{RocksDB, CF_DIRTY_TABLES, CF_TABLES};
 use crate::db::table_id::TableId;
 use crate::kv::KvWrite;
 
@@ -35,13 +35,18 @@ impl <'a> TableStorage<'a> {
         self.db.write(batch)?;
         Ok(())
     }
+    
+    pub fn finish(self) -> anyhow::Result<()> {
+        self.db.write(self.write_batch)?;
+        Ok(())
+    }
 }
 
 
 impl <'a> KvWrite for TableStorage<'a> {
     fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         self.write_batch.put_cf(self.cf, key, value);
-        if self.byte_size() > 32 * 1024 * 1024 {
+        if self.byte_size() > 8 * 1024 * 1024 {
             self.flush()?;
         }
         Ok(())

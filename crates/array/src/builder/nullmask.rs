@@ -8,9 +8,9 @@ use arrow_buffer::NullBuffer;
 
 pub struct NullmaskBuilder {
     nulls: BitmaskBuilder,
+    has_nulls: bool,
     len: usize,
-    capacity: usize,
-    has_nulls: bool
+    capacity: usize
 }
 
 
@@ -18,9 +18,9 @@ impl NullmaskBuilder {
     pub fn new(capacity: usize) -> Self {
         Self {
             nulls: BitmaskBuilder::new(0),
+            has_nulls: false,
             len: 0,
             capacity,
-            has_nulls: false
         }
     }
 

@@ -1,35 +1,33 @@
-use std::collections::{HashMap, HashSet};
-use std::ops::Range;
-use std::sync::Arc;
-
+use super::array::{read_array, Storage};
+use super::pagination::Pagination;
+use super::stats::Stats;
 use crate::kv::{KvRead, KvReadCursor};
 use crate::table::key::TableKeyFactory;
-use crate::table::read::array::{read_array, Storage};
-use crate::table::read::pagination::Pagination;
-use crate::table::read::stats::Stats;
-use crate::table::util;
-use crate::table::util::{validate_offsets, validate_offsets_monotonicity};
 use anyhow::{anyhow, ensure, Context};
 use arrow::array::{ArrayRef, BooleanBufferBuilder, RecordBatch};
 use arrow::buffer::{BooleanBuffer, MutableBuffer, OffsetBuffer, ScalarBuffer};
-use arrow::datatypes::{ArrowNativeType, Schema, SchemaRef};
+use arrow::datatypes::{ArrowNativeType, SchemaRef};
 use arrow::util::bit_util;
 use arrow_buffer::NullBuffer;
 use parking_lot::Mutex;
 use rayon::prelude::*;
+use sqd_array::util::{build_field_offsets, validate_offsets};
 use sqd_primitives::range::RangeList;
+use std::collections::{HashMap, HashSet};
+use std::ops::Range;
+use std::sync::Arc;
 
 
 pub struct TableReader<S> {
     storage: S,
     key: TableKeyFactory,
     schema: SchemaRef,
-    offsets: Mutex<HashMap<(usize, usize), ScalarBuffer<u32>>>,
-    stats: Mutex<Vec<Option<Stats>>>
+    column_positions: Vec<usize>,
+    offsets: Mutex<HashMap<usize, OffsetBuffer<u32>>>,
 }
 
 
-impl <S: KvRead + Sync> TableReader<S> {
+impl<S: KvRead + Sync> TableReader<S> {
     pub fn new(storage: S, table_name: &[u8]) -> anyhow::Result<Self> {
         let mut key = TableKeyFactory::new(table_name);
 
@@ -41,47 +39,30 @@ impl <S: KvRead + Sync> TableReader<S> {
                 .map_err(|_| anyhow!("failed to deserialize table schema"))?
         };
 
-        let stats = Mutex::new(vec![None; schema.fields().len()]);
+        let column_positions = build_field_offsets(schema.fields(), 0);
 
         Ok(Self {
             storage,
             key,
             schema: Arc::new(schema),
+            column_positions,
             offsets: Mutex::new(HashMap::new()),
-            stats
         })
     }
 
-    pub fn schema(&self) -> &Schema {
-        self.schema.as_ref()
+    pub fn schema(&self) -> SchemaRef {
+        self.schema.clone()
     }
 
-    pub fn get_column_stats(&self, column_index: usize) -> anyhow::Result<Option<Stats>> {
-        let stats = self.stats.lock();
-        Ok(if let Some(stats) = stats[column_index].as_ref() {
-            Some(stats.clone())
-        } else {
-            let data = self.storage.get(
-                self.key.clone().statistic(column_index)
-            )?;
-            if let Some(data) = data {
-                let stats = Stats::read(&data, self.schema.field(column_index).data_type())
-                    .with_context(|| anyhow!(
-                        "failed to deserialize stats for column {}",
-                        self.schema.field(column_index).name()
-                    ))?;
-                Some(stats)
-            } else {
-                None
-            }
-        })
+    pub fn get_column_stats(&self, _column_index: usize) -> anyhow::Result<Option<Stats>> {
+        Ok(None)
     }
 
     #[inline(never)]
     pub fn read_table(
         &self,
         projection: Option<&HashSet<&str>>,
-        row_ranges: Option<&RangeList<u32>>
+        row_ranges: Option<&RangeList<u32>>,
     ) -> anyhow::Result<RecordBatch>
     {
         let column_indexes = if let Some(projection) = projection {
@@ -107,64 +88,62 @@ impl <S: KvRead + Sync> TableReader<S> {
         };
 
         let record_batch = RecordBatch::try_new(schema, columns)?;
-        
         Ok(record_batch)
     }
 
     pub fn read_column(&self, index: usize, ranges: Option<&RangeList<u32>>) -> anyhow::Result<ArrayRef> {
         read_array(
-            &ColumnStorage {
-                reader: self,
-                column: index
-            },
-            0,
+            self,
+            self.column_positions[index],
             ranges,
-            self.schema.field(index).data_type()
+            self.schema.field(index).data_type(),
         )
     }
 
     fn get_buffer_pages(
         &self,
-        column: usize,
-        buffer: usize
-    ) -> anyhow::Result<ScalarBuffer<u32>>
+        buffer: usize,
+    ) -> anyhow::Result<OffsetBuffer<u32>>
     {
         let mut bag = self.offsets.lock();
-        if let Some(buf) = bag.get(&(column, buffer)) {
-            Ok(buf.clone())
-        } else {
-            let page = self.storage.get(
-                self.key.clone().offsets(column, buffer)
-            )?.ok_or_else(|| {
-               anyhow!("offsets page was not found")
-            })?;
-
-            let offsets = {
-                let item_size = u32::get_byte_width();
-                ensure!(
-                    page.len() % item_size == 0,
-                    "expected offsets page to be multiple of {}",
-                    item_size
-                );
-                let mut buf = MutableBuffer::new(page.len());
-                buf.extend_from_slice(&page);
-                ScalarBuffer::from(buf)
-            };
-
-            util::validate_offsets(&offsets)?;
-
-            bag.insert((column, buffer), offsets.clone());
-
-            Ok(offsets)
+        if let Some(buf) = bag.get(&buffer) {
+            return Ok(buf.clone());
         }
+
+        let page = self.storage.get(
+            self.key.clone().offsets(buffer)
+        )?.ok_or_else(|| {
+            anyhow!("offsets page was not found")
+        })?;
+
+        let offsets = {
+            let item_size = u32::get_byte_width();
+            ensure!(
+                page.len() % item_size == 0,
+                "expected offsets page to be multiple of {}",
+                item_size
+            );
+            let mut buf = MutableBuffer::new(page.len());
+            buf.extend_from_slice(&page);
+            ScalarBuffer::from(buf)
+        };
+
+        validate_offsets(&offsets, 0).map_err(|msg| anyhow!(msg))?;
+
+        let offsets = unsafe {
+            OffsetBuffer::new_unchecked(offsets)
+        };
+
+        bag.insert(buffer, offsets.clone());
+
+        Ok(offsets)
     }
 
     fn for_each_page<F: FnMut(usize, &[u8]) -> anyhow::Result<()>>(
         &self,
-        column: usize,
         buffer: usize,
         pagination: &Pagination<'_>,
-        mut cb: F
+        mut cb: F,
     ) -> anyhow::Result<()>
     {
         match pagination.num_pages() {
@@ -173,7 +152,7 @@ impl <S: KvRead + Sync> TableReader<S> {
                 let page_idx = pagination.page_index(0);
 
                 let value = self.storage.get(
-                    self.key.clone().page(column, buffer, page_idx)
+                    self.key.clone().page(buffer, page_idx)
                 )?.ok_or_else(|| {
                     anyhow!("page {} was not found", page_idx)
                 })?;
@@ -186,7 +165,7 @@ impl <S: KvRead + Sync> TableReader<S> {
                 let mut cursor = self.storage.new_cursor();
                 for i in 0..n {
                     let page_idx = pagination.page_index(i);
-                    let page_key = key.page(column, buffer, page_idx);
+                    let page_key = key.page(buffer, page_idx);
                     if prev_page_idx + 1 == page_idx {
                         cursor.next()?;
                     } else {
@@ -207,25 +186,24 @@ impl <S: KvRead + Sync> TableReader<S> {
 
     fn read_offsets(
         &self,
-        column: usize,
         buffer: usize,
-        ranges: Option<&RangeList<u32>>
+        ranges: Option<&RangeList<u32>>,
     ) -> anyhow::Result<(OffsetBuffer<i32>, Option<RangeList<u32>>)>
     {
         Ok(if let Some(ranges) = ranges {
-            let (offsets, value_ranges) = self.read_ranged_offsets(column, buffer, ranges)?;
+            let (offsets, value_ranges) = self.read_ranged_offsets(buffer, ranges)?;
             (offsets, Some(value_ranges))
         } else {
-            let offsets = self.read_all_offsets(column, buffer)?;
+            let offsets = self.read_all_offsets(buffer)?;
             (offsets, None)
         })
     }
 
-    fn read_all_offsets(&self, column: usize, buffer: usize) -> anyhow::Result<OffsetBuffer<i32>> {
-        let offsets = self.read_native_bytes(column, buffer, i32::get_byte_width(), None)
+    fn read_all_offsets(&self, buffer: usize) -> anyhow::Result<OffsetBuffer<i32>> {
+        let offsets = self.read_native_bytes(buffer, i32::get_byte_width(), None)
             .map(ScalarBuffer::<i32>::from)?;
 
-        validate_offsets(&offsets)?;
+        validate_offsets(&offsets, 0).map_err(|msg| anyhow!(msg))?;
 
         Ok(unsafe {
             OffsetBuffer::new_unchecked(offsets)
@@ -234,13 +212,12 @@ impl <S: KvRead + Sync> TableReader<S> {
 
     fn read_ranged_offsets(
         &self,
-        column: usize,
         buffer: usize,
-        ranges: &RangeList<u32>
+        ranges: &RangeList<u32>,
     ) -> anyhow::Result<(OffsetBuffer<i32>, RangeList<u32>)>
     {
         if ranges.len() == 0 {
-            return Ok((OffsetBuffer::new_empty(), RangeList::new(vec![])))
+            return Ok((OffsetBuffer::new_empty(), RangeList::new(vec![])));
         }
 
         let offset_ranges = RangeList::seal(ranges.iter().map(|r| {
@@ -248,15 +225,13 @@ impl <S: KvRead + Sync> TableReader<S> {
         }));
 
         let mut buf = self.read_native_bytes(
-            column,
             buffer,
             i32::get_byte_width(),
-            Some(&offset_ranges)
+            Some(&offset_ranges),
         )?;
 
         let offsets = buf.typed_data_mut::<i32>();
-        ensure!(offsets[0] >= 0);
-        validate_offsets_monotonicity(offsets)?;
+        validate_offsets(offsets, 0).map_err(|msg| anyhow!(msg))?;
 
         let mut value_ranges: Vec<Range<u32>> = Vec::with_capacity(ranges.len());
         {
@@ -269,7 +244,7 @@ impl <S: KvRead + Sync> TableReader<S> {
                     match value_ranges.last_mut() {
                         Some(prev) if prev.end == vr.start => {
                             prev.end = vr.end
-                        },
+                        }
                         _ => {
                             value_ranges.push(vr)
                         }
@@ -297,31 +272,31 @@ impl <S: KvRead + Sync> TableReader<S> {
 
         buf.truncate(buf.len() - (ranges.len() - 1) * i32::get_byte_width());
 
-        Ok(unsafe {(
-            OffsetBuffer::new_unchecked(ScalarBuffer::from(buf)),
-            RangeList::new_unchecked(value_ranges)
-        )})
+        Ok(unsafe {
+            (
+                OffsetBuffer::new_unchecked(ScalarBuffer::from(buf)),
+                RangeList::new_unchecked(value_ranges)
+            )
+        })
     }
 
     fn read_native_bytes(
         &self,
-        column: usize,
         buffer: usize,
         item_size: usize,
-        ranges: Option<&RangeList<u32>>
+        ranges: Option<&RangeList<u32>>,
     ) -> anyhow::Result<MutableBuffer>
     {
-        let page_offsets = self.get_buffer_pages(column, buffer)?;
+        let page_offsets = self.get_buffer_pages(buffer)?;
         let pagination = Pagination::new(&page_offsets, ranges);
         let mut buf = MutableBuffer::from_len_zeroed(pagination.num_items() * item_size);
 
         self.read_native_par(
             item_size,
-            column,
             buffer,
             &pagination,
             0..pagination.num_pages(),
-            buf.as_slice_mut()
+            buf.as_slice_mut(),
         )?;
 
         Ok(buf)
@@ -330,19 +305,18 @@ impl <S: KvRead + Sync> TableReader<S> {
     fn read_native_par(
         &self,
         item_size: usize,
-        column: usize,
         buffer: usize,
         pagination: &Pagination,
         pages: Range<usize>,
-        dest: &mut [u8]
+        dest: &mut [u8],
     ) -> anyhow::Result<()>
     {
         match pages.len() {
             0 => Ok(()),
             1 => {
                 let page_seq = pages.start;
-                self.read_native_par_page(item_size, column, buffer, pagination, page_seq, dest)
-            },
+                self.read_native_par_page(item_size, buffer, pagination, page_seq, dest)
+            }
             n => {
                 let mid = (n / 2) + (n % 2);
                 let lower = pages.start..pages.start + mid;
@@ -353,8 +327,8 @@ impl <S: KvRead + Sync> TableReader<S> {
                 );
 
                 let (lower_res, upper_res) = rayon::join(
-                    || self.read_native_par(item_size, column, buffer, pagination, lower, lower_buf),
-                    || self.read_native_par(item_size, column, buffer, pagination, upper, upper_buf)
+                    || self.read_native_par(item_size, buffer, pagination, lower, lower_buf),
+                    || self.read_native_par(item_size, buffer, pagination, upper, upper_buf),
                 );
 
                 lower_res?;
@@ -364,22 +338,21 @@ impl <S: KvRead + Sync> TableReader<S> {
             }
         }
     }
-    
+
     #[inline(never)]
     fn read_native_par_page(
         &self,
         item_size: usize,
-        column: usize,
         buffer: usize,
         pagination: &Pagination,
         page_seq: usize,
-        dest: &mut [u8]
+        dest: &mut [u8],
     ) -> anyhow::Result<()>
     {
         let page_idx = pagination.page_index(page_seq);
 
         let data = self.storage.get(
-            self.key.clone().page(column, buffer, page_idx)
+            self.key.clone().page(buffer, page_idx)
         )?.with_context(|| {
             anyhow!("page {} was not found", page_idx)
         })?;
@@ -415,15 +388,14 @@ impl <S: KvRead + Sync> TableReader<S> {
 
     fn read_boolean(
         &self,
-        column: usize,
         buffer: usize,
-        ranges: Option<&RangeList<u32>>
+        ranges: Option<&RangeList<u32>>,
     ) -> anyhow::Result<BooleanBuffer>
     {
-        let page_offsets = self.get_buffer_pages(column, buffer)?;
+        let page_offsets = self.get_buffer_pages(buffer)?;
         let pagination = Pagination::new(&page_offsets, ranges);
         let mut buf = BooleanBufferBuilder::new(pagination.num_items());
-        self.for_each_page(column, buffer, &pagination, |i, data| {
+        self.for_each_page(buffer, &pagination, |i, data| {
             let expected_bit_len = pagination.page_range(i).len();
             let expected_byte_len = bit_util::ceil(expected_bit_len, 8);
             ensure!(
@@ -443,62 +415,35 @@ impl <S: KvRead + Sync> TableReader<S> {
 
     fn read_null_mask(
         &self,
-        column: usize,
         buffer: usize,
-        ranges: Option<&RangeList<u32>>
+        ranges: Option<&RangeList<u32>>,
     ) -> anyhow::Result<Option<NullBuffer>>
     {
-        let page_offsets = self.get_buffer_pages(column, buffer)?;
+        let page_offsets = self.get_buffer_pages(buffer)?;
         if page_offsets.last().cloned().unwrap() == 0 {
-            return Ok(None)
+            return Ok(None);
         }
-        let values = self.read_boolean(column, buffer, ranges)?;
-        Ok(Some(NullBuffer::new(values)))
+        let values = self.read_boolean(buffer, ranges)?;
+        let nulls = NullBuffer::new(values);
+        Ok(Some(nulls))
     }
 }
 
 
-struct ColumnStorage<'a, S> {
-    reader: &'a TableReader<S>,
-    column: usize
-}
-
-
-impl <'a, S: KvRead + Sync> Storage for ColumnStorage<'a, S> {
-    fn read_native_bytes(
-        &self,
-        buffer: usize,
-        item_size: usize,
-        ranges: Option<&RangeList<u32>>
-    ) -> anyhow::Result<MutableBuffer>
-    {
-        self.reader.read_native_bytes(self.column, buffer, item_size, ranges)
+impl<S: KvRead + Sync> Storage for TableReader<S> {
+    fn read_native_bytes(&self, buffer: usize, item_size: usize, ranges: Option<&RangeList<u32>>) -> anyhow::Result<MutableBuffer> {
+        self.read_native_bytes(buffer, item_size, ranges)
     }
 
-    fn read_boolean(
-        &self,
-        buffer: usize,
-        ranges: Option<&RangeList<u32>>
-    ) -> anyhow::Result<BooleanBuffer>
-    {
-        self.reader.read_boolean(self.column, buffer, ranges)
+    fn read_boolean(&self, buffer: usize, ranges: Option<&RangeList<u32>>) -> anyhow::Result<BooleanBuffer> {
+        self.read_boolean(buffer, ranges)
     }
 
-    fn read_null_mask(
-        &self,
-        buffer: usize,
-        ranges: Option<&RangeList<u32>>
-    ) -> anyhow::Result<Option<NullBuffer>>
-    {
-        self.reader.read_null_mask(self.column, buffer, ranges)
+    fn read_null_mask(&self, buffer: usize, ranges: Option<&RangeList<u32>>) -> anyhow::Result<Option<NullBuffer>> {
+        self.read_null_mask(buffer, ranges)
     }
 
-    fn read_offsets(
-        &self,
-        buffer: usize,
-        ranges: Option<&RangeList<u32>>
-    ) -> anyhow::Result<(OffsetBuffer<i32>, Option<RangeList<u32>>)>
-    {
-        self.reader.read_offsets(self.column, buffer, ranges)
+    fn read_offsets(&self, buffer: usize, ranges: Option<&RangeList<u32>>) -> anyhow::Result<(OffsetBuffer<i32>, Option<RangeList<u32>>)> {
+        self.read_offsets(buffer, ranges)
     }
 }

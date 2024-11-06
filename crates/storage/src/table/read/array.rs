@@ -1,10 +1,10 @@
-use crate::table::util::get_num_buffers;
 use anyhow::{anyhow, ensure, Context};
 use arrow::array::{ArrayDataBuilder, ArrayRef, ArrowPrimitiveType, BinaryArray, BooleanArray, ListArray, PrimitiveArray, StringArray, StructArray};
 use arrow::buffer::{BooleanBuffer, NullBuffer, OffsetBuffer, ScalarBuffer};
 use arrow::datatypes::{ArrowNativeType, DataType, FieldRef, Fields, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 use arrow_buffer::MutableBuffer;
 use rayon::prelude::*;
+use sqd_array::util::build_field_offsets;
 use sqd_primitives::range::RangeList;
 use std::sync::Arc;
 
@@ -227,28 +227,23 @@ fn read_struct(
     let nulls = storage.read_null_mask(pos, ranges)
         .context("failed to read null mask")?;
     
-    let buffers = compute_struct_buffers(&fields);
+    let field_positions = build_field_offsets(&fields, pos + 1);
 
-    let arrays = (0..fields.len()).into_par_iter().map(|i| {
-        let data_type = fields[i].data_type();
-        read_array(storage, pos + 1 + buffers[i], ranges, data_type).with_context(|| {
-            anyhow!("failed to read field `{}`", fields[i].name())
+    let arrays = (0..fields.len())
+        .into_par_iter()
+        .map(|i| {
+            read_array(
+                storage, 
+                field_positions[i], 
+                ranges, 
+                fields[i].data_type()
+            ).with_context(|| {
+                anyhow!("failed to read field `{}`", fields[i].name())
+            })
         })
-    }).collect::<anyhow::Result<Vec<_>>>()?;
+        .collect::<anyhow::Result<Vec<_>>>()?;
     
     let struct_array = StructArray::try_new(fields, arrays, nulls)?;
     
     Ok(Arc::new(struct_array))
-}
-
-
-fn compute_struct_buffers(fields: &[FieldRef]) -> Vec<usize> {
-    let mut count = 0;
-    let mut offsets = Vec::with_capacity(fields.len() + 1);
-    offsets.push(0);
-    for f in fields.iter() {
-        count += get_num_buffers(f.data_type());
-        offsets.push(count);
-    }
-    offsets
 }

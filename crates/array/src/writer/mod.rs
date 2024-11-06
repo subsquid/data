@@ -143,7 +143,7 @@ pub trait WriterFactory {
 
     fn bitmask(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Bitmask>;
 
-    fn native(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Native>;
+    fn native<T: ArrowNativeType>(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Native>;
 
     fn offset(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Offset>;
 }

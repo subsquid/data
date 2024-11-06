@@ -129,7 +129,7 @@ impl <'a> ChunkReader<'a> {
         self.chunk.tables.contains_key(name)
     }
 
-    pub fn get_table(&self, name: &str) -> anyhow::Result<ChunkTableReader<'a>> {
+    pub fn get_table_reader(&self, name: &str) -> anyhow::Result<ChunkTableReader<'a>> {
         let table_id = self.chunk.tables.get(name).ok_or_else(|| {
             anyhow!("table `{}` does not exist in this chunk", name)
         })?;

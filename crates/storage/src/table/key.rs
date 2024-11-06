@@ -5,11 +5,9 @@ enum TableKey {
         column: u16
     },
     Offsets {
-        column: u16,
         buffer: u16
     },
     Page {
-        column: u16,
         buffer: u16,
         index: u32
     }
@@ -26,14 +24,12 @@ impl TableKey {
                 out.push(1);
                 out.extend_from_slice(&column.to_be_bytes());
             },
-            TableKey::Offsets { column, buffer } => {
+            TableKey::Offsets { buffer } => {
                 out.push(2);
-                out.extend_from_slice(&column.to_be_bytes());
                 out.extend_from_slice(&buffer.to_be_bytes())
             },
-            TableKey::Page { column, buffer, index } => {
+            TableKey::Page { buffer, index } => {
                 out.push(3);
-                out.extend_from_slice(&column.to_be_bytes());
                 out.extend_from_slice(&buffer.to_be_bytes());
                 out.extend_from_slice(&index.to_be_bytes());
             }
@@ -52,7 +48,7 @@ pub struct TableKeyFactory {
 impl TableKeyFactory {
     pub fn new<N: AsRef<[u8]>>(table_name: N) -> Self {
         let name = table_name.as_ref();
-        let mut buf = Vec::with_capacity(name.len() + 9);
+        let mut buf = Vec::with_capacity(name.len() + 7);
         buf.extend_from_slice(name);
         Self {
             buf,
@@ -78,16 +74,14 @@ impl TableKeyFactory {
         })
     }
 
-    pub fn offsets(&mut self, column: usize, buffer: usize) -> &[u8] {
+    pub fn offsets(&mut self, buffer: usize) -> &[u8] {
         self.make(TableKey::Offsets {
-            column: column as u16,
             buffer: buffer as u16
         })
     }
 
-    pub fn page(&mut self, column: usize, buffer: usize, page: usize) -> &[u8] {
+    pub fn page(&mut self, buffer: usize, page: usize) -> &[u8] {
         self.make(TableKey::Page {
-            column: column as u16,
             buffer: buffer as u16,
             index: page as u32
         })

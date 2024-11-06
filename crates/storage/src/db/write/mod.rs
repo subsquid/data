@@ -24,7 +24,7 @@ pub struct NewChunk {
 }
 
 
-pub struct Tx<'a> {
+pub(super) struct Tx<'a> {
     db: &'a RocksDB,
     transaction: RocksTransaction<'a>
 }

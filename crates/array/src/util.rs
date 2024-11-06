@@ -1,5 +1,5 @@
-use std::cmp::Ordering;
 use arrow::datatypes::{DataType, Fields};
+use std::cmp::Ordering;
 
 
 #[inline]
@@ -37,17 +37,18 @@ macro_rules! invalid_buffer_access {
 pub(crate) use invalid_buffer_access;
 
 
-pub(crate) mod bit_tools {
-    use std::ops::Range;
+pub mod bit_tools {
     use arrow_buffer::bit_chunk_iterator::UnalignedBitChunk;
     use arrow_buffer::bit_util;
-    
+    use std::ops::Range;
+
+
     pub fn all_valid(data: &[u8], offset: usize, len: usize) -> bool {
         // TODO: optimize
         UnalignedBitChunk::new(data, offset, len).count_ones() == len
     }
     
-    pub fn all_indexes_valid(data: &[u8], indexes: impl Iterator<Item = usize>) -> Option<usize> {
+    pub fn all_indexes_valid(data: &[u8], indexes: impl Iterator<Item=usize>) -> Option<usize> {
         let mut len = 0;
         for i in indexes {
             if !bit_util::get_bit(data, i) {
@@ -58,7 +59,7 @@ pub(crate) mod bit_tools {
         Some(len)
     }
     
-    pub fn all_ranges_valid(data: &[u8], ranges: impl Iterator<Item = Range<usize>>) -> Option<usize> {
+    pub fn all_ranges_valid(data: &[u8], ranges: impl Iterator<Item=Range<usize>>) -> Option<usize> {
         let mut len = 0;
         for r in ranges {
             if !all_valid(data, r.start, r.len()) {

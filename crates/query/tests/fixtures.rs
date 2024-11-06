@@ -85,7 +85,7 @@ mod storage {
         db: &Database,
         name: &str,
         kind: &str,
-        desc: DatasetDescriptionRef,
+        desc: Option<DatasetDescriptionRef>,
         chunk_path: &str
     ) -> anyhow::Result<()>
     {
@@ -105,7 +105,7 @@ mod storage {
                     File::open(format!("{}/{}", chunk_path, item_name))?
                 )?.with_batch_size(500).build()?;
 
-                let mut writer = chunk_builder.add_table(table, reader.schema())?;
+                let mut writer = chunk_builder.add_table(table, reader.schema());
 
                 while let Some(record_batch) = reader.next().transpose()? {
                     writer.write_record_batch(&record_batch)?;
@@ -135,7 +135,7 @@ mod storage {
             &db,
             "solana",
             "solana",
-            sqd_data::solana::tables::SolanaChunkBuilder::dataset_description(),
+            None,
             "fixtures/solana/chunk"
         )?;
 

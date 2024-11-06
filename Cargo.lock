@@ -2753,6 +2753,7 @@ dependencies = [
  "parking_lot",
  "rayon",
  "rocksdb",
+ "sqd-array",
  "sqd-dataset",
  "sqd-primitives",
  "uuid",

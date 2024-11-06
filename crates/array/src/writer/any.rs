@@ -2,7 +2,7 @@ use crate::util::{get_num_buffers, invalid_buffer_access};
 use crate::visitor::DataTypeVisitor;
 use crate::writer::{ArrayWriter, Writer, WriterFactory};
 use arrow::array::ArrowPrimitiveType;
-use arrow::datatypes::{DataType, FieldRef};
+use arrow::datatypes::{DataType, FieldRef, Schema};
 
 
 pub enum AnyWriter<W: Writer> {
@@ -72,6 +72,32 @@ impl <W: Writer> AnyArrayWriter<W> {
             buffers
         })
     }
+    
+    pub fn table_writer_from_factory(
+        factory: &mut impl WriterFactory<Writer=W>,
+        schema: &Schema
+    ) -> anyhow::Result<Self>
+    {
+        let mut buffers = Vec::with_capacity(
+            schema.fields()
+                .iter()
+                .map(|f| get_num_buffers(f.data_type()))
+                .sum()
+        );
+        
+        let mut wf = AnyArrayFactory {
+            buffers: &mut buffers,
+            writer_factory: factory
+        };
+        
+        for f in schema.fields().iter() {
+            wf.visit(f.data_type())?;
+        }
+        
+        Ok(Self {
+            buffers
+        })
+    }
 }
 
 
@@ -98,7 +124,7 @@ impl <'a, W: Writer, F: WriterFactory<Writer=W>> DataTypeVisitor for AnyArrayFac
         let nulls = self.writer_factory.nullmask()?;
         self.buffers.push(AnyWriter::Nullmask(nulls));
 
-        let values = self.writer_factory.native()?;
+        let values = self.writer_factory.native::<T::Native>()?;
         self.buffers.push(AnyWriter::Native(values));
 
         Ok(())
@@ -111,7 +137,7 @@ impl <'a, W: Writer, F: WriterFactory<Writer=W>> DataTypeVisitor for AnyArrayFac
         let offsets = self.writer_factory.offset()?;
         self.buffers.push(AnyWriter::Offsets(offsets));
 
-        let values = self.writer_factory.native()?;
+        let values = self.writer_factory.native::<u8>()?;
         self.buffers.push(AnyWriter::Native(values));
 
         Ok(())
