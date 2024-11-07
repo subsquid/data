@@ -1,5 +1,5 @@
-use crate::table::write::bitmask::BitmaskPageWriter;
-use crate::table::write::page::PageWriter;
+use super::bitmask::BitmaskPageWriter;
+use super::page::PageWriter;
 use sqd_array::index::RangeList;
 use sqd_array::util::bit_tools;
 use sqd_array::writer::BitmaskWriter;
@@ -36,7 +36,9 @@ impl<P: PageWriter> NullmaskPageWriter<P> {
     }
     
     pub fn finish(self) -> anyhow::Result<P> {
-        self.nulls.finish()
+        let mut page_writer = self.nulls.finish()?;
+        page_writer.write_page(0, &[])?;
+        Ok(page_writer)
     }
 }
 

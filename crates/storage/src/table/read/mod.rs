@@ -1,8 +1,8 @@
-mod reader;
 mod array;
+mod cursor_byte_reader;
 mod pagination;
-mod stats;
+mod reader;
 
 
 pub use reader::*;
-pub use stats::*;
+pub use crate::table::stats::*;

@@ -1,8 +1,9 @@
 use super::array::{read_array, Storage};
 use super::pagination::Pagination;
-use super::stats::Stats;
 use crate::kv::{KvRead, KvReadCursor};
 use crate::table::key::TableKeyFactory;
+use crate::table::read::cursor_byte_reader::CursorByteReader;
+use crate::table::stats::Stats;
 use anyhow::{anyhow, ensure, Context};
 use arrow::array::{ArrayRef, BooleanBufferBuilder, RecordBatch};
 use arrow::buffer::{BooleanBuffer, MutableBuffer, OffsetBuffer, ScalarBuffer};
@@ -11,6 +12,8 @@ use arrow::util::bit_util;
 use arrow_buffer::NullBuffer;
 use parking_lot::Mutex;
 use rayon::prelude::*;
+use sqd_array::io::reader::{BitmaskIOReader, IOReader, NativeIOReader, NullmaskIOReader, OffsetsIOReader};
+use sqd_array::reader::{AnyReader, ArrayReader, Reader, ReaderFactory};
 use sqd_array::util::{build_field_offsets, validate_offsets};
 use sqd_primitives::range::RangeList;
 use std::collections::{HashMap, HashSet};
@@ -58,7 +61,6 @@ impl<S: KvRead + Sync> TableReader<S> {
         Ok(None)
     }
 
-    #[inline(never)]
     pub fn read_table(
         &self,
         projection: Option<&HashSet<&str>>,
@@ -100,6 +102,17 @@ impl<S: KvRead + Sync> TableReader<S> {
         )
     }
 
+    pub fn create_column_reader(&self, column_index: usize) -> anyhow::Result<impl ArrayReader> {
+        let mut factory = CursorReaderFactory {
+            table: self,
+            buffer: self.column_positions[column_index]
+        };
+        AnyReader::from_factory(
+            &mut factory,
+            self.schema.field(column_index).data_type()
+        )
+    }
+
     fn get_buffer_pages(
         &self,
         buffer: usize,
@@ -110,8 +123,9 @@ impl<S: KvRead + Sync> TableReader<S> {
             return Ok(buf.clone());
         }
 
+        let mut key = self.key.clone();
         let page = self.storage.get(
-            self.key.clone().offsets(buffer)
+            key.offsets(buffer)
         )?.ok_or_else(|| {
             anyhow!("offsets page was not found")
         })?;
@@ -129,6 +143,7 @@ impl<S: KvRead + Sync> TableReader<S> {
         };
 
         validate_offsets(&offsets, 0).map_err(|msg| anyhow!(msg))?;
+        ensure!(offsets[0] == 0, "");
 
         let offsets = unsafe {
             OffsetBuffer::new_unchecked(offsets)
@@ -151,8 +166,9 @@ impl<S: KvRead + Sync> TableReader<S> {
             1 => {
                 let page_idx = pagination.page_index(0);
 
+                let mut key = self.key.clone();
                 let value = self.storage.get(
-                    self.key.clone().page(buffer, page_idx)
+                    key.page(buffer, page_idx)
                 )?.ok_or_else(|| {
                     anyhow!("page {} was not found", page_idx)
                 })?;
@@ -351,8 +367,9 @@ impl<S: KvRead + Sync> TableReader<S> {
     {
         let page_idx = pagination.page_index(page_seq);
 
+        let mut key = self.key.clone();
         let data = self.storage.get(
-            self.key.clone().page(buffer, page_idx)
+            key.page(buffer, page_idx)
         )?.with_context(|| {
             anyhow!("page {} was not found", page_idx)
         })?;
@@ -393,6 +410,49 @@ impl<S: KvRead + Sync> TableReader<S> {
     ) -> anyhow::Result<BooleanBuffer>
     {
         let page_offsets = self.get_buffer_pages(buffer)?;
+        self.read_bitmask(buffer, page_offsets, ranges)
+    }
+
+    fn read_null_mask(
+        &self,
+        buffer: usize,
+        ranges: Option<&RangeList<u32>>,
+    ) -> anyhow::Result<Option<NullBuffer>>
+    {
+        let page_offsets = self.get_nullmask_pages(buffer)?;
+        if page_offsets.len() == 2 {
+            Ok(None)
+        } else {
+            let values = self.read_bitmask(
+                buffer,
+                page_offsets.slice(0, page_offsets.len() - 1),
+                ranges
+            )?;
+            let nulls = NullBuffer::new(values);
+            Ok(Some(nulls))
+        }
+    }
+
+    fn get_nullmask_pages(&self, buffer: usize) -> anyhow::Result<OffsetBuffer<u32>> {
+        let pages = self.get_buffer_pages(buffer)?;
+        
+        ensure!(pages.len() >= 2, "nullmask offsets should contain at least 2 pages");
+        
+        if pages.len() > 2 {
+            let bit_len = pages[pages.len() - 1];
+            ensure!(pages[pages.len() - 2] == bit_len, "bitmask and nullmask lengths are different");
+        }
+
+        Ok(pages)
+    }
+
+    fn read_bitmask(
+        &self,
+        buffer: usize,
+        page_offsets: OffsetBuffer<u32>,
+        ranges: Option<&RangeList<u32>>
+    ) -> anyhow::Result<BooleanBuffer>
+    {
         let pagination = Pagination::new(&page_offsets, ranges);
         let mut buf = BooleanBufferBuilder::new(pagination.num_items());
         self.for_each_page(buffer, &pagination, |i, data| {
@@ -412,21 +472,6 @@ impl<S: KvRead + Sync> TableReader<S> {
         })?;
         Ok(buf.finish())
     }
-
-    fn read_null_mask(
-        &self,
-        buffer: usize,
-        ranges: Option<&RangeList<u32>>,
-    ) -> anyhow::Result<Option<NullBuffer>>
-    {
-        let page_offsets = self.get_buffer_pages(buffer)?;
-        if page_offsets.last().cloned().unwrap() == 0 {
-            return Ok(None);
-        }
-        let values = self.read_boolean(buffer, ranges)?;
-        let nulls = NullBuffer::new(values);
-        Ok(Some(nulls))
-    }
 }
 
 
@@ -445,5 +490,95 @@ impl<S: KvRead + Sync> Storage for TableReader<S> {
 
     fn read_offsets(&self, buffer: usize, ranges: Option<&RangeList<u32>>) -> anyhow::Result<(OffsetBuffer<i32>, Option<RangeList<u32>>)> {
         self.read_offsets(buffer, ranges)
+    }
+}
+
+
+struct CursorReaderFactory<'a, S> {
+    table: &'a TableReader<S>,
+    buffer: usize
+}
+
+
+impl<'a, S: KvRead + Sync> CursorReaderFactory<'a, S> {
+    fn next_bitmask(
+        &mut self,
+        pages: OffsetBuffer<u32>
+    ) -> anyhow::Result<BitmaskIOReader<CursorByteReader<S::Cursor>>>
+    {
+        let bit_len = pages.last().copied().unwrap() as usize;
+
+        let byte_offsets = pages.iter().enumerate().map(|(i, &o)| {
+            Ok(if i == pages.len() - 1 {
+                bit_util::ceil(o as usize, 8) as u32
+            } else {
+                ensure!(
+                    o % 8 == 0,
+                    "unaligned intermediate bitmask page: buffer {}, page {}",
+                    self.buffer,
+                    i
+                );
+                o / 8
+            })
+        }).collect::<anyhow::Result<Vec<_>>>()?;
+
+        let byte_reader = CursorByteReader::new(
+            self.table.storage.new_cursor(),
+            self.table.key.clone(),
+            self.buffer,
+            byte_offsets
+        );
+
+        self.buffer += 1;
+        Ok(BitmaskIOReader::new_unchecked(byte_reader, bit_len))
+    }
+
+    fn next_native_cursor(&mut self, item_size: usize) -> anyhow::Result<CursorByteReader<S::Cursor>> {
+        let pages = self.table.get_buffer_pages(self.buffer)?;
+
+        let byte_offsets: Vec<u32> = pages.iter()
+            .map(|o| *o * item_size as u32)
+            .collect();
+
+        let byte_reader = CursorByteReader::new(
+            self.table.storage.new_cursor(),
+            self.table.key.clone(),
+            self.buffer,
+            byte_offsets
+        );
+
+        self.buffer += 1;
+        Ok(byte_reader)
+    }
+}
+
+
+impl<'a, S: KvRead + Sync> ReaderFactory for CursorReaderFactory<'a, S> {
+    type Reader = IOReader<CursorByteReader<S::Cursor>>;
+
+    fn nullmask(&mut self) -> anyhow::Result<<Self::Reader as Reader>::Nullmask> {
+        let pages = self.table.get_nullmask_pages(self.buffer)?;
+        let bit_len = pages.last().copied().unwrap();
+        Ok(if pages.len() == 2 {
+            NullmaskIOReader::new_empty(bit_len as usize)
+        } else {
+            let bitmask = self.next_bitmask(pages.slice(0, pages.len() - 1))?;
+            NullmaskIOReader::from_bitmask(bitmask)
+        })
+    }
+
+    fn bitmask(&mut self) -> anyhow::Result<<Self::Reader as Reader>::Bitmask> {
+        let pages = self.table.get_buffer_pages(self.buffer)?;
+        self.next_bitmask(pages)
+    }
+
+    fn native<T: ArrowNativeType>(&mut self) -> anyhow::Result<<Self::Reader as Reader>::Native> {
+        let byte_reader = self.next_native_cursor(T::get_byte_width())?;
+        NativeIOReader::new(byte_reader, T::get_byte_width())
+    }
+
+    fn offset(&mut self) -> anyhow::Result<<Self::Reader as Reader>::Offset> {
+        let byte_reader = self.next_native_cursor(i32::get_byte_width())?;
+        OffsetsIOReader::new(byte_reader)
     }
 }

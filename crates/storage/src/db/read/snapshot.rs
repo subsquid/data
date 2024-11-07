@@ -5,10 +5,10 @@ use rocksdb::{ColumnFamily, ReadOptions};
 use sqd_primitives::{BlockNumber, Name, ShortHash};
 
 use crate::db::data::{Chunk, ChunkId, DatasetId};
-use crate::db::db::{RocksDB, RocksSnapshot, CF_CHUNKS, CF_DATASETS, CF_TABLES};
+use crate::db::db::{RocksDB, RocksSnapshot, RocksSnapshotIterator, CF_CHUNKS, CF_DATASETS, CF_TABLES};
 use crate::db::read::chunk::{list_chunks, read_current_chunk};
 use crate::db::DatasetLabel;
-use crate::kv::{KvRead, KvReadCursor};
+use crate::kv::KvRead;
 use crate::table::read::TableReader;
 
 
@@ -160,7 +160,9 @@ pub struct CFSnapshot<'a> {
 
 
 impl <'a> KvRead for CFSnapshot<'a> {
-    fn get<'b, 'c>(&'b self, key: &'c [u8]) -> anyhow::Result<Option<impl Deref<Target=[u8]> + 'b>> {
+    type Cursor = RocksSnapshotIterator<'a>;
+    
+    fn get(&self, key: &[u8]) -> anyhow::Result<Option<impl Deref<Target=[u8]>>> {
         Ok(self.snapshot.db.get_pinned_cf_opt(
             self.snapshot.cf_handle(self.cf),
             key,
@@ -168,7 +170,7 @@ impl <'a> KvRead for CFSnapshot<'a> {
         )?)
     }
 
-    fn new_cursor(&self) -> impl KvReadCursor {
+    fn new_cursor(&self) -> Self::Cursor {
         self.snapshot.db.raw_iterator_cf_opt(
             self.snapshot.cf_handle(self.cf),
             self.snapshot.new_options()

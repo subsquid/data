@@ -7,7 +7,6 @@ use crate::slice::{AnyListItem, AnySlice, Slice};
 use crate::writer::{ArrayWriter, OffsetsWriter};
 use arrow::array::{GenericByteArray, ListArray};
 use arrow::datatypes::ByteArrayType;
-use arrow_buffer::ArrowNativeType;
 use std::ops::Range;
 
 
@@ -170,7 +169,7 @@ impl<'a> From<&'a ListArray> for ListSlice<'a, AnyListItem<'a>> {
 }
 
 
-impl <'a, T: ArrowNativeType> Access for ListSlice<'a, &'a [T]>{
+impl <'a, T> Access for ListSlice<'a, &'a [T]>{
     type Value = &'a [T];
 
     #[inline]
@@ -188,5 +187,28 @@ impl <'a, T: ArrowNativeType> Access for ListSlice<'a, &'a [T]>{
     #[inline]
     fn has_nulls(&self) -> bool {
         self.nulls.has_nulls()
+    }
+}
+
+
+impl<'a, T: Ord> ListSlice<'a, &'a [T]> {
+    pub fn max(&self) -> Option<&'a [T]> {
+        if self.has_nulls() {
+            (0..self.nulls.len()).flat_map(|i| {
+                self.is_valid(i).then(|| self.get(i))
+            }).max()
+        } else {
+            (0..self.nulls.len()).map(|i| self.get(i)).max()
+        }
+    }
+
+    pub fn min(&self) -> Option<&'a [T]> {
+        if self.has_nulls() {
+            (0..self.nulls.len()).flat_map(|i| {
+                self.is_valid(i).then(|| self.get(i))
+            }).min()
+        } else {
+            (0..self.nulls.len()).map(|i| self.get(i)).min()
+        }
     }
 }

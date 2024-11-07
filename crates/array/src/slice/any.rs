@@ -28,6 +28,93 @@ pub enum AnySlice<'a> {
 }
 
 
+impl<'a> AnySlice<'a> {
+    pub fn as_bool(&self) -> BooleanSlice<'a> {
+        match self {
+            AnySlice::Boolean(s) => s.clone(),
+            _ => panic!("not a boolean slice")
+        }
+    }
+
+    pub fn as_u8(&self) -> PrimitiveSlice<'a, u8> {
+        match self {
+            AnySlice::UInt8(s) => s.clone(),
+            _ => panic!("not a u8 slice")
+        }
+    }
+
+    pub fn as_u16(&self) -> PrimitiveSlice<'a, u16> {
+        match self {
+            AnySlice::UInt16(s) => s.clone(),
+            _ => panic!("not a u16 slice")
+        }
+    }
+
+    pub fn as_u32(&self) -> PrimitiveSlice<'a, u32> {
+        match self {
+            AnySlice::UInt32(s) => s.clone(),
+            _ => panic!("not a u32 slice")
+        }
+    }
+
+    pub fn as_u64(&self) -> PrimitiveSlice<'a, u64> {
+        match self {
+            AnySlice::UInt64(s) => s.clone(),
+            _ => panic!("not a u64 slice")
+        }
+    }
+
+    pub fn as_i8(&self) -> PrimitiveSlice<'a, i8> {
+        match self {
+            AnySlice::Int8(s) => s.clone(),
+            _ => panic!("not a i8 slice")
+        }
+    }
+
+    pub fn as_i16(&self) -> PrimitiveSlice<'a, i16> {
+        match self {
+            AnySlice::Int16(s) => s.clone(),
+            _ => panic!("not a i16 slice")
+        }
+    }
+
+    pub fn as_i32(&self) -> PrimitiveSlice<'a, i32> {
+        match self {
+            AnySlice::Int32(s) => s.clone(),
+            _ => panic!("not a i32 slice")
+        }
+    }
+
+    pub fn as_i64(&self) -> PrimitiveSlice<'a, i64> {
+        match self {
+            AnySlice::Int64(s) => s.clone(),
+            _ => panic!("not a i64 slice")
+        }
+    }
+
+    pub fn as_binary(&self) -> ListSlice<'a, &'a [u8]> {
+        match self {
+            AnySlice::Binary(s) => s.clone(),
+            _ => panic!("not a binary slice")
+        }
+    }
+
+    pub fn as_list(&self) -> ListSlice<'a, AnySlice<'a>> {
+        match self {
+            AnySlice::List(s) => ListSlice::new(s.offsets(), s.values().item(), s.nulls().bitmask()),
+            _ => panic!("not a list slice")
+        }
+    }
+
+    pub fn as_struct(&self) -> AnyStructSlice<'a> {
+        match self {
+            AnySlice::Struct(s) => s.clone(),
+            _ => panic!("not a struct slice")
+        }
+    }
+}
+
+
 impl <'a> Slice for AnySlice<'a> {
     fn num_buffers(&self) -> usize {
         match self {
@@ -288,12 +375,6 @@ impl <'a> From<ListSlice<'a, &'a [u8]>> for AnySlice<'a> {
     }
 }
 
-
-// impl <'a> From<ListSlice<'a, AnyListItem<'a>>> for AnySlice<'a> {
-//     fn from(value: ListSlice<'a, AnyListItem<'a>>) -> Self {
-//         AnySlice::List(value)
-//     }
-// }
 
 impl <'a, T: Slice + Into<AnySlice<'a>>> From<ListSlice<'a, T>> for AnySlice<'a> {
     fn from(value: ListSlice<'a, T>) -> Self {

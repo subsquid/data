@@ -1,22 +1,12 @@
-use crate::io::file::byte_reader::FileByteReader;
-use crate::io::file::shared_file::SharedFileRef;
-use crate::io::reader::{BitmaskIOReader, NativeIOReader, NullmaskIOReader, OffsetsIOReader};
+use super::byte_reader::FileByteReader;
+use super::shared_file::SharedFileRef;
+use crate::io::reader::{BitmaskIOReader, IOReader, NativeIOReader, NullmaskIOReader, OffsetsIOReader};
 use crate::reader::{AnyReader, Reader, ReaderFactory};
 use arrow_buffer::ArrowNativeType;
 
 
 pub type ArrayFileReader = AnyReader<FileReader>;
-
-
-pub struct FileReader;
-
-
-impl Reader for FileReader {
-    type Nullmask = NullmaskIOReader<FileByteReader>;
-    type Bitmask = BitmaskIOReader<FileByteReader>;
-    type Native = NativeIOReader<FileByteReader>;
-    type Offset = OffsetsIOReader<FileByteReader>;
-}
+pub type FileReader = IOReader<FileByteReader>;
 
 
 pub(super) struct FileReaderFactory<'a> {

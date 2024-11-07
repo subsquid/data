@@ -31,6 +31,20 @@ impl <R: ByteReader> NullmaskIOReader<R> {
             })
         }
     }
+
+    pub fn new_empty(len: usize) -> Self {
+        Self {
+            bitmask: None,
+            len
+        }
+    }
+
+    pub fn from_bitmask(bitmask: BitmaskIOReader<R>) -> Self {
+        Self {
+            len: bitmask.len(),
+            bitmask: Some(bitmask)
+        }
+    }
 }
 
 

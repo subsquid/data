@@ -113,3 +113,26 @@ impl <'a, T: ArrowNativeType> Access for PrimitiveSlice<'a, T> {
         self.nulls.has_nulls()
     }
 }
+
+
+impl<'a, T: ArrowNativeType + Ord> PrimitiveSlice<'a, T> {
+    pub fn max(&self) -> Option<T> {
+        if self.nulls.has_nulls() {
+            self.values.iter().enumerate().filter_map(|(i, v)| {
+                self.nulls.is_valid(i).then_some(*v)
+            }).max()
+        } else {
+            self.values.iter().max().copied()
+        }
+    }
+
+    pub fn min(&self) -> Option<T> {
+        if self.nulls.has_nulls() {
+            self.values.iter().enumerate().filter_map(|(i, v)| {
+                self.nulls.is_valid(i).then_some(*v)
+            }).min()
+        } else {
+            self.values.iter().min().copied()
+        }
+    }
+}
