@@ -1,8 +1,7 @@
-use std::sync::LazyLock;
-use std::time::Duration;
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use serde_json::json;
 use sqd_query::{Chunk, JsonLinesWriter, Plan, Query};
+use std::sync::LazyLock;
 
 
 #[global_allocator]
@@ -59,10 +58,11 @@ fn perform_query(plan: &Plan, chunk: &dyn Chunk) -> anyhow::Result<Vec<u8>> {
 
 
 mod parquet {
-    use std::path::Path;
+    use crate::{perform_query, WHIRLPOOL_SWAP};
     use criterion::Criterion;
     use sqd_query::ParquetChunk;
-    use crate::{perform_query, WHIRLPOOL_SWAP};
+    use std::path::Path;
+
 
     pub fn setup(c: &mut Criterion) {
         c.bench_function("parquet: whirlpool swap", |bench| {
@@ -84,15 +84,17 @@ mod parquet {
 
 
 mod storage {
-    use std::fs::File;
-    use std::path::Path;
+    use crate::{perform_query, WHIRLPOOL_SWAP};
     use arrow::array::RecordBatchReader;
     use criterion::Criterion;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+    use sqd_data::solana::tables::SolanaChunkBuilder;
     use sqd_primitives::ShortHash;
     use sqd_query::StorageChunk;
     use sqd_storage::db::{Database, DatasetId, DatasetKind, NewChunk};
-    use crate::{perform_query, WHIRLPOOL_SWAP};
+    use std::fs::File;
+    use std::path::Path;
+
 
     pub fn setup(c: &mut Criterion) {
         let db_dir = tempfile::tempdir().unwrap();
@@ -106,7 +108,7 @@ mod storage {
         let chunk_reader = snapshot.get_first_chunk(dataset_id).unwrap().unwrap();
         let chunk = StorageChunk::new(&chunk_reader);
 
-        c.bench_function("S2: whirlpool swap", |bench| {
+        c.bench_function("storage: whirlpool swap", |bench| {
             let plan = WHIRLPOOL_SWAP.compile();
 
             bench.iter(|| {
@@ -125,7 +127,7 @@ mod storage {
 
         db.create_dataset(dataset_id, dataset_kind)?;
 
-        let chunk_builder = db.new_chunk_builder(None);
+        let chunk_builder = db.new_chunk_builder(SolanaChunkBuilder::dataset_description());
 
         let parquet_chunk_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("fixtures/solana/chunk");
@@ -166,7 +168,7 @@ mod storage {
 
 criterion_group!(
     name = benches;
-    config = Criterion::default().measurement_time(Duration::from_secs(10));
+    config = Criterion::default();
     targets = parquet::setup, storage::setup
 );
 

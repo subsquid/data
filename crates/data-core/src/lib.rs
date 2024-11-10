@@ -5,6 +5,7 @@ mod table_builder;
 mod table_file;
 mod table_processor;
 mod table_sort;
+mod chunk_builder;
 
 
 pub use downcast::Downcast;

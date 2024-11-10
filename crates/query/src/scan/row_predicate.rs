@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use arrow::array::{Array, ArrayRef, BooleanArray, RecordBatch};
-use arrow::buffer::ScalarBuffer;
+use arrow::buffer::OffsetBuffer;
 use sqd_primitives::RowRangeList;
 
 use crate::primitives::Name;
@@ -36,7 +36,7 @@ pub trait RowStats {
 
 #[derive(Clone)]
 pub struct ColumnStats {
-    pub offsets: ScalarBuffer<u32>,
+    pub offsets: OffsetBuffer<u32>,
     pub min: ArrayRef,
     pub max: ArrayRef
 }

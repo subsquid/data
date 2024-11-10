@@ -5,11 +5,11 @@ use crate::scan::util::{add_row_index, build_row_index_array};
 use crate::scan::RowPredicateRef;
 use arrow::array::RecordBatch;
 use sqd_primitives::RowRangeList;
-use sqd_storage::db::ChunkTableReader;
+use sqd_storage::db::SnapshotTableReader;
 use std::collections::HashSet;
 
 
-impl <'a> TableReader for ChunkTableReader<'a> {
+impl <'a> TableReader for SnapshotTableReader<'a> {
     fn read(
         &self,
         predicate: Option<RowPredicateRef>,
@@ -93,13 +93,13 @@ impl <'a> TableReader for ChunkTableReader<'a> {
 }
 
 
-impl <'a> RowStats for ChunkTableReader<'a> {
+impl <'a> RowStats for SnapshotTableReader<'a> {
     fn get_column_stats(&self, column: Name) -> anyhow::Result<Option<ColumnStats>> {
         let index = self.schema().index_of(column)?;
         let stats = self.get_column_stats(index)?;
         Ok(stats.map(|stats| {
             ColumnStats {
-                offsets: stats.offsets.into_inner(),
+                offsets: stats.offsets,
                 min: stats.min,
                 max: stats.max
             }

@@ -56,6 +56,7 @@ mod parquet {
 
     use crate::test_fixture;
 
+
     #[rstest]
     fn query(#[files("fixtures/*/queries/*/query.json")] query_file: PathBuf) {
         let case_dir = query_file.parent().unwrap();
@@ -72,7 +73,7 @@ mod storage {
 
     use arrow::array::RecordBatchReader;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-
+    use sqd_data::solana::tables::SolanaChunkBuilder;
     use sqd_dataset::DatasetDescriptionRef;
     use sqd_primitives::ShortHash;
     use sqd_query::StorageChunk;
@@ -135,7 +136,7 @@ mod storage {
             &db,
             "solana",
             "solana",
-            None,
+            Some(SolanaChunkBuilder::dataset_description()),
             "fixtures/solana/chunk"
         )?;
 

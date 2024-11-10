@@ -8,6 +8,7 @@ use crate::db::data::{Chunk, ChunkId, DatasetId};
 use crate::db::db::{RocksDB, RocksSnapshot, RocksSnapshotIterator, CF_CHUNKS, CF_DATASETS, CF_TABLES};
 use crate::db::read::chunk::{list_chunks, read_current_chunk};
 use crate::db::DatasetLabel;
+use crate::db::table_id::TableId;
 use crate::kv::KvRead;
 use crate::table::read::TableReader;
 
@@ -38,6 +39,17 @@ impl <'a> ReadSnapshot<'a> {
         } else {
             None
         })
+    }
+
+    pub fn create_table_reader(&self, table_id: TableId) -> anyhow::Result<SnapshotTableReader<'_>> {
+        let storage = CFSnapshot {
+            snapshot: self,
+            cf: CF_TABLES
+        };
+
+        let reader = TableReader::new(storage, table_id.as_ref())?;
+
+        Ok(reader)
     }
 
     pub fn create_chunk_reader(&self, chunk: Chunk) -> ChunkReader<'_> {
@@ -129,19 +141,11 @@ impl <'a> ChunkReader<'a> {
         self.chunk.tables.contains_key(name)
     }
 
-    pub fn get_table_reader(&self, name: &str) -> anyhow::Result<ChunkTableReader<'a>> {
+    pub fn get_table_reader(&self, name: &str) -> anyhow::Result<SnapshotTableReader<'a>> {
         let table_id = self.chunk.tables.get(name).ok_or_else(|| {
             anyhow!("table `{}` does not exist in this chunk", name)
         })?;
-
-        let storage = CFSnapshot {
-            snapshot: self.snapshot,
-            cf: CF_TABLES
-        };
-
-        let reader = TableReader::new(storage, table_id.as_ref())?;
-
-        Ok(reader)
+        self.snapshot.create_table_reader(*table_id)
     }
     
     pub fn into_data(self) -> Chunk {
@@ -150,7 +154,7 @@ impl <'a> ChunkReader<'a> {
 }
 
 
-pub type ChunkTableReader<'a> = TableReader<CFSnapshot<'a>>;
+pub type SnapshotTableReader<'a> = TableReader<CFSnapshot<'a>>;
 
 
 pub struct CFSnapshot<'a> {

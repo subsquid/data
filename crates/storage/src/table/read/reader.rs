@@ -3,7 +3,7 @@ use super::pagination::Pagination;
 use crate::kv::{KvRead, KvReadCursor};
 use crate::table::key::TableKeyFactory;
 use crate::table::read::cursor_byte_reader::CursorByteReader;
-use crate::table::stats::Stats;
+use crate::table::stats::{can_have_stats, deserialize_stats, Stats, StatsBuilder};
 use anyhow::{anyhow, ensure, Context};
 use arrow::array::{ArrayRef, BooleanBufferBuilder, RecordBatch};
 use arrow::buffer::{BooleanBuffer, MutableBuffer, OffsetBuffer, ScalarBuffer};
@@ -12,8 +12,10 @@ use arrow::util::bit_util;
 use arrow_buffer::NullBuffer;
 use parking_lot::Mutex;
 use rayon::prelude::*;
+use sqd_array::builder::{AnyBuilder, ArrayBuilder};
 use sqd_array::io::reader::{BitmaskIOReader, IOReader, NativeIOReader, NullmaskIOReader, OffsetsIOReader};
 use sqd_array::reader::{AnyReader, ArrayReader, Reader, ReaderFactory};
+use sqd_array::slice::AsSlice;
 use sqd_array::util::{build_field_offsets, validate_offsets};
 use sqd_primitives::range::RangeList;
 use std::collections::{HashMap, HashSet};
@@ -27,6 +29,7 @@ pub struct TableReader<S> {
     schema: SchemaRef,
     column_positions: Vec<usize>,
     offsets: Mutex<HashMap<usize, OffsetBuffer<u32>>>,
+    stats: Mutex<Vec<Option<Option<Stats>>>>
 }
 
 
@@ -44,12 +47,15 @@ impl<S: KvRead + Sync> TableReader<S> {
 
         let column_positions = build_field_offsets(schema.fields(), 0);
 
+        let stats = vec![None; schema.fields().len()];
+
         Ok(Self {
             storage,
             key,
             schema: Arc::new(schema),
             column_positions,
             offsets: Mutex::new(HashMap::new()),
+            stats: Mutex::new(stats)
         })
     }
 
@@ -57,8 +63,24 @@ impl<S: KvRead + Sync> TableReader<S> {
         self.schema.clone()
     }
 
-    pub fn get_column_stats(&self, _column_index: usize) -> anyhow::Result<Option<Stats>> {
-        Ok(None)
+    pub fn get_column_stats(&self, column_index: usize) -> anyhow::Result<Option<Stats>> {
+        let mut stats_lock = self.stats.lock();
+        Ok(if let Some(stats) = &stats_lock[column_index] {
+            stats.clone()
+        } else {
+            let stats = self.read_column_stats(column_index)?;
+            stats_lock[column_index] = Some(stats.clone());
+            stats
+        })
+    }
+
+    fn read_column_stats(&self, column_index: usize) -> anyhow::Result<Option<Stats>> {
+        self.storage.get(
+            self.key.clone().statistic(column_index)
+        )?.map(|data| {
+            let data_type = self.schema.field(column_index).data_type();
+            deserialize_stats(&data, data_type)
+        }).transpose()
     }
 
     pub fn read_table(
@@ -111,6 +133,50 @@ impl<S: KvRead + Sync> TableReader<S> {
             &mut factory,
             self.schema.field(column_index).data_type()
         )
+    }
+
+    pub fn build_column_stats(&self, window: usize, column_index: usize) -> anyhow::Result<Stats> {
+        ensure!(window > 0);
+        
+        let data_type = self.schema.field(column_index).data_type();
+        
+        ensure!(
+            can_have_stats(data_type),
+            "stats are not supported for columns of type {}",
+            data_type
+        );
+
+        // println!("try test read");
+        // self.read_column(column_index, None)?;
+        // println!("test read OK");
+        
+        let mut reader = self.create_column_reader(column_index)?;
+        let mut array_builder = AnyBuilder::new(data_type);
+        let mut stats_builder = StatsBuilder::new(data_type.clone());
+        let mut pos = 0;
+        let end = reader.len();
+
+        while end - pos > window * 3 / 2 {
+            reader.read_slice(&mut array_builder, pos, window)?;
+            stats_builder.push_entry(&array_builder.as_slice());
+            array_builder.clear();
+            pos += window;
+        }
+        
+        if end - pos > window {
+            let window = (end - pos) / 2;
+            reader.read_slice(&mut array_builder, pos, window)?;
+            stats_builder.push_entry(&array_builder.as_slice());
+            array_builder.clear();
+            pos += window;
+        }
+
+        if end > pos {
+            reader.read_slice(&mut array_builder, pos, end - pos)?;
+            stats_builder.push_entry(&array_builder.as_slice());
+        }
+        
+        Ok(stats_builder.finish())
     }
 
     fn get_buffer_pages(
@@ -560,6 +626,7 @@ impl<'a, S: KvRead + Sync> ReaderFactory for CursorReaderFactory<'a, S> {
         let pages = self.table.get_nullmask_pages(self.buffer)?;
         let bit_len = pages.last().copied().unwrap();
         Ok(if pages.len() == 2 {
+            self.buffer += 1;
             NullmaskIOReader::new_empty(bit_len as usize)
         } else {
             let bitmask = self.next_bitmask(pages.slice(0, pages.len() - 1))?;

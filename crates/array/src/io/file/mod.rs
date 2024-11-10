@@ -1,15 +1,21 @@
 mod byte_reader;
 mod shared_file;
-mod reader;
 mod writer;
 
 
-use crate::io::file::shared_file::SharedFileRef;
+use crate::io::reader::IOReader;
 use crate::reader::AnyReader;
 use crate::util::get_num_buffers;
 use arrow::datatypes::DataType;
-pub use reader::*;
+use byte_reader::FileByteReader;
+use shared_file::SharedFileRef;
+
+
 pub use writer::*;
+
+
+pub type FileReader = IOReader<FileByteReader>;
+pub type ArrayFileReader = AnyReader<FileReader>;
 
 
 pub struct ArrayFile {
@@ -31,7 +37,12 @@ impl ArrayFile {
     }
 
     pub fn read(&self) -> anyhow::Result<ArrayFileReader> {
-        let mut factory = FileReaderFactory::new(&self.buffers);
+        let mut pos = 0;
+        let mut factory = || {
+            let byte_reader = FileByteReader::new(self.buffers[pos].clone())?;
+            pos += 1;
+            Ok(byte_reader)
+        };
         AnyReader::from_factory(&mut factory, &self.data_type)
     }
     

@@ -16,7 +16,8 @@ impl <R: Reader, T> ListReader<R, T> {
     pub fn try_new(nulls: R::Nullmask, offsets: R::Offset, values: T) -> anyhow::Result<Self> {
         ensure!(
             nulls.len() == offsets.len(), 
-            "null and offset buffers have incompatible lengths"
+            "null and offset buffers have incompatible lengths: {} != {}", 
+            nulls.len(), offsets.len()
         );
         Ok(Self {
             nulls,

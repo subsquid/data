@@ -18,7 +18,7 @@ macro_rules! table_builder {
             pub fn new() -> Self {
                 use arrow::datatypes::{Schema, Field, FieldRef};
                 use std::sync::Arc;
-                use sqd_array::builder::*;
+                use sqd_array::builder::ArrayBuilder;
                 
                 $(
                 let $field = $builder::default();

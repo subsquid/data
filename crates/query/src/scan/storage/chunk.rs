@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use sqd_primitives::Name;
-use sqd_storage::db::{ChunkReader, ChunkTableReader};
+use sqd_storage::db::{ChunkReader, SnapshotTableReader};
 
 use crate::scan::Chunk;
 use crate::scan::scan::Scan;
@@ -9,7 +9,7 @@ use crate::scan::scan::Scan;
 
 pub struct StorageChunk<'a> {
     reader: &'a ChunkReader<'a>,
-    cache: dashmap::DashMap<Name, Arc<ChunkTableReader<'a>>>
+    cache: dashmap::DashMap<Name, Arc<SnapshotTableReader<'a>>>
 }
 
 

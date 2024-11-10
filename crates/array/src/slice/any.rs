@@ -353,11 +353,11 @@ impl <'a> From<&'a dyn Array> for AnySlice<'a> {
 }
 
 
-impl AsSlice for dyn Array {
-    type Slice<'a> = AnySlice<'a>;
+impl<'a> AsSlice for &'a dyn Array {
+    type Slice<'b> = AnySlice<'b> where Self: 'b;
 
-    fn as_slice(&self) -> Self::Slice<'_> {
-        self.into()
+    fn as_slice(&self) -> Self::Slice<'a> {
+        AnySlice::from(*self)
     }
 }
 

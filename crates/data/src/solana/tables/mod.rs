@@ -1,8 +1,67 @@
 mod common;
-pub mod block;
-pub mod transaction;
-pub mod instruction;
-pub mod log_message;
-pub mod balance;
-pub mod token_balance;
-pub mod reward;
+mod block;
+mod transaction;
+mod instruction;
+mod log_message;
+mod balance;
+mod token_balance;
+mod reward;
+
+
+pub use balance::*;
+pub use block::*;
+pub use instruction::*;
+pub use log_message::*;
+pub use reward::*;
+pub use token_balance::*;
+pub use transaction::*;
+
+
+use super::model::Block;
+use sqd_data_core::chunk_builder;
+
+
+chunk_builder! {
+    SolanaChunkBuilder {
+        blocks: BlockBuilder,
+        transactions: TransactionBuilder,
+        instructions: InstructionBuilder,
+        balances: BalanceBuilder,
+        token_balances: TokenBalanceBuilder,
+        logs: LogMessageBuilder,
+        rewards: RewardBuilder,
+    }
+}
+
+
+impl SolanaChunkBuilder {
+    pub fn push(&mut self, block: &Block) {
+        let block_number = block.header.height;
+
+        self.blocks.push(&block.header);
+
+        for row in block.transactions.iter() {
+            self.transactions.push(block_number, row)
+        }
+
+        for row in block.instructions.iter() {
+            self.instructions.push(block_number, row)
+        }
+
+        for row in block.logs.iter() {
+            self.logs.push(block_number, row)
+        }
+
+        for row in block.balances.iter() {
+            self.balances.push(block_number, row)
+        }
+
+        for row in block.token_balances.iter() {
+            self.token_balances.push(block_number, row)
+        }
+
+        for row in block.rewards.iter() {
+            self.rewards.push(block_number, row)
+        }
+    }
+}

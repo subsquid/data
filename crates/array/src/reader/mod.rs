@@ -32,6 +32,10 @@ pub trait BitmaskReader {
         offset: usize,
         len: usize
     ) -> anyhow::Result<()>;
+
+    fn read(&mut self, dst: &mut impl BitmaskWriter) -> anyhow::Result<()> {
+        self.read_slice(dst, 0, self.len())
+    }
 }
 
 
@@ -44,6 +48,10 @@ pub trait NativeReader {
         offset: usize,
         len: usize
     ) -> anyhow::Result<()>;
+    
+    fn read(&mut self, dst: &mut impl NativeWriter) -> anyhow::Result<()> {
+        self.read_slice(dst, 0, self.len())
+    }
 }
 
 
@@ -56,6 +64,11 @@ pub trait OffsetsReader {
         offset: usize,
         len: usize
     ) -> anyhow::Result<Range<usize>>;
+    
+    #[inline]
+    fn read(&mut self, dst: &mut impl OffsetsWriter) -> anyhow::Result<Range<usize>> {
+        self.read_slice(dst, 0, self.len())
+    }
 }
 
 

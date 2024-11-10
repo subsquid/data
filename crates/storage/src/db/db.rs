@@ -47,7 +47,7 @@ impl Database {
                 options.set_target_file_size_base(256 * 1024 * 1024);
 
                 // Set up block cache
-                let cache = rocksdb::Cache::new_lru_cache(1024 * 1024 * 1024);
+                let cache = rocksdb::Cache::new_lru_cache(1 * 1024 * 1024 * 1024);
                 let mut block_based_table_factory = rocksdb::BlockBasedOptions::default();
                 block_based_table_factory.set_block_cache(&cache);
                 // block_based_table_factory.disable_cache();
@@ -94,8 +94,8 @@ impl Database {
         }
     }
 
-    pub fn new_chunk_builder(&self, ds: Option<DatasetDescriptionRef>) -> ChunkBuilder<'_> {
-        ChunkBuilder::new(&self.db, ds)
+    pub fn new_chunk_builder(&self, ds: impl Into<Option<DatasetDescriptionRef>>) -> ChunkBuilder<'_> {
+        ChunkBuilder::new(&self.db, ds.into())
     }
 
     pub fn insert_chunk(&self, dataset_id: DatasetId, new_chunk: NewChunk) -> anyhow::Result<()> {

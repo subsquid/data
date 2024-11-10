@@ -1,12 +1,14 @@
+mod builder;
+mod serde;
+
+
 use arrow::array::ArrayRef;
 use arrow::datatypes::{DataType, TimeUnit};
 use arrow_buffer::OffsetBuffer;
 
 
-mod builder;
-
-
 pub use builder::*;
+pub use serde::*;
 
 
 #[derive(Clone)]

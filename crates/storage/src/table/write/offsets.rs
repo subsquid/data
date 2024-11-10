@@ -62,9 +62,7 @@ impl<P: PageWriter> OffsetPageWriter<P> {
         }
 
         let data = &data[offset..];
-        if !data.is_empty() {
-            self.page_writer.write_page(data.len(), data.to_byte_slice())?;
-        }
+        self.page_writer.write_page(data.len(), data.to_byte_slice())?;
 
         Ok(self.page_writer)
     }

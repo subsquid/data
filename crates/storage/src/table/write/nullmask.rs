@@ -37,7 +37,7 @@ impl<P: PageWriter> NullmaskPageWriter<P> {
     
     pub fn finish(self) -> anyhow::Result<P> {
         let mut page_writer = self.nulls.finish()?;
-        page_writer.write_page(0, &[])?;
+        page_writer.write_page(if self.has_nulls { 0 } else { self.len }, &[])?;
         Ok(page_writer)
     }
 }

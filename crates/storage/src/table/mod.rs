@@ -1,4 +1,4 @@
 pub mod read;
+pub mod stats;
 pub mod write;
-mod key;
-mod stats;
+pub(crate) mod key;

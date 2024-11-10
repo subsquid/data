@@ -1,16 +1,15 @@
 use super::{can_have_stats, Stats};
-use arrow::array::{Array, ArrayRef};
 use arrow::datatypes::DataType;
-use arrow_buffer::{ArrowNativeType, NullBuffer, OffsetBuffer};
-use sqd_array::builder::nullmask::NullmaskBuilder;
+use arrow_buffer::{ArrowNativeType, OffsetBuffer};
 use sqd_array::builder::{AnyBuilder, ArrayBuilder};
 use sqd_array::slice::{AnySlice, ListSlice, PrimitiveSlice, Slice};
+use sqd_array::writer::ArrayWriter;
 
 
 pub struct StatsBuilder {
     data_type: DataType,
     offsets: Vec<u32>,
-    nulls: NullmaskBuilder,
+    last_offset: u32,
     min: AnyBuilder,
     max: AnyBuilder
 }
@@ -21,7 +20,7 @@ impl StatsBuilder {
         assert!(can_have_stats(&data_type), "data type {} can't have stats", data_type);
         Self {
             offsets: vec![0],
-            nulls: NullmaskBuilder::new(0),
+            last_offset: 0,
             min: AnyBuilder::new(&data_type),
             max: AnyBuilder::new(&data_type),
             data_type
@@ -32,16 +31,16 @@ impl StatsBuilder {
         let offsets = unsafe {
             OffsetBuffer::new_unchecked(self.offsets.into())
         };
-        let nulls = self.nulls.finish();
         Stats {
             offsets,
-            min: set_null_mask(self.min.finish(), nulls.clone()),
-            max: set_null_mask(self.max.finish(), nulls)
+            min: self.min.finish(),
+            max: self.max.finish()
         }
     }
 
     pub fn push_entry(&mut self, values: &AnySlice<'_>) {
-        self.offsets.push(values.len() as u32);
+        self.last_offset += values.len() as u32;
+        self.offsets.push(self.last_offset);
         match &self.data_type {
             DataType::Int8 => self.push_primitive(values.as_i8()),
             DataType::Int16 => self.push_primitive(values.as_i16()),
@@ -74,11 +73,13 @@ impl StatsBuilder {
             Some((min, max))
         });
 
-        self.nulls.append(min_max.is_some());
+        let is_valid = min_max.is_some();
+        self.min.nullmask(0).append(is_valid);
+        self.max.nullmask(0).append(is_valid);
 
         let (min, max) = min_max.unwrap_or_default();
-        PrimitiveSlice::new(&[min], None).write(&mut self.min).unwrap();
-        PrimitiveSlice::new(&[max], None).write(&mut self.max).unwrap()
+        self.min.native(1).push(min);
+        self.max.native(1).push(max);
     }
 
     fn push_binary(&mut self, values: ListSlice<'_, &'_ [u8]>) {
@@ -87,30 +88,29 @@ impl StatsBuilder {
             Some((min, max))
         });
 
-        self.nulls.append(min_max.is_some());
-
-        let (min, max) = min_max.unwrap_or_default();
-
-        let (min_builder, max_builder) = match (&mut self.min, &mut self.max) {
-            (AnyBuilder::Binary(min), AnyBuilder::Binary(max)) => (min, max),
+        match (&mut self.min, &mut self.max) {
+            (AnyBuilder::Binary(min_builder), AnyBuilder::Binary(max_builder)) => {
+                if let Some((min, max)) = min_max {
+                    min_builder.append(min);
+                    max_builder.append(max)
+                } else {
+                    min_builder.append_null();
+                    max_builder.append_null()
+                }
+            },
+            (AnyBuilder::String(min_builder), AnyBuilder::String(max_builder)) => {
+                if let Some((min, max)) = min_max {
+                    // FIXME: we should not crush here
+                    min_builder.append(std::str::from_utf8(min).unwrap());
+                    max_builder.append(std::str::from_utf8(max).unwrap())
+                } else {
+                    min_builder.append_null();
+                    max_builder.append_null()
+                }
+            },
             _ => unreachable!()
         };
 
-        min_builder.append(min);
-        max_builder.append(max)
-    }
-}
 
-
-fn set_null_mask(array: ArrayRef, nulls: Option<NullBuffer>) -> ArrayRef {
-    if let Some(nulls) = nulls {
-        let data = array.to_data()
-            .into_builder()
-            .nulls(Some(nulls))
-            .build()
-            .unwrap();
-        arrow::array::make_array(data)
-    } else {
-        array
     }
 }

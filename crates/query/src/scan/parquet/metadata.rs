@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow::array::{ArrayBuilder, ArrayRef, BinaryArray, BinaryBuilder, BooleanArray, BooleanBuilder, Int32Array, Int32Builder, Int64Array, Int64Builder, UInt32Array};
+use arrow::buffer::OffsetBuffer;
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::file::page_index::index::Index;
 use parquet::file::statistics::Statistics;
@@ -190,7 +191,7 @@ impl RowGroupStats {
             complete_min_max!(boolean, num_row_groups)
         }).map(|min_max| {
             ColumnStats {
-                offsets: offsets.finish().into_parts().1,
+                offsets: OffsetBuffer::new(offsets.finish().into_parts().1),
                 min: min_max.0,
                 max: min_max.1
             }
@@ -248,7 +249,7 @@ impl PageStats {
 
                 let num_rows = self.metadata.metadata().row_group(self.row_group_idx).num_rows();
                 offsets.append_value(num_rows as u32);
-                offsets.finish().into_parts().1
+                OffsetBuffer::new(offsets.finish().into_parts().1)
             })?;
 
         let page_index = self.metadata

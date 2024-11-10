@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 
 type Name = &'static str;
@@ -9,7 +9,7 @@ pub type DatasetDescriptionRef = std::sync::Arc<DatasetDescription>;
 
 #[derive(Clone, Debug, Default)]
 pub struct DatasetDescription {
-    pub tables: HashMap<Name, TableDescription>
+    pub tables: BTreeMap<Name, TableDescription>
 }
 
 
@@ -30,7 +30,7 @@ pub struct DowncastColumns {
 
 #[derive(Clone, Debug)]
 pub struct TableOptions {
-    pub column_options: HashMap<Name, ColumnOptions>,
+    pub column_options: BTreeMap<Name, ColumnOptions>,
     pub default_page_size: usize,
     pub row_group_size: usize
 }
@@ -55,7 +55,7 @@ impl TableOptions {
 impl Default for TableOptions {
     fn default() -> Self {
         Self {
-            column_options: HashMap::new(),
+            column_options: BTreeMap::new(),
             default_page_size: 128 * 1024,
             row_group_size: 20000
         }
@@ -74,7 +74,7 @@ impl Default for ColumnOptions {
     fn default() -> Self {
         Self {
             stats_enable: false,
-            stats_partition: 4000
+            stats_partition: 4096
         }
     }
 }

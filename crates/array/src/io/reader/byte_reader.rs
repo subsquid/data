@@ -26,6 +26,29 @@ pub trait ByteReader {
 }
 
 
+impl<'a> ByteReader for &'a [u8] {
+    fn len(&self) -> usize {
+        (*self).len()
+    }
+
+    fn read(&mut self, offset: usize, len: usize) -> anyhow::Result<&[u8]> {
+        let bytes = &self[offset..offset + len];
+        Ok(bytes)
+    }
+
+    fn read_exact(
+        &mut self,
+        offset: usize,
+        len: usize,
+        mut cb: impl FnMut(&[u8]) -> anyhow::Result<()>
+    ) -> anyhow::Result<()>
+    {
+        let bytes = &self[offset..offset + len]; 
+        cb(bytes)
+    }
+}
+
+
 pub struct IOByteReader<R> {
     read: BufReader<R>,
     len: usize,
