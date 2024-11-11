@@ -1,8 +1,8 @@
 use super::array::{read_array, Storage};
+use super::cursor_byte_reader::CursorByteReader;
 use super::pagination::Pagination;
 use crate::kv::{KvRead, KvReadCursor};
 use crate::table::key::TableKeyFactory;
-use crate::table::read::cursor_byte_reader::CursorByteReader;
 use crate::table::stats::{can_have_stats, deserialize_stats, Stats, StatsBuilder};
 use anyhow::{anyhow, ensure, Context};
 use arrow::array::{ArrayRef, BooleanBufferBuilder, RecordBatch};
@@ -18,7 +18,7 @@ use sqd_array::reader::{AnyReader, ArrayReader, Reader, ReaderFactory};
 use sqd_array::slice::AsSlice;
 use sqd_array::util::{build_field_offsets, validate_offsets};
 use sqd_primitives::range::RangeList;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -28,8 +28,8 @@ pub struct TableReader<S> {
     key: TableKeyFactory,
     schema: SchemaRef,
     column_positions: Vec<usize>,
-    offsets: Mutex<HashMap<usize, OffsetBuffer<u32>>>,
-    stats: Mutex<Vec<Option<Option<Stats>>>>
+    offsets: Vec<Mutex<Option<OffsetBuffer<u32>>>>,
+    stats: Vec<Mutex<Option<Option<Stats>>>>
 }
 
 
@@ -46,16 +46,22 @@ impl<S: KvRead + Sync> TableReader<S> {
         };
 
         let column_positions = build_field_offsets(schema.fields(), 0);
-
-        let stats = vec![None; schema.fields().len()];
+        
+        let offsets = std::iter::repeat_with(Mutex::default)
+            .take(column_positions.last().copied().unwrap())
+            .collect();
+        
+        let stats = std::iter::repeat_with(Mutex::default)
+            .take(schema.fields().len())
+            .collect();
 
         Ok(Self {
             storage,
             key,
             schema: Arc::new(schema),
             column_positions,
-            offsets: Mutex::new(HashMap::new()),
-            stats: Mutex::new(stats)
+            offsets,
+            stats
         })
     }
 
@@ -64,12 +70,12 @@ impl<S: KvRead + Sync> TableReader<S> {
     }
 
     pub fn get_column_stats(&self, column_index: usize) -> anyhow::Result<Option<Stats>> {
-        let mut stats_lock = self.stats.lock();
-        Ok(if let Some(stats) = &stats_lock[column_index] {
+        let mut stats_lock = self.stats[column_index].lock();
+        Ok(if let Some(stats) = stats_lock.as_ref() {
             stats.clone()
         } else {
             let stats = self.read_column_stats(column_index)?;
-            stats_lock[column_index] = Some(stats.clone());
+            *stats_lock = Some(stats.clone());
             stats
         })
     }
@@ -145,10 +151,6 @@ impl<S: KvRead + Sync> TableReader<S> {
             "stats are not supported for columns of type {}",
             data_type
         );
-
-        // println!("try test read");
-        // self.read_column(column_index, None)?;
-        // println!("test read OK");
         
         let mut reader = self.create_column_reader(column_index)?;
         let mut array_builder = AnyBuilder::new(data_type);
@@ -184,8 +186,8 @@ impl<S: KvRead + Sync> TableReader<S> {
         buffer: usize,
     ) -> anyhow::Result<OffsetBuffer<u32>>
     {
-        let mut bag = self.offsets.lock();
-        if let Some(buf) = bag.get(&buffer) {
+        let mut offsets_lock = self.offsets[buffer].lock();
+        if let Some(buf) = offsets_lock.as_ref() {
             return Ok(buf.clone());
         }
 
@@ -215,7 +217,7 @@ impl<S: KvRead + Sync> TableReader<S> {
             OffsetBuffer::new_unchecked(offsets)
         };
 
-        bag.insert(buffer, offsets.clone());
+        *offsets_lock = Some(offsets.clone());
 
         Ok(offsets)
     }
