@@ -1,11 +1,8 @@
-use std::collections::HashMap;
-use std::fmt::{Debug, Display, Formatter};
-
-use borsh::{BorshDeserialize, BorshSerialize};
-
-use sqd_primitives::{SID, BlockNumber, ShortHash};
-
 use crate::db::table_id::TableId;
+use borsh::{BorshDeserialize, BorshSerialize};
+use sqd_primitives::{BlockNumber, ShortHash, SID};
+use std::collections::BTreeMap;
+use std::fmt::{Debug, Display, Formatter};
 
 
 pub type DatasetId = SID<48>;
@@ -81,5 +78,5 @@ pub struct Chunk {
     pub last_block: BlockNumber,
     pub last_block_hash: ShortHash,
     pub max_num_rows: u32,
-    pub tables: HashMap<String, TableId>
+    pub tables: BTreeMap<String, TableId>
 }

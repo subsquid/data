@@ -90,7 +90,6 @@ mod storage {
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use sqd_data::solana::tables::SolanaChunkBuilder;
     use sqd_primitives::ShortHash;
-    use sqd_query::StorageChunk;
     use sqd_storage::db::{Database, DatasetId, DatasetKind, NewChunk};
     use std::fs::File;
     use std::path::Path;
@@ -105,14 +104,14 @@ mod storage {
 
         let db = Database::open(db_dir.path().to_str().unwrap()).unwrap();
         let snapshot = db.get_snapshot();
-        let chunk_reader = snapshot.get_first_chunk(dataset_id).unwrap().unwrap();
-        let chunk = StorageChunk::new(&chunk_reader);
-
+        let chunk = snapshot.get_first_chunk(dataset_id).unwrap().unwrap();
+        let chunk_reader = snapshot.create_chunk_reader(chunk);
+        
         c.bench_function("storage: whirlpool swap", |bench| {
             let plan = WHIRLPOOL_SWAP.compile();
 
             bench.iter(|| {
-                perform_query(&plan, &chunk).unwrap()
+                perform_query(&plan, &chunk_reader).unwrap()
             })
         });
 

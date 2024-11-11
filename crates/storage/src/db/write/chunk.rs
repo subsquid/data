@@ -12,12 +12,12 @@ use parking_lot::Mutex;
 use sqd_array::slice::{AsSlice, Slice};
 use sqd_array::writer::{ArrayWriter, Writer};
 use sqd_dataset::DatasetDescriptionRef;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 
 #[derive(Default)]
 pub struct ChunkTables {
-    pub(super) tables: HashMap<String, TableId>,
+    pub(super) tables: BTreeMap<String, TableId>,
     pub(super) max_num_rows: u32
 }
 

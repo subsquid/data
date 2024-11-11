@@ -1,16 +1,17 @@
-use std::ops::Deref;
-
-use anyhow::anyhow;
-use rocksdb::{ColumnFamily, ReadOptions};
-use sqd_primitives::{BlockNumber, Name, ShortHash};
-
 use crate::db::data::{Chunk, ChunkId, DatasetId};
 use crate::db::db::{RocksDB, RocksSnapshot, RocksSnapshotIterator, CF_CHUNKS, CF_DATASETS, CF_TABLES};
 use crate::db::read::chunk::{list_chunks, read_current_chunk};
-use crate::db::DatasetLabel;
 use crate::db::table_id::TableId;
+use crate::db::DatasetLabel;
 use crate::kv::KvRead;
 use crate::table::read::TableReader;
+use anyhow::anyhow;
+use parking_lot::Mutex;
+use rocksdb::{ColumnFamily, ReadOptions};
+use sqd_primitives::{BlockNumber, Name, ShortHash};
+use std::collections::BTreeMap;
+use std::ops::Deref;
+use std::sync::Arc;
 
 
 pub struct ReadSnapshot<'a> {
@@ -46,20 +47,15 @@ impl <'a> ReadSnapshot<'a> {
             snapshot: self,
             cf: CF_TABLES
         };
-
         let reader = TableReader::new(storage, table_id.as_ref())?;
-
         Ok(reader)
     }
 
     pub fn create_chunk_reader(&self, chunk: Chunk) -> ChunkReader<'_> {
-        ChunkReader {
-            snapshot: self,
-            chunk
-        }
+        ChunkReader::new(self, chunk)
     }
 
-    pub fn list_raw_chunks(
+    pub fn list_chunks(
         &self,
         dataset_id: DatasetId,
         from_block: BlockNumber,
@@ -72,24 +68,12 @@ impl <'a> ReadSnapshot<'a> {
         );
         list_chunks(cursor, dataset_id, from_block, to_block)
     }
-
-    pub fn list_chunks(
-        &self,
-        dataset_id: DatasetId,
-        from_block: BlockNumber,
-        to_block: Option<BlockNumber>
-    ) -> impl Iterator<Item=anyhow::Result<ChunkReader<'_>>>
-    {
-        self.list_raw_chunks(dataset_id, from_block, to_block).map(|result| {
-            result.map(|chunk| self.create_chunk_reader(chunk))
-        })
-    }
     
-    pub fn get_first_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<ChunkReader<'_>>> {
+    pub fn get_first_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<Chunk>> {
         self.list_chunks(dataset_id, 0, None).next().transpose()
     }
 
-    pub fn get_last_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<ChunkReader<'_>>> {
+    pub fn get_last_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<Chunk>> {
         let mut cursor = self.db.raw_iterator_cf_opt(
             self.cf_handle(CF_CHUNKS),
             self.new_options()
@@ -99,11 +83,8 @@ impl <'a> ReadSnapshot<'a> {
         cursor.seek_for_prev(max_chunk_id);
         cursor.status()?;
 
-        let reader = read_current_chunk(&cursor, dataset_id)?.map(|chunk| {
-            self.create_chunk_reader(chunk)
-        });
-
-        Ok(reader)
+        let chunk = read_current_chunk(&cursor, dataset_id)?;
+        Ok(chunk)
     }
 
     fn new_options(&self) -> ReadOptions {
@@ -120,11 +101,24 @@ impl <'a> ReadSnapshot<'a> {
 
 pub struct ChunkReader<'a> {
     snapshot: &'a ReadSnapshot<'a>,
-    chunk: Chunk
+    chunk: Chunk,
+    cache: BTreeMap<String, Mutex<Option<Arc<SnapshotTableReader<'a>>>>>
 }
 
 
 impl <'a> ChunkReader<'a> {
+    fn new(snapshot: &'a ReadSnapshot<'a>, chunk: Chunk) -> Self {
+        let cache = chunk.tables.keys()
+            .map(|name| (name.to_string(), Mutex::new(None)))
+            .collect();
+
+        Self {
+            snapshot,
+            chunk,
+            cache
+        }
+    }
+
     pub fn first_block(&self) -> BlockNumber {
         self.chunk.first_block
     }
@@ -141,14 +135,24 @@ impl <'a> ChunkReader<'a> {
         self.chunk.tables.contains_key(name)
     }
 
-    pub fn get_table_reader(&self, name: &str) -> anyhow::Result<SnapshotTableReader<'a>> {
-        let table_id = self.chunk.tables.get(name).ok_or_else(|| {
+    pub fn get_table_reader(&self, name: &str) -> anyhow::Result<Arc<SnapshotTableReader<'a>>> {
+        let mut reader_lock = self.cache.get(name).ok_or_else(|| {
             anyhow!("table `{}` does not exist in this chunk", name)
-        })?;
-        self.snapshot.create_table_reader(*table_id)
+        })?.lock();
+        
+        if let Some(reader) = reader_lock.as_ref() {
+            return Ok(reader.clone())
+        }
+
+        let table_id = self.chunk.tables.get(name).unwrap();
+        let reader = self.snapshot.create_table_reader(*table_id)?;
+        let reader = Arc::new(reader);
+        
+        *reader_lock = Some(reader.clone());
+        Ok(reader)
     }
     
-    pub fn into_data(self) -> Chunk {
+    pub fn into_chunk(self) -> Chunk {
         self.chunk
     }
 }
