@@ -1,10 +1,9 @@
+use super::data::{DatasetId, DatasetKind, DatasetLabel};
+use super::read::snapshot::ReadSnapshot;
+use super::write::{ChunkBuilder, NewChunk, Tx};
 use anyhow::ensure;
 use rocksdb::{ColumnFamilyDescriptor, Options as RocksOptions};
 use sqd_dataset::DatasetDescriptionRef;
-
-use crate::db::data::{DatasetId, DatasetKind, DatasetLabel};
-use crate::db::read::snapshot::ReadSnapshot;
-use crate::db::write::{ChunkBuilder, NewChunk, Tx};
 use sqd_primitives::Name;
 
 

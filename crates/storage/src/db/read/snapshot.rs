@@ -134,6 +134,10 @@ impl <'a> ChunkReader<'a> {
     pub fn has_table(&self, name: &str) -> bool {
         self.chunk.tables.contains_key(name)
     }
+    
+    pub fn tables(&self) -> &BTreeMap<String, TableId> {
+        &self.chunk.tables
+    }
 
     pub fn get_table_reader(&self, name: &str) -> anyhow::Result<Arc<SnapshotTableReader<'a>>> {
         let mut reader_lock = self.cache.get(name).ok_or_else(|| {

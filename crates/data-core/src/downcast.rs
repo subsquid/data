@@ -15,6 +15,7 @@ impl Default for Downcast {
     }
 }
 
+
 impl Downcast {
     pub fn new() -> Self {
         Self {
@@ -26,12 +27,12 @@ impl Downcast {
         self.inner.lock().reset()
     }
 
-    pub fn reg_block_number(&mut self, array: &AnySlice<'_>) {
+    pub fn reg_block_number(&self, array: &AnySlice<'_>) {
         let val = get_max(array);
         self.inner.lock().reg_block_number(val)
     }
 
-    pub fn reg_item_index(&mut self, array: &AnySlice<'_>) {
+    pub fn reg_item_index(&self, array: &AnySlice<'_>) {
         let val = get_max(array);
         self.inner.lock().reg_item_index(val)
     }

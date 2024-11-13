@@ -4,9 +4,10 @@ use crate::{SortedTable, TableSorter};
 use arrow::array::RecordBatch;
 use arrow::datatypes::{DataType, Field, FieldRef, Schema, SchemaRef};
 use sqd_array::builder::{AnyBuilder, AnyTableBuilder, ArrayBuilder};
-use sqd_array::slice::{AnySlice, AnyTableSlice, AsSlice, Slice};
+use sqd_array::item_index_cast::cast_item_index;
+use sqd_array::slice::{AnyTableSlice, AsSlice, Slice};
 use sqd_array::util::build_field_offsets;
-use sqd_array::writer::{ArrayWriter, NativeWriter, OffsetsWriter};
+use sqd_array::writer::ArrayWriter;
 use sqd_dataset::TableDescription;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -266,7 +267,7 @@ impl PreparedTable {
 
                 buf.clear();
                 self.reader.read_column(buf, i, offset, step_len)?;
-                index_downcast(buf.as_slice(), target_dt, dst)?;
+                cast_item_index(&buf.as_slice(), target_dt, dst)?;
 
                 offset += step_len;
                 len -= step_len;
@@ -274,60 +275,6 @@ impl PreparedTable {
 
             Ok(())
         }
-    }
-}
-
-
-fn index_downcast(
-    src: AnySlice<'_>,
-    dst_type: &DataType,
-    dst: &mut impl ArrayWriter,
-) -> anyhow::Result<()>
-{
-    match src {
-        AnySlice::UInt32(values) => {
-            assert_eq!(dst_type, &DataType::UInt16);
-            values.nulls().write(dst.nullmask(0))?;
-            dst.native(1).write_iter(
-                values.values().iter().map(|v| {
-                    *v as u16
-                })
-            )
-        },
-        AnySlice::UInt64(values) => {
-            assert_eq!(dst_type, &DataType::UInt32);
-            values.nulls().write(dst.nullmask(0))?;
-            dst.native(1).write_iter(
-                values.values().iter().map(|v| {
-                    *v as u32
-                })
-            )
-        },
-        AnySlice::List(list) => {
-            match dst_type {
-                DataType::List(f) if f.data_type() == &DataType::UInt16 => {},
-                ty => panic!("expected list[u16] target, but got - {}", ty)
-            };
-
-            let values = match list.values().item() {
-                AnySlice::UInt32(values) => values,
-                _ => panic!("expected u32 list item, but got something else")
-            };
-
-            list.nulls().write(dst.nullmask(0))?;
-            dst.offset(1).write_slice(list.offsets())?;
-
-            let value_range = list.offsets().range();
-            let values = values.slice(value_range.start, value_range.len());
-
-            values.nulls().write(dst.nullmask(2))?;
-            dst.native(3).write_iter(
-                values.values().iter().map(|v| {
-                    *v as u16
-                })
-            )
-        },
-        _ => panic!("expected u32, u64 or list[u32] src index types, but got something else")
     }
 }
 

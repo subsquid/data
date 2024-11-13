@@ -9,7 +9,7 @@ use std::path::Path;
 
 #[test]
 fn sort_ethereum_transactions() -> anyhow::Result<()> {
-    let mut src_reader = open_parquet("fixtures/ethereum-transactions.parquet")?.build()?;
+    let src_reader = open_parquet("fixtures/ethereum-transactions.parquet")?.build()?;
 
     let mut sorter = TableSorter::new(
         src_reader.schema().fields(),
