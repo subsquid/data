@@ -1,28 +1,47 @@
 {
-    "fromBlock": 17881390,
-    "toBlock": 17882786,
-    "includeAllBlocks": false,
-    "transactions": [
-        {
-            "to": [
-                "0x0a252663dbcc0b073063d6420a40319e438cfa59"
-            ],
-            "sighash": [
-                "0xecef9201",
-                "0xf5878b9b"
-            ]
-        }
-    ],
-    "fields": {
-        "block": {
-            "timestamp": true
-        },
-        "transaction": {
-            "from": true,
-            "to": true,
-            "hash": true,
-            "input": true,
-            "sighash": true
-        }
+  "type": "evm",
+  "fromBlock": 17881390,
+  "toBlock": 17882786,
+  "includeAllBlocks": false,
+  "transactions": [
+    {
+      "to": [
+        "0x0a252663dbcc0b073063d6420a40319e438cfa59"
+      ],
+      "sighash": [
+        "0xecef9201",
+        "0xf5878b9b"
+      ]
     }
+  ],
+  "fields": {
+    "block": {
+      "timestamp": true,
+      "number": true,
+      "hash": true,
+      "parentHash": true
+    },
+    "transaction": {
+      "from": true,
+      "to": true,
+      "hash": true,
+      "input": true,
+      "sighash": true,
+      "transactionIndex": true
+    },
+    "log": {
+      "logIndex": true,
+      "transactionIndex": true
+    },
+    "trace": {
+      "transactionIndex": true,
+      "traceAddress": true,
+      "type": true
+    },
+    "stateDiff": {
+      "transactionIndex": true,
+      "address": true,
+      "key": true
+    }
+  }
 }

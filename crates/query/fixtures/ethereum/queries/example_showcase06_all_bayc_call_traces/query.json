@@ -1,4 +1,5 @@
 {
+  "type": "evm",
   "fromBlock": 17881390,
   "toBlock": 17882786,
   "traces": [
@@ -22,28 +23,40 @@
   ],
   "fields": {
     "block": {
-      "timestamp": true
+      "timestamp": true,
+      "number": true,
+      "hash": true,
+      "parentHash": true
     },
     "transaction": {
       "from": true,
       "to": true,
-      "hash": true
+      "hash": true,
+      "transactionIndex": true
     },
     "log": {
       "address": true,
       "topics": true,
-      "data": true
+      "data": true,
+      "logIndex": true,
+      "transactionIndex": true
     },
     "trace": {
       "error": true,
       "callFrom": true,
       "callSighash": true,
-      "callTo": true
+      "callTo": true,
+      "transactionIndex": true,
+      "traceAddress": true,
+      "type": true
     },
     "stateDiff": {
       "kind": true,
       "next": true,
-      "prev": true
+      "prev": true,
+      "transactionIndex": true,
+      "address": true,
+      "key": true
     }
   }
 }

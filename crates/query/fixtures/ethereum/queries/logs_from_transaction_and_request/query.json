@@ -1,14 +1,19 @@
 {
+  "type": "evm",
   "fromBlock": 17881390,
   "toBlock": 17881391,
   "logs": [
     {
-      "topic0": ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"]
+      "topic0": [
+        "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+      ]
     }
   ],
   "transactions": [
     {
-      "from": ["0xefcce23bfbef24cc4fb2dcb2bbc4f6f83c6bda98"],
+      "from": [
+        "0xefcce23bfbef24cc4fb2dcb2bbc4f6f83c6bda98"
+      ],
       "logs": true
     }
   ],
@@ -17,13 +22,31 @@
       "address": true,
       "data": true,
       "topics": true,
-      "transactionHash": true
+      "transactionHash": true,
+      "logIndex": true,
+      "transactionIndex": true
     },
     "transaction": {
       "from": true,
       "hash": true,
       "to": true,
-      "value": true
+      "value": true,
+      "transactionIndex": true
+    },
+    "block": {
+      "number": true,
+      "hash": true,
+      "parentHash": true
+    },
+    "trace": {
+      "transactionIndex": true,
+      "traceAddress": true,
+      "type": true
+    },
+    "stateDiff": {
+      "transactionIndex": true,
+      "address": true,
+      "key": true
     }
   }
 }

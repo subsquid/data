@@ -1,11 +1,10 @@
-use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
-
+use super::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
 use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
 use crate::primitives::BlockNumber;
-use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
+use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 
 lazy_static! {
@@ -65,6 +64,8 @@ field_selection! {
 
 item_field_selection! {
     BlockFieldSelection {
+        number,
+        hash,
         transactions_root,
         transactions_count,
         message_receipt_count,
@@ -79,25 +80,26 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        number,
-        hash,
-        [this.transactions_root],
-        [this.transactions_count],
-        [this.message_receipt_count],
-        [this.prev_root],
-        [this.application_hash],
-        [this.event_inbox_root],
-        [this.consensus_parameters_version],
-        [this.state_transition_bytecode_version],
-        [this.message_outbox_root],
-        <this.da_height>: BigNum,
-        <this.time>: BigNum,
+        this.number,
+        this.hash,
+        this.transactions_root,
+        this.transactions_count,
+        this.message_receipt_count,
+        this.prev_root,
+        this.application_hash,
+        this.event_inbox_root,
+        this.consensus_parameters_version,
+        this.state_transition_bytecode_version,
+        this.message_outbox_root,
+        [this.da_height]: BigNum,
+        [this.time]: BigNum,
     }}
 }
 
 
 item_field_selection! {
     TransactionFieldSelection {
+        index,
         hash,
         r#type,
         input_asset_ids,
@@ -142,54 +144,56 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        index,
-        [this.hash],
-        [this.r#type],
-        [this.input_asset_ids],
-        [this.input_contracts],
-        [this.input_contract_utxo_id],
-        [this.input_contract_balance_root],
-        [this.input_contract_state_root],
-        [this.input_contract_tx_pointer],
-        [this.input_contract_contract_id],
-        [this.output_contract_input_index],
-        [this.output_contract_balance_root],
-        [this.output_contract_state_root],
-        [this.maturity],
-        [this.mint_asset_id],
-        [this.tx_pointer],
-        [this.is_script],
-        [this.is_create],
-        [this.is_mint],
-        [this.is_upgrade],
-        [this.is_upload],
-        [this.witnesses],
-        [this.receipts_root],
-        [this.script],
-        [this.script_data],
-        [this.bytecode_witness_index],
-        [this.bytecode_root],
-        [this.salt],
-        [this.storage_slots],
-        [this.raw_payload],
-        [this.subsection_index],
-        [this.subsections_number],
-        [this.proof_set],
-        [this.policies_maturity],
-        <this.policies_tip>: BigNum,
-        <this.policies_witness_limit>: BigNum,
-        <this.policies_max_fee>: BigNum,
-        <this.script_gas_limit>: BigNum,
-        <this.mint_amount>: BigNum,
-        <this.mint_gas_price>: BigNum,
-        <this.status>: Json,
-        <this.upgrade_purpose>: Json,
+        this.index,
+        this.hash,
+        this.r#type,
+        this.input_asset_ids,
+        this.input_contracts,
+        this.input_contract_utxo_id,
+        this.input_contract_balance_root,
+        this.input_contract_state_root,
+        this.input_contract_tx_pointer,
+        this.input_contract_contract_id,
+        this.output_contract_input_index,
+        this.output_contract_balance_root,
+        this.output_contract_state_root,
+        this.maturity,
+        this.mint_asset_id,
+        this.tx_pointer,
+        this.is_script,
+        this.is_create,
+        this.is_mint,
+        this.is_upgrade,
+        this.is_upload,
+        this.witnesses,
+        this.receipts_root,
+        this.script,
+        this.script_data,
+        this.bytecode_witness_index,
+        this.bytecode_root,
+        this.salt,
+        this.storage_slots,
+        this.raw_payload,
+        this.subsection_index,
+        this.subsections_number,
+        this.proof_set,
+        this.policies_maturity,
+        [this.policies_tip]: BigNum,
+        [this.policies_witness_limit]: BigNum,
+        [this.policies_max_fee]: BigNum,
+        [this.script_gas_limit]: BigNum,
+        [this.mint_amount]: BigNum,
+        [this.mint_gas_price]: BigNum,
+        [this.status]: Json,
+        [this.upgrade_purpose]: Json,
     }}
 }
 
 
 item_field_selection! {
     ReceiptFieldSelection {
+        index,
+        transaction_index,
         contract,
         to,
         to_address,
@@ -221,42 +225,45 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        index,
-        transaction_index,
-        [this.contract],
-        [this.to],
-        [this.to_address],
-        [this.asset_id],
-        [this.digest],
-        [this.receipt_type],
-        [this.data],
-        [this.sender],
-        [this.recipient],
-        [this.nonce],
-        [this.contract_id],
-        [this.sub_id],
-        <this.pc>: BigNum,
-        <this.is>: BigNum,
-        <this.amount>: BigNum,
-        <this.gas>: BigNum,
-        <this.param1>: BigNum,
-        <this.param2>: BigNum,
-        <this.val>: BigNum,
-        <this.ptr>: BigNum,
-        <this.reason>: BigNum,
-        <this.ra>: BigNum,
-        <this.rb>: BigNum,
-        <this.rc>: BigNum,
-        <this.rd>: BigNum,
-        <this.len>: BigNum,
-        <this.result>: BigNum,
-        <this.gas_used>: BigNum,
+        this.index,
+        this.transaction_index,
+        this.contract,
+        this.to,
+        this.to_address,
+        this.asset_id,
+        this.digest,
+        this.receipt_type,
+        this.data,
+        this.sender,
+        this.recipient,
+        this.nonce,
+        this.contract_id,
+        this.sub_id,
+        [this.pc]: BigNum,
+        [this.is]: BigNum,
+        [this.amount]: BigNum,
+        [this.gas]: BigNum,
+        [this.param1]: BigNum,
+        [this.param2]: BigNum,
+        [this.val]: BigNum,
+        [this.ptr]: BigNum,
+        [this.reason]: BigNum,
+        [this.ra]: BigNum,
+        [this.rb]: BigNum,
+        [this.rc]: BigNum,
+        [this.rd]: BigNum,
+        [this.len]: BigNum,
+        [this.result]: BigNum,
+        [this.gas_used]: BigNum,
     }}
 }
 
 
 item_field_selection! {
     InputFieldSelection {
+        transaction_index,
+        index,
+        r#type,
         coin_utxo_id,
         coin_owner,
         coin_amount,
@@ -284,9 +291,9 @@ item_field_selection! {
 
     project(this) {
         let base = json_object! {{
-            transaction_index,
-            index,
-            r#type,
+            this.transaction_index,
+            this.index,
+            this.r#type,
         }};
 
         let mut coin = base.clone();
@@ -378,6 +385,9 @@ item_field_selection! {
 
 item_field_selection! {
     OutputFieldSelection {
+        transaction_index,
+        index,
+        r#type,
         coin_to,
         coin_amount,
         coin_asset_id,
@@ -396,9 +406,9 @@ item_field_selection! {
 
     project(this) {
         let base = json_object! {{
-            transaction_index,
-            index,
-            r#type,
+            this.transaction_index,
+            this.index,
+            this.r#type,
         }};
 
         let mut coin = base.clone();

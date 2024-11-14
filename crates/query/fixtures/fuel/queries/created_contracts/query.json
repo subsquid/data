@@ -5,16 +5,35 @@
     "transaction": {
       "type": true,
       "hash": true,
-      "status": true
+      "status": true,
+      "index": true
     },
     "output": {
       "contractCreatedContract": true,
-      "contractCreatedStateRoot": true
+      "contractCreatedStateRoot": true,
+      "transactionIndex": true,
+      "index": true,
+      "type": true
+    },
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "receipt": {
+      "index": true,
+      "transactionIndex": true
+    },
+    "input": {
+      "transactionIndex": true,
+      "index": true,
+      "type": true
     }
   },
   "outputs": [
     {
-      "type": ["ContractCreated"],
+      "type": [
+        "ContractCreated"
+      ],
       "transaction": true
     }
   ]

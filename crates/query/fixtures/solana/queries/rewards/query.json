@@ -4,16 +4,40 @@
   "fields": {
     "block": {
       "slot": true,
-      "timestamp": true
+      "timestamp": true,
+      "number": true,
+      "hash": true
     },
     "reward": {
       "lamports": true,
-      "rewardType": true
+      "rewardType": true,
+      "pubkey": true
+    },
+    "transaction": {
+      "transactionIndex": true
+    },
+    "instruction": {
+      "transactionIndex": true,
+      "instructionAddress": true
+    },
+    "log": {
+      "transactionIndex": true,
+      "logIndex": true
+    },
+    "balance": {
+      "transactionIndex": true,
+      "account": true
+    },
+    "tokenBalance": {
+      "transactionIndex": true,
+      "account": true
     }
   },
   "rewards": [
     {
-      "pubkey": ["Fd7btgySsrjuo25CJCj7oE7VPMyezDhnx7pZkj2v69Nk"]
+      "pubkey": [
+        "Fd7btgySsrjuo25CJCj7oE7VPMyezDhnx7pZkj2v69Nk"
+      ]
     }
   ]
 }

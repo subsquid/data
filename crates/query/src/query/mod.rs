@@ -13,7 +13,7 @@ mod util;
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Query {
-    #[serde(rename = "eth")]
+    #[serde(rename = "evm")]
     Eth(eth::EthQuery),
     #[serde(rename = "solana")]
     Solana(solana::SolanaQuery),
@@ -26,16 +26,12 @@ pub enum Query {
 
 impl Query {
     pub fn from_json_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
-        let json: serde_json::Value = serde_json::from_slice(bytes)?;
-        Self::from_json_value(json)
+        let query: Self = serde_json::from_slice(bytes)?;
+        query.validate()?;
+        Ok(query)
     }
     
-    pub fn from_json_value(mut json: serde_json::Value) -> anyhow::Result<Self> {
-        if let Some(m) = json.as_object_mut() {
-            if !m.contains_key("type") {
-                m.insert("type".to_string(), serde_json::Value::String("eth".to_string()));
-            }
-        }
+    pub fn from_json_value(json: serde_json::Value) -> anyhow::Result<Self> {
         let query: Self = serde_json::from_value(json)?;
         query.validate()?;
         Ok(query)

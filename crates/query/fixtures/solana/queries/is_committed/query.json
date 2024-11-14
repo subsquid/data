@@ -6,25 +6,51 @@
       "slot": true,
       "parentHash": true,
       "parentSlot": true,
-      "timestamp": true
+      "timestamp": true,
+      "number": true,
+      "hash": true
     },
     "transaction": {
       "signatures": true,
       "feePayer": true,
-      "err": true
+      "err": true,
+      "transactionIndex": true
     },
     "instruction": {
       "programId": true,
       "accounts": true,
       "data": true,
-      "isCommitted": true
+      "isCommitted": true,
+      "transactionIndex": true,
+      "instructionAddress": true
+    },
+    "log": {
+      "transactionIndex": true,
+      "logIndex": true
+    },
+    "balance": {
+      "transactionIndex": true,
+      "account": true
+    },
+    "tokenBalance": {
+      "transactionIndex": true,
+      "account": true
+    },
+    "reward": {
+      "pubkey": true
     }
   },
   "instructions": [
     {
-      "programId": ["whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"],
-      "a2": ["7qbRF6YsyGuLUVs6Y1q64bdVrfe4ZcUUz1JRdoVNUJnm"],
-      "d8": ["0xf8c69e91e17587c8"],
+      "programId": [
+        "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+      ],
+      "a2": [
+        "7qbRF6YsyGuLUVs6Y1q64bdVrfe4ZcUUz1JRdoVNUJnm"
+      ],
+      "d8": [
+        "0xf8c69e91e17587c8"
+      ],
       "isCommitted": true,
       "transaction": true
     }

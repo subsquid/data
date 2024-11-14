@@ -6,19 +6,28 @@
       "specName": true,
       "specVersion": true,
       "implName": true,
-      "implVersion": true
+      "implVersion": true,
+      "number": true,
+      "hash": true,
+      "parentHash": true
     },
     "event": {
       "name": true,
-      "args": true
+      "args": true,
+      "index": true,
+      "extrinsicIndex": true,
+      "callAddress": true
     },
     "call": {
       "name": true,
       "args": true,
-      "origin": true
+      "origin": true,
+      "extrinsicIndex": true,
+      "address": true
     },
     "extrinsic": {
-      "hash": true
+      "hash": true,
+      "index": true
     }
   },
   "events": [

@@ -6,29 +6,49 @@
       "slot": true,
       "parentHash": true,
       "parentSlot": true,
-      "timestamp": true
+      "timestamp": true,
+      "number": true,
+      "hash": true
     },
     "instruction": {
       "programId": true,
       "accounts": true,
       "data": true,
       "error": true,
-      "hasDroppedLogMessages": true
+      "hasDroppedLogMessages": true,
+      "transactionIndex": true,
+      "instructionAddress": true
     },
     "transaction": {
       "signatures": true,
       "feePayer": true,
-      "err": true
+      "err": true,
+      "transactionIndex": true
     },
     "log": {
       "instructionAddress": true,
       "kind": true,
-      "message": true
+      "message": true,
+      "transactionIndex": true,
+      "logIndex": true
+    },
+    "balance": {
+      "transactionIndex": true,
+      "account": true
+    },
+    "tokenBalance": {
+      "transactionIndex": true,
+      "account": true
+    },
+    "reward": {
+      "pubkey": true
     }
   },
   "instructions": [
     {
-      "programId": ["SSwpkEEcbUqx4vtoEByFjSkhKdCT862DNVb52nZg1UZ"],
+      "programId": [
+        "SSwpkEEcbUqx4vtoEByFjSkhKdCT862DNVb52nZg1UZ"
+      ],
       "transaction": true,
       "logs": true
     }

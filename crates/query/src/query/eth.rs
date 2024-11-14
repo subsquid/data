@@ -69,7 +69,7 @@ field_selection! {
 
 item_field_selection! {
     BlockFieldSelection {
-        number, // backwards compatibility
+        number,
         hash,
         parent_hash,
         timestamp,
@@ -94,35 +94,35 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        number,
-        hash, // backwards compatibility
-        parent_hash, // backwards compatibility
-        <this.timestamp>: TimestampSecond,
-        <this.transactions_root>: Value,
-        <this.receipts_root>: Value,
-        <this.state_root>: Value,
-        <this.logs_bloom>: Value,
-        <this.sha3_uncles>: Value,
-        <this.extra_data>: Value,
-        <this.miner>: Value,
-        <this.nonce>: Value,
-        <this.mix_hash>: Value,
-        <this.size>: Value,
-        <this.gas_limit>: Value,
-        <this.gas_used>: Value,
-        <this.difficulty>: Value,
-        <this.total_difficulty>: Value,
-        <this.base_fee_per_gas>: Value,
-        <this.blob_gas_used>: Value,
-        <this.excess_blob_gas>: Value,
-        <this.l1_block_number>: Value,
+        this.number,
+        this.hash,
+        this.parent_hash,
+        [this.timestamp]: TimestampSecond,
+        [this.transactions_root]: Value,
+        [this.receipts_root]: Value,
+        [this.state_root]: Value,
+        [this.logs_bloom]: Value,
+        [this.sha3_uncles]: Value,
+        [this.extra_data]: Value,
+        [this.miner]: Value,
+        [this.nonce]: Value,
+        [this.mix_hash]: Value,
+        [this.size]: Value,
+        [this.gas_limit]: Value,
+        [this.gas_used]: Value,
+        [this.difficulty]: Value,
+        [this.total_difficulty]: Value,
+        [this.base_fee_per_gas]: Value,
+        [this.blob_gas_used]: Value,
+        [this.excess_blob_gas]: Value,
+        [this.l1_block_number]: Value,
     }}
 }
 
 
 item_field_selection! {
     TransactionFieldSelection {
-        transaction_index, // backwards compatibility
+        transaction_index,
         hash,
         nonce,
         from,
@@ -157,45 +157,45 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        transaction_index,
-        [this.hash],
-        [this.nonce],
-        [this.from],
-        [this.to],
-        [this.input],
-        [this.value],
-        [this.gas],
-        [this.gas_price],
-        [this.max_fee_per_gas],
-        [this.max_priority_fee_per_gas],
-        [this.v],
-        [this.r],
-        [this.s],
-        [this.y_parity],
-        [this.chain_id],
-        [this.sighash],
-        [this.contract_address],
-        [this.gas_used],
-        [this.cumulative_gas_used],
-        [this.effective_gas_price],
-        [this.r#type],
-        [this.status],
-        [this.max_fee_per_blob_gas],
-        [this.blob_versioned_hashes],
-        [this.l1_fee],
-        [this.l1_fee_scalar],
-        [this.l1_gas_price],
-        [this.l1_gas_used],
-        [this.l1_blob_base_fee],
-        [this.l1_blob_base_fee_scalar],
-        [this.l1_base_fee_scalar],
+        this.transaction_index,
+        this.hash,
+        this.nonce,
+        this.from,
+        this.to,
+        this.input,
+        this.value,
+        this.gas,
+        this.gas_price,
+        this.max_fee_per_gas,
+        this.max_priority_fee_per_gas,
+        this.v,
+        this.r,
+        this.s,
+        this.y_parity,
+        this.chain_id,
+        this.sighash,
+        this.contract_address,
+        this.gas_used,
+        this.cumulative_gas_used,
+        this.effective_gas_price,
+        this.r#type,
+        this.status,
+        this.max_fee_per_blob_gas,
+        this.blob_versioned_hashes,
+        this.l1_fee,
+        this.l1_fee_scalar,
+        this.l1_gas_price,
+        this.l1_gas_used,
+        this.l1_blob_base_fee,
+        this.l1_blob_base_fee_scalar,
+        this.l1_base_fee_scalar,
     }}
 }
 
 
 item_field_selection! {
     LogFieldSelection {
-        log_index, // backwards compatibility
+        log_index,
         transaction_index,
         transaction_hash,
         address,
@@ -204,11 +204,11 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        log_index,
-        transaction_index,
-        [this.transaction_hash],
-        [this.address],
-        [this.data],
+        this.log_index,
+        this.transaction_index,
+        this.transaction_hash,
+        this.address,
+        this.data,
         |obj| {
             if this.topics {
                 obj.add("topics", roll(Exp::Value, vec![
@@ -225,7 +225,8 @@ item_field_selection! {
 
 item_field_selection! {
     TraceFieldSelection {
-        trace_address, // backwards compatibility
+        transaction_index,
+        trace_address,
         subtraces,
         r#type,
         error,
@@ -244,6 +245,7 @@ item_field_selection! {
         call_input,
         call_sighash,
         call_type,
+        call_call_type,
         call_result_gas_used,
         call_result_output,
         suicide_address,
@@ -256,12 +258,12 @@ item_field_selection! {
 
     project(this) {
         let base = json_object! {{
-            transaction_index,
-            trace_address,
-            r#type,
-            [this.subtraces],
-            [this.error],
-            [this.revert_reason],
+            this.transaction_index,
+            this.trace_address,
+            this.r#type,
+            this.subtraces,
+            this.error,
+            this.revert_reason,
         }};
 
         let mut create = base.clone();
@@ -320,6 +322,9 @@ item_field_selection! {
         }
         if this.call_type {
             call_action.add("type", prop("call_type", Exp::Value));
+        }
+        if this.call_call_type {
+            call_action.add("callType", prop("call_type", Exp::Value));    
         }
         if !call_action.is_empty() {
             call.add("action", call_action);
@@ -390,12 +395,12 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        transaction_index,
-        address,
-        key,
-        [this.kind],
-        [this.prev],
-        [this.next],
+        this.transaction_index,
+        this.address,
+        this.key,
+        this.kind,
+        this.prev,
+        this.next,
     }}
 }
 

@@ -5,19 +5,40 @@
     "transaction": {
       "type": true,
       "hash": true,
-      "status": true
+      "status": true,
+      "index": true
     },
     "receipt": {
       "receiptType": true,
       "contract": true,
       "data": true,
-      "is": true
+      "is": true,
+      "index": true,
+      "transactionIndex": true
+    },
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "input": {
+      "transactionIndex": true,
+      "index": true,
+      "type": true
+    },
+    "output": {
+      "transactionIndex": true,
+      "index": true,
+      "type": true
     }
   },
   "receipts": [
     {
-      "type": ["LOG_DATA"],
-      "contract": ["0x8dad4bc41accf5c8a4d326ba513c7bccba075c4906ef1826f2cbf7409514a112"],
+      "type": [
+        "LOG_DATA"
+      ],
+      "contract": [
+        "0x8dad4bc41accf5c8a4d326ba513c7bccba075c4906ef1826f2cbf7409514a112"
+      ],
       "transaction": true
     }
   ]

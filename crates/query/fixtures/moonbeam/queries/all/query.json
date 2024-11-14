@@ -20,21 +20,25 @@
       "implName": true,
       "implVersion": true,
       "timestamp": true,
-      "validator": true
+      "validator": true,
+      "number": true
     },
     "event": {
       "name": true,
       "args": true,
       "phase": true,
       "extrinsicIndex": true,
-      "callAddress": true
+      "callAddress": true,
+      "index": true
     },
     "call": {
       "name": true,
       "args": true,
       "origin": true,
       "error": true,
-      "success": true
+      "success": true,
+      "extrinsicIndex": true,
+      "address": true
     },
     "extrinsic": {
       "version": true,
@@ -43,7 +47,8 @@
       "tip": true,
       "error": true,
       "success": true,
-      "hash": true
+      "hash": true,
+      "index": true
     }
   }
 }

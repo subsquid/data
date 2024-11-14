@@ -1,4 +1,5 @@
 {
+  "type": "evm",
   "fromBlock": 125800000,
   "toBlock": 125800001,
   "transactions": [
@@ -60,14 +61,16 @@
       "l1GasUsed": true,
       "l1BlobBaseFee": true,
       "l1BlobBaseFeeScalar": true,
-      "l1BaseFeeScalar": true
+      "l1BaseFeeScalar": true,
+      "transactionIndex": true
     },
     "log": {
       "transactionIndex": true,
       "transactionHash": true,
       "address": true,
       "data": true,
-      "topics": true
+      "topics": true,
+      "logIndex": true
     },
     "trace": {
       "subtraces": true,
@@ -95,7 +98,9 @@
       "suicideBalance": true,
       "rewardAuthor": true,
       "rewardValue": true,
-      "rewardType": true
+      "rewardType": true,
+      "transactionIndex": true,
+      "traceAddress": true
     },
     "stateDiff": {
       "transactionIndex": true,

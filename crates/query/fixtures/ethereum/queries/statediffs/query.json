@@ -1,14 +1,37 @@
 {
+  "type": "evm",
   "stateDiffs": [
     {
-      "address": ["0xffdbe829d5a9afcd50482c23eb387b9050f1f825"]
+      "address": [
+        "0xffdbe829d5a9afcd50482c23eb387b9050f1f825"
+      ]
     }
   ],
   "fields": {
     "stateDiff": {
       "kind": true,
       "prev": true,
-      "next": true
+      "next": true,
+      "transactionIndex": true,
+      "address": true,
+      "key": true
+    },
+    "block": {
+      "number": true,
+      "hash": true,
+      "parentHash": true
+    },
+    "transaction": {
+      "transactionIndex": true
+    },
+    "log": {
+      "logIndex": true,
+      "transactionIndex": true
+    },
+    "trace": {
+      "transactionIndex": true,
+      "traceAddress": true,
+      "type": true
     }
   }
 }

@@ -5,24 +5,37 @@
   "fields": {
     "event": {
       "name": true,
-      "args": true
+      "args": true,
+      "index": true,
+      "extrinsicIndex": true,
+      "callAddress": true
     },
     "call": {
       "name": true,
       "args": true,
       "origin": true,
-      "error": true
+      "error": true,
+      "extrinsicIndex": true,
+      "address": true
     },
     "extrinsic": {
       "signature": true,
       "hash": true,
       "fee": true,
-      "tip": true
+      "tip": true,
+      "index": true
+    },
+    "block": {
+      "number": true,
+      "hash": true,
+      "parentHash": true
     }
   },
   "calls": [
     {
-      "name": ["Balances.transfer"],
+      "name": [
+        "Balances.transfer"
+      ],
       "extrinsic": true,
       "stack": true,
       "events": true

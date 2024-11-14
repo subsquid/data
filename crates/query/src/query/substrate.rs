@@ -1,11 +1,10 @@
-use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
-
 use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
 use crate::primitives::BlockNumber;
 use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
+use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 
 lazy_static! {
@@ -52,6 +51,7 @@ field_selection! {
 
 item_field_selection! {
     BlockFieldSelection {
+        number,
         hash,
         parent_hash,
         state_root,
@@ -66,24 +66,25 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        number,
-        hash, // backwards compatibility
-        parent_hash, // backwards compatibility
-        [this.state_root],
-        [this.extrinsics_root],
-        <this.digest>: Json,
-        <this.spec_name>: Value,
-        <this.spec_version>: Value,
-        <this.impl_name>: Value,
-        <this.impl_version>: Value,
-        <this.validator>: Value,
-        <this.timestamp>: TimestampMillisecond,
+        this.number,
+        this.hash,
+        this.parent_hash,
+        this.state_root,
+        this.extrinsics_root,
+        [this.digest]: Json,
+        [this.spec_name]: Value,
+        [this.spec_version]: Value,
+        [this.impl_name]: Value,
+        [this.impl_version]: Value,
+        [this.validator]: Value,
+        [this.timestamp]: TimestampMillisecond,
     }}
 }
 
 
 item_field_selection! {
     ExtrinsicFieldSelection {
+        index,
         version,
         success,
         hash,
@@ -94,20 +95,22 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        index,
-        [this.version],
-        [this.success],
-        [this.hash],
-        <this.fee>: BigNum,
-        <this.tip>: BigNum,
-        <this.signature>: Json,
-        <this.error>: Json,
+        this.index,
+        this.version,
+        this.success,
+        this.hash,
+        [this.fee]: BigNum,
+        [this.tip]: BigNum,
+        [this.signature]: Json,
+        [this.error]: Json,
     }}
 }
 
 
 item_field_selection! {
     CallFieldSelection {
+        extrinsic_index,
+        address,
         name,
         success,
         args,
@@ -116,20 +119,21 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        extrinsic_index,
-        address,
-        [this.name],
-        [this.success],
-        <this.args>: Json,
-        <this.origin>: Json,
-        <this.error>: Json,
+        this.extrinsic_index,
+        this.address,
+        this.name,
+        this.success,
+        [this.args]: Json,
+        [this.origin]: Json,
+        [this.error]: Json,
     }}
 }
 
 
 item_field_selection! {
     EventFieldSelection {
-        extrinsic_index, // backwards compatibility
+        index,
+        extrinsic_index,
         name,
         phase,
         call_address,
@@ -138,14 +142,14 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        index,
-        extrinsic_index,
-        call_address,
-        [this.name],
-        [this.phase],
-        [this.call_address],
-        [this.topics],
-        <this.args>: Json,
+        this.index,
+        this.extrinsic_index,
+        this.call_address,
+        this.name,
+        this.phase,
+        this.call_address,
+        this.topics,
+        [this.args]: Json,
     }}
 }
 

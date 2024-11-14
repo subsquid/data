@@ -1,14 +1,33 @@
 {
   "type": "substrate",
   "fromBlock": 4669000,
-  "toBlock":4669010,
+  "toBlock": 4669010,
   "fields": {
     "event": {
       "name": true,
-      "args": true
+      "args": true,
+      "index": true,
+      "extrinsicIndex": true,
+      "callAddress": true
+    },
+    "block": {
+      "number": true,
+      "hash": true,
+      "parentHash": true
+    },
+    "extrinsic": {
+      "index": true
+    },
+    "call": {
+      "extrinsicIndex": true,
+      "address": true
     }
   },
   "events": [
-    {"name": ["Balances.Transfer"]}
+    {
+      "name": [
+        "Balances.Transfer"
+      ]
+    }
   ]
 }
