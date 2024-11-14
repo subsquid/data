@@ -2723,7 +2723,6 @@ dependencies = [
  "dashmap",
  "glob",
  "identconv",
- "lazy_static",
  "lexical-core",
  "memmap2 0.9.5",
  "mimalloc",

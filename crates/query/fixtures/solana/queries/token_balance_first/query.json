@@ -3,7 +3,9 @@
   "fromBlock": 200000000,
   "fields": {
     "block": {
-      "slot": true
+      "slot": true,
+      "number": true,
+      "hash": true
     },
     "tokenBalance": {
       "preMint": true,
@@ -13,21 +15,39 @@
       "preOwner": true,
       "postOwner": true,
       "preAmount": true,
-      "postAmount": true
+      "postAmount": true,
+      "transactionIndex": true,
+      "account": true
     },
     "transaction": {
       "signatures": true,
-      "feePayer": true
+      "feePayer": true,
+      "transactionIndex": true
     },
     "instruction": {
       "programId": true,
       "accounts": true,
-      "data": true
+      "data": true,
+      "transactionIndex": true,
+      "instructionAddress": true
+    },
+    "log": {
+      "transactionIndex": true,
+      "logIndex": true
+    },
+    "balance": {
+      "transactionIndex": true,
+      "account": true
+    },
+    "reward": {
+      "pubkey": true
     }
   },
   "tokenBalances": [
     {
-      "account": ["HP1di8NhtL58UwQkekZxgtyUETag4hFcppteRiyqsZi4"],
+      "account": [
+        "HP1di8NhtL58UwQkekZxgtyUETag4hFcppteRiyqsZi4"
+      ],
       "transaction": true,
       "transactionInstructions": true
     }

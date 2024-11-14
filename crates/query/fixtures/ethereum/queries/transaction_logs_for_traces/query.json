@@ -1,32 +1,50 @@
 {
-    "fromBlock": 17882154,
-    "toBlock": 17882154,
-    "traces": [{
-        "type": ["create"],
-        "transactionLogs": true
-    }],
-    "fields": {
-        "block": {
-            "number": true,
-            "hash": true,
-            "difficulty": true,
-            "size": true,
-            "sha3Uncles": true,
-            "gasLimit": true,
-            "gasUsed": true,
-            "timestamp": true,
-            "nonce": true
-        },
-        "log": {
-            "topics": true,
-            "data": true,
-            "address": true,
-            "logIndex": true
-        },
-        "trace": {
-            "callFrom": true,
-            "callTo": true,
-            "callValue": true
-        }
+  "type": "evm",
+  "fromBlock": 17882154,
+  "toBlock": 17882154,
+  "traces": [
+    {
+      "type": [
+        "create"
+      ],
+      "transactionLogs": true
     }
+  ],
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true,
+      "difficulty": true,
+      "size": true,
+      "sha3Uncles": true,
+      "gasLimit": true,
+      "gasUsed": true,
+      "timestamp": true,
+      "nonce": true,
+      "parentHash": true
+    },
+    "log": {
+      "topics": true,
+      "data": true,
+      "address": true,
+      "logIndex": true,
+      "transactionIndex": true
+    },
+    "trace": {
+      "callFrom": true,
+      "callTo": true,
+      "callValue": true,
+      "transactionIndex": true,
+      "traceAddress": true,
+      "type": true
+    },
+    "transaction": {
+      "transactionIndex": true
+    },
+    "stateDiff": {
+      "transactionIndex": true,
+      "address": true,
+      "key": true
+    }
+  }
 }

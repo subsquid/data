@@ -3,25 +3,45 @@
   "fromBlock": 200000000,
   "fields": {
     "block": {
-      "slot": true
+      "slot": true,
+      "number": true,
+      "hash": true
     },
     "balance": {
       "pre": true,
-      "post": true
+      "post": true,
+      "transactionIndex": true,
+      "account": true
     },
     "transaction": {
       "signatures": true,
-      "feePayer": true
+      "feePayer": true,
+      "transactionIndex": true
     },
     "instruction": {
       "programId": true,
       "accounts": true,
-      "data": true
+      "data": true,
+      "transactionIndex": true,
+      "instructionAddress": true
+    },
+    "log": {
+      "transactionIndex": true,
+      "logIndex": true
+    },
+    "tokenBalance": {
+      "transactionIndex": true,
+      "account": true
+    },
+    "reward": {
+      "pubkey": true
     }
   },
   "balances": [
     {
-      "account": ["FSduwbdC1cgtVV7ovQFYt3WrVqym2GxC6b9X7ERaFzG9"],
+      "account": [
+        "FSduwbdC1cgtVV7ovQFYt3WrVqym2GxC6b9X7ERaFzG9"
+      ],
       "transaction": true,
       "transactionInstructions": true
     }

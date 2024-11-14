@@ -1,83 +1,81 @@
-use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
-
+use super::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
 use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
 use crate::primitives::BlockNumber;
-use crate::query::util::{compile_plan, ensure_block_range, field_selection, item_field_selection, PredicateBuilder, request, ensure_item_count};
+use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 
-lazy_static! {
-    static ref TABLES: TableSet = {
-        let mut tables = TableSet::new();
 
-        tables.add_table("blocks", vec![
-            "number"
-        ]);
+static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
+    let mut tables = TableSet::new();
 
-        tables.add_table("transactions", vec![
-            "block_number",
-            "transaction_index"
-        ])
-        .add_child("logs", vec!["block_number", "transaction_index"])
-        .add_child("balances", vec!["block_number", "transaction_index"])
-        .add_child("token_balances", vec!["block_number", "transaction_index"])
-        .set_weight_column("account_keys", "account_keys_size")
-        .set_weight_column("address_table_lookups", "address_table_lookups_size")
-        .set_weight_column("signatures", "signatures_size")
-        .set_weight_column("loaded_addresses", "loaded_addresses_size");
+    tables.add_table("blocks", vec![
+        "number"
+    ]);
 
-        tables.add_table("instructions", vec![
-            "block_number",
-            "transaction_index",
-            "instruction_address"
-        ])
-        .set_weight_column("data", "data_size")
-        .set_weight_column("a0", "accounts_size")
-        .set_weight("a1", 0)
-        .set_weight("a2", 0)
-        .set_weight("a3", 0)
-        .set_weight("a4", 0)
-        .set_weight("a5", 0)
-        .set_weight("a6", 0)
-        .set_weight("a7", 0)
-        .set_weight("a8", 0)
-        .set_weight("a9", 0)
-        .set_weight("a10", 0)
-        .set_weight("a11", 0)
-        .set_weight("a12", 0)
-        .set_weight("a13", 0)
-        .set_weight("a14", 0)
-        .set_weight("a15", 0)
-        .set_weight("rest_accounts", 0);
+    tables.add_table("transactions", vec![
+        "block_number",
+        "transaction_index"
+    ])
+    .add_child("logs", vec!["block_number", "transaction_index"])
+    .add_child("balances", vec!["block_number", "transaction_index"])
+    .add_child("token_balances", vec!["block_number", "transaction_index"])
+    .set_weight_column("account_keys", "account_keys_size")
+    .set_weight_column("address_table_lookups", "address_table_lookups_size")
+    .set_weight_column("signatures", "signatures_size")
+    .set_weight_column("loaded_addresses", "loaded_addresses_size");
 
-        tables.add_table("logs", vec![
-            "block_number",
-            "transaction_index",
-            "log_index"
-        ])
-        .set_weight_column("message", "message_size");
+    tables.add_table("instructions", vec![
+        "block_number",
+        "transaction_index",
+        "instruction_address"
+    ])
+    .set_weight_column("data", "data_size")
+    .set_weight_column("a0", "accounts_size")
+    .set_weight("a1", 0)
+    .set_weight("a2", 0)
+    .set_weight("a3", 0)
+    .set_weight("a4", 0)
+    .set_weight("a5", 0)
+    .set_weight("a6", 0)
+    .set_weight("a7", 0)
+    .set_weight("a8", 0)
+    .set_weight("a9", 0)
+    .set_weight("a10", 0)
+    .set_weight("a11", 0)
+    .set_weight("a12", 0)
+    .set_weight("a13", 0)
+    .set_weight("a14", 0)
+    .set_weight("a15", 0)
+    .set_weight("rest_accounts", 0);
 
-        tables.add_table("balances", vec![
-            "block_number",
-            "transaction_index",
-            "account"
-        ]);
+    tables.add_table("logs", vec![
+        "block_number",
+        "transaction_index",
+        "log_index"
+    ])
+    .set_weight_column("message", "message_size");
 
-        tables.add_table("token_balances", vec![
-            "block_number",
-            "transaction_index",
-            "account"
-        ]);
+    tables.add_table("balances", vec![
+        "block_number",
+        "transaction_index",
+        "account"
+    ]);
 
-        tables.add_table("rewards", vec![
-            "block_number",
-            "pubkey"
-        ]);
+    tables.add_table("token_balances", vec![
+        "block_number",
+        "transaction_index",
+        "account"
+    ]);
 
-        tables
-    };
-}
+    tables.add_table("rewards", vec![
+        "block_number",
+        "pubkey"
+    ]);
+
+    tables
+});
 
 
 field_selection! {
@@ -93,6 +91,8 @@ field_selection! {
 
 item_field_selection! {
     BlockFieldSelection {
+        number,
+        hash,
         slot,
         parent_slot,
         parent_hash,
@@ -100,18 +100,19 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        number,
-        hash,
-        [this.slot],
-        [this.parent_slot],
-        [this.parent_hash],
-        <this.timestamp>: TimestampSecond,
+        this.number,
+        this.hash,
+        this.slot,
+        this.parent_slot,
+        this.parent_hash,
+        [this.timestamp]: TimestampSecond,
     }}
 }
 
 
 item_field_selection! {
     TransactionFieldSelection {
+        transaction_index,
         version,
         account_keys,
         address_table_lookups,
@@ -129,27 +130,29 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        transaction_index,
-        [this.version],
-        [this.account_keys],
-        [this.address_table_lookups],
-        [this.num_readonly_signed_accounts],
-        [this.num_readonly_unsigned_accounts],
-        [this.num_required_signatures],
-        [this.recent_blockhash],
-        [this.signatures],
-        <this.err>: Json,
-        <this.fee>: BigNum,
-        <this.compute_units_consumed>: BigNum,
-        <this.loaded_addresses>: Value,
-        <this.fee_payer>: Value,
-        <this.has_dropped_log_messages>: Value,
+        this.transaction_index,
+        this.version,
+        this.account_keys,
+        this.address_table_lookups,
+        this.num_readonly_signed_accounts,
+        this.num_readonly_unsigned_accounts,
+        this.num_required_signatures,
+        this.recent_blockhash,
+        this.signatures,
+        [this.err]: Json,
+        [this.fee]: BigNum,
+        [this.compute_units_consumed]: BigNum,
+        [this.loaded_addresses]: Value,
+        [this.fee_payer]: Value,
+        [this.has_dropped_log_messages]: Value,
     }}
 }
 
 
 item_field_selection! {
     InstructionFieldSelection {
+        transaction_index,     
+        instruction_address,   
         program_id,
         accounts,
         data,
@@ -165,9 +168,9 @@ item_field_selection! {
 
     project(this) json_object! {
         {
-            transaction_index,
-            instruction_address,
-            [this.program_id],
+            this.transaction_index,
+            this.instruction_address,
+            this.program_id,
         },
         {
             |obj| {
@@ -195,15 +198,15 @@ item_field_selection! {
             }
         },
         {
-            [this.data],
-            [this.d1],
-            [this.d2],
-            [this.d4],
-            [this.d8],
-            <this.error>: Value,
-            <this.compute_units_consumed>: BigNum,
-            <this.is_committed>: Value,
-            <this.has_dropped_log_messages>: Value,
+            this.data,
+            this.d1,
+            this.d2,
+            this.d4,
+            this.d8,
+            [this.error]: Value,
+            [this.compute_units_consumed]: BigNum,
+            [this.is_committed]: Value,
+            [this.has_dropped_log_messages]: Value,
         }
     }
 }
@@ -211,6 +214,8 @@ item_field_selection! {
 
 item_field_selection! {
     LogFieldSelection {
+        transaction_index,
+        log_index,
         instruction_address,
         program_id,
         kind,
@@ -218,33 +223,37 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        transaction_index,
-        log_index,
-        [this.instruction_address],
-        [this.program_id],
-        [this.kind],
-        [this.message],
+        this.transaction_index,
+        this.log_index,
+        this.instruction_address,
+        this.program_id,
+        this.kind,
+        this.message,
     }}
 }
 
 
 item_field_selection! {
     BalanceFieldSelection {
+        transaction_index,
+        account,
         pre,
         post,
     }
 
     project(this) json_object! {{
-        transaction_index,
-        account,
-        <this.pre>: BigNum,
-        <this.post>: BigNum,
+        this.transaction_index,
+        this.account,
+        [this.pre]: BigNum,
+        [this.post]: BigNum,
     }}
 }
 
 
 item_field_selection! {
     TokenBalanceFieldSelection {
+        transaction_index,
+        account,
         pre_mint,
         post_mint,
         pre_decimals,
@@ -258,24 +267,25 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        transaction_index,
-        account,
-        [this.pre_mint],
-        [this.post_mint],
-        [this.pre_decimals],
-        [this.post_decimals],
-        [this.pre_program_id],
-        [this.post_program_id],
-        [this.pre_owner],
-        [this.post_owner],
-        <this.pre_amount>: BigNum,
-        <this.post_amount>: BigNum,
+        this.transaction_index,
+        this.account,
+        this.pre_mint,
+        this.post_mint,
+        this.pre_decimals,
+        this.post_decimals,
+        this.pre_program_id,
+        this.post_program_id,
+        this.pre_owner,
+        this.post_owner,
+        [this.pre_amount]: BigNum,
+        [this.post_amount]: BigNum,
     }}
 }
 
 
 item_field_selection! {
     RewardFieldSelection {
+        pubkey,
         lamports,
         post_balance,
         reward_type,
@@ -283,11 +293,11 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        pubkey,
-        <this.lamports>: BigNum,
-        <this.post_balance>: BigNum,
-        <this.reward_type>: Value,
-        <this.commission>: Value,
+        this.pubkey,
+        [this.lamports]: BigNum,
+        [this.post_balance]: BigNum,
+        [this.reward_type]: Value,
+        [this.commission]: Value,
     }}
 }
 

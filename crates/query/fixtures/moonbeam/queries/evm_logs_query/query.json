@@ -5,12 +5,29 @@
   "fields": {
     "event": {
       "name": true,
-      "args": true
+      "args": true,
+      "index": true,
+      "extrinsicIndex": true,
+      "callAddress": true
+    },
+    "block": {
+      "number": true,
+      "hash": true,
+      "parentHash": true
+    },
+    "extrinsic": {
+      "index": true
+    },
+    "call": {
+      "extrinsicIndex": true,
+      "address": true
     }
   },
   "evmLogs": [
     {
-      "topic0": ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"]
+      "topic0": [
+        "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+      ]
     }
   ]
 }

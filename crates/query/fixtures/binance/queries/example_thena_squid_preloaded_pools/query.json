@@ -1,4 +1,5 @@
 {
+  "type": "evm",
   "fromBlock": 37623328,
   "toBlock": 37624890,
   "transactions": [
@@ -1557,7 +1558,10 @@
   ],
   "fields": {
     "block": {
-      "timestamp": true
+      "timestamp": true,
+      "number": true,
+      "hash": true,
+      "parentHash": true
     },
     "transaction": {
       "from": true,
@@ -1565,20 +1569,29 @@
       "hash": true,
       "sighash": true,
       "input": true,
-      "status": true
+      "status": true,
+      "transactionIndex": true
     },
     "log": {
       "address": true,
       "topics": true,
-      "data": true
+      "data": true,
+      "logIndex": true,
+      "transactionIndex": true
     },
     "trace": {
-      "error": true
+      "error": true,
+      "transactionIndex": true,
+      "traceAddress": true,
+      "type": true
     },
     "stateDiff": {
       "kind": true,
       "next": true,
-      "prev": true
+      "prev": true,
+      "transactionIndex": true,
+      "address": true,
+      "key": true
     }
   }
 }

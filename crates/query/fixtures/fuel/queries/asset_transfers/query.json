@@ -5,18 +5,39 @@
     "transaction": {
       "type": true,
       "hash": true,
-      "status": true
+      "status": true,
+      "index": true
     },
     "input": {
       "coinOwner": true,
       "coinAmount": true,
-      "coinAssetId": true
+      "coinAssetId": true,
+      "transactionIndex": true,
+      "index": true,
+      "type": true
+    },
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "receipt": {
+      "index": true,
+      "transactionIndex": true
+    },
+    "output": {
+      "transactionIndex": true,
+      "index": true,
+      "type": true
     }
   },
   "inputs": [
     {
-      "type": ["InputCoin"],
-      "coinAssetId": ["0x0cfabde7bbe58d253cf3103d8f55d26987b3dc4691205b9299ac6826c613a2e2"],
+      "type": [
+        "InputCoin"
+      ],
+      "coinAssetId": [
+        "0x0cfabde7bbe58d253cf3103d8f55d26987b3dc4691205b9299ac6826c613a2e2"
+      ],
       "transaction": true
     }
   ]

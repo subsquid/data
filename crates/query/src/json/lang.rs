@@ -47,9 +47,8 @@ impl From<JsonObject> for Exp {
 macro_rules! json_object {
     (
         $({
-            $( $prop:ident, )*
-            $( [$fields:ident . $fields_prop:ident], )*
-            $( <$exp_fields:ident . $exp_fields_prop:ident>: $exp:ident, )*
+            $( $fields:ident . $fields_prop:ident, )*
+            $( [$exp_fields:ident . $exp_fields_prop:ident]: $exp:ident, )*
             $( |$obj:ident| $cb:expr ),*
         }),*
     ) => {{
@@ -63,11 +62,6 @@ macro_rules! json_object {
 
         let mut object = JsonObject::new();
         $(
-            $(
-                let prop = trim_r!(camel_strify!($prop));
-                let column = trim_r!(stringify!($prop));
-                object.add(prop, Exp::Prop(column, Box::new(Exp::Value)));
-            )*
             $(
                 if $fields.$fields_prop {
                     let prop = trim_r!(camel_strify!($fields_prop));

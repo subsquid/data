@@ -1,18 +1,37 @@
 {
-    "fromBlock": 17881390,
-    "toBlock": 17882786,
-    "includeAllBlocks": true,
-    "fields": {
-        "block": {
-            "number": true,
-            "hash": true,
-            "difficulty": true,
-            "size": true,
-            "sha3Uncles": true,
-            "gasLimit": true,
-            "gasUsed": true,
-            "timestamp": true,
-            "nonce": true
-        }
+  "type": "evm",
+  "fromBlock": 17881390,
+  "toBlock": 17882786,
+  "includeAllBlocks": true,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true,
+      "difficulty": true,
+      "size": true,
+      "sha3Uncles": true,
+      "gasLimit": true,
+      "gasUsed": true,
+      "timestamp": true,
+      "nonce": true,
+      "parentHash": true
+    },
+    "transaction": {
+      "transactionIndex": true
+    },
+    "log": {
+      "logIndex": true,
+      "transactionIndex": true
+    },
+    "trace": {
+      "transactionIndex": true,
+      "traceAddress": true,
+      "type": true
+    },
+    "stateDiff": {
+      "transactionIndex": true,
+      "address": true,
+      "key": true
     }
+  }
 }

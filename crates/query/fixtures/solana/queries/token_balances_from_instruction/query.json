@@ -3,27 +3,49 @@
   "fromBlock": 0,
   "fields": {
     "block": {
-      "slot": true
+      "slot": true,
+      "number": true,
+      "hash": true
     },
     "transaction": {
-      "signatures": true
+      "signatures": true,
+      "transactionIndex": true
     },
     "instruction": {
       "programId": true,
       "accounts": true,
-      "data": true
+      "data": true,
+      "transactionIndex": true,
+      "instructionAddress": true
     },
     "tokenBalance": {
       "postOwner": true,
       "postMint": true,
       "preAmount": true,
-      "postAmount": true
+      "postAmount": true,
+      "transactionIndex": true,
+      "account": true
+    },
+    "log": {
+      "transactionIndex": true,
+      "logIndex": true
+    },
+    "balance": {
+      "transactionIndex": true,
+      "account": true
+    },
+    "reward": {
+      "pubkey": true
     }
   },
   "instructions": [
     {
-      "programId": ["whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"],
-      "d8": ["0xf8c69e91e17587c8"],
+      "programId": [
+        "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+      ],
+      "d8": [
+        "0xf8c69e91e17587c8"
+      ],
       "transaction": true,
       "transactionTokenBalances": true,
       "innerInstructions": true,

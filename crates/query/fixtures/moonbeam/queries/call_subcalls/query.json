@@ -6,12 +6,29 @@
     "call": {
       "name": true,
       "args": true,
-      "origin": true
+      "origin": true,
+      "extrinsicIndex": true,
+      "address": true
+    },
+    "block": {
+      "number": true,
+      "hash": true,
+      "parentHash": true
+    },
+    "extrinsic": {
+      "index": true
+    },
+    "event": {
+      "index": true,
+      "extrinsicIndex": true,
+      "callAddress": true
     }
   },
   "calls": [
     {
-      "name": ["Proxy.proxy"],
+      "name": [
+        "Proxy.proxy"
+      ],
       "subcalls": true
     }
   ]
