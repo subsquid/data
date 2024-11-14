@@ -10,7 +10,6 @@ bytes = "1.6.0"
 convert_case = "0.6.0"
 dashmap = "6.0.1"
 identconv = "0.2.0"
-lazy_static = { workspace = true }
 lexical-core = "1.0.2"
 memmap2 = { version = "0.9.4", optional = true }
 parking_lot = { workspace = true }

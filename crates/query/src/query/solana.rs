@@ -3,81 +3,79 @@ use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
 use crate::primitives::BlockNumber;
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 
 
-lazy_static! {
-    static ref TABLES: TableSet = {
-        let mut tables = TableSet::new();
+static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
+    let mut tables = TableSet::new();
 
-        tables.add_table("blocks", vec![
-            "number"
-        ]);
+    tables.add_table("blocks", vec![
+        "number"
+    ]);
 
-        tables.add_table("transactions", vec![
-            "block_number",
-            "transaction_index"
-        ])
-        .add_child("logs", vec!["block_number", "transaction_index"])
-        .add_child("balances", vec!["block_number", "transaction_index"])
-        .add_child("token_balances", vec!["block_number", "transaction_index"])
-        .set_weight_column("account_keys", "account_keys_size")
-        .set_weight_column("address_table_lookups", "address_table_lookups_size")
-        .set_weight_column("signatures", "signatures_size")
-        .set_weight_column("loaded_addresses", "loaded_addresses_size");
+    tables.add_table("transactions", vec![
+        "block_number",
+        "transaction_index"
+    ])
+    .add_child("logs", vec!["block_number", "transaction_index"])
+    .add_child("balances", vec!["block_number", "transaction_index"])
+    .add_child("token_balances", vec!["block_number", "transaction_index"])
+    .set_weight_column("account_keys", "account_keys_size")
+    .set_weight_column("address_table_lookups", "address_table_lookups_size")
+    .set_weight_column("signatures", "signatures_size")
+    .set_weight_column("loaded_addresses", "loaded_addresses_size");
 
-        tables.add_table("instructions", vec![
-            "block_number",
-            "transaction_index",
-            "instruction_address"
-        ])
-        .set_weight_column("data", "data_size")
-        .set_weight_column("a0", "accounts_size")
-        .set_weight("a1", 0)
-        .set_weight("a2", 0)
-        .set_weight("a3", 0)
-        .set_weight("a4", 0)
-        .set_weight("a5", 0)
-        .set_weight("a6", 0)
-        .set_weight("a7", 0)
-        .set_weight("a8", 0)
-        .set_weight("a9", 0)
-        .set_weight("a10", 0)
-        .set_weight("a11", 0)
-        .set_weight("a12", 0)
-        .set_weight("a13", 0)
-        .set_weight("a14", 0)
-        .set_weight("a15", 0)
-        .set_weight("rest_accounts", 0);
+    tables.add_table("instructions", vec![
+        "block_number",
+        "transaction_index",
+        "instruction_address"
+    ])
+    .set_weight_column("data", "data_size")
+    .set_weight_column("a0", "accounts_size")
+    .set_weight("a1", 0)
+    .set_weight("a2", 0)
+    .set_weight("a3", 0)
+    .set_weight("a4", 0)
+    .set_weight("a5", 0)
+    .set_weight("a6", 0)
+    .set_weight("a7", 0)
+    .set_weight("a8", 0)
+    .set_weight("a9", 0)
+    .set_weight("a10", 0)
+    .set_weight("a11", 0)
+    .set_weight("a12", 0)
+    .set_weight("a13", 0)
+    .set_weight("a14", 0)
+    .set_weight("a15", 0)
+    .set_weight("rest_accounts", 0);
 
-        tables.add_table("logs", vec![
-            "block_number",
-            "transaction_index",
-            "log_index"
-        ])
-        .set_weight_column("message", "message_size");
+    tables.add_table("logs", vec![
+        "block_number",
+        "transaction_index",
+        "log_index"
+    ])
+    .set_weight_column("message", "message_size");
 
-        tables.add_table("balances", vec![
-            "block_number",
-            "transaction_index",
-            "account"
-        ]);
+    tables.add_table("balances", vec![
+        "block_number",
+        "transaction_index",
+        "account"
+    ]);
 
-        tables.add_table("token_balances", vec![
-            "block_number",
-            "transaction_index",
-            "account"
-        ]);
+    tables.add_table("token_balances", vec![
+        "block_number",
+        "transaction_index",
+        "account"
+    ]);
 
-        tables.add_table("rewards", vec![
-            "block_number",
-            "pubkey"
-        ]);
+    tables.add_table("rewards", vec![
+        "block_number",
+        "pubkey"
+    ]);
 
-        tables
-    };
-}
+    tables
+});
 
 
 field_selection! {

@@ -1,61 +1,58 @@
-use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
-
 use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{ScanBuilder, TableSet};
 use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
 use crate::{BlockNumber, Plan};
+use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 
 
-lazy_static! {
-    static ref TABLES: TableSet = {
-        let mut tables = TableSet::new();
+static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
+    let mut tables = TableSet::new();
 
-        tables.add_table("blocks", vec![
-            "number"
-        ])
-        .set_weight("logs_bloom", 512)
-        .set_weight_column("extra_data", "extra_data_size");
+    tables.add_table("blocks", vec![
+        "number"
+    ])
+    .set_weight("logs_bloom", 512)
+    .set_weight_column("extra_data", "extra_data_size");
 
-        tables.add_table("transactions", vec![
-            "block_number",
-            "transaction_index"
-        ])
-        .add_child("logs", vec!["block_number", "transaction_index"])
-        .add_child("traces", vec!["block_number", "transaction_index"])
-        .add_child("statediffs", vec!["block_number", "transaction_index"])
-        .set_weight_column("input", "input_size");
+    tables.add_table("transactions", vec![
+        "block_number",
+        "transaction_index"
+    ])
+    .add_child("logs", vec!["block_number", "transaction_index"])
+    .add_child("traces", vec!["block_number", "transaction_index"])
+    .add_child("statediffs", vec!["block_number", "transaction_index"])
+    .set_weight_column("input", "input_size");
 
-        tables.add_table("logs", vec![
-            "block_number",
-            "log_index"
-        ])
-        .set_weight_column("data", "data_size");
+    tables.add_table("logs", vec![
+        "block_number",
+        "log_index"
+    ])
+    .set_weight_column("data", "data_size");
 
-        tables.add_table("traces", vec![
-            "block_number",
-            "transaction_index",
-            "trace_address"
-        ])
-        .set_weight_column("create_init", "create_init_size")
-        .set_weight_column("create_result_code", "create_result_code_size")
-        .set_weight_column("call_input", "call_input_size")
-        .set_weight_column("call_result_output", "call_result_output_size");
+    tables.add_table("traces", vec![
+        "block_number",
+        "transaction_index",
+        "trace_address"
+    ])
+    .set_weight_column("create_init", "create_init_size")
+    .set_weight_column("create_result_code", "create_result_code_size")
+    .set_weight_column("call_input", "call_input_size")
+    .set_weight_column("call_result_output", "call_result_output_size");
 
-        tables.add_table("statediffs", vec![
-            "block_number",
-            "transaction_index",
-            "address",
-            "key"
-        ])
-        .set_weight_column("prev", "prev_size")
-        .set_weight_column("next", "next_size")
-        .set_result_item_name("stateDiffs");
+    tables.add_table("statediffs", vec![
+        "block_number",
+        "transaction_index",
+        "address",
+        "key"
+    ])
+    .set_weight_column("prev", "prev_size")
+    .set_weight_column("next", "next_size")
+    .set_result_item_name("stateDiffs");
 
-        tables
-    };
-}
+    tables
+});
 
 
 field_selection! {

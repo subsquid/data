@@ -3,42 +3,40 @@ use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
 use crate::primitives::BlockNumber;
 use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 
 
-lazy_static! {
-    static ref TABLES: TableSet = {
-        let mut tables = TableSet::new();
+static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
+    let mut tables = TableSet::new();
 
-        tables.add_table("blocks", vec![
-            "number"
-        ])
-        .set_weight("digest", 32 * 4);
+    tables.add_table("blocks", vec![
+        "number"
+    ])
+    .set_weight("digest", 32 * 4);
 
-        tables.add_table("events", vec![
-            "block_number",
-            "index"
-        ])
-        .set_weight_column("args", "args_size");
+    tables.add_table("events", vec![
+        "block_number",
+        "index"
+    ])
+    .set_weight_column("args", "args_size");
 
-        tables.add_table("calls", vec![
-            "block_number",
-            "extrinsic_index",
-            "address"
-        ])
-        .set_weight_column("args", "args_size");
+    tables.add_table("calls", vec![
+        "block_number",
+        "extrinsic_index",
+        "address"
+    ])
+    .set_weight_column("args", "args_size");
 
-        tables.add_table("extrinsics", vec![
-            "block_number",
-            "index"
-        ])
-        .add_child("calls", vec!["block_number", "extrinsic_index"])
-        .set_weight("signature", 4 * 32);
+    tables.add_table("extrinsics", vec![
+        "block_number",
+        "index"
+    ])
+    .add_child("calls", vec!["block_number", "extrinsic_index"])
+    .set_weight("signature", 4 * 32);
 
-        tables
-    };
-}
+    tables
+});
 
 
 field_selection! {
