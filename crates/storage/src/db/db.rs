@@ -3,7 +3,6 @@ use super::read::snapshot::ReadSnapshot;
 use super::write::{ChunkBuilder, NewChunk, Tx};
 use anyhow::ensure;
 use rocksdb::{ColumnFamilyDescriptor, Options as RocksOptions};
-use sqd_dataset::DatasetDescriptionRef;
 use sqd_primitives::Name;
 
 
@@ -93,8 +92,8 @@ impl Database {
         }
     }
 
-    pub fn new_chunk_builder(&self, ds: impl Into<Option<DatasetDescriptionRef>>) -> ChunkBuilder<'_> {
-        ChunkBuilder::new(&self.db, ds.into())
+    pub fn new_chunk_builder(&self) -> ChunkBuilder<'_> {
+        ChunkBuilder::new(&self.db)
     }
 
     pub fn insert_chunk(&self, dataset_id: DatasetId, new_chunk: NewChunk) -> anyhow::Result<()> {

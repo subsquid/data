@@ -89,8 +89,7 @@ impl <'a> Tx<'a> {
             first_block: new_chunk.first_block,
             last_block: new_chunk.last_block,
             last_block_hash: new_chunk.last_block_hash,
-            max_num_rows: new_chunk.tables.max_num_rows,
-            tables: new_chunk.tables.tables
+            tables: new_chunk.tables
         };
 
         self.transaction.put_cf(

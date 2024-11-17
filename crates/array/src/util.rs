@@ -1,5 +1,7 @@
-use arrow::datatypes::{DataType, Fields};
+use arrow::datatypes::{DataType, Field, FieldRef, Fields, Schema, SchemaRef};
 use std::cmp::Ordering;
+use std::ops::AddAssign;
+use std::sync::Arc;
 
 
 #[inline]
@@ -95,15 +97,38 @@ pub fn bisect_offsets<I: Ord + Copy>(offsets: &[I], idx: I) -> Option<usize> {
 }
 
 
-pub fn build_field_offsets(fields: &Fields, start_pos: usize) -> Vec<usize> {
-    let mut last_offset = start_pos;
-    let mut offsets = Vec::with_capacity(fields.len() + 1);
-    offsets.push(last_offset);
-    for f in fields.iter() {
-        last_offset += get_num_buffers(f.data_type());
-        offsets.push(last_offset)
+pub fn get_offset_position<I: Ord + Copy>(offsets: &[I], index: I, first_to_try: usize) -> usize {
+    let beg = offsets[first_to_try];
+    if beg <= index {
+        if index < offsets[first_to_try + 1] {
+            first_to_try
+        } else {
+            first_to_try + bisect_offsets(&offsets[first_to_try..], index)
+                .expect("index is out of bounds")
+        }
+    } else {
+        bisect_offsets(&offsets[0..first_to_try + 1], index)
+            .expect("index is out of bounds")
     }
-    offsets
+}
+
+
+pub fn build_offsets<I: Copy + AddAssign>(first: I, lengths: impl Iterator<Item=I>) -> Vec<I> {
+    let mut vec = Vec::with_capacity(1 + lengths.size_hint().0);
+    let mut last = first;
+    vec.push(last);
+    vec.extend(lengths.map(|len| {
+        last += len;
+        last
+    }));
+    vec
+}
+
+
+pub fn build_field_offsets(start_pos: usize, fields: &Fields) -> Vec<usize> {
+    build_offsets(start_pos, fields.iter().map(|f| {
+        get_num_buffers(f.data_type())
+    }))
 }
 
 
@@ -141,5 +166,87 @@ pub fn get_num_buffers(data_type: &DataType) -> usize {
             1 + fields.iter().map(|f| get_num_buffers(f.data_type())).sum::<usize>()
         }
         ty => panic!("unsupported arrow data type - {}", ty)
+    }
+}
+
+
+pub struct SchemaPatch {
+    original: SchemaRef,
+    fields: Option<Vec<FieldRef>>
+}
+
+
+impl SchemaPatch {
+    pub fn new(schema: SchemaRef) -> Self {
+        Self {
+            original: schema,
+            fields: None
+        }
+    }
+    
+    pub fn fields(&self) -> &[FieldRef] {
+        match self.fields.as_ref() {
+            None => self.original.fields(),
+            Some(fields) => fields
+        }
+    }
+    
+    pub fn find_by_name(&self, name: &str) -> Option<(usize, FieldRef)> {
+        self.fields().iter()
+            .enumerate()
+            .find_map(|(i, f)| {
+                (f.name() == name).then_some((i, f.clone()))
+            })
+    }
+    
+    pub fn set_field_type(&mut self, index: usize, ty: DataType) {
+        let field = self.original.field(index);
+        if field.data_type() == &ty {
+            return;
+        }
+        let new_field = Field::new(
+            field.name(),
+            ty,
+            field.is_nullable()
+        );
+        self.set_field(index, Arc::new(new_field))
+    }
+
+    pub fn set_field(&mut self, index: usize, field: FieldRef) {
+        self.with_mut_fields(|fields| {
+            fields[index] = field
+        })
+    }
+    
+    pub fn add_field(&mut self, field: FieldRef) {
+        self.with_mut_fields(|fields| {
+            assert!(
+                fields.iter().all(|f| f.name() != field.name()),
+                "field '{}' is already present in the schema",
+                field.name()
+            );
+            fields.push(field)
+        })
+    }
+    
+    fn with_mut_fields<F: FnOnce(&mut Vec<FieldRef>)>(&mut self, cb: F) {
+        match self.fields.as_mut() {
+            Some(fields) => cb(fields),
+            None => {
+                let mut fields = self.original.fields().to_vec();
+                cb(&mut fields);
+                self.fields = Some(fields)
+            }
+        };
+    }
+    
+    pub fn finish(self) -> SchemaRef {
+        self.fields.map(|fields| {
+            let schema = Schema::new_with_metadata(
+                fields,
+                self.original.metadata().clone()
+            );
+            Arc::new(schema)
+        }).unwrap_or(self.original)
     }
 }

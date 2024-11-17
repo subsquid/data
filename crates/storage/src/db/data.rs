@@ -77,6 +77,5 @@ pub struct Chunk {
     pub first_block: BlockNumber,
     pub last_block: BlockNumber,
     pub last_block_hash: ShortHash,
-    pub max_num_rows: u32,
     pub tables: BTreeMap<String, TableId>
 }

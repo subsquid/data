@@ -29,7 +29,8 @@ pub struct TableReader<S> {
     schema: SchemaRef,
     column_positions: Vec<usize>,
     offsets: Vec<Mutex<Option<OffsetBuffer<u32>>>>,
-    stats: Vec<Mutex<Option<Option<Stats>>>>
+    stats: Vec<Mutex<Option<Option<Stats>>>>,
+    num_rows: usize
 }
 
 
@@ -45,7 +46,7 @@ impl<S: KvRead + Sync> TableReader<S> {
                 .map_err(|_| anyhow!("failed to deserialize table schema"))?
         };
 
-        let column_positions = build_field_offsets(schema.fields(), 0);
+        let column_positions = build_field_offsets(0, schema.fields());
         
         let offsets = std::iter::repeat_with(Mutex::default)
             .take(column_positions.last().copied().unwrap())
@@ -55,18 +56,32 @@ impl<S: KvRead + Sync> TableReader<S> {
             .take(schema.fields().len())
             .collect();
 
-        Ok(Self {
+        let mut table = Self {
             storage,
             key,
             schema: Arc::new(schema),
             column_positions,
             offsets,
-            stats
-        })
+            stats,
+            num_rows: 0
+        };
+        
+        if table.column_positions.len() > 1 {
+            // Let's set number of rows
+            // First buffer is always a null mask
+            let nullmask_pages = table.get_nullmask_pages(0)?;
+            table.num_rows = nullmask_pages.last().copied().unwrap() as usize;
+        }
+
+        Ok(table)
     }
 
     pub fn schema(&self) -> SchemaRef {
         self.schema.clone()
+    }
+    
+    pub fn num_rows(&self) -> usize {
+        self.num_rows
     }
 
     pub fn get_column_stats(&self, column_index: usize) -> anyhow::Result<Option<Stats>> {
@@ -135,10 +150,22 @@ impl<S: KvRead + Sync> TableReader<S> {
             table: self,
             buffer: self.column_positions[column_index]
         };
-        AnyReader::from_factory(
+        
+        let reader = AnyReader::from_factory(
             &mut factory,
             self.schema.field(column_index).data_type()
-        )
+        )?;
+        
+        ensure!(
+            reader.len() == self.num_rows,
+            "column {} ({}) has length {}, but {} was expected",
+            self.schema.field(column_index).name(),
+            column_index,
+            reader.len(),
+            self.num_rows
+        );
+        
+        Ok(reader)
     }
 
     pub fn build_column_stats(&self, window: usize, column_index: usize) -> anyhow::Result<Stats> {
@@ -423,7 +450,6 @@ impl<S: KvRead + Sync> TableReader<S> {
         }
     }
 
-    #[inline(never)]
     fn read_native_par_page(
         &self,
         item_size: usize,

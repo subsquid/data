@@ -19,7 +19,7 @@ pub struct AnyStructBuilder {
 
 impl AnyStructBuilder {
     pub fn new(fields: Fields) -> Self {
-        let column_offsets = build_field_offsets(&fields, 1);
+        let column_offsets = build_field_offsets(1, &fields);
         
         let columns = fields.iter()
             .map(|f| AnyBuilder::new(f.data_type()))

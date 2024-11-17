@@ -1,9 +1,11 @@
-mod table_id;
 mod data;
 mod db;
-mod write;
+mod ops;
 mod read;
 mod rocks;
+mod schema_ext;
+mod table_id;
+mod write;
 
 
 pub use db::*;

@@ -86,14 +86,29 @@ mod parquet {
 mod storage {
     use crate::{perform_query, WHIRLPOOL_SWAP};
     use arrow::array::RecordBatchReader;
+    use arrow::datatypes::Schema;
     use criterion::Criterion;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use sqd_data::solana::tables::SolanaChunkBuilder;
+    use sqd_dataset::DatasetDescription;
     use sqd_primitives::ShortHash;
     use sqd_storage::db::{Database, DatasetId, DatasetKind, NewChunk};
     use std::fs::File;
     use std::path::Path;
 
+    fn get_columns_with_stats(d: &DatasetDescription, name: &str, schema: &Schema) -> Vec<usize> {
+        if let Some(table_desc) = d.tables.get(name) {
+            table_desc.options.column_options.iter()
+                .filter_map(|(&name, opts)| {
+                    opts.stats_enable.then(|| {
+                        schema.index_of(name).unwrap()
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
 
     pub fn setup(c: &mut Criterion) {
         let db_dir = tempfile::tempdir().unwrap();
@@ -126,7 +141,7 @@ mod storage {
 
         db.create_dataset(dataset_id, dataset_kind)?;
 
-        let chunk_builder = db.new_chunk_builder(SolanaChunkBuilder::dataset_description());
+        let chunk_builder = db.new_chunk_builder();
 
         let parquet_chunk_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("fixtures/solana/chunk");
@@ -142,7 +157,15 @@ mod storage {
                     .with_batch_size(500)
                     .build()?;
 
-                let mut writer = chunk_builder.add_table(table, parquet_reader.schema());
+                let mut writer = chunk_builder.add_table(
+                    table,
+                    parquet_reader.schema(),
+                    get_columns_with_stats(
+                        &SolanaChunkBuilder::dataset_description(),
+                        table,
+                        &parquet_reader.schema()
+                    )
+                );
 
                 while let Some(record_batch) = parquet_reader.next().transpose()? {
                     writer.write_record_batch(&record_batch)?;

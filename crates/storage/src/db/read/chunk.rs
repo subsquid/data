@@ -12,7 +12,6 @@ pub fn list_chunks<C: KvReadCursor>(
 ) -> impl Iterator<Item=anyhow::Result<Chunk>>
 {
     let first_chunk_id = ChunkId::new(dataset_id, from_block);
-
     let mut first_seek = true;
 
     let mut next = move || -> anyhow::Result<Option<Chunk>> {
@@ -41,6 +40,28 @@ pub fn list_chunks<C: KvReadCursor>(
 }
 
 
+pub fn list_chunks_in_reversed_order<C: KvReadCursor>(
+    mut cursor: C, 
+    dataset_id: DatasetId
+) -> impl Iterator<Item=anyhow::Result<Chunk>>
+{
+    let max_chunk_id = ChunkId::new(dataset_id, BlockNumber::MAX);
+    let mut first_seek = true;
+    
+    let mut next = move || -> anyhow::Result<Option<Chunk>> {
+        if first_seek {
+            cursor.seek_prev(max_chunk_id.as_ref())?;
+            first_seek = false;
+        } else {
+            cursor.prev()?;
+        }
+        read_current_chunk(&cursor, dataset_id)
+    };
+
+    std::iter::from_fn(move || next().transpose())
+}
+
+
 pub fn read_current_chunk(
     cursor: &impl KvReadCursor,
     dataset_id: DatasetId
@@ -57,7 +78,7 @@ pub fn read_current_chunk(
 
     let chunk: Chunk = borsh::from_slice(cursor.value())
         .with_context(|| {
-            format!("failed to deserialize a chunk {}", current_id)
+            format!("failed to deserialize chunk {}", current_id)
         })?;
 
     validate_chunk(&current_id, &chunk)?;
