@@ -78,7 +78,8 @@ mod storage {
     use sqd_primitives::ShortHash;
     use sqd_storage::db::{Database, DatasetId, DatasetKind, NewChunk};
     use std::fs::File;
-    
+
+
     fn get_columns_with_stats(d: &DatasetDescription, name: &str, schema: &Schema) -> Vec<usize> {
         if let Some(table_desc) = d.tables.get(name) {
             table_desc.options.column_options.iter()
@@ -119,13 +120,16 @@ mod storage {
 
                 let mut writer = chunk_builder.add_table(
                     table, 
-                    reader.schema(),
+                    reader.schema()
+                );
+                
+                writer.set_stats(
                     get_columns_with_stats(
                         desc,
                         table,
                         &reader.schema()
                     )
-                );
+                )?;
 
                 while let Some(record_batch) = reader.next().transpose()? {
                     writer.write_record_batch(&record_batch)?;

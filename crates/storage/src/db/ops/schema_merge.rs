@@ -1,45 +1,76 @@
 use arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use sqd_array::item_index_cast::common_item_index_type;
-use sqd_array::util::SchemaPatch;
+use sqd_array::schema_metadata::get_sort_key;
+use sqd_array::schema_patch::SchemaPatch;
 use std::sync::Arc;
+use anyhow::anyhow;
 
 
-pub fn can_merge_schema(base: &[FieldRef], schema: &Schema) -> bool {
-    if base.len() != schema.fields().len() {
-        return false
-    }
-    if base == schema.fields().as_ref() {
+pub fn can_merge_schemas(a: &Schema, b: &Schema) -> bool {
+    if a == b {
         return true
     }
-    schema.fields().iter().all(|new_field| {
-        base.iter()
-            .find(|f| f.name() == new_field.name())
-            .map(|f| {
-                if f == new_field || f.data_type() == new_field.data_type() {
-                    true
-                } else {
-                    common_item_index_type(f.data_type(), new_field.data_type()).is_some()
-                }
+
+    if a.fields().len() != b.fields().len() {
+        return false
+    }
+
+    let (a_sort_key, b_sort_key) = match (get_sort_key(a), get_sort_key(b)) {
+        (Ok(a), Ok(b)) => (a, b),
+        _ => return false
+    };
+
+    if a_sort_key.len() != b_sort_key.len() {
+        return false
+    }
+
+    for (ai, bi) in a_sort_key.iter().zip(b_sort_key.iter()) {
+        if a.field(*ai).name() != b.field(*bi).name() {
+            return false
+        }    
+    }
+    
+    b.fields().iter().all(|bf| {
+        a.fields().iter()
+            .find(|f| f.name() == bf.name())
+            .map(|af| if af.data_type() == bf.data_type() {
+                true
+            } else {
+                common_item_index_type(af.data_type(), bf.data_type()).is_some()
             })
             .unwrap_or(false)
     })
 }
 
 
-pub fn merge_schema(base: &mut SchemaPatch, schema: &Schema) {
+pub fn merge_schema(base: &mut SchemaPatch, schema: &Schema) -> anyhow::Result<()> {
     if base.fields() == schema.fields().as_ref() {
-        return
+        return Ok(())
     }
     for new_field in schema.fields().iter() {
-        let (bi, bf) = base.find_by_name(new_field.name())
-            .expect("schemas to merge are not compatible");
-
+        let (bi, bf) = base
+            .find_by_name(new_field.name())
+            .ok_or_else(|| {
+                anyhow!("field `{}` does not exist in the base schema", new_field.name())
+            })?;
+        
         if &bf == new_field {
             continue
         }
-        let new_field = merge_fields(&bf, new_field).expect("schemas to merge are not compatible");
+        
+        let new_field = merge_fields(&bf, new_field)
+            .ok_or_else(|| {
+                anyhow!(
+                    "failed to merge field `{}`: data types {} and {} are not compatible", 
+                    new_field.name(),
+                    bf.data_type(),
+                    new_field.data_type()
+                )
+            })?;
+        
         base.set_field(bi, new_field)
     }
+    Ok(())
 }
 
 

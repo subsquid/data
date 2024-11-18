@@ -1,15 +1,16 @@
 use super::cast::{IndexCastReader, MaybeCastedReader};
 use super::schema_merge::{data_types_equal, merge_schema};
-use crate::db::schema_ext::{get_sort_key, strip_unknown_metadata};
 use crate::db::SnapshotTableReader;
 use anyhow::ensure;
 use arrow::datatypes::{DataType, SchemaRef};
 use sqd_array::builder::AnyTableBuilder;
 use sqd_array::chunking::ChunkRange;
 use sqd_array::reader::ArrayReader;
+use sqd_array::schema_metadata::{get_sort_key, SQD_SORT_KEY};
+use sqd_array::schema_patch::SchemaPatch;
 use sqd_array::slice::{AsSlice, Slice};
 use sqd_array::sort::sort_table_to_indexes;
-use sqd_array::util::{build_field_offsets, build_offsets, SchemaPatch};
+use sqd_array::util::{build_field_offsets, build_offsets};
 use sqd_array::writer::ArrayWriter;
 use std::sync::Arc;
 
@@ -33,7 +34,7 @@ impl<'a> TableMerge<'a> {
         );
 
         for t in chunks.iter().rev().skip(1) {
-            merge_schema(&mut schema, &t.schema())
+            merge_schema(&mut schema, &t.schema())?;
         }
 
         let schema = schema.finish();
@@ -240,4 +241,13 @@ fn create_maybe_casted_reader<'a>(
             IndexCastReader::new(reader, field.data_type(), target_type.clone())
         )
     })
+}
+
+
+fn strip_unknown_metadata(schema: SchemaRef) -> SchemaRef {
+    let mut patch = SchemaPatch::new(schema);
+    if patch.metadata().keys().any(|key| key != SQD_SORT_KEY) {
+        patch.metadata_mut().retain(|k, _| k == SQD_SORT_KEY)
+    }
+    patch.finish()
 }

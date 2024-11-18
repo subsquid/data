@@ -1,7 +1,6 @@
-use arrow::datatypes::{DataType, Field, FieldRef, Fields, Schema, SchemaRef};
+use arrow::datatypes::{DataType, Fields};
 use std::cmp::Ordering;
 use std::ops::AddAssign;
-use std::sync::Arc;
 
 
 #[inline]
@@ -166,87 +165,5 @@ pub fn get_num_buffers(data_type: &DataType) -> usize {
             1 + fields.iter().map(|f| get_num_buffers(f.data_type())).sum::<usize>()
         }
         ty => panic!("unsupported arrow data type - {}", ty)
-    }
-}
-
-
-pub struct SchemaPatch {
-    original: SchemaRef,
-    fields: Option<Vec<FieldRef>>
-}
-
-
-impl SchemaPatch {
-    pub fn new(schema: SchemaRef) -> Self {
-        Self {
-            original: schema,
-            fields: None
-        }
-    }
-    
-    pub fn fields(&self) -> &[FieldRef] {
-        match self.fields.as_ref() {
-            None => self.original.fields(),
-            Some(fields) => fields
-        }
-    }
-    
-    pub fn find_by_name(&self, name: &str) -> Option<(usize, FieldRef)> {
-        self.fields().iter()
-            .enumerate()
-            .find_map(|(i, f)| {
-                (f.name() == name).then_some((i, f.clone()))
-            })
-    }
-    
-    pub fn set_field_type(&mut self, index: usize, ty: DataType) {
-        let field = self.original.field(index);
-        if field.data_type() == &ty {
-            return;
-        }
-        let new_field = Field::new(
-            field.name(),
-            ty,
-            field.is_nullable()
-        );
-        self.set_field(index, Arc::new(new_field))
-    }
-
-    pub fn set_field(&mut self, index: usize, field: FieldRef) {
-        self.with_mut_fields(|fields| {
-            fields[index] = field
-        })
-    }
-    
-    pub fn add_field(&mut self, field: FieldRef) {
-        self.with_mut_fields(|fields| {
-            assert!(
-                fields.iter().all(|f| f.name() != field.name()),
-                "field '{}' is already present in the schema",
-                field.name()
-            );
-            fields.push(field)
-        })
-    }
-    
-    fn with_mut_fields<F: FnOnce(&mut Vec<FieldRef>)>(&mut self, cb: F) {
-        match self.fields.as_mut() {
-            Some(fields) => cb(fields),
-            None => {
-                let mut fields = self.original.fields().to_vec();
-                cb(&mut fields);
-                self.fields = Some(fields)
-            }
-        };
-    }
-    
-    pub fn finish(self) -> SchemaRef {
-        self.fields.map(|fields| {
-            let schema = Schema::new_with_metadata(
-                fields,
-                self.original.metadata().clone()
-            );
-            Arc::new(schema)
-        }).unwrap_or(self.original)
     }
 }

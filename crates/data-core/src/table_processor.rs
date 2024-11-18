@@ -6,11 +6,12 @@ use arrow::datatypes::{DataType, Field, SchemaRef};
 use sqd_array::builder::{AnyBuilder, AnyTableBuilder, ArrayBuilder};
 use sqd_array::item_index_cast::cast_item_index;
 use sqd_array::slice::{AnyTableSlice, AsSlice, Slice};
-use sqd_array::util::{build_field_offsets, SchemaPatch};
+use sqd_array::util::build_field_offsets;
 use sqd_array::writer::ArrayWriter;
 use sqd_dataset::TableDescription;
 use std::collections::HashMap;
 use std::sync::Arc;
+use sqd_array::schema_patch::SchemaPatch;
 
 
 enum TableWriter {

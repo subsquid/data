@@ -96,6 +96,7 @@ mod storage {
     use std::fs::File;
     use std::path::Path;
 
+
     fn get_columns_with_stats(d: &DatasetDescription, name: &str, schema: &Schema) -> Vec<usize> {
         if let Some(table_desc) = d.tables.get(name) {
             table_desc.options.column_options.iter()
@@ -159,13 +160,16 @@ mod storage {
 
                 let mut writer = chunk_builder.add_table(
                     table,
-                    parquet_reader.schema(),
+                    parquet_reader.schema()
+                );
+                
+                writer.set_stats(
                     get_columns_with_stats(
                         &SolanaChunkBuilder::dataset_description(),
                         table,
                         &parquet_reader.schema()
-                    )
-                );
+                    ) 
+                )?;
 
                 while let Some(record_batch) = parquet_reader.next().transpose()? {
                     writer.write_record_batch(&record_batch)?;

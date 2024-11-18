@@ -6,6 +6,8 @@ pub mod io;
 pub mod item_index_cast;
 pub mod offsets;
 pub mod reader;
+pub mod schema_metadata;
+pub mod schema_patch;
 pub mod slice;
 pub mod sort;
 pub mod util;
