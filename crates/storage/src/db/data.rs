@@ -21,6 +21,14 @@ pub struct DatasetLabel {
 }
 
 
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct Dataset {
+    pub id: DatasetId,
+    pub kind: DatasetKind,
+    pub version: DatasetVersion
+}
+
+
 #[derive(Copy, Clone, Hash, Ord, PartialOrd, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkId {
     bytes: [u8; 56]
@@ -72,7 +80,7 @@ impl Debug for ChunkId {
 }
 
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct Chunk {
     pub first_block: BlockNumber,
     pub last_block: BlockNumber,

@@ -137,6 +137,10 @@ impl <'a> ChunkReader<'a> {
         self.chunk.tables.contains_key(name)
     }
     
+    pub fn chunk(&self) -> &Chunk {
+        &self.chunk
+    }
+    
     pub fn tables(&self) -> &BTreeMap<String, TableId> {
         &self.chunk.tables
     }

@@ -92,7 +92,7 @@ mod storage {
     use sqd_data::solana::tables::SolanaChunkBuilder;
     use sqd_dataset::DatasetDescription;
     use sqd_primitives::ShortHash;
-    use sqd_storage::db::{Database, DatasetId, DatasetKind, NewChunk};
+    use sqd_storage::db::{Chunk, Database, DatasetId, DatasetKind};
     use std::fs::File;
     use std::path::Path;
 
@@ -119,7 +119,7 @@ mod storage {
         drop(db);
 
         let db = Database::open(db_dir.path().to_str().unwrap()).unwrap();
-        let snapshot = db.get_snapshot();
+        let snapshot = db.snapshot();
         let chunk = snapshot.get_first_chunk(dataset_id).unwrap().unwrap();
         let chunk_reader = snapshot.create_chunk_reader(chunk);
         
@@ -179,13 +179,12 @@ mod storage {
             }
         }
 
-        db.insert_chunk(dataset_id, NewChunk {
-            prev_block_hash: None,
+        db.insert_chunk(dataset_id, &Chunk {
             first_block: 200000000,
             last_block: 200000899,
             last_block_hash: ShortHash::try_from("hello").unwrap(),
             tables: chunk_builder.finish()
-        })?;
+        }, None)?;
 
         Ok(dataset_id)
     }

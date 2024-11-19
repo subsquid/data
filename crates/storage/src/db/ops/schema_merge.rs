@@ -1,9 +1,9 @@
+use anyhow::anyhow;
 use arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use sqd_array::item_index_cast::common_item_index_type;
 use sqd_array::schema_metadata::get_sort_key;
 use sqd_array::schema_patch::SchemaPatch;
 use std::sync::Arc;
-use anyhow::anyhow;
 
 
 pub fn can_merge_schemas(a: &Schema, b: &Schema) -> bool {

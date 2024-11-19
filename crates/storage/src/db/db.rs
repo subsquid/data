@@ -1,9 +1,12 @@
-use super::data::{DatasetId, DatasetKind, DatasetLabel};
+use super::data::{Dataset, DatasetId, DatasetKind, DatasetLabel};
 use super::read::snapshot::ReadSnapshot;
-use super::write::{ChunkBuilder, NewChunk, Tx};
+use super::write::{ChunkBuilder, Tx};
+use crate::db::ops::{perform_dataset_compaction, CompactionStatus};
+use crate::db::Chunk;
 use anyhow::ensure;
 use rocksdb::{ColumnFamilyDescriptor, Options as RocksOptions};
-use sqd_primitives::Name;
+use sqd_primitives::{Name, ShortHash};
+use crate::db::read::datasets::list_all_datasets;
 
 
 pub(super) const CF_DATASETS: Name = "DATASETS";
@@ -62,52 +65,69 @@ impl Database {
     }
 
     pub fn create_dataset(&self, id: DatasetId, kind: DatasetKind) -> anyhow::Result<()> {
-        let tx = Tx::new(&self.db);
-        let label = tx.find_label_for_update(id)?;
-        ensure!(label.is_none(), "dataset {} already exists", id);
-        tx.write_label(id, &DatasetLabel {
-            kind,
-            version: 0
-        })?;
-        tx.commit()
-    }
-
-    pub fn create_dataset_if_not_exists(&self, id: DatasetId, kind: DatasetKind) -> anyhow::Result<()> {
-        let tx = Tx::new(&self.db);
-        if let Some(label) = tx.find_label_for_update(id)? {
-            ensure!(
-                label.kind == kind, 
-                "wanted to create dataset {} of kind {}, but it already exists with kind {}",
-                id,
-                label.kind,
-                kind
-            );
-            Ok(())
-        } else {
+        Tx::new(&self.db).run(|tx| {
+            let label = tx.find_label_for_update(id)?;
+            ensure!(label.is_none(), "dataset {} already exists", id);
             tx.write_label(id, &DatasetLabel {
                 kind,
                 version: 0
-            })?;
-            tx.commit()
-        }
+            })
+        })
+    }
+
+    pub fn create_dataset_if_not_exists(&self, id: DatasetId, kind: DatasetKind) -> anyhow::Result<()> {
+        Tx::new(&self.db).run(|tx| {
+            if let Some(label) = tx.find_label_for_update(id)? {
+                ensure!(
+                    label.kind == kind, 
+                    "wanted to create dataset {} of kind {}, but it already exists with kind {}",
+                    id,
+                    label.kind,
+                    kind
+                );
+                Ok(())
+            } else {
+                tx.write_label(id, &DatasetLabel {
+                    kind,
+                    version: 0
+                })
+            }           
+        })
     }
 
     pub fn new_chunk_builder(&self) -> ChunkBuilder<'_> {
         ChunkBuilder::new(&self.db)
     }
 
-    pub fn insert_chunk(&self, dataset_id: DatasetId, new_chunk: NewChunk) -> anyhow::Result<()> {
-        let tx = Tx::new_with_snapshot(&self.db);
-        let mut label = tx.get_label_for_update(dataset_id)?;
-        label.version += 1;
-        tx.write_label(dataset_id, &label)?;
-        tx.validate_new_chunk_insertion(dataset_id, &new_chunk)?;
-        tx.write_new_chunk(dataset_id, new_chunk)?;
-        tx.commit()
+    pub fn insert_chunk(
+        &self,
+        dataset_id: DatasetId,
+        chunk: &Chunk,
+        prev_block_hash: Option<ShortHash>
+    ) -> anyhow::Result<()> 
+    {
+        Tx::new_with_snapshot(&self.db).run(|tx| {
+            let mut label = tx.get_label_for_update(dataset_id)?;
+            label.version += 1;
+            tx.write_label(dataset_id, &label)?;
+            tx.validate_chunk_insertion(dataset_id, chunk, prev_block_hash)?;
+            tx.write_chunk(dataset_id, &chunk)
+        })
     }
 
-    pub fn get_snapshot(&self) -> ReadSnapshot<'_> {
+    pub fn snapshot(&self) -> ReadSnapshot<'_> {
         ReadSnapshot::new(&self.db)
+    }
+    
+    pub fn perform_dataset_compaction(&self, dataset_id: DatasetId) -> anyhow::Result<CompactionStatus> {
+        perform_dataset_compaction(&self.db, dataset_id)
+    }
+    
+    pub fn get_all_datasets(&self) -> anyhow::Result<Vec<Dataset>> {
+        let cursor = self.db.raw_iterator_cf(
+            self.db.cf_handle(CF_DATASETS).unwrap()
+        );
+        list_all_datasets(cursor).collect()
     }
 
     pub fn get_statistics(&self) -> Option<String> {

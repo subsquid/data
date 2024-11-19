@@ -1,7 +1,6 @@
+use sqd_query::{Chunk, JsonArrayWriter, Query};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-
-use sqd_query::{Chunk, JsonArrayWriter, Query};
 
 
 fn execute_query(chunk: &dyn Chunk, query_file: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
@@ -76,7 +75,7 @@ mod storage {
     use sqd_data::solana::tables::SolanaChunkBuilder;
     use sqd_dataset::DatasetDescription;
     use sqd_primitives::ShortHash;
-    use sqd_storage::db::{Database, DatasetId, DatasetKind, NewChunk};
+    use sqd_storage::db::{Chunk, Database, DatasetId, DatasetKind};
     use std::fs::File;
 
 
@@ -139,13 +138,12 @@ mod storage {
             }
         }
 
-        db.insert_chunk(dataset_id, NewChunk {
-            prev_block_hash: None,
+        db.insert_chunk(dataset_id, &Chunk {
             first_block: 0,
             last_block: 0,
             last_block_hash: ShortHash::try_from("hello").unwrap(),
             tables: chunk_builder.finish()
-        })?;
+        }, None)?;
 
         Ok(())
     }
@@ -163,7 +161,7 @@ mod storage {
             "fixtures/solana/chunk"
         )?;
 
-        let snapshot = db.get_snapshot();
+        let snapshot = db.snapshot();
 
         let chunk = snapshot
             .list_chunks(DatasetId::try_from("solana").unwrap(), 0, None)

@@ -12,18 +12,10 @@ use sqd_primitives::{BlockNumber, ShortHash};
 use std::cmp::{max, min};
 
 
-pub struct NewChunk {
-    pub prev_block_hash: Option<ShortHash>,
-    pub first_block: BlockNumber,
-    pub last_block: BlockNumber,
-    pub last_block_hash: ShortHash,
-    pub tables: ChunkTables
-}
-
-
 pub(super) struct Tx<'a> {
     db: &'a RocksDB,
-    transaction: RocksTransaction<'a>
+    transaction: RocksTransaction<'a>,
+    with_snapshot: bool
 }
 
 
@@ -31,7 +23,8 @@ impl <'a> Tx<'a> {
     pub fn new(db: &'a RocksDB) -> Self {
         Self {
             db,
-            transaction: db.transaction()
+            transaction: db.transaction(),
+            with_snapshot: false
         }
     }
 
@@ -46,13 +39,36 @@ impl <'a> Tx<'a> {
 
         Self {
             db,
-            transaction
+            transaction,
+            with_snapshot: true
         }
     }
 
-    pub fn commit(self) -> anyhow::Result<()> {
-        self.transaction.commit()?;
-        Ok(())
+    pub fn run<R, F>(self, mut cb: F) -> anyhow::Result<R>
+    where
+        F: FnMut(&Self) -> anyhow::Result<R>
+    {
+        let db = self.db;
+        let with_snapshot = self.with_snapshot;
+        let mut tx = self;
+        loop {
+            let result = cb(&tx)?;
+            match tx.commit() {
+                Ok(_) => return Ok(result),
+                Err(err) if err.kind() == rocksdb::ErrorKind::TryAgain => {
+                    tx = if with_snapshot {
+                        Self::new_with_snapshot(db)
+                    } else {
+                        Self::new(db)
+                    }
+                },
+                Err(err) => return Err(err.into())
+            }
+        }
+    }
+
+    pub fn commit(self) -> Result<(), rocksdb::Error> {
+        self.transaction.commit()
     }
 
     pub fn find_label_for_update(&self, dataset_id: DatasetId) -> anyhow::Result<Option<DatasetLabel>> {
@@ -84,59 +100,85 @@ impl <'a> Tx<'a> {
         Ok(())
     }
 
-    pub fn write_new_chunk(&self, dataset_id: DatasetId, new_chunk: NewChunk) -> anyhow::Result<()> {
-        let chunk = Chunk {
-            first_block: new_chunk.first_block,
-            last_block: new_chunk.last_block,
-            last_block_hash: new_chunk.last_block_hash,
-            tables: new_chunk.tables
-        };
-
+    pub fn write_chunk(&self, dataset_id: DatasetId, chunk: &Chunk) -> anyhow::Result<()> {
         self.transaction.put_cf(
             self.cf_handle(CF_CHUNKS),
-            ChunkId::new_for_chunk(dataset_id, &chunk),
-            &borsh::to_vec(&chunk).unwrap()
+            ChunkId::new_for_chunk(dataset_id, chunk),
+            &borsh::to_vec(chunk).unwrap()
         )?;
-
         for table in chunk.tables.values() {
             self.transaction.delete_cf(self.cf_handle(CF_DIRTY_TABLES), table)?;
         }
-
         Ok(())
     }
 
-    pub fn validate_new_chunk_insertion(&self, dataset_id: DatasetId, new_chunk: &NewChunk) -> anyhow::Result<()> {
-        ensure!(new_chunk.first_block <= new_chunk.last_block);
+    pub fn delete_chunk(&self, dataset_id: DatasetId, chunk: &Chunk) -> anyhow::Result<()> {
+        for table_id in chunk.tables.values() {
+            self.transaction.put_cf(
+                self.cf_handle(CF_DIRTY_TABLES),
+                table_id,
+                []
+            )?
+        }
+        self.transaction.delete_cf(
+            self.cf_handle(CF_CHUNKS),
+            ChunkId::new_for_chunk(dataset_id, chunk)
+        )?;
+        Ok(())
+    }
 
-        let existing = list_chunks(
-            self.transaction.raw_iterator_cf(self.cf_handle(CF_CHUNKS)),
+    pub fn validate_chunk_insertion(
+        &self,
+        dataset_id: DatasetId,
+        chunk: &Chunk,
+        prev_block_hash: Option<ShortHash>
+    ) -> anyhow::Result<()>
+    {
+        ensure!(chunk.first_block <= chunk.last_block);
+
+        let existing = self.list_chunks(
             dataset_id,
-            new_chunk.first_block.saturating_sub(1),
+            chunk.first_block.saturating_sub(1),
             None
         ).take(2).collect::<anyhow::Result<Vec<_>>>()?;
 
-        if let Some(prev_block_hash) = new_chunk.prev_block_hash {
+        if let Some(prev_block_hash) = prev_block_hash {
             let ok = existing.first().map(|prev| {
-                prev.last_block + 1 == new_chunk.first_block && prev.last_block_hash == prev_block_hash
+                prev.last_block + 1 == chunk.first_block && prev.last_block_hash == prev_block_hash
             }).unwrap_or(true);
             ensure!(ok, "chain continuity violated");
         }
 
         let first_is_disjoint = existing.first().map(|c| {
-            let beg = max(c.first_block, new_chunk.first_block);
-            let end = min(c.last_block, new_chunk.last_block);
+            let beg = max(c.first_block, chunk.first_block);
+            let end = min(c.last_block, chunk.last_block);
             end < beg
         }).unwrap_or(true);
 
         let last_is_disjoint = existing.last().map(|c| {
-            let beg = max(c.first_block, new_chunk.first_block);
-            let end = min(c.last_block, new_chunk.last_block);
+            let beg = max(c.first_block, chunk.first_block);
+            let end = min(c.last_block, chunk.last_block);
             end < beg
         }).unwrap_or(true);
 
         ensure!(first_is_disjoint && last_is_disjoint, "found overlapping chunks");
 
         Ok(())
+    }
+
+    pub fn list_chunks(
+        &self, 
+        dataset_id: DatasetId,
+        first_block: BlockNumber, 
+        last_block: Option<BlockNumber>
+    ) -> impl Iterator<Item=anyhow::Result<Chunk>> + '_
+    {
+        list_chunks(
+            self.transaction.raw_iterator_cf(self.cf_handle(CF_CHUNKS)),
+            dataset_id,
+            first_block,
+            last_block
+        )
     }
 
     fn cf_handle(&self, name: &str) -> &ColumnFamily {
