@@ -92,7 +92,7 @@ mod storage {
     use sqd_data::solana::tables::SolanaChunkBuilder;
     use sqd_dataset::DatasetDescription;
     use sqd_primitives::ShortHash;
-    use sqd_storage::db::{Chunk, Database, DatasetId, DatasetKind};
+    use sqd_storage::db::{Chunk, Database, DatabaseSettings, DatasetId, DatasetKind};
     use std::fs::File;
     use std::path::Path;
 
@@ -113,12 +113,16 @@ mod storage {
 
     pub fn setup(c: &mut Criterion) {
         let db_dir = tempfile::tempdir().unwrap();
-        let db = Database::open(db_dir.path().to_str().unwrap()).unwrap();
+        let db = DatabaseSettings::default().open(db_dir.path()).unwrap();
         let dataset_id = prepare_solana_chunk(&db).unwrap();
 
         drop(db);
 
-        let db = Database::open(db_dir.path().to_str().unwrap()).unwrap();
+        let db = DatabaseSettings::default()
+            .set_data_cache_size(1024)
+            .open(db_dir.path())
+            .unwrap();
+        
         let snapshot = db.snapshot();
         let chunk = snapshot.get_first_chunk(dataset_id).unwrap().unwrap();
         let chunk_reader = snapshot.create_chunk_reader(chunk);

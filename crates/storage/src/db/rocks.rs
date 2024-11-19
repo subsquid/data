@@ -5,6 +5,12 @@ use crate::kv::KvReadCursor;
 macro_rules! impl_read_cursor {
     ($t:ident) => {
         impl<'a> KvReadCursor for $t<'a> {
+            fn seek_first(&mut self) -> anyhow::Result<()> {
+                self.seek_to_first();
+                self.status()?;
+                Ok(())
+            }
+            
             fn seek(&mut self, key: &[u8]) -> anyhow::Result<()> {
                 self.seek(key);
                 self.status()?;

@@ -8,8 +8,16 @@ pub fn list_all_datasets<C: KvReadCursor>(
     mut cursor: C
 ) -> impl Iterator<Item=anyhow::Result<Dataset>>
 {
+    let mut first_seek = true;
+    
     let mut next = move || -> anyhow::Result<Option<Dataset>> {
-        cursor.next()?;
+        if first_seek {
+            cursor.seek_first()?;
+            first_seek = false;
+        } else {
+            cursor.next()?;
+        }
+     
         if !cursor.is_valid() {
             return Ok(None)
         }

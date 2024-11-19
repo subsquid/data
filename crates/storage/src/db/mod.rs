@@ -7,13 +7,14 @@ mod table_id;
 mod write;
 
 
-pub use db::*;
-pub use read::snapshot::*;
-pub use write::*;
 pub use data::{
+    Chunk,
+    Dataset,
     DatasetId,
     DatasetKind,
     DatasetLabel,
-    DatasetVersion,
-    Chunk
+    DatasetVersion
 };
+pub use db::*;
+pub use read::snapshot::*;
+pub use write::chunk::*;

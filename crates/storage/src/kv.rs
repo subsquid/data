@@ -16,6 +16,8 @@ pub trait KvRead {
 
 
 pub trait KvReadCursor {
+    fn seek_first(&mut self) -> anyhow::Result<()>;
+    
     fn seek(&mut self, key: &[u8]) -> anyhow::Result<()>;
     
     fn seek_prev(&mut self, key: &[u8]) -> anyhow::Result<()>;

@@ -1,12 +1,11 @@
-use rocksdb::{ColumnFamily, WriteBatchWithTransaction};
-
-use crate::db::db::{RocksDB, CF_DIRTY_TABLES, CF_TABLES};
+use crate::db::db::{RocksDB, RocksWriteBatch, CF_DIRTY_TABLES, CF_TABLES};
 use crate::db::table_id::TableId;
 use crate::kv::KvWrite;
+use rocksdb::ColumnFamily;
 
 
 pub struct TableStorage<'a> {
-    write_batch: WriteBatchWithTransaction<true>,
+    write_batch: RocksWriteBatch,
     db: &'a RocksDB,
     cf: &'a ColumnFamily,
 }
@@ -15,7 +14,7 @@ pub struct TableStorage<'a> {
 impl <'a> TableStorage<'a> {
     pub fn new(db: &'a RocksDB) -> Self {
         Self {
-            write_batch: WriteBatchWithTransaction::default(),
+            write_batch: RocksWriteBatch::default(),
             db,
             cf: db.cf_handle(CF_TABLES).unwrap()
         }

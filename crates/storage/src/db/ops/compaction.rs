@@ -1,6 +1,7 @@
 use crate::db::db::RocksDB;
 use crate::db::ops::table_merge::TableMerge;
-use crate::db::write::Tx;
+use crate::db::write::ops::delete_table;
+use crate::db::write::tx::Tx;
 use crate::db::{Chunk, ChunkBuilder, ChunkReader, DatasetId, ReadSnapshot};
 
 
@@ -31,39 +32,42 @@ struct DatasetCompaction<'a> {
 impl<'a> DatasetCompaction<'a> {
     fn execute(mut self) -> anyhow::Result<CompactionStatus> {
         self.prepare_merge_plan()?;
-        
+
         let new_chunk = {
             let mut chunk_builder = ChunkBuilder::new(self.db);
             self.merge_all_tables(&mut chunk_builder)?;
             self.make_chunk(chunk_builder)
         };
 
-        Tx::new_with_snapshot(self.db).run(|tx| {
+        let status = Tx::new_with_snapshot(self.db).run(|tx| {
             let mut label = match tx.find_label_for_update(self.dataset_id)? {
                 Some(label) => label,
                 None => return Ok(CompactionStatus::Canceled)
             };
-            
+
             if self.data_was_changed(tx)? {
                 return Ok(CompactionStatus::Canceled)
             }
-            
+
             self.delete_merged_chunks(tx)?;
             tx.write_chunk(self.dataset_id, &new_chunk)?;
-            
+
             label.version += 1;
             tx.write_label(self.dataset_id, &label)?;
             Ok(CompactionStatus::Ok)
-        })
+        })?;
+        
+        self.delete_merged_tables()?;
+        Ok(status)
     }
-    
+
     fn data_was_changed(&self, tx: &Tx) -> anyhow::Result<bool> {
         let current_chunks = tx.list_chunks(
             self.dataset_id,
             self.merge[0].first_block(),
             Some(self.merge.last().unwrap().last_block())
         );
-        
+
         let mut compared = 0;
         for (current, merged) in current_chunks.zip(self.merge.iter()) {
             let current = current?;
@@ -72,13 +76,22 @@ impl<'a> DatasetCompaction<'a> {
             }
             compared += 1;
         }
-        
+
         Ok(compared != self.merge.len())
     }
-    
+
     fn delete_merged_chunks(&self, tx: &Tx) -> anyhow::Result<()> {
         for c in self.merge.iter() {
             tx.delete_chunk(self.dataset_id, c.chunk())?;
+        }
+        Ok(())
+    }
+
+    fn delete_merged_tables(&self) -> anyhow::Result<()> {
+        for c in self.merge.iter() {
+            for table_id in c.tables().values() {
+                delete_table(self.db, *table_id)?;
+            }
         }
         Ok(())
     }

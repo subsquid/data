@@ -75,7 +75,7 @@ mod storage {
     use sqd_data::solana::tables::SolanaChunkBuilder;
     use sqd_dataset::DatasetDescription;
     use sqd_primitives::ShortHash;
-    use sqd_storage::db::{Chunk, Database, DatasetId, DatasetKind};
+    use sqd_storage::db::{Chunk, Database, DatabaseSettings, DatasetId, DatasetKind};
     use std::fs::File;
 
 
@@ -151,7 +151,7 @@ mod storage {
     #[test]
     fn test_fixtures() -> anyhow::Result<()> {
         let db_dir = tempfile::tempdir()?;
-        let db = Database::open(db_dir.path().to_str().unwrap())?;
+        let db = DatabaseSettings::default().open(db_dir.path())?;
 
         create_dataset(
             &db,
