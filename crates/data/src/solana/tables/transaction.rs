@@ -83,6 +83,7 @@ impl TransactionBuilder {
                 item.writable_indexes.values().append(*account_index)
             }
             item.writable_indexes.append();
+            item.append(true);
         }
         self.address_table_lookups.append();
 
