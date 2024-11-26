@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::io::ErrorKind;
 
 use anyhow::Context;
 use arrow::array::RecordBatch;
@@ -151,26 +152,23 @@ impl Fs for S3Fs {
 
 
 pub struct LocalFs {
-    root: String,
+    root: PathBuf,
 }
 
 
 impl LocalFs {
-    pub fn new(root: String) -> LocalFs {
-        LocalFs { root }
+    pub fn new(root: impl Into<PathBuf>) -> LocalFs {
+        LocalFs { root: root.into() }
     }
 
-    fn rel_path(&self, segments: &[&str]) -> String {
+    fn rel_path(&self, segments: &[&str]) -> PathBuf {
         let mut path = self.root.clone();
         for segment in segments {
             if segment.starts_with('/') {
                 path.clear();
-                path.push_str(&segment[1..]);
+                path.push(&segment[1..]);
             } else {
-                if !path.is_empty() {
-                    path.push('/');
-                }
-                path.push_str(segment);
+                path.push(segment);
             }
         }
         path
@@ -201,7 +199,6 @@ impl Fs for LocalFs {
 
     fn delete(&self, loc: &str) -> anyhow::Result<()> {
         let path = self.rel_path(&[loc]);
-        let path = Path::new(&path);
         if path.is_dir() {
             fs::remove_dir_all(path)?;
         } else {
@@ -227,8 +224,17 @@ impl Fs for LocalFs {
             writer.write(&batch)?;
         }
         writer.close()?;
+
         let dest = self.rel_path(&[dest]);
-        fs::rename(file.path(), dest)?;
+        if let Err(err) = fs::rename(file.path(), &dest) {
+            if err.kind() == ErrorKind::NotFound {
+                let path = dest.parent().unwrap();
+                fs::create_dir_all(path)?;
+            } else {
+                return Err(err.into())
+            }
+        }
+
         Ok(())
     }
 }
@@ -262,7 +268,7 @@ pub fn create_fs(value: &str) -> anyhow::Result<Box<dyn Fs>> {
         },
         Err(_) => {
             if is_valid_path(value) {
-                Ok(Box::new(LocalFs::new(value.to_string())))
+                Ok(Box::new(LocalFs::new(value)))
             } else {
                 anyhow::bail!(format!("unsupported filesystem - {value}"))
             }
