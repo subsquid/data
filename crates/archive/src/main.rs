@@ -25,8 +25,8 @@ fn main() -> anyhow::Result<()> {
     let stream = ingest_from_service::<Block>("http://localhost:7373", &range)?;
     let fs = fs::create_fs("data/solana")?;
     let writer = ParquetWriter::new();
-    let chunk_writer = ChunkWriter::new(&fs, chunk_check, 250_000_000, Some(250_000_010), 4096)?;
-    let chunk_size = 1024;
+    let chunk_writer = ChunkWriter::new(&fs, chunk_check, 250_000_000, Some(250_001_000), 4096)?;
+    let chunk_size = 256;
     let mut sink = Sink::new(writer, chunk_writer, &fs, chunk_size);
     sink.write(stream)?;
 

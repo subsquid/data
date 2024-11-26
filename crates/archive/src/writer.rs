@@ -212,16 +212,12 @@ impl Writer<Block> for ParquetWriter {
             .set_write_batch_size(50)
             .set_max_row_group_size(5_000)
             .build();
-        let mut schema = self.transaction_builder.schema();
         let desc = TransactionBuilder::table_description();
-        let new_processor = TableProcessor::new(Downcast::new(), schema.clone(), desc)?;
+        let new_processor = TableProcessor::new(Downcast::new(), self.transaction_builder.schema(), desc)?;
         let processor = std::mem::replace(&mut self.transaction_processor, new_processor);
         let table = processor.finish()?;
-        let mut batches = iterator(table);
-        if let Some(batch) = batches.next() {
-            schema = batch.schema();
-            batches = Box::new(std::iter::once(batch).chain(batches));
-        }
+        let schema = table.schema();
+        let batches = iterator(table);
         fs.write_parquet("transactions.parquet", batches, schema, Some(props))?;
 
         let zstd_level = ZstdLevel::try_new(3)?;
@@ -232,16 +228,12 @@ impl Writer<Block> for ParquetWriter {
             .set_write_batch_size(50)
             .set_max_row_group_size(20_000)
             .build();
-        let mut schema = self.instruction_builder.schema();
         let desc = InstructionBuilder::table_description();
-        let new_processor = TableProcessor::new(Downcast::new(), schema.clone(), desc)?;
+        let new_processor = TableProcessor::new(Downcast::new(), self.instruction_builder.schema(), desc)?;
         let processor = std::mem::replace(&mut self.instruction_processor, new_processor);
         let table = processor.finish()?;
-        let mut batches = iterator(table);
-        if let Some(batch) = batches.next() {
-            schema = batch.schema();
-            batches = Box::new(std::iter::once(batch).chain(batches));
-        }
+        let schema = table.schema();
+        let batches = iterator(table);
         fs.write_parquet("instructions.parquet", batches, schema, Some(props))?;
 
         let zstd_level = ZstdLevel::try_new(3)?;
@@ -252,16 +244,12 @@ impl Writer<Block> for ParquetWriter {
             .set_write_batch_size(50)
             .set_max_row_group_size(5_000)
             .build();
-        let mut schema = self.log_message_builder.schema();
         let desc = LogMessageBuilder::table_description();
-        let new_processor = TableProcessor::new(Downcast::new(), schema.clone(), desc)?;
+        let new_processor = TableProcessor::new(Downcast::new(), self.log_message_builder.schema(), desc)?;
         let processor = std::mem::replace(&mut self.log_message_processor, new_processor);
         let table = processor.finish()?;
-        let mut batches = iterator(table);
-        if let Some(batch) = batches.next() {
-            schema = batch.schema();
-            batches = Box::new(std::iter::once(batch).chain(batches));
-        }
+        let schema = table.schema();
+        let batches = iterator(table);
         fs.write_parquet("logs.parquet", batches, schema, Some(props))?;
 
         let zstd_level = ZstdLevel::try_new(3)?;
@@ -272,16 +260,12 @@ impl Writer<Block> for ParquetWriter {
             .set_write_batch_size(50)
             .set_max_row_group_size(5_000)
             .build();
-        let mut schema = self.balance_builder.schema();
         let desc = BalanceBuilder::table_description();
-        let new_processor = TableProcessor::new(Downcast::new(), schema.clone(), desc)?;
+        let new_processor = TableProcessor::new(Downcast::new(), self.balance_builder.schema(), desc)?;
         let processor = std::mem::replace(&mut self.balance_processor, new_processor);
         let table = processor.finish()?;
-        let mut batches = iterator(table);
-        if let Some(batch) = batches.next() {
-            schema = batch.schema();
-            batches = Box::new(std::iter::once(batch).chain(batches));
-        }
+        let schema = table.schema();
+        let batches = iterator(table);
         fs.write_parquet("balances.parquet", batches, schema, Some(props))?;
 
         let zstd_level = ZstdLevel::try_new(3)?;
@@ -292,16 +276,12 @@ impl Writer<Block> for ParquetWriter {
             .set_write_batch_size(50)
             .set_max_row_group_size(5_000)
             .build();
-        let mut schema = self.token_balance_builder.schema();
         let desc = TokenBalanceBuilder::table_description();
-        let new_processor = TableProcessor::new(Downcast::new(), schema.clone(), desc)?;
+        let new_processor = TableProcessor::new(Downcast::new(), self.token_balance_builder.schema(), desc)?;
         let processor = std::mem::replace(&mut self.token_balance_processor, new_processor);
         let table = processor.finish()?;
-        let mut batches = iterator(table);
-        if let Some(batch) = batches.next() {
-            schema = batch.schema();
-            batches = Box::new(std::iter::once(batch).chain(batches));
-        }
+        let schema = table.schema();
+        let batches = iterator(table);
         fs.write_parquet("token_balances.parquet", batches, schema, Some(props))?;
 
         let zstd_level = ZstdLevel::try_new(3)?;
@@ -312,16 +292,12 @@ impl Writer<Block> for ParquetWriter {
             .set_write_batch_size(50)
             .set_max_row_group_size(5_000)
             .build();
-        let mut schema = self.reward_builder.schema();
         let desc = RewardBuilder::table_description();
-        let new_processor = TableProcessor::new(Downcast::new(), schema.clone(), desc)?;
+        let new_processor = TableProcessor::new(Downcast::new(), self.reward_builder.schema(), desc)?;
         let processor = std::mem::replace(&mut self.reward_processor, new_processor);
         let table = processor.finish()?;
-        let mut batches = iterator(table);
-        if let Some(batch) = batches.next() {
-            schema = batch.schema();
-            batches = Box::new(std::iter::once(batch).chain(batches));
-        }
+        let schema = table.schema();
+        let batches = iterator(table);
         fs.write_parquet("rewards.parquet", batches, schema, Some(props))?;
 
         let zstd_level = ZstdLevel::try_new(3)?;
@@ -332,16 +308,12 @@ impl Writer<Block> for ParquetWriter {
             .set_write_batch_size(50)
             .set_max_row_group_size(5_000)
             .build();
-        let mut schema = self.block_builder.schema();
         let desc = BlockBuilder::table_description();
-        let new_processor = TableProcessor::new(Downcast::new(), schema.clone(), desc)?;
+        let new_processor = TableProcessor::new(Downcast::new(), self.block_builder.schema(), desc)?;
         let processor = std::mem::replace(&mut self.block_processor, new_processor);
         let table = processor.finish()?;
-        let mut batches = iterator(table);
-        if let Some(batch) = batches.next() {
-            schema = batch.schema();
-            batches = Box::new(std::iter::once(batch).chain(batches));
-        }
+        let schema = table.schema();
+        let batches = iterator(table);
         fs.write_parquet("blocks.parquet", batches, schema, Some(props))?;
 
         Ok(())
@@ -358,7 +330,7 @@ impl Writer<Block> for ParquetWriter {
 
 
 fn iterator(mut table: PreparedTable) -> Box<dyn Iterator<Item = RecordBatch>> {
-    let step = 100;
+    let step = 50;
     let mut offset = 0;
     let num_rows = table.num_rows();
     Box::new(std::iter::from_fn(move || {
