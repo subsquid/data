@@ -18,5 +18,6 @@ sqd-primitives = { path = "../primitives" }
 sqd-data = { path = "../data" }
 sqd-data-core = { path = "../data-core" }
 sqd-array = { path = "../array" }
+sqd-dataset = { path = "../dataset" }
 ureq = { version = "2.10.1", features = ["json"] }
 regex = "1.11.1"

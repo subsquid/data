@@ -3911,6 +3911,7 @@ dependencies = [
  "sqd-array",
  "sqd-data",
  "sqd-data-core",
+ "sqd-dataset",
  "sqd-primitives",
  "tempfile",
  "ureq",
