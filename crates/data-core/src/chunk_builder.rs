@@ -30,11 +30,6 @@ macro_rules! chunk_builder {
                 0 $(+ self.$table.byte_size())*
             }
 
-            pub fn is_empty(&self) -> bool {
-                let len = 0 $(+ self.$table.len())*;
-                len == 0
-            }
-
             pub fn dataset_description() -> sqd_dataset::DatasetDescriptionRef {
                 use sqd_dataset::*;
                 use std::sync::{Arc, LazyLock};
