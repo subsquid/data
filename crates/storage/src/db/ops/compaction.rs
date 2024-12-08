@@ -103,7 +103,7 @@ impl<'a> DatasetCompaction<'a> {
         Chunk {
             first_block: first_chunk.first_block(),
             last_block: last_chunk.last_block(),
-            last_block_hash: last_chunk.last_block_hash(),
+            last_block_hash: last_chunk.last_block_hash().to_string(),
             tables
         }
     }

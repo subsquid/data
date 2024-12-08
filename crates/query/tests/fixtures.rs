@@ -74,7 +74,6 @@ mod storage {
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use sqd_data::solana::tables::SolanaChunkBuilder;
     use sqd_dataset::DatasetDescription;
-    use sqd_primitives::ShortHash;
     use sqd_storage::db::{Chunk, Database, DatabaseSettings, DatasetId, DatasetKind};
     use std::fs::File;
 
@@ -141,7 +140,7 @@ mod storage {
         db.insert_chunk(dataset_id, &Chunk {
             first_block: 0,
             last_block: 0,
-            last_block_hash: ShortHash::try_from("hello").unwrap(),
+            last_block_hash: "hello".to_string(),
             tables: chunk_builder.finish()
         }, None)?;
 

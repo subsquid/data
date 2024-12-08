@@ -1,6 +1,6 @@
 use crate::db::table_id::TableId;
 use borsh::{BorshDeserialize, BorshSerialize};
-use sqd_primitives::{BlockNumber, ShortHash, SID};
+use sqd_primitives::{BlockNumber, SID};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -84,6 +84,6 @@ impl Debug for ChunkId {
 pub struct Chunk {
     pub first_block: BlockNumber,
     pub last_block: BlockNumber,
-    pub last_block_hash: ShortHash,
+    pub last_block_hash: String,
     pub tables: BTreeMap<String, TableId>
 }

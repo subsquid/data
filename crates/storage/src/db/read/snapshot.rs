@@ -8,7 +8,7 @@ use crate::table::read::TableReader;
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use rocksdb::{ColumnFamily, ReadOptions};
-use sqd_primitives::{BlockNumber, Name, ShortHash};
+use sqd_primitives::{BlockNumber, Name};
 use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -129,8 +129,8 @@ impl <'a> ChunkReader<'a> {
         self.chunk.last_block
     }
     
-    pub fn last_block_hash(&self) -> ShortHash {
-        self.chunk.last_block_hash
+    pub fn last_block_hash(&self) -> &str {
+        &self.chunk.last_block_hash
     }
 
     pub fn has_table(&self, name: &str) -> bool {

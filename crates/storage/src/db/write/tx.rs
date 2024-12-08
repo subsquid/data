@@ -1,11 +1,11 @@
-use anyhow::{anyhow, ensure};
-use sqd_primitives::{BlockNumber, ShortHash};
-use std::cmp::{max, min};
-use rocksdb::ColumnFamily;
-use crate::db::{Chunk, DatasetId, DatasetLabel};
 use crate::db::data::ChunkId;
 use crate::db::db::{RocksDB, RocksTransaction, RocksTransactionOptions, CF_CHUNKS, CF_DATASETS, CF_DIRTY_TABLES};
 use crate::db::read::chunk::list_chunks;
+use crate::db::{Chunk, DatasetId, DatasetLabel};
+use anyhow::{anyhow, ensure};
+use rocksdb::ColumnFamily;
+use sqd_primitives::BlockNumber;
+use std::cmp::{max, min};
 
 
 pub struct Tx<'a> {
@@ -127,7 +127,7 @@ impl <'a> Tx<'a> {
         &self,
         dataset_id: DatasetId,
         chunk: &Chunk,
-        prev_block_hash: Option<ShortHash>
+        prev_block_hash: Option<&str>
     ) -> anyhow::Result<()>
     {
         ensure!(chunk.first_block <= chunk.last_block);

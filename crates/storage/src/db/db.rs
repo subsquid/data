@@ -7,7 +7,7 @@ use crate::db::write::tx::Tx;
 use crate::db::Chunk;
 use anyhow::ensure;
 use rocksdb::{ColumnFamilyDescriptor, Options as RocksOptions};
-use sqd_primitives::{Name, ShortHash};
+use sqd_primitives::Name;
 use std::path::Path;
 
 
@@ -148,7 +148,7 @@ impl Database {
         &self,
         dataset_id: DatasetId,
         chunk: &Chunk,
-        prev_block_hash: Option<ShortHash>
+        prev_block_hash: Option<&str>
     ) -> anyhow::Result<()>
     {
         Tx::new_with_snapshot(&self.db).run(|tx| {
