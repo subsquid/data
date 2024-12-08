@@ -100,8 +100,8 @@ mod storage {
         chunk_path: &str
     ) -> anyhow::Result<()>
     {
-        let dataset_id = DatasetId::try_from(name).unwrap();
-        let dataset_kind = DatasetKind::try_from(kind).unwrap();
+        let dataset_id = DatasetId::from_str(name);
+        let dataset_kind = DatasetKind::from_str(kind);
 
         db.create_dataset(dataset_id, dataset_kind)?;
 
@@ -163,7 +163,7 @@ mod storage {
         let snapshot = db.snapshot();
 
         let chunk = snapshot
-            .list_chunks(DatasetId::try_from("solana").unwrap(), 0, None)
+            .list_chunks(DatasetId::from_str("solana"), 0, None)
             .next()
             .expect("chunk must be present")?;
         
