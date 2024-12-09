@@ -2,66 +2,19 @@ use crate::fs::Fs;
 use arrow::array::RecordBatch;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
-use sqd_array::slice::AnyTableSlice;
-use sqd_data::solana;
-use sqd_data::solana::tables::SolanaChunkBuilder;
-use sqd_data_core::{ChunkProcessor, PreparedTable};
-use std::collections::BTreeMap;
-
-
-pub enum Builder {
-    Solana(SolanaChunkBuilder),
-}
-
-
-impl Builder {
-    pub fn chunk_processor(&self) -> ChunkProcessor {
-        match self {
-            Builder::Solana(builder) => builder.chunk_processor(),
-        }
-    }
-
-    pub fn byte_size(&self) -> usize {
-        match self {
-            Builder::Solana(builder) => builder.byte_size(),
-        }
-    }
-
-    pub fn as_slice(&self) -> BTreeMap<&'static str, AnyTableSlice<'_>> {
-        match self {
-            Builder::Solana(builder) => builder.as_slice(),
-        }
-    }
-
-    pub fn push(&self, line: &String) -> (u64, String, String) {
-        match self {
-            Builder::Solana(builder) => {
-                let block: solana::model::Block = serde_json::from_str(&line)?;
-                builder.push(block);
-                (block.header.height, block.header.hash, block.header.parent_hash)
-            },
-        }
-    }
-
-    fn clear(&mut self) {
-        match self {
-            Builder::Solana(builder) => builder.clear(),
-        }
-    }
-}
+use sqd_data_core::{ChunkProcessor, PreparedTable, Builder, HashAndHeight};
 
 
 pub struct ParquetWriter {
     memory_treshold: usize,
-    chunk_builder: Builder,
+    chunk_builder: Box<dyn Builder>,
     chunk_processor: ChunkProcessor,
     buffered_blocks: usize,
 }
 
 
 impl ParquetWriter {
-    pub fn new() -> ParquetWriter {
-        let chunk_builder = Builder::Solana(SolanaChunkBuilder::new());
+    pub fn new(chunk_builder: Box<dyn Builder>) -> ParquetWriter {
         ParquetWriter {
             memory_treshold: 50 * 1024 * 1024,
             chunk_processor: chunk_builder.chunk_processor(),
@@ -81,15 +34,15 @@ impl ParquetWriter {
 
 
 impl ParquetWriter {
-    pub fn push(&mut self, line: &String) -> anyhow::Result<()> {
-        self.chunk_builder.push(line);
+    pub fn push(&mut self, line: &String) -> anyhow::Result<HashAndHeight> {
+        let hash_and_height = self.chunk_builder.push(line)?;
         self.buffered_blocks += 1;
 
         if self.chunk_builder.byte_size() > self.memory_treshold {
             self.spill_on_disk()?;
         }
 
-        Ok(())
+        Ok(hash_and_height)
     }
 
     pub fn buffered_bytes(&self) -> usize {
@@ -101,7 +54,7 @@ impl ParquetWriter {
             self.spill_on_disk()?;
         }
 
-        let dataset_description = SolanaChunkBuilder::dataset_description();
+        let dataset_description = self.chunk_builder.dataset_description();
         let new_chunk_processor = self.chunk_builder.chunk_processor();
         let chunk_processor = std::mem::replace(&mut self.chunk_processor, new_chunk_processor);
         let tables = chunk_processor.finish()?;

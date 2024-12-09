@@ -1,3 +1,4 @@
+mod builder;
 mod downcast;
 pub mod serde;
 mod struct_builder;
@@ -9,6 +10,7 @@ mod chunk_builder;
 mod chunk_processor;
 
 
+pub use builder::*;
 pub use downcast::Downcast;
 pub use table_processor::*;
 pub use chunk_processor::*;
