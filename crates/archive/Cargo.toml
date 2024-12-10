@@ -10,9 +10,9 @@ aws-sdk-s3 = { version = "1.59.0", features = ["rt-tokio"] }
 aws-config = { version = "1.5.9", features = ["behavior-version-latest"] }
 clap = { version = "4.5.9", features = ["derive"] }
 tempfile = { workspace = true }
+tokio = { version = "1.38.0", features = ["full"] }
 parquet = { workspace = true }
 url = "2.5.3"
-futures = "0.3.30"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqd-primitives = { path = "../primitives" }

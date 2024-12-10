@@ -64,9 +64,5 @@ impl<'a> Sink<'a> {
 
 
 fn short_hash(value: &str) -> &str {
-    if value.starts_with("0x") {
-        &value[2..10]
-    } else {
-        &value[0..5]
-    }
+    &value[0..5]
 }

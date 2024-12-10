@@ -1,16 +1,14 @@
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::io::ErrorKind;
-
 use anyhow::Context;
 use arrow::array::RecordBatch;
 use arrow::datatypes::SchemaRef;
 use aws_sdk_s3::primitives::ByteStream;
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
+use std::env;
+use std::fs;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 use url::Url;
-use futures::executor::block_on;
 
 
 pub trait Fs {
@@ -36,15 +34,22 @@ pub struct S3Fs {
     client: aws_sdk_s3::Client,
     bucket: String,
     root: String,
+    runtime: std::rc::Rc<tokio::runtime::Runtime>,
 }
 
 
 impl S3Fs {
-    pub fn new(client: aws_sdk_s3::Client, bucket: String, root: String) -> Self {
+    pub fn new(
+        client: aws_sdk_s3::Client,
+        bucket: String,
+        root: String,
+        runtime: std::rc::Rc<tokio::runtime::Runtime>,
+    ) -> Self {
         Self {
             client,
             bucket,
             root,
+            runtime,
         }
     }
 
@@ -83,7 +88,7 @@ impl Fs for S3Fs {
             .send();
 
         let mut items = vec![];
-        while let Some(result) = block_on(stream.next()) {
+        while let Some(result) = self.runtime.block_on(stream.next()) {
             let output = result?;
 
             for common_prefix in output.common_prefixes() {
@@ -110,20 +115,21 @@ impl Fs for S3Fs {
 
     fn delete(&self, loc: &str) -> anyhow::Result<()> {
         let builder = self.client.delete_object().bucket(&self.bucket).key(loc);
-        block_on(builder.send())?;
+        self.runtime.block_on(builder.send())?;
         Ok(())
     }
 
     fn upload(&self, local_src: &str, dest: &str) -> anyhow::Result<()> {
         let future = ByteStream::from_path(local_src);
-        let byte_stream = block_on(future)?;
+        let byte_stream = self.runtime.block_on(future)?;
         let dest_path = self.rel_path(&[dest]);
-        let builder = self.client
+        let builder = self
+            .client
             .put_object()
             .bucket(&self.bucket)
             .body(byte_stream)
             .key(dest_path);
-        block_on(builder.send())?;
+        self.runtime.block_on(builder.send())?;
         Ok(())
     }
 
@@ -146,7 +152,12 @@ impl Fs for S3Fs {
 
     fn cd(&self, segments: &[&str]) -> Box<dyn Fs> {
         let root = self.rel_path(segments);
-        Box::new(S3Fs::new(self.client.clone(), self.bucket.clone(), root))
+        Box::new(S3Fs::new(
+            self.client.clone(),
+            self.bucket.clone(),
+            root,
+            self.runtime.clone()
+        ))
     }
 }
 
@@ -184,7 +195,10 @@ impl Fs for LocalFs {
                 .map(|entry| {
                     let path = entry?.path();
                     let component = path.components().last().context("invalid component")?;
-                    let name = component.as_os_str().to_str().context("invalid component name")?;
+                    let name = component
+                        .as_os_str()
+                        .to_str()
+                        .context("invalid component name")?;
                     Ok(name.to_string())
                 })
                 .collect(),
@@ -231,7 +245,7 @@ impl Fs for LocalFs {
                 let path = dest.parent().unwrap();
                 fs::create_dir_all(path)?;
             } else {
-                return Err(err.into())
+                return Err(err.into());
             }
         }
 
@@ -245,7 +259,10 @@ fn is_valid_path(path: &str) -> bool {
 }
 
 
-pub fn create_fs(value: &str) -> anyhow::Result<Box<dyn Fs>> {
+pub fn create_fs(
+    value: &str,
+    runtime: std::rc::Rc<tokio::runtime::Runtime>
+) -> anyhow::Result<Box<dyn Fs>> {
     match value.parse::<Url>() {
         Ok(url) => match url.scheme() {
             "s3" => {
@@ -257,12 +274,12 @@ pub fn create_fs(value: &str) -> anyhow::Result<Box<dyn Fs>> {
                         .map_err(|_| anyhow::anyhow!("invalid s3-endpoint"))?;
                     config_loader = config_loader.endpoint_url(endpoint);
                 }
-                let config = block_on(config_loader.load());
+                let config = runtime.block_on(config_loader.load());
 
                 let client = aws_sdk_s3::Client::new(&config);
                 let host = url.host_str().expect("invalid dataset host").to_string();
                 let bucket = host + url.path();
-                Ok(Box::new(S3Fs::new(client, bucket, "".to_string())))
+                Ok(Box::new(S3Fs::new(client, bucket, "".to_string(), runtime)))
             }
             _ => anyhow::bail!("unsupported url scheme - {}", url.scheme()),
         },
