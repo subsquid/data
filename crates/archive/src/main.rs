@@ -1,4 +1,5 @@
 use clap::Parser;
+use cli::{Cli, NetworkKind};
 use ingest::{ingest_from_service, BlockRange};
 use layout::ChunkWriter;
 use sink::Sink;
@@ -25,7 +26,7 @@ fn chunk_check(filelist: &[String]) -> bool {
 
 
 fn main() -> anyhow::Result<()> {
-    let args = cli::Cli::parse();
+    let args = Cli::parse();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -35,7 +36,9 @@ fn main() -> anyhow::Result<()> {
     let _guard = runtime.enter();
 
     let fs = fs::create_fs(&args.dest, runtime.clone())?;
-    let chunk_builder = Box::new(SolanaChunkBuilder::new());
+    let chunk_builder = match args.network_kind {
+        NetworkKind::Solana => Box::new(SolanaChunkBuilder::new()),
+    };
     let writer = ParquetWriter::new(chunk_builder);
     let chunk_writer = ChunkWriter::new(
         &fs,

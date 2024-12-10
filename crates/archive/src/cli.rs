@@ -1,4 +1,10 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+
+
+#[derive(ValueEnum, Clone, Debug)]
+pub enum NetworkKind {
+    Solana,
+}
 
 
 #[derive(Parser, Debug)]
@@ -24,7 +30,11 @@ pub struct Cli {
     #[arg(long, value_name = "N", default_value_t = 500)]
     pub top_dir_size: usize,
 
-    /// Data chunk size
+    /// Data chunk size in megabytes
     #[arg(long, value_name = "MB", default_value_t = 1024)]
     pub chunk_size: usize,
+
+    /// Network kind
+    #[arg(long, value_enum)]
+    pub network_kind: NetworkKind,
 }
