@@ -1,15 +1,12 @@
-use std::io::{BufRead, BufReader};
-
 use serde::{Deserialize, Serialize};
-use serde::de::DeserializeOwned;
-
 use sqd_primitives::BlockNumber;
+use std::io::{BufRead, BufReader};
 
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BlockRange {
     pub from: BlockNumber,
-    pub to: Option<BlockNumber>
+    pub to: Option<BlockNumber>,
 }
 
 
@@ -17,15 +14,7 @@ impl BlockRange {
     pub fn new(first_block: BlockNumber, last_block: Option<BlockNumber>) -> Self {
         Self {
             from: first_block,
-            to: last_block
-        }
-    }
-
-    pub fn is_valid(&self) -> bool {
-        if let Some(to) = self.to {
-            self.from <= to
-        } else {
-            true
+            to: last_block,
         }
     }
 }
@@ -33,9 +22,8 @@ impl BlockRange {
 
 pub fn ingest_from_service(
     url: &str,
-    block_range: &BlockRange
-) -> anyhow::Result<impl Iterator<Item = anyhow::Result<String>>>
-{
+    block_range: &BlockRange,
+) -> anyhow::Result<impl Iterator<Item = anyhow::Result<String>>> {
     // todo: handle errors
     let response = ureq::post(url).send_json(block_range)?;
     let mut reader = BufReader::new(response.into_reader());
@@ -43,7 +31,7 @@ pub fn ingest_from_service(
 
     let mut next = move || -> anyhow::Result<Option<String>> {
         if 0 == reader.read_line(&mut line)? {
-            return Ok(None)
+            return Ok(None);
         }
         let line = std::mem::take(&mut line);
         Ok(Some(line))

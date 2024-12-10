@@ -5,7 +5,7 @@ use crate::writer::ParquetWriter;
 
 pub struct Sink<'a> {
     writer: ParquetWriter,
-    chunk_writer: ChunkWriter<'a>,
+    chunk_writer: ChunkWriter,
     fs: &'a Box<dyn Fs>,
     chunk_size: usize,
 }
@@ -14,7 +14,7 @@ pub struct Sink<'a> {
 impl<'a> Sink<'a> {
     pub fn new(
         writer: ParquetWriter,
-        chunk_writer: ChunkWriter<'a>,
+        chunk_writer: ChunkWriter,
         fs: &'a Box<dyn Fs>,
         chunk_size: usize,
     ) -> Sink<'a> {

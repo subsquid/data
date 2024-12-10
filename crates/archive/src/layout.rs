@@ -1,10 +1,11 @@
+use crate::fs::Fs;
 use regex::Regex;
 
-use crate::fs::Fs;
 
 fn format_block(block_number: u64) -> String {
     format!("{:010}", block_number)
 }
+
 
 fn parse_range(dirname: &str) -> Option<(u64, u64, String)> {
     let re = Regex::new(r"^(\d{10})-(\d{10})-(\w+)$").unwrap();
@@ -17,6 +18,7 @@ fn parse_range(dirname: &str) -> Option<(u64, u64, String)> {
     None
 }
 
+
 #[derive(Debug)]
 pub struct DataChunk {
     first_block: u64,
@@ -24,6 +26,7 @@ pub struct DataChunk {
     last_hash: String,
     top: u64,
 }
+
 
 impl DataChunk {
     pub fn path(&self) -> String {
@@ -37,6 +40,7 @@ impl DataChunk {
     }
 }
 
+
 fn get_tops(fs: &Box<dyn Fs>) -> anyhow::Result<Vec<u64>> {
     let top_dirs = fs.ls(&[])?;
     let mut tops = top_dirs
@@ -47,6 +51,7 @@ fn get_tops(fs: &Box<dyn Fs>) -> anyhow::Result<Vec<u64>> {
     Ok(tops)
 }
 
+
 fn get_top_ranges(fs: &Box<dyn Fs>, top: u64) -> Vec<(u64, u64, String)> {
     let ranges: Vec<(u64, u64, String)> = fs
         .ls(&[&format_block(top)])
@@ -56,6 +61,7 @@ fn get_top_ranges(fs: &Box<dyn Fs>, top: u64) -> Vec<(u64, u64, String)> {
         .collect();
     ranges
 }
+
 
 pub fn get_chunks<'a>(
     fs: &'a Box<dyn Fs>,
@@ -99,6 +105,7 @@ pub fn get_chunks<'a>(
             .collect::<Vec<DataChunk>>();
     }))
 }
+
 
 pub fn get_chunks_in_reversed_order<'a>(
     fs: &'a Box<dyn Fs>,
@@ -144,18 +151,18 @@ pub fn get_chunks_in_reversed_order<'a>(
     }))
 }
 
-pub struct ChunkWriter<'a> {
-    fs: &'a Box<dyn Fs>,
-    first_block: u64,
+
+pub struct ChunkWriter {
     last_block: Option<u64>,
     top_dir_size: usize,
     top: u64,
     ranges: Vec<(u64, u64, String)>,
 }
 
-impl<'a> ChunkWriter<'a> {
+
+impl ChunkWriter {
     pub fn new(
-        fs: &'a Box<dyn Fs>,
+        fs: &Box<dyn Fs>,
         chunk_check: impl Fn(&[String]) -> bool,
         first_block: u64,
         last_block: Option<u64>,
@@ -207,8 +214,6 @@ impl<'a> ChunkWriter<'a> {
         drop(reversed_chunks);
 
         Ok(Self {
-            fs,
-            first_block,
             last_block,
             top_dir_size,
             top,
@@ -221,10 +226,6 @@ impl<'a> ChunkWriter<'a> {
             .last()
             .map(|range| range.1 + 1)
             .unwrap_or(self.top)
-    }
-
-    fn last_hash(&self) -> Option<&str> {
-        self.ranges.last().map(|range| range.2.as_str())
     }
 
     pub fn next_chunk(
