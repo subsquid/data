@@ -10,7 +10,6 @@ parking_lot = { workspace = true }
 serde = { workspace = true }
 sqd-array = { path = "../array" }
 sqd-dataset = { path = "../dataset" }
-tempfile = { workspace = true }
 
 [dev-dependencies]
 parquet = { workspace = true }

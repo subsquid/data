@@ -3336,7 +3336,6 @@ dependencies = [
  "serde",
  "sqd-array",
  "sqd-dataset",
- "tempfile",
 ]
 
 [[package]]
