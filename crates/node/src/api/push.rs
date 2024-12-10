@@ -30,7 +30,7 @@ impl DataPush {
             db,
             dataset_id,
             builder: match dataset_kind {
-                DatasetKind::Eth => panic!("eth datasets are not supported"),
+                DatasetKind::Evm => panic!("eth datasets are not supported"),
                 DatasetKind::Solana => Builder::Solana(SolanaChunkBuilder::default())
             },
             prev_block_hash: ShortHash::default(),
