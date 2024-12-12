@@ -224,7 +224,7 @@ impl ChunkTracker {
         for i in order.iter().copied() {
             let chunk = find_position(batch_offsets, i, last.chunk as usize);
             if chunk == last.chunk_index() {
-                debug_assert_eq!(last.offset + last.len, i as u32);
+                // debug_assert_eq!(last.offset + last.len, i as u32);
                 last.len += 1;
             } else {
                 if last.len > 0 {

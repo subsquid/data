@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = { workspace = true }
 arrow = { workspace = true }
 arrow-buffer = { workspace = true }
 bs58 = "0.5.1"
