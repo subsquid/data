@@ -40,6 +40,7 @@ table_builder! {
         d.options.add_stats("pre_owner");
         d.options.add_stats("post_owner");
         d.options.add_stats("block_number");
+        d.options.row_group_size = 5_000;
     }
 }
 

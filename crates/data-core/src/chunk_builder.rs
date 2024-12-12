@@ -19,18 +19,20 @@ macro_rules! chunk_builder {
                     )*
                 }
             }
+        }
 
-            pub fn clear(&mut self) {
+        impl sqd_data_core::BaseBuilder for $name {
+            fn clear(&mut self) {
                 $(
                 self.$table.clear();
                 )*
             }
 
-            pub fn byte_size(&self) -> usize {
+            fn byte_size(&self) -> usize {
                 0 $(+ self.$table.byte_size())*
             }
 
-            pub fn dataset_description() -> sqd_dataset::DatasetDescriptionRef {
+            fn dataset_description(&self) -> sqd_dataset::DatasetDescriptionRef {
                 use sqd_dataset::*;
                 use std::sync::{Arc, LazyLock};
 
@@ -46,6 +48,29 @@ macro_rules! chunk_builder {
                 });
 
                 DESC.clone()
+            }
+
+            fn chunk_processor(&self) -> sqd_data_core::ChunkProcessor {
+                let mut tables = std::collections::BTreeMap::new();
+                $(
+                tables.insert(
+                    stringify!($table),
+                    self.$table.table_processor()
+                );
+                )*
+                sqd_data_core::ChunkProcessor::new(tables)
+            }
+
+            fn as_slice(&self) -> std::collections::BTreeMap<&'static str, sqd_array::slice::AnyTableSlice<'_>> {
+                use sqd_array::slice::*;
+                let mut slice = std::collections::BTreeMap::new();
+                $(
+                slice.insert(
+                    stringify!($table),
+                    self.$table.as_slice()
+                );
+                )*
+                slice
             }
         }
 

@@ -54,6 +54,12 @@ macro_rules! table_builder {
                 
                 &DESC
             }
+
+            pub fn table_processor(&self) -> sqd_data_core::TableProcessor {
+                use sqd_data_core::{TableProcessor, Downcast};
+                let desc = Self::table_description();
+                TableProcessor::new(Downcast::new(), self.schema(), desc).unwrap()
+            }
             
             #[inline]
             pub fn schema(&self) -> arrow::datatypes::SchemaRef {

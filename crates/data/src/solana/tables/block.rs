@@ -17,7 +17,8 @@ table_builder! {
     description(d) {
         d.downcast.block_number = vec!["number", "slot", "parent_slot"];
         d.sort_key = vec!["number"];
-        d.options.add_stats("number")
+        d.options.add_stats("number");
+        d.options.row_group_size = 5_000;
     }
 }
 

@@ -19,7 +19,8 @@ table_builder! {
         d.downcast.item_index = vec!["transaction_index"];
         d.sort_key = vec!["account", "block_number", "transaction_index"];
         d.options.add_stats("account");
-        d.options.add_stats("block_number")
+        d.options.add_stats("block_number");
+        d.options.row_group_size = 5_000;
     }
 }
 

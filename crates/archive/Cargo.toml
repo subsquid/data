@@ -1,0 +1,24 @@
+[package]
+name = "sqd-archive"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+arrow = { workspace = true }
+aws-sdk-s3 = { version = "1.59.0", features = ["rt-tokio"] }
+aws-config = { version = "1.5.9", features = ["behavior-version-latest"] }
+clap = { version = "4.5.9", features = ["derive"] }
+tempfile = { workspace = true }
+tokio = { version = "1.38.0", features = ["full"] }
+parquet = { workspace = true }
+url = "2.5.3"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqd-primitives = { path = "../primitives" }
+sqd-data = { path = "../data" }
+sqd-data-core = { path = "../data-core" }
+sqd-array = { path = "../array" }
+sqd-dataset = { path = "../dataset" }
+ureq = { version = "2.10.1", features = ["json"] }
+regex = "1.11.1"

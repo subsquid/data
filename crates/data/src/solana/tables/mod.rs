@@ -18,7 +18,7 @@ pub use transaction::*;
 
 
 use super::model::Block;
-use sqd_data_core::chunk_builder;
+use sqd_data_core::{chunk_builder, HashAndHeight};
 
 
 chunk_builder! {
@@ -34,8 +34,13 @@ chunk_builder! {
 }
 
 
-impl SolanaChunkBuilder {
-    pub fn push(&mut self, block: &Block) {
+impl sqd_data_core::Builder for SolanaChunkBuilder {
+    fn push(&mut self, line: &String) -> anyhow::Result<HashAndHeight> {
+        let block: Block = serde_json::from_str(line).unwrap();
+        let hash_and_height = HashAndHeight {
+            hash: block.header.hash.clone(),
+            height: block.header.height,
+        };
         let block_number = block.header.height;
 
         self.blocks.push(&block.header);
@@ -63,5 +68,7 @@ impl SolanaChunkBuilder {
         for row in block.rewards.iter() {
             self.rewards.push(block_number, row)
         }
+
+        Ok(hash_and_height)
     }
 }

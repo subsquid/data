@@ -60,6 +60,7 @@ table_builder! {
         d.options.add_stats("d8");
         d.options.add_stats("program_id");
         d.options.add_stats("block_number");
+        d.options.row_group_size = 20_000;
     }
 }
 
