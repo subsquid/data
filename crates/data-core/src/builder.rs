@@ -13,11 +13,12 @@ pub trait BaseBuilder {
 
 
 pub trait Builder: BaseBuilder {
-    fn push(&mut self, line: &String) -> anyhow::Result<HashAndHeight>;
+    fn push(&mut self, line: &String) -> anyhow::Result<BlockHeader>;
 }
 
 
-pub struct HashAndHeight {
-    pub hash: String,
+pub struct BlockHeader {
     pub height: u64,
+    pub hash: String,
+    pub parent_hash: String,
 }

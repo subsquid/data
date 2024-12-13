@@ -2,7 +2,7 @@ use crate::fs::Fs;
 use arrow::array::RecordBatch;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
-use sqd_data_core::{ChunkProcessor, PreparedTable, Builder, HashAndHeight};
+use sqd_data_core::{ChunkProcessor, PreparedTable, Builder, BlockHeader};
 
 
 pub struct ParquetWriter {
@@ -34,15 +34,15 @@ impl ParquetWriter {
 
 
 impl ParquetWriter {
-    pub fn push(&mut self, line: &String) -> anyhow::Result<HashAndHeight> {
-        let hash_and_height = self.chunk_builder.push(line)?;
+    pub fn push(&mut self, line: &String) -> anyhow::Result<BlockHeader> {
+        let header = self.chunk_builder.push(line)?;
         self.buffered_blocks += 1;
 
         if self.chunk_builder.byte_size() > self.memory_treshold {
             self.spill_on_disk()?;
         }
 
-        Ok(hash_and_height)
+        Ok(header)
     }
 
     pub fn buffered_bytes(&self) -> usize {

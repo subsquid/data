@@ -33,13 +33,27 @@ impl<'a> Sink<'a> {
 
         for result in stream {
             let line = result?;
-            let hash_and_height = self.writer.push(&line)?;
+            let header = self.writer.push(&line)?;
+
+            if let Some(last_hash) = &last_hash {
+                let block_hash = short_hash(&header.hash);
+                let block_parent_hash = short_hash(&header.parent_hash);
+                if last_hash != block_parent_hash {
+                    anyhow::bail!(
+                        "broken chain: block {}#{} is not a direct child of {}#{}",
+                        header.height,
+                        block_hash,
+                        header.height - 1,
+                        last_hash,
+                    );
+                }
+            }
 
             if first_block.is_none() {
-                first_block = Some(hash_and_height.height);
+                first_block = Some(header.height);
             }
-            last_block = Some(hash_and_height.height);
-            last_hash = Some(short_hash(&hash_and_height.hash).to_string());
+            last_block = Some(header.height);
+            last_hash = Some(short_hash(&header.hash).to_string());
 
             if self.writer.buffered_bytes() > self.chunk_size * 1024 * 1024 {
                 let first_block = first_block.take().unwrap();
