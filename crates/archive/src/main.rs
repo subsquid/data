@@ -5,6 +5,7 @@ use layout::ChunkWriter;
 use sink::Sink;
 use sqd_data::solana::tables::SolanaChunkBuilder;
 use writer::ParquetWriter;
+use tracing_subscriber::EnvFilter;
 
 
 mod cli;
@@ -13,6 +14,7 @@ mod ingest;
 mod layout;
 mod sink;
 mod writer;
+mod progress;
 
 
 fn chunk_check(filelist: &[String]) -> bool {
@@ -25,8 +27,19 @@ fn chunk_check(filelist: &[String]) -> bool {
 }
 
 
+
+fn init_logging() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_target(false)
+        .init();
+}
+
+
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
+
+    init_logging();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -51,7 +64,7 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(last_block) = args.last_block {
         if first_block > last_block {
-            println!("nothing to do");
+            tracing::info!("nothing to do");
             return Ok(());
         }
     }

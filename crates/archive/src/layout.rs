@@ -53,21 +53,22 @@ fn get_tops(fs: &Box<dyn Fs>) -> anyhow::Result<Vec<u64>> {
 
 
 fn get_top_ranges(fs: &Box<dyn Fs>, top: u64) -> Vec<(u64, u64, String)> {
-    let ranges: Vec<(u64, u64, String)> = fs
+    let mut ranges: Vec<(u64, u64, String)> = fs
         .ls(&[&format_block(top)])
         .unwrap()
         .iter()
         .map(|d| parse_range(d).unwrap())
         .collect();
+    ranges.sort();
     ranges
 }
 
 
-pub fn get_chunks<'a>(
-    fs: &'a Box<dyn Fs>,
+pub fn get_chunks(
+    fs: &Box<dyn Fs>,
     first_block: u64,
     last_block: Option<u64>,
-) -> anyhow::Result<impl Iterator<Item = DataChunk> + 'a> {
+) -> anyhow::Result<impl Iterator<Item = DataChunk> + '_> {
     if let Some(last_block) = last_block {
         assert!(first_block <= last_block);
     }
@@ -107,11 +108,11 @@ pub fn get_chunks<'a>(
 }
 
 
-pub fn get_chunks_in_reversed_order<'a>(
-    fs: &'a Box<dyn Fs>,
+pub fn get_chunks_in_reversed_order(
+    fs: &Box<dyn Fs>,
     first_block: u64,
     last_block: Option<u64>,
-) -> anyhow::Result<impl Iterator<Item = DataChunk> + 'a> {
+) -> anyhow::Result<impl Iterator<Item = DataChunk> + '_> {
     if let Some(last_block) = last_block {
         assert!(first_block <= last_block);
     }
@@ -201,9 +202,7 @@ impl ChunkWriter {
         let (top, ranges) = if let Some(last_chunk) = &last_chunk {
             let ranges = get_top_ranges(fs, last_chunk.top);
             if ranges.is_empty() {
-                anyhow::bail!(
-                    "data is not supposed to be changed by external process during writing"
-                )
+                anyhow::bail!("Data is not supposed to be changed by external process during writing")
             }
             (last_chunk.top, ranges)
         } else {

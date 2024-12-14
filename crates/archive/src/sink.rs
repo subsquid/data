@@ -1,6 +1,9 @@
 use crate::fs::Fs;
 use crate::layout::ChunkWriter;
 use crate::writer::ParquetWriter;
+use crate::progress::Progress;
+use std::num::NonZeroUsize;
+use std::time::{Duration, Instant};
 
 
 pub struct Sink<'a> {
@@ -8,6 +11,7 @@ pub struct Sink<'a> {
     chunk_writer: ChunkWriter,
     fs: &'a Box<dyn Fs>,
     chunk_size: usize,
+    progress: Progress,
 }
 
 
@@ -18,11 +22,15 @@ impl<'a> Sink<'a> {
         fs: &'a Box<dyn Fs>,
         chunk_size: usize,
     ) -> Sink<'a> {
+        let window_size = NonZeroUsize::new(10).unwrap();
+        let granularity = Duration::from_secs(1);
+        let progress = Progress::new(window_size, granularity);
         Sink {
             writer,
             chunk_writer,
             fs,
             chunk_size,
+            progress,
         }
     }
 
@@ -30,6 +38,7 @@ impl<'a> Sink<'a> {
         let mut first_block = None;
         let mut last_block = None;
         let mut last_hash = None;
+        let mut last_report = Instant::now();
 
         for result in stream {
             let line = result?;
@@ -62,6 +71,12 @@ impl<'a> Sink<'a> {
                 let chunk = self.chunk_writer.next_chunk(first_block, last_block, last_hash)?;
                 self.writer.flush(self.fs.cd(&[&chunk.path()]))?;
             }
+
+            self.progress.set_current_value(header.height);
+            if last_report.elapsed() > Duration::from_secs(5) {
+                self.report();
+                last_report = Instant::now();
+            }
         }
 
         if self.writer.buffered_bytes() > 0 {
@@ -72,7 +87,19 @@ impl<'a> Sink<'a> {
             self.writer.flush(self.fs.cd(&[&chunk.path()]))?;
         }
 
+        if self.progress.has_news() {
+            self.report();
+        }
+
         Ok(())
+    }
+
+    fn report(&mut self) {
+        tracing::info!(
+            "last block: {}, progress: {} blocks/sec",
+            self.progress.get_current_value(),
+            self.progress.speed().round(),
+        );
     }
 }
 
