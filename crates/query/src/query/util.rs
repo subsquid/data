@@ -89,8 +89,8 @@ macro_rules! ensure_item_count {
     ($query:ident, $i:ident $(, $is:ident)*) => {{
         let num_items = $query.$i.len() $(+ $query.$is.len())*;
         anyhow::ensure!(
-            num_items <= 50,
-            "query contains {} item requests, but only 50 is allowed",
+            num_items <= 100,
+            "query contains {} item requests, but only 100 is allowed",
             num_items
         )
     }};
