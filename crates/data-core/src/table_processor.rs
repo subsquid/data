@@ -2,7 +2,7 @@ use crate::downcast::Downcast;
 use crate::table_file::{TableFile, TableFileWriter};
 use crate::{SortedTable, TableSorter};
 use arrow::array::RecordBatch;
-use arrow::datatypes::{DataType, Field, FieldRef, Schema, SchemaRef};
+use arrow::datatypes::{DataType, Field, SchemaRef};
 use sqd_array::builder::{AnyBuilder, AnyTableBuilder, ArrayBuilder};
 use sqd_array::item_index_cast::cast_item_index;
 use sqd_array::slice::{AnyTableSlice, AsSlice, Slice};
@@ -11,6 +11,7 @@ use sqd_array::writer::ArrayWriter;
 use sqd_dataset::TableDescription;
 use std::collections::HashMap;
 use std::sync::Arc;
+use sqd_array::schema_patch::SchemaPatch;
 
 
 enum TableWriter {
@@ -172,7 +173,7 @@ impl PreparedTable {
             processor.downcast.get_item_index_type()
         );
         
-        let column_offsets = build_field_offsets(processor.schema.fields(), 0);
+        let column_offsets = build_field_offsets(0, processor.schema.fields());
         let num_rows = processor.num_rows;
         let reader = processor.writer.into_reader()?;
         
@@ -287,7 +288,7 @@ fn downcast_schema(
     item_index_type: DataType
 ) -> SchemaRef
 {
-    let mut patch: Option<Vec<FieldRef>> = None;
+    let mut patch = SchemaPatch::new(schema.clone());
 
     for (columns, ty) in [
         (block_number_columns, block_number_type),
@@ -303,28 +304,9 @@ fn downcast_schema(
                 _ => ty.clone()
             };
             
-            if &target_type != f.data_type() {
-                if patch.is_none() {
-                    patch = Some(schema.fields().to_vec())
-                }
-                let fields = patch.as_mut().unwrap();
-                
-                fields[idx] = Arc::new(
-                    Field::new(
-                        fields[idx].name(),
-                        target_type,
-                        fields[idx].is_nullable()
-                    )
-                )
-            }
+            patch.set_field_type(idx, target_type)
         }
     }
 
-    patch.map(|fields| {
-        let schema = Schema::new_with_metadata(
-            fields,
-            schema.metadata().clone()
-        );
-        Arc::new(schema)
-    }).unwrap_or(schema)
+    patch.finish()
 }

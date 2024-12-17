@@ -40,8 +40,8 @@ fn sort_ethereum_transactions() -> anyhow::Result<()> {
         
         let mut builder = AnyTableBuilder::new(record_batch.schema());
         for i in 0..builder.num_columns() {
-            let mut dst = builder.column_writer(i);
-            sorted.read_column(&mut dst, i, pos, record_batch.num_rows())?;
+            let dst = builder.column_writer(i);
+            sorted.read_column(dst, i, pos, record_batch.num_rows())?;
         }
 
         let result = builder.finish();

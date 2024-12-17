@@ -5,20 +5,24 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
-arrow = { workspace = true }
-aws-sdk-s3 = { version = "1.59.0", features = ["rt-tokio"] }
+async-stream = "0.3.6"
+async-trait = "0.1.83"
 aws-config = { version = "1.5.9", features = ["behavior-version-latest"] }
+aws-sdk-s3 = { version = "1.59.0", features = ["rt-tokio"] }
 clap = { version = "4.5.9", features = ["derive"] }
-tempfile = { workspace = true }
-tokio = { version = "1.38.0", features = ["full"] }
+futures-core = "0.3.31"
+futures-util = "0.3.31"
+parking_lot = { workspace = true }
 parquet = { workspace = true }
-url = "2.5.3"
+regex = "1.11.1"
+scopeguard = "1.2.0"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-sqd-primitives = { path = "../primitives" }
 sqd-data = { path = "../data" }
 sqd-data-core = { path = "../data-core" }
-sqd-array = { path = "../array" }
+sqd-data-types = { path = "../data-types" }
 sqd-dataset = { path = "../dataset" }
-ureq = { version = "2.10.1", features = ["json"] }
-regex = "1.11.1"
+sqd-primitives = { path = "../primitives" }
+tempfile = { workspace = true }
+tokio = { version = "1.38.0", features = ["full"] }
+url = "2.5.3"

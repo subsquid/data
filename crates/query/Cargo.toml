@@ -27,8 +27,9 @@ glob = "0.3.1"
 rstest = "0.21.0"
 tempfile = { workspace = true }
 parquet = { workspace = true }
-sqd-dataset = { path = "../dataset" }
 sqd-data = { path = "../data" }
+sqd-data-core = { path = "../data-core" }
+sqd-dataset = { path = "../dataset" }
 mimalloc = "0.1.43"
 #tikv-jemallocator = "0.6"
 

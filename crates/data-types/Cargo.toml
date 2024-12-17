@@ -1,0 +1,19 @@
+[package]
+name = "sqd-data-types"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+
+[features]
+de = [
+    "dep:anyhow",
+    "dep:bytes",
+    "dep:serde",
+    "dep:serde_json"
+]

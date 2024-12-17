@@ -30,7 +30,7 @@ macro_rules! with_order {
                         let slice = ListSlice::new(list.offsets(), it.values(), list.nulls().bitmask());
                         dispatch_nulls!(slice, $order, $cb)
                     },
-                    _ => panic!("only lists of non-nullable u16, u32 or i32 items are sortable")
+                    _ => panic!("only lists of non-nullable u16, u32 and i32 items are sortable")
                 }
             },
             AnySlice::Struct(_) => panic!("sorting on structs is not supported"),

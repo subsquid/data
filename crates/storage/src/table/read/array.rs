@@ -227,7 +227,7 @@ fn read_struct(
     let nulls = storage.read_null_mask(pos, ranges)
         .context("failed to read null mask")?;
     
-    let field_positions = build_field_offsets(&fields, pos + 1);
+    let field_positions = build_field_offsets(pos + 1, &fields);
 
     let arrays = (0..fields.len())
         .into_par_iter()

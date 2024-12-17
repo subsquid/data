@@ -3,9 +3,10 @@ use crate::slice::nullmask::NullmaskSlice;
 use crate::slice::{AnyListItem, AnySlice, ListSlice, PrimitiveSlice, Slice};
 use crate::writer::{ArrayWriter, NativeWriter, OffsetsWriter};
 use anyhow::{anyhow, bail};
-use arrow::datatypes::DataType;
+use arrow::datatypes::{DataType, Field};
 use arrow_buffer::ArrowNativeType;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 
 pub fn is_item_index(data_type: &DataType) -> bool {
@@ -21,6 +22,40 @@ pub fn is_item_index(data_type: &DataType) -> bool {
             }
         },
         _ => false
+    }
+}
+
+
+pub fn common_item_index_type(a: &DataType, b: &DataType) -> Option<DataType> {
+    match (a, b) { 
+        (DataType::List(ai), DataType::List(bi)) => {
+            common_index(ai.data_type(), bi.data_type()).map(|t| {
+                let field = Field::new(
+                    ai.name(),
+                    t,
+                    ai.is_nullable() || bi.is_nullable()
+                );
+                DataType::List(Arc::new(field))
+            })
+        },
+        (a, b) => common_index(a, b)
+    }
+}
+
+
+fn common_index(a: &DataType, b: &DataType) -> Option<DataType> {
+    common_index_inner(a, b).or_else(|| common_index_inner(b, a))
+}
+
+
+fn common_index_inner(a: &DataType, b: &DataType) -> Option<DataType> {
+    match (a, b) {
+        (DataType::UInt16, DataType::UInt16) => Some(DataType::UInt16),
+        (DataType::UInt16, DataType::UInt32) => Some(DataType::UInt32),
+        (DataType::UInt32, DataType::UInt32) => Some(DataType::UInt32),
+        (DataType::UInt32, DataType::UInt64) => Some(DataType::UInt64),
+        (DataType::UInt64, DataType::UInt64) => Some(DataType::UInt64),
+        _ => None
     }
 }
 

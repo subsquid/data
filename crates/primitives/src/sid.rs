@@ -1,5 +1,5 @@
-use std::fmt::{Debug, Display, Formatter};
 use crate::ShortHash;
+use std::fmt::{Debug, Display, Formatter};
 
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -61,6 +61,10 @@ impl <const N: usize> Default for SID<N> {
 
 
 impl <const N: usize> SID<N> {
+    pub fn from_str(s: &str) -> Self {
+        s.try_into().unwrap()    
+    }
+    
     pub fn try_new(bytes: [u8; N]) -> Result<Self, &'static str> {
         let slice = if let Some(end) = bytes.iter().position(|b| *b == 0) {
             if !bytes[end..].iter().all(|b| *b == 0) {

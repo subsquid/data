@@ -1,5 +1,6 @@
 use arrow::datatypes::{DataType, Fields};
 use std::cmp::Ordering;
+use std::ops::AddAssign;
 
 
 #[inline]
@@ -95,15 +96,38 @@ pub fn bisect_offsets<I: Ord + Copy>(offsets: &[I], idx: I) -> Option<usize> {
 }
 
 
-pub fn build_field_offsets(fields: &Fields, start_pos: usize) -> Vec<usize> {
-    let mut last_offset = start_pos;
-    let mut offsets = Vec::with_capacity(fields.len() + 1);
-    offsets.push(last_offset);
-    for f in fields.iter() {
-        last_offset += get_num_buffers(f.data_type());
-        offsets.push(last_offset)
+pub fn get_offset_position<I: Ord + Copy>(offsets: &[I], index: I, first_to_try: usize) -> usize {
+    let beg = offsets[first_to_try];
+    if beg <= index {
+        if index < offsets[first_to_try + 1] {
+            first_to_try
+        } else {
+            first_to_try + bisect_offsets(&offsets[first_to_try..], index)
+                .expect("index is out of bounds")
+        }
+    } else {
+        bisect_offsets(&offsets[0..first_to_try + 1], index)
+            .expect("index is out of bounds")
     }
-    offsets
+}
+
+
+pub fn build_offsets<I: Copy + AddAssign>(first: I, lengths: impl Iterator<Item=I>) -> Vec<I> {
+    let mut vec = Vec::with_capacity(1 + lengths.size_hint().0);
+    let mut last = first;
+    vec.push(last);
+    vec.extend(lengths.map(|len| {
+        last += len;
+        last
+    }));
+    vec
+}
+
+
+pub fn build_field_offsets(start_pos: usize, fields: &Fields) -> Vec<usize> {
+    build_offsets(start_pos, fields.iter().map(|f| {
+        get_num_buffers(f.data_type())
+    }))
 }
 
 

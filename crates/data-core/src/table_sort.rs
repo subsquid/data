@@ -5,7 +5,7 @@ use sqd_array::io::file::{ArrayFile, ArrayFileReader, ArrayFileWriter};
 use sqd_array::reader::ArrayReader;
 use sqd_array::slice::{AnyTableSlice, AsSlice, Slice};
 use sqd_array::sort::sort_table_to_indexes;
-use sqd_array::util::bisect_offsets;
+use sqd_array::util::{build_offsets, get_offset_position};
 use sqd_array::writer::ArrayWriter;
 
 
@@ -209,41 +209,8 @@ struct ChunkTracker {
 
 impl ChunkTracker {
     fn new(batch_offsets: &[usize], order: &[usize]) -> Self {
-        let mut chunks = Vec::new();
-        let mut offsets = Vec::new();
-        offsets.push(0);
-
-        let mut len = 0;
-
-        let mut last = ChunkRange {
-            chunk: batch_offsets.len() as u32 - 1, // never existing chunk
-            offset: 0,
-            len: 0,
-        };
-
-        for i in order.iter().copied() {
-            let chunk = find_position(batch_offsets, i, last.chunk as usize);
-            if chunk == last.chunk_index() {
-                // debug_assert_eq!(last.offset + last.len, i as u32);
-                last.len += 1;
-            } else {
-                if last.len > 0 {
-                    len += last.len;
-                    offsets.push(len);
-                    chunks.push(std::mem::take(&mut last))
-                }
-                last.chunk = chunk as u32;
-                last.offset = i as u32;
-                last.len = 1;
-            }
-        }
-
-        if last.len > 0 {
-            len += last.len;
-            offsets.push(len);
-            chunks.push(std::mem::take(&mut last))
-        }
-
+        let chunks = ChunkRange::build_tag_list(batch_offsets, order);
+        let offsets = build_offsets(0, chunks.iter().map(|c| c.len));
         Self {
             chunks,
             offsets,
@@ -309,26 +276,12 @@ impl ChunkTracker {
     }
 
     fn find_start_position(&mut self, index: u32) -> usize {
-        self.last_start_pos = find_position(&self.offsets, index, self.last_start_pos);
+        self.last_start_pos = get_offset_position(&self.offsets, index, self.last_start_pos);
         self.last_start_pos
     }
 
     fn find_end_position(&mut self, index: u32) -> usize {
-        self.last_end_pos = find_position(&self.offsets, index, self.last_end_pos);
+        self.last_end_pos = get_offset_position(&self.offsets, index, self.last_end_pos);
         self.last_end_pos
-    }
-}
-
-
-fn find_position<I: Ord + Copy>(offsets: &[I], index: I, last: usize) -> usize {
-    let beg = offsets[last];
-    if beg <= index {
-        if index < offsets[last + 1] {
-            last
-        } else {
-            last + bisect_offsets(&offsets[last..], index).expect("index is out of bounds")
-        }
-    } else {
-        bisect_offsets(&offsets[0..last + 1], index).expect("index is out of bounds")
     }
 }

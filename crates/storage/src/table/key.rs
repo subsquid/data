@@ -55,11 +55,27 @@ impl TableKeyFactory {
             name_len: name.len()
         }
     }
-
-    fn make(&mut self, key: TableKey) -> &[u8] {
+    
+    fn clear(&mut self) {
         unsafe {
             self.buf.set_len(self.name_len);
         }
+    }
+    
+    pub fn start(&mut self) -> &[u8] {
+        self.clear();
+        self.buf.push(0);
+        self.buf.as_slice()
+    }
+    
+    pub fn end(&mut self) -> &[u8] {
+        self.clear();
+        self.buf.push(255);
+        self.buf.as_slice()
+    }
+
+    fn make(&mut self, key: TableKey) -> &[u8] {
+        self.clear();
         key.serialize(&mut self.buf);
         self.buf.as_slice()
     }

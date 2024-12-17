@@ -1,6 +1,6 @@
 use crate::db::table_id::TableId;
 use borsh::{BorshDeserialize, BorshSerialize};
-use sqd_primitives::{BlockNumber, ShortHash, SID};
+use sqd_primitives::{BlockNumber, SID};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -16,6 +16,14 @@ pub type DatasetKind = SID<16>;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, BorshSerialize, BorshDeserialize)]
 pub struct DatasetLabel {
+    pub kind: DatasetKind,
+    pub version: DatasetVersion
+}
+
+
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct Dataset {
+    pub id: DatasetId,
     pub kind: DatasetKind,
     pub version: DatasetVersion
 }
@@ -72,11 +80,10 @@ impl Debug for ChunkId {
 }
 
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct Chunk {
     pub first_block: BlockNumber,
     pub last_block: BlockNumber,
-    pub last_block_hash: ShortHash,
-    pub max_num_rows: u32,
+    pub last_block_hash: String,
     pub tables: BTreeMap<String, TableId>
 }

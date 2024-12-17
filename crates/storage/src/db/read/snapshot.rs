@@ -1,6 +1,6 @@
-use crate::db::data::{Chunk, ChunkId, DatasetId};
+use crate::db::data::{Chunk, DatasetId};
 use crate::db::db::{RocksDB, RocksSnapshot, RocksSnapshotIterator, CF_CHUNKS, CF_DATASETS, CF_TABLES};
-use crate::db::read::chunk::{list_chunks, read_current_chunk};
+use crate::db::read::chunk::{list_chunks, list_chunks_in_reversed_order};
 use crate::db::table_id::TableId;
 use crate::db::DatasetLabel;
 use crate::kv::KvRead;
@@ -8,7 +8,7 @@ use crate::table::read::TableReader;
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use rocksdb::{ColumnFamily, ReadOptions};
-use sqd_primitives::{BlockNumber, Name, ShortHash};
+use sqd_primitives::{BlockNumber, Name};
 use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -69,22 +69,24 @@ impl <'a> ReadSnapshot<'a> {
         list_chunks(cursor, dataset_id, from_block, to_block)
     }
     
+    pub fn list_chunks_in_reversed_order(
+        &self,
+        dataset_id: DatasetId,
+    ) -> impl Iterator<Item=anyhow::Result<Chunk>> + '_
+    {
+        let cursor = self.db.raw_iterator_cf_opt(
+            self.cf_handle(CF_CHUNKS),
+            self.new_options()
+        );
+        list_chunks_in_reversed_order(cursor, dataset_id)
+    }
+    
     pub fn get_first_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<Chunk>> {
         self.list_chunks(dataset_id, 0, None).next().transpose()
     }
 
     pub fn get_last_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<Chunk>> {
-        let mut cursor = self.db.raw_iterator_cf_opt(
-            self.cf_handle(CF_CHUNKS),
-            self.new_options()
-        );
-
-        let max_chunk_id = ChunkId::new(dataset_id, BlockNumber::MAX);
-        cursor.seek_for_prev(max_chunk_id);
-        cursor.status()?;
-
-        let chunk = read_current_chunk(&cursor, dataset_id)?;
-        Ok(chunk)
+        self.list_chunks_in_reversed_order(dataset_id).next().transpose()
     }
 
     fn new_options(&self) -> ReadOptions {
@@ -127,12 +129,16 @@ impl <'a> ChunkReader<'a> {
         self.chunk.last_block
     }
     
-    pub fn last_block_hash(&self) -> ShortHash {
-        self.chunk.last_block_hash
+    pub fn last_block_hash(&self) -> &str {
+        &self.chunk.last_block_hash
     }
 
     pub fn has_table(&self, name: &str) -> bool {
         self.chunk.tables.contains_key(name)
+    }
+    
+    pub fn chunk(&self) -> &Chunk {
+        &self.chunk
     }
     
     pub fn tables(&self) -> &BTreeMap<String, TableId> {

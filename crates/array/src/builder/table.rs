@@ -16,7 +16,7 @@ pub struct AnyTableBuilder {
 
 impl AnyTableBuilder {
     pub fn new(schema: SchemaRef) -> Self {
-        let buffers = build_field_offsets(schema.fields(), 0);
+        let buffers = build_field_offsets(0, schema.fields());
 
         let columns = schema.fields().iter()
             .map(|f| AnyBuilder::new(f.data_type()))
@@ -47,8 +47,8 @@ impl AnyTableBuilder {
         self.columns.len()
     }
     
-    pub fn column_writer(&mut self, column: usize) -> impl ArrayWriter<Writer=MemoryWriter> + '_ {
-        self.shift(self.column_offsets[column])
+    pub fn column_writer(&mut self, column: usize) -> &mut impl ArrayWriter<Writer=MemoryWriter>  {
+        &mut self.columns[column]
     }
     
     pub fn clear(&mut self) {

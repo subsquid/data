@@ -1,7 +1,6 @@
+use sqd_query::{Chunk, JsonArrayWriter, Query};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-
-use sqd_query::{Chunk, JsonArrayWriter, Query};
 
 
 fn execute_query(chunk: &dyn Chunk, query_file: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
@@ -69,32 +68,44 @@ mod parquet {
 
 #[cfg(feature = "storage")]
 mod storage {
-    use std::fs::File;
-
+    use crate::test_fixture;
     use arrow::array::RecordBatchReader;
+    use arrow::datatypes::Schema;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use sqd_data::solana::tables::SolanaChunkBuilder;
-    use sqd_dataset::DatasetDescriptionRef;
-    use sqd_primitives::ShortHash;
-    use sqd_storage::db::{Database, DatasetId, DatasetKind, NewChunk};
+    use sqd_dataset::DatasetDescription;
+    use sqd_storage::db::{Chunk, Database, DatabaseSettings, DatasetId, DatasetKind};
+    use std::fs::File;
 
-    use crate::test_fixture;
 
+    fn get_columns_with_stats(d: &DatasetDescription, name: &str, schema: &Schema) -> Vec<usize> {
+        if let Some(table_desc) = d.tables.get(name) {
+            table_desc.options.column_options.iter()
+                .filter_map(|(&name, opts)| {
+                    opts.stats_enable.then(|| {
+                        schema.index_of(name).unwrap()
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
 
     fn create_dataset(
         db: &Database,
         name: &str,
         kind: &str,
-        desc: Option<DatasetDescriptionRef>,
+        desc: &DatasetDescription,
         chunk_path: &str
     ) -> anyhow::Result<()>
     {
-        let dataset_id = DatasetId::try_from(name).unwrap();
-        let dataset_kind = DatasetKind::try_from(kind).unwrap();
+        let dataset_id = DatasetId::from_str(name);
+        let dataset_kind = DatasetKind::from_str(kind);
 
         db.create_dataset(dataset_id, dataset_kind)?;
 
-        let chunk_builder = db.new_chunk_builder(desc);
+        let chunk_builder = db.new_chunk_builder();
 
         for item_result in std::fs::read_dir(chunk_path)? {
             let item = item_result?.file_name();
@@ -105,7 +116,18 @@ mod storage {
                     File::open(format!("{}/{}", chunk_path, item_name))?
                 )?.with_batch_size(500).build()?;
 
-                let mut writer = chunk_builder.add_table(table, reader.schema());
+                let mut writer = chunk_builder.add_table(
+                    table, 
+                    reader.schema()
+                );
+                
+                writer.set_stats(
+                    get_columns_with_stats(
+                        desc,
+                        table,
+                        &reader.schema()
+                    )
+                )?;
 
                 while let Some(record_batch) = reader.next().transpose()? {
                     writer.write_record_batch(&record_batch)?;
@@ -115,13 +137,12 @@ mod storage {
             }
         }
 
-        db.insert_chunk(dataset_id, NewChunk {
-            prev_block_hash: None,
+        db.insert_chunk(dataset_id, &Chunk {
             first_block: 0,
             last_block: 0,
-            last_block_hash: ShortHash::try_from("hello").unwrap(),
+            last_block_hash: "hello".to_string(),
             tables: chunk_builder.finish()
-        })?;
+        }, None)?;
 
         Ok(())
     }
@@ -129,20 +150,20 @@ mod storage {
     #[test]
     fn test_fixtures() -> anyhow::Result<()> {
         let db_dir = tempfile::tempdir()?;
-        let db = Database::open(db_dir.path().to_str().unwrap())?;
+        let db = DatabaseSettings::default().open(db_dir.path())?;
 
         create_dataset(
             &db,
             "solana",
             "solana",
-            Some(SolanaChunkBuilder::dataset_description()),
+            &SolanaChunkBuilder::dataset_description(),
             "fixtures/solana/chunk"
         )?;
 
-        let snapshot = db.get_snapshot();
+        let snapshot = db.snapshot();
 
         let chunk = snapshot
-            .list_chunks(DatasetId::try_from("solana").unwrap(), 0, None)
+            .list_chunks(DatasetId::from_str("solana"), 0, None)
             .next()
             .expect("chunk must be present")?;
         

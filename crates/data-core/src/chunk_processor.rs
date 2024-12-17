@@ -1,4 +1,5 @@
 use crate::{PreparedTable, TableProcessor};
+use anyhow::anyhow;
 use sqd_array::slice::AnyTableSlice;
 use std::collections::BTreeMap;
 
@@ -7,35 +8,58 @@ type Name = &'static str;
 
 
 pub struct ChunkProcessor {
-    tables: BTreeMap<Name, TableProcessor>,
+    tables: BTreeMap<Name, TableProcessor>
 }
 
 
 impl ChunkProcessor {
     pub fn new(tables: BTreeMap<Name, TableProcessor>) -> ChunkProcessor {
-        ChunkProcessor { tables }
+        Self { tables }
     }
 
-    pub fn push(&mut self, slices: BTreeMap<Name, AnyTableSlice<'_>>) -> anyhow::Result<()> {
-        for (name, slice) in slices {
-            let processor = self.tables.get_mut(name).unwrap();
-            processor.push_batch(&slice)?;
-        }
-        Ok(())
+    pub fn push_table(&mut self, name: &str, records: &AnyTableSlice<'_>) -> anyhow::Result<()> {
+        let processor = self.tables.get_mut(name).ok_or_else(|| {
+            anyhow!("table '{}' is not present in the chunk", name)
+        })?;
+        processor.push_batch(records)
     }
 
     pub fn byte_size(&self) -> usize {
-        let mut size = 0;
-        for table in self.tables.values() {
-            size += table.byte_size();
-        }
-        size
+        self.tables.values().map(|t| t.byte_size()).sum()
     }
 
-    pub fn finish(self) -> anyhow::Result<BTreeMap<Name, PreparedTable>> {
+    pub fn max_num_rows(&self) -> usize {
+        self.tables.values().map(|t| t.num_rows()).max().unwrap_or(0)
+    }
+
+    pub fn finish(self) -> anyhow::Result<PreparedChunk> {
         self.tables
             .into_iter()
-            .map(|(name, table)| table.finish().map(|table| (name, table)))
-            .collect()
+            .map(|(name, table)| {
+                table.finish().map(|table| (name, table))
+            })
+            .collect::<anyhow::Result<_>>()
+            .map(|tables| PreparedChunk {
+                tables
+            })
+    }
+}
+
+
+pub struct PreparedChunk {
+    pub tables: BTreeMap<Name, PreparedTable>
+}
+
+
+impl PreparedChunk {
+    pub fn into_processor(self) -> anyhow::Result<ChunkProcessor> {
+        self.tables
+            .into_iter()
+            .map(|(name, table)| {
+                let proc = table.into_processor()?;
+                Ok((name, proc))
+            })
+            .collect::<anyhow::Result<_>>()
+            .map(ChunkProcessor::new)
     }
 }
