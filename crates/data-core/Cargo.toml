@@ -8,7 +8,9 @@ anyhow = { workspace = true }
 arrow = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 sqd-array = { path = "../array" }
+sqd-data-types = { path = "../data-types" }
 sqd-dataset = { path = "../dataset" }
 
 [dev-dependencies]

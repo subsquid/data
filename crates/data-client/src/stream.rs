@@ -1,9 +1,10 @@
 use crate::lines::LineStream;
-use crate::{Block, BlockNumber, BlockRef};
+use crate::BlockRef;
 use anyhow::{anyhow, ensure, Context};
 use bytes::Bytes;
 use futures_core::Stream;
 use reqwest::Response;
+use sqd_data_types::{Block, BlockNumber, FromJsonBytes};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::Poll;
@@ -90,7 +91,7 @@ impl<B> BlockStream<B> {
 }
 
 
-impl<B: Block + Unpin> Stream for BlockStream<B> {
+impl<B: Block + FromJsonBytes + Unpin> Stream for BlockStream<B> {
     type Item = anyhow::Result<B>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
@@ -99,7 +100,7 @@ impl<B: Block + Unpin> Stream for BlockStream<B> {
             Pin::new(lines).poll_next(cx).map(|maybe_line_result| {
                 maybe_line_result.map(|line_result| {
                     let line = line_result?;
-                    let block = B::try_from_bytes(line)?;
+                    let block = B::from_json_bytes(line)?;
                     if !this.prev_block_hash.is_empty() {
                         ensure!(
                             &this.prev_block_hash == block.parent_hash(),

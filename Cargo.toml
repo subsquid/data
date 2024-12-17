@@ -5,8 +5,9 @@ members = [
     "crates/data",
     "crates/data-core",
     "crates/data-client",
+    "crates/data-types",
     "crates/dataset",
-    "crates/node",
+#    "crates/node",
     "crates/polars",
     "crates/primitives",
     "crates/query",
@@ -19,6 +20,7 @@ anyhow = "1.0.86"
 arrow = { version = "53.0.0", default-features = false }
 arrow-buffer = "53.0.0"
 borsh = { version = "1.5.1", features = ["derive"] }
+bytes = "1.9.0"
 parking_lot = "0.12.3"
 parquet = "53.0.0"
 proptest = "1.4.0"

@@ -176,3 +176,22 @@ pub struct Block {
     pub token_balances: Vec<TokenBalance>,
     pub rewards: Vec<Reward>,
 }
+
+
+impl sqd_data_core::Block for Block {
+    fn number(&self) -> sqd_data_core::BlockNumber {
+        self.header.height
+    }
+
+    fn hash(&self) -> &str {
+        &self.header.hash
+    }
+
+    fn parent_number(&self) -> sqd_data_core::BlockNumber {
+        self.number().saturating_sub(1)
+    }
+
+    fn parent_hash(&self) -> &str {
+        &self.header.parent_hash
+    }
+}

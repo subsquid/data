@@ -1,8 +1,9 @@
 use crate::stream::{extract_finalized_head, BlockStream};
-use crate::{BlockNumber, BlockRef};
+use crate::BlockRef;
 use anyhow::{anyhow, Context};
 use reqwest::{Client, IntoUrl, Request, Response, Url};
 use serde_json::json;
+use sqd_data_types::BlockNumber;
 use std::error::Error;
 use std::future::Future;
 use std::io::ErrorKind;

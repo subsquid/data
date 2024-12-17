@@ -340,6 +340,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-stream"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5a71a6f37880a80d1d7f19efd781e4b5de42c88f0722cc13bcb6cc2cfe8476"
+dependencies = [
+ "async-stream-impl",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "async-stream-impl"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.90",
+]
+
+[[package]]
+name = "async-trait"
+version = "0.1.83"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "721cae7de5c34fbb2acd27e21e6d2cf7b886dce0c27388d46c4e6c47ea4318dd"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.90",
+]
+
+[[package]]
 name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3870,9 +3903,7 @@ version = "0.23.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5065c3f250cbd332cd894be57c40fa52387247659b14a2d6041d121547903b1b"
 dependencies = [
- "log",
  "once_cell",
- "ring",
  "rustls-pki-types",
  "rustls-webpki 0.102.8",
  "subtle",
@@ -4217,22 +4248,26 @@ name = "sqd-archive"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow",
+ "async-stream",
+ "async-trait",
  "aws-config",
  "aws-sdk-s3",
  "clap",
+ "futures-core",
+ "futures-util",
+ "parking_lot",
  "parquet",
  "regex",
+ "scopeguard",
  "serde",
  "serde_json",
- "sqd-array",
  "sqd-data",
  "sqd-data-core",
+ "sqd-data-types",
  "sqd-dataset",
  "sqd-primitives",
  "tempfile",
  "tokio",
- "ureq",
  "url",
 ]
 
@@ -4276,6 +4311,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sqd-data-types",
 ]
 
 [[package]]
@@ -4287,27 +4323,25 @@ dependencies = [
  "parking_lot",
  "parquet",
  "serde",
+ "serde_json",
  "sqd-array",
+ "sqd-data-types",
  "sqd-dataset",
+]
+
+[[package]]
+name = "sqd-data-types"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
 name = "sqd-dataset"
 version = "0.1.0"
-
-[[package]]
-name = "sqd-node"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "sqd-data",
- "sqd-data-client",
- "sqd-data-core",
- "sqd-dataset",
- "sqd-query",
- "sqd-storage",
- "tracing",
-]
 
 [[package]]
 name = "sqd-polars"
@@ -4350,6 +4384,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqd-data",
+ "sqd-data-core",
  "sqd-dataset",
  "sqd-polars",
  "sqd-primitives",
@@ -4847,24 +4882,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
-name = "ureq"
-version = "2.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02d1a66277ed75f640d608235660df48c8e3c19f3b4edb6a263315626cc3c01d"
-dependencies = [
- "base64 0.22.1",
- "flate2",
- "log",
- "once_cell",
- "rustls 0.23.20",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "url",
- "webpki-roots",
-]
-
-[[package]]
 name = "url"
 version = "2.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5062,15 +5079,6 @@ checksum = "04dd7223427d52553d3702c004d3b2fe07c148165faa56313cb00211e31c12bc"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "0.26.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d642ff16b7e79272ae451b7322067cdc17cadf68c23264be9d94a32319efe7e"
-dependencies = [
- "rustls-pki-types",
 ]
 
 [[package]]
