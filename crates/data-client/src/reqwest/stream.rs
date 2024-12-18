@@ -1,5 +1,5 @@
-use crate::lines::LineStream;
-use crate::BlockRef;
+use crate::reqwest::lines::LineStream;
+use crate::{BlockRef, BlockStream};
 use anyhow::{anyhow, ensure, Context};
 use bytes::Bytes;
 use futures_core::Stream;
@@ -10,7 +10,7 @@ use std::pin::Pin;
 use std::task::Poll;
 
 
-pub(crate) fn extract_finalized_head(res: &Response) -> anyhow::Result<Option<BlockRef>> {
+pub(super) fn extract_finalized_head(res: &Response) -> anyhow::Result<Option<BlockRef>> {
     let number = get_finalized_head_number(res)
         .transpose()
         .context("invalid x-sqd-finalized-head-number header")?;
@@ -51,7 +51,7 @@ fn get_finalized_head_hash(res: &Response) -> Option<anyhow::Result<&str>> {
 pub(crate) type BodyStreamBox = Box<dyn Stream<Item = reqwest::Result<Bytes>> + Unpin>;
 
 
-pub struct BlockStream<B> {
+pub struct ReqwestBlockStream<B> {
     finalized_head: anyhow::Result<Option<BlockRef>>,
     lines: Option<LineStream>,
     prev_blocks: Vec<BlockRef>,
@@ -60,8 +60,8 @@ pub struct BlockStream<B> {
 }
 
 
-impl<B> BlockStream<B> {
-    pub(crate) fn new(
+impl<B> ReqwestBlockStream<B> {
+    pub(super) fn new(
         finalized_head: anyhow::Result<Option<BlockRef>>,
         body: Option<BodyStreamBox>,
         prev_blocks: Vec<BlockRef>,
@@ -91,7 +91,7 @@ impl<B> BlockStream<B> {
 }
 
 
-impl<B: Block + FromJsonBytes + Unpin> Stream for BlockStream<B> {
+impl<B: Block + FromJsonBytes + Unpin> Stream for ReqwestBlockStream<B> {
     type Item = anyhow::Result<B>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
@@ -118,5 +118,22 @@ impl<B: Block + FromJsonBytes + Unpin> Stream for BlockStream<B> {
         } else {
             Poll::Ready(None)
         }
+    }
+}
+
+
+impl<B: Block + FromJsonBytes + Unpin + Send> BlockStream for ReqwestBlockStream<B> {
+    type Block = B;
+    
+    fn take_finalized_head(&mut self) -> anyhow::Result<Option<BlockRef>> {
+        self.take_finalized_head()
+    }
+
+    fn finalized_head(&self) -> Option<&BlockRef> {
+        self.finalized_head()
+    }
+
+    fn prev_blocks(&self) -> &[BlockRef] {
+        self.prev_blocks()
     }
 }

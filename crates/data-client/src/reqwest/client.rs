@@ -1,9 +1,10 @@
-use crate::stream::{extract_finalized_head, BlockStream};
-use crate::BlockRef;
+use crate::reqwest::stream::{extract_finalized_head, ReqwestBlockStream};
+use crate::{BlockRef, DataClient};
 use anyhow::{anyhow, Context};
+use futures_core::future::BoxFuture;
 use reqwest::{Client, IntoUrl, Request, Response, Url};
 use serde_json::json;
-use sqd_data_types::BlockNumber;
+use sqd_data_types::{Block, BlockNumber, FromJsonBytes};
 use std::error::Error;
 use std::future::Future;
 use std::io::ErrorKind;
@@ -12,14 +13,14 @@ use std::time::Duration;
 
 
 #[derive(Clone)]
-pub struct DataClient<B> {
+pub struct ReqwestDataClient<B> {
     http: Client,
     url: Url,
     phantom_data: PhantomData<B>
 }
 
 
-impl <B> DataClient<B> {
+impl <B> ReqwestDataClient<B> {
     pub fn from_url(url: impl IntoUrl) -> Self {
         let http = Client::builder()
             .read_timeout(Duration::from_secs(5))
@@ -43,7 +44,7 @@ impl <B> DataClient<B> {
         &self,
         from: BlockNumber,
         prev_block_hash: &str
-    ) -> anyhow::Result<BlockStream<B>>
+    ) -> anyhow::Result<ReqwestBlockStream<B>>
     {
         let mut body = json!({
             "fromBlock": from
@@ -67,7 +68,7 @@ impl <B> DataClient<B> {
         self.with_retries(&req, |res| async {
             Ok(match res.status().as_u16() {
                 200 => {
-                    BlockStream::new(
+                    ReqwestBlockStream::new(
                         extract_finalized_head(&res),
                         Some(Box::new(res.bytes_stream())),
                         vec![],
@@ -75,7 +76,7 @@ impl <B> DataClient<B> {
                     )
                 },
                 204 => {
-                    BlockStream::new(
+                    ReqwestBlockStream::new(
                         extract_finalized_head(&res),
                         None,
                         vec![],
@@ -92,7 +93,7 @@ impl <B> DataClient<B> {
                             "failed to receive a list of previous blocks after base-block hash mismatch"
                         )?;
 
-                    BlockStream::new(
+                    ReqwestBlockStream::new(
                         finalized_head,
                         None,
                         prev_blocks,
@@ -170,5 +171,17 @@ fn is_retryable_io(err: &std::io::Error) -> bool {
         ErrorKind::ConnectionAborted => true,
         ErrorKind::TimedOut => true,
         _ => false
+    }
+}
+
+
+impl<B: Block + FromJsonBytes + Unpin + Send> DataClient for ReqwestDataClient<B> {
+    type BlockStream = ReqwestBlockStream<B>;
+
+    fn stream<'a>(&'a self, from: BlockNumber, prev_block_hash: &'a str) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>
+    where
+        Self: Sync + 'a
+    {
+        Box::pin(self.stream(from, prev_block_hash))
     }
 }

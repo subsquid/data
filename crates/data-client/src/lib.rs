@@ -1,9 +1,6 @@
-mod stream;
-mod block_ref;
-mod client;
-mod lines;
+mod types;
+mod reqwest;
 
 
-pub use client::*;
-pub use stream::*;
-pub use block_ref::*;
+pub use reqwest::*;
+pub use types::*;
