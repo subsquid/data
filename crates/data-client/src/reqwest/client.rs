@@ -175,12 +175,10 @@ fn is_retryable_io(err: &std::io::Error) -> bool {
 }
 
 
-impl<B: Block + FromJsonBytes + Unpin + Send> DataClient for ReqwestDataClient<B> {
+impl<B: Block + FromJsonBytes + Unpin + Send + Sync> DataClient for ReqwestDataClient<B> {
     type BlockStream = ReqwestBlockStream<B>;
 
     fn stream<'a>(&'a self, from: BlockNumber, prev_block_hash: &'a str) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>
-    where
-        Self: Sync + 'a
     {
         Box::pin(self.stream(from, prev_block_hash))
     }

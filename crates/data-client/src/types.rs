@@ -4,7 +4,7 @@ use serde::Deserialize;
 use sqd_data_types::{Block, BlockNumber};
 
 
-pub trait DataClient {
+pub trait DataClient: Sync {
     type BlockStream: BlockStream;
     
     fn stream<'a>(
@@ -12,8 +12,9 @@ pub trait DataClient {
         from: BlockNumber, 
         prev_block_hash: &'a str
     ) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>
-    where 
-        Self: Sync + 'a;
+    // where 
+    //     Self: 'a
+    ;
 }
 
 
