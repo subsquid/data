@@ -104,6 +104,7 @@ impl<'a> DatasetCompaction<'a> {
             first_block: first_chunk.first_block(),
             last_block: last_chunk.last_block(),
             last_block_hash: last_chunk.last_block_hash().to_string(),
+            parent_block_hash: first_chunk.parent_block_hash().to_string(),
             tables
         }
     }

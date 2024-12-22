@@ -85,5 +85,19 @@ pub struct Chunk {
     pub first_block: BlockNumber,
     pub last_block: BlockNumber,
     pub last_block_hash: String,
+    pub parent_block_hash: String,
     pub tables: BTreeMap<String, TableId>
+}
+
+
+impl Display for Chunk {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f, 
+            "{}..{}#{}",
+            self.first_block,
+            self.last_block,
+            self.last_block_hash
+        )
+    }
 }

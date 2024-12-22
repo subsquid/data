@@ -1,11 +1,12 @@
 use crate::db::data::ChunkId;
-use crate::db::db::{RocksDB, RocksTransaction, RocksTransactionOptions, CF_CHUNKS, CF_DATASETS, CF_DIRTY_TABLES};
-use crate::db::read::chunk::list_chunks;
+use crate::db::db::{RocksDB, RocksTransaction, RocksTransactionIterator, RocksTransactionOptions, CF_CHUNKS, CF_DATASETS, CF_DIRTY_TABLES};
+use crate::db::read::chunk::ChunkIterator;
 use crate::db::{Chunk, DatasetId, DatasetLabel};
-use anyhow::{anyhow, ensure};
+use anyhow::{anyhow, bail, ensure, Context};
 use rocksdb::ColumnFamily;
 use sqd_primitives::BlockNumber;
 use std::cmp::{max, min};
+use crate::db::table_id::TableId;
 
 
 pub struct Tx<'a> {
@@ -96,6 +97,12 @@ impl <'a> Tx<'a> {
         Ok(())
     }
 
+    pub fn bump_label(&self, dataset_id: DatasetId) -> anyhow::Result<()> {
+        let mut label = self.get_label_for_update(dataset_id)?;
+        label.version += 1;
+        self.write_label(dataset_id, &label)
+    }
+
     pub fn write_chunk(&self, dataset_id: DatasetId, chunk: &Chunk) -> anyhow::Result<()> {
         self.transaction.put_cf(
             self.cf_handle(CF_CHUNKS),
@@ -123,57 +130,103 @@ impl <'a> Tx<'a> {
         Ok(())
     }
 
+    pub fn insert_fork(
+        &self,
+        dataset_id: DatasetId,
+        chunk: &Chunk
+    ) -> anyhow::Result<Vec<TableId>>
+    {
+        let mut deleted_tables = Vec::new();
+        
+        let existing = self.list_chunks(
+            dataset_id,
+            0,
+            None
+        ).into_reversed();
+        
+        for chunk_result in existing {
+            let head = chunk_result?;
+            if chunk.first_block <= head.first_block {
+                self.delete_chunk(dataset_id, &head)?;
+                deleted_tables.extend(head.tables.values());
+            } else if head.last_block + 1 == chunk.first_block {
+                ensure!(head.last_block_hash == chunk.parent_block_hash);
+                break
+            } else if head.last_block < chunk.first_block {
+                bail!(
+                    "chain continuity was violated between new chunk {} and existing {}",
+                    chunk,
+                    head
+                )
+            } else {
+                bail!("new chunk {} overlaps with existing {}", chunk, head)
+            }    
+        }
+        
+        self.write_chunk(dataset_id, chunk)?;
+        
+        Ok(deleted_tables)
+    }
+
     pub fn validate_chunk_insertion(
         &self,
         dataset_id: DatasetId,
-        chunk: &Chunk,
-        prev_block_hash: Option<&str>
+        chunk: &Chunk
     ) -> anyhow::Result<()>
     {
         ensure!(chunk.first_block <= chunk.last_block);
 
-        let existing = self.list_chunks(
-            dataset_id,
-            chunk.first_block.saturating_sub(1),
-            None
-        ).take(2).collect::<anyhow::Result<Vec<_>>>()?;
-
-        if let Some(prev_block_hash) = prev_block_hash {
-            let ok = existing.first().map(|prev| {
-                prev.last_block + 1 == chunk.first_block && prev.last_block_hash == prev_block_hash
-            }).unwrap_or(true);
-            ensure!(ok, "chain continuity violated");
+        let existing = self.list_chunks(dataset_id, 0, Some(chunk.last_block + 1))
+            .into_reversed()
+            .take(2);
+        
+        for chunk_result in existing {
+            let n = chunk_result.context("failed to get neighbors")?;
+            
+            let is_disjoint = min(n.last_block, chunk.last_block) < max(n.first_block, chunk.first_block);
+            ensure!(
+                is_disjoint,
+                "new chunk {} overlaps with existing {}",
+                chunk,
+                n
+            );
+            
+            if chunk.last_block + 1 == n.first_block {
+                ensure!(
+                    chunk.last_block_hash == n.parent_block_hash,
+                    "chain continuity was violated between new {} and existing {}",
+                    chunk,
+                    n
+                );
+            }
+            
+            if n.last_block + 1 == chunk.first_block {
+                ensure!(
+                    n.last_block_hash == chunk.parent_block_hash,
+                    "chain continuity was violated between new {} and existing {}",
+                    chunk,
+                    n
+                );
+            }
         }
-
-        let first_is_disjoint = existing.first().map(|c| {
-            let beg = max(c.first_block, chunk.first_block);
-            let end = min(c.last_block, chunk.last_block);
-            end < beg
-        }).unwrap_or(true);
-
-        let last_is_disjoint = existing.last().map(|c| {
-            let beg = max(c.first_block, chunk.first_block);
-            let end = min(c.last_block, chunk.last_block);
-            end < beg
-        }).unwrap_or(true);
-
-        ensure!(first_is_disjoint && last_is_disjoint, "found overlapping chunks");
 
         Ok(())
     }
 
     pub fn list_chunks(
-        &self, 
+        &self,
         dataset_id: DatasetId,
-        first_block: BlockNumber, 
-        last_block: Option<BlockNumber>
-    ) -> impl Iterator<Item=anyhow::Result<Chunk>> + '_
+        from_block: BlockNumber,
+        to_block: Option<BlockNumber>
+    ) -> ChunkIterator<RocksTransactionIterator<'_>>
     {
-        list_chunks(
-            self.transaction.raw_iterator_cf(self.cf_handle(CF_CHUNKS)),
+        ChunkIterator::new(
+            self.transaction.raw_iterator_cf(
+                self.cf_handle(CF_CHUNKS)
+            ),
             dataset_id,
-            first_block,
-            last_block
+            from_block,
+            to_block
         )
     }
 

@@ -147,16 +147,26 @@ impl Database {
     pub fn insert_chunk(
         &self,
         dataset_id: DatasetId,
-        chunk: &Chunk,
-        prev_block_hash: Option<&str>
+        chunk: &Chunk
     ) -> anyhow::Result<()>
     {
         Tx::new_with_snapshot(&self.db).run(|tx| {
-            let mut label = tx.get_label_for_update(dataset_id)?;
-            label.version += 1;
-            tx.write_label(dataset_id, &label)?;
-            tx.validate_chunk_insertion(dataset_id, chunk, prev_block_hash)?;
+            tx.bump_label(dataset_id)?;
+            tx.validate_chunk_insertion(dataset_id, chunk)?;
             tx.write_chunk(dataset_id, &chunk)
+        })
+    }
+    
+    pub fn insert_fork(
+        &self,
+        dataset_id: DatasetId,
+        chunk: &Chunk
+    ) -> anyhow::Result<()>
+    {
+        Tx::new_with_snapshot(&self.db).run(|tx| {
+            tx.bump_label(dataset_id)?;
+            tx.insert_fork(dataset_id, chunk)?;
+            Ok(())
         })
     }
 

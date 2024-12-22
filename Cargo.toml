@@ -7,7 +7,7 @@ members = [
     "crates/data-client",
     "crates/data-types",
     "crates/dataset",
-#    "crates/node",
+    "crates/node",
     "crates/polars",
     "crates/primitives",
     "crates/query",

@@ -4344,6 +4344,21 @@ name = "sqd-dataset"
 version = "0.1.0"
 
 [[package]]
+name = "sqd-node"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-core",
+ "sqd-data",
+ "sqd-data-client",
+ "sqd-data-core",
+ "sqd-dataset",
+ "sqd-query",
+ "sqd-storage",
+ "tracing",
+]
+
+[[package]]
 name = "sqd-polars"
 version = "0.1.0"
 dependencies = [

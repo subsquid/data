@@ -1,3 +1,4 @@
+#![allow(unused)]
 mod archive;
 mod chain_builder;
 mod cli;

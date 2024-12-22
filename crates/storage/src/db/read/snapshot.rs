@@ -1,6 +1,6 @@
 use crate::db::data::{Chunk, DatasetId};
 use crate::db::db::{RocksDB, RocksSnapshot, RocksSnapshotIterator, CF_CHUNKS, CF_DATASETS, CF_TABLES};
-use crate::db::read::chunk::{list_chunks, list_chunks_in_reversed_order};
+use crate::db::read::chunk::ChunkIterator;
 use crate::db::table_id::TableId;
 use crate::db::DatasetLabel;
 use crate::kv::KvRead;
@@ -60,25 +60,18 @@ impl <'a> ReadSnapshot<'a> {
         dataset_id: DatasetId,
         from_block: BlockNumber,
         to_block: Option<BlockNumber>
-    ) -> impl Iterator<Item=anyhow::Result<Chunk>> + '_
+    ) -> ChunkIterator<RocksSnapshotIterator<'a>>
     {
         let cursor = self.db.raw_iterator_cf_opt(
             self.cf_handle(CF_CHUNKS),
             self.new_options()
         );
-        list_chunks(cursor, dataset_id, from_block, to_block)
-    }
-    
-    pub fn list_chunks_in_reversed_order(
-        &self,
-        dataset_id: DatasetId,
-    ) -> impl Iterator<Item=anyhow::Result<Chunk>> + '_
-    {
-        let cursor = self.db.raw_iterator_cf_opt(
-            self.cf_handle(CF_CHUNKS),
-            self.new_options()
-        );
-        list_chunks_in_reversed_order(cursor, dataset_id)
+        ChunkIterator::new(
+            cursor, 
+            dataset_id, 
+            from_block, 
+            to_block
+        )
     }
     
     pub fn get_first_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<Chunk>> {
@@ -86,7 +79,7 @@ impl <'a> ReadSnapshot<'a> {
     }
 
     pub fn get_last_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<Chunk>> {
-        self.list_chunks_in_reversed_order(dataset_id).next().transpose()
+        self.list_chunks(dataset_id, 0, None).into_reversed().next().transpose()
     }
 
     fn new_options(&self) -> ReadOptions {
@@ -131,6 +124,10 @@ impl <'a> ChunkReader<'a> {
     
     pub fn last_block_hash(&self) -> &str {
         &self.chunk.last_block_hash
+    }
+    
+    pub fn parent_block_hash(&self) -> &str {
+        &self.chunk.parent_block_hash
     }
 
     pub fn has_table(&self, name: &str) -> bool {

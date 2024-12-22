@@ -141,8 +141,9 @@ mod storage {
             first_block: 0,
             last_block: 0,
             last_block_hash: "hello".to_string(),
+            parent_block_hash: "".to_string(),
             tables: chunk_builder.finish()
-        }, None)?;
+        })?;
 
         Ok(())
     }

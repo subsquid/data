@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
+futures-core = "0.3.31"
 sqd-data = { path = "../data" }
 sqd-data-client = { path = "../data-client" }
 sqd-data-core = { path = "../data-core" }
