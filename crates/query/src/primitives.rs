@@ -2,11 +2,13 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 
-pub type Name = &'static str;
+pub type Name = sqd_primitives::Name;
 
-pub type BlockNumber = u64;
+pub type BlockNumber = sqd_primitives::BlockNumber;
 
-pub type RowIndex = u32;
+pub type RowIndex = sqd_primitives::ItemIndex;
+
+pub type RowRangeList = sqd_primitives::range::RangeList<RowIndex>;
 
 pub type RowIndexArrowType = arrow::datatypes::UInt32Type;
 

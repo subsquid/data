@@ -20,7 +20,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqd-data = { path = "../data" }
 sqd-data-core = { path = "../data-core" }
-sqd-data-types = { path = "../data-types" }
 sqd-dataset = { path = "../dataset" }
 sqd-primitives = { path = "../primitives" }
 tempfile = { workspace = true }

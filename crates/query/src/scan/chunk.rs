@@ -1,5 +1,4 @@
-use sqd_primitives::Name;
-
+use crate::primitives::Name;
 use crate::scan::scan::Scan;
 
 

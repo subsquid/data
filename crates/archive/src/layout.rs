@@ -4,7 +4,7 @@ use async_stream::try_stream;
 use futures_core::Stream;
 use futures_util::{StreamExt, TryStreamExt};
 use regex::Regex;
-use sqd_data_types::BlockNumber;
+use sqd_primitives::BlockNumber;
 use std::pin::pin;
 use std::sync::LazyLock;
 

@@ -4263,7 +4263,6 @@ dependencies = [
  "serde_json",
  "sqd-data",
  "sqd-data-core",
- "sqd-data-types",
  "sqd-dataset",
  "sqd-primitives",
  "tempfile",
@@ -4291,13 +4290,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow",
- "arrow-buffer",
  "bs58",
  "serde",
  "serde_json",
  "sqd-array",
  "sqd-data-core",
  "sqd-dataset",
+ "sqd-primitives",
 ]
 
 [[package]]
@@ -4311,7 +4310,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "sqd-data-types",
+ "sqd-primitives",
 ]
 
 [[package]]
@@ -4325,18 +4324,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqd-array",
- "sqd-data-types",
  "sqd-dataset",
-]
-
-[[package]]
-name = "sqd-data-types"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytes",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -4354,6 +4342,7 @@ dependencies = [
  "sqd-data-client",
  "sqd-data-core",
  "sqd-dataset",
+ "sqd-primitives",
  "sqd-query",
  "sqd-storage",
  "tracing",
@@ -4374,8 +4363,11 @@ dependencies = [
 name = "sqd-primitives"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "borsh",
+ "bytes",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

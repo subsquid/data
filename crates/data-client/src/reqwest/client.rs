@@ -1,10 +1,10 @@
 use crate::reqwest::stream::{extract_finalized_head, ReqwestBlockStream};
-use crate::{BlockRef, DataClient};
+use crate::DataClient;
 use anyhow::{anyhow, Context};
 use futures_core::future::BoxFuture;
 use reqwest::{Client, IntoUrl, Request, Response, Url};
 use serde_json::json;
-use sqd_data_types::{Block, BlockNumber, FromJsonBytes};
+use sqd_primitives::{Block, BlockNumber, BlockRef, FromJsonBytes};
 use std::error::Error;
 use std::future::Future;
 use std::io::ErrorKind;

@@ -1,10 +1,10 @@
 use crate::reqwest::lines::LineStream;
-use crate::{BlockRef, BlockStream};
+use crate::BlockStream;
 use anyhow::{anyhow, ensure, Context};
 use bytes::Bytes;
 use futures_core::Stream;
 use reqwest::Response;
-use sqd_data_types::{Block, BlockNumber, FromJsonBytes};
+use sqd_primitives::{Block, BlockNumber, BlockRef, FromJsonBytes};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::Poll;
@@ -20,7 +20,10 @@ pub(super) fn extract_finalized_head(res: &Response) -> anyhow::Result<Option<Bl
         .context("invalid x-sqd-finalized-head-hash header")?;
 
     match (number, hash) {
-        (Some(number), Some(hash)) => Ok(Some(BlockRef::new(number, hash))),
+        (Some(number), Some(hash)) => Ok(Some(BlockRef {
+            number,
+            hash: hash.to_string()
+        })),
         (None, None) => Ok(None),
         (Some(_), None) => Err(anyhow!(
             "x-sqd-finalized-head-number header is present, but x-sqd-finalized-head-hash is not"

@@ -1,8 +1,7 @@
-use std::collections::HashSet;
-use arrow::array::RecordBatch;
-use sqd_primitives::RowRangeList;
-use crate::primitives::Name;
+use crate::primitives::{Name, RowRangeList};
 use crate::scan::RowPredicateRef;
+use arrow::array::RecordBatch;
+use std::collections::HashSet;
 
 
 pub trait TableReader {

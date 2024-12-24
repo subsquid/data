@@ -6,7 +6,7 @@ use crate::layout::Layout;
 use crate::writer::ParquetWriter;
 use anyhow::ensure;
 use sqd_data::solana::tables::SolanaChunkBuilder;
-use sqd_data_types::BlockNumber;
+use sqd_primitives::BlockNumber;
 
 
 pub async fn run(args: &Cli) -> anyhow::Result<()> {

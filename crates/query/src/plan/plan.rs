@@ -1,18 +1,14 @@
-use std::collections::{HashMap, HashSet};
-
-use anyhow::ensure;
-use rayon::prelude::*;
-
-use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
-use sqd_primitives::RowRangeList;
-
 use crate::json::exp::Exp;
 use crate::plan::rel::Rel;
 use crate::plan::result::{BlockWriter, DataItem};
 use crate::plan::row_list::RowList;
 use crate::plan::table::{ColumnWeight, TableSet};
-use crate::primitives::{BlockNumber, Name, RowWeight, RowWeightPolarsType};
-use crate::scan::{Chunk, col_between, col_gt_eq, col_lt_eq, RowPredicateRef};
+use crate::primitives::{BlockNumber, Name, RowRangeList, RowWeight, RowWeightPolarsType};
+use crate::scan::{col_between, col_gt_eq, col_lt_eq, Chunk, RowPredicateRef};
+use anyhow::ensure;
+use rayon::prelude::*;
+use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
+use std::collections::{HashMap, HashSet};
 
 
 type Idx = usize;

@@ -1,6 +1,6 @@
 use anyhow::ensure;
 use sqd_data_core::{BlockChunkBuilder, ChunkBuilder};
-use sqd_data_types::{Block, BlockNumber};
+use sqd_primitives::{Block, BlockNumber};
 
 
 pub type ChainBuilderBox = Box<dyn AnyChainBuilder>;

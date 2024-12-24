@@ -1,10 +1,9 @@
-use crate::primitives::Name;
+use crate::primitives::{Name, RowRangeList};
 use crate::scan::reader::TableReader;
 use crate::scan::row_predicate::{ColumnStats, RowStats};
 use crate::scan::util::{add_row_index, build_row_index_array};
 use crate::scan::RowPredicateRef;
 use arrow::array::RecordBatch;
-use sqd_primitives::RowRangeList;
 use sqd_storage::db::SnapshotTableReader;
 use std::collections::HashSet;
 

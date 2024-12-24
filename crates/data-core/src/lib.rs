@@ -14,4 +14,3 @@ pub use chunk_processor::*;
 pub use downcast::Downcast;
 pub use table_processor::*;
 pub use table_sort::*;
-pub use sqd_data_types::{Block, BlockNumber};

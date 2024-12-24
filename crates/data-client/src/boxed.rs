@@ -1,6 +1,6 @@
-use crate::{BlockRef, BlockStream, DataClient};
+use crate::{BlockStream, DataClient};
 use futures_core::future::BoxFuture;
-use sqd_data_types::{Block, BlockNumber};
+use sqd_primitives::{Block, BlockNumber, BlockRef};
 use std::sync::Arc;
 
 

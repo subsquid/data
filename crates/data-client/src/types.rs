@@ -1,7 +1,6 @@
 use futures_core::future::BoxFuture;
 use futures_core::Stream;
-use serde::Deserialize;
-use sqd_data_types::{Block, BlockNumber};
+use sqd_primitives::{Block, BlockNumber, BlockRef};
 
 
 pub trait DataClient: Sync {
@@ -11,10 +10,7 @@ pub trait DataClient: Sync {
         &'a self, 
         from: BlockNumber, 
         prev_block_hash: &'a str
-    ) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>
-    // where 
-    //     Self: 'a
-    ;
+    ) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>;
 }
 
 
@@ -26,29 +22,4 @@ pub trait BlockStream: Stream<Item = anyhow::Result<Self::Block>> {
     fn finalized_head(&self) -> Option<&BlockRef>;
 
     fn prev_blocks(&self) -> &[BlockRef];
-}
-
-
-#[derive(Deserialize, Clone, Debug, Default)]
-pub struct BlockRef {
-    number: BlockNumber,
-    hash: String
-}
-
-
-impl BlockRef {
-    pub fn new(number: BlockNumber, hash: &str) -> Self {
-        Self {
-            number,
-            hash: hash.to_string()
-        }
-    }
-    
-    pub fn number(&self) -> BlockNumber {
-        self.number
-    }
-    
-    pub fn hash(&self) -> &str {
-        &self.hash
-    }
 }

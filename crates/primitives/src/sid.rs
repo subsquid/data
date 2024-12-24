@@ -1,4 +1,3 @@
-use crate::ShortHash;
 use std::fmt::{Debug, Display, Formatter};
 
 
@@ -177,7 +176,7 @@ impl <'de, const N: usize> serde::de::Deserialize<'de> for SID<N> {
 
 #[cfg(feature = "serde")]
 mod serde_visitor {
-    use crate::SID;
+    use super::SID;
 
 
     pub struct SIDVisitor<const N: usize>;
@@ -201,11 +200,4 @@ mod serde_visitor {
             })
         }
     }
-}
-
-
-pub fn short_hash(hash: &str) -> ShortHash {
-    let beg = hash.len().saturating_sub(8);
-    let end = hash.len();
-    ShortHash::try_from(&hash[beg..end]).unwrap()
 }

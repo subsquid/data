@@ -113,9 +113,10 @@ impl Database {
         Tx::new(&self.db).run(|tx| {
             let label = tx.find_label_for_update(id)?;
             ensure!(label.is_none(), "dataset {} already exists", id);
-            tx.write_label(id, &DatasetLabel {
+            tx.write_label(id, &DatasetLabel::V0 {
                 kind,
-                version: 0
+                version: 0,
+                finalized_head: None
             })
         })
     }
@@ -124,17 +125,18 @@ impl Database {
         Tx::new(&self.db).run(|tx| {
             if let Some(label) = tx.find_label_for_update(id)? {
                 ensure!(
-                    label.kind == kind,
+                    label.kind() == kind,
                     "wanted to create dataset {} of kind {}, but it already exists with kind {}",
                     id,
-                    label.kind,
+                    label.kind(),
                     kind
                 );
                 Ok(())
             } else {
-                tx.write_label(id, &DatasetLabel {
+                tx.write_label(id, &DatasetLabel::V0 {
                     kind,
-                    version: 0
+                    version: 0,
+                    finalized_head: None
                 })
             }
         })
@@ -188,4 +190,13 @@ impl Database {
     pub fn get_statistics(&self) -> Option<String> {
         self.options.get_statistics()
     }
- }
+}
+
+
+impl std::fmt::Debug for Database {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Database")
+            .field("path", &self.db.path())
+            .finish()
+    }
+}

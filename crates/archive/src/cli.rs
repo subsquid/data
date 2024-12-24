@@ -1,5 +1,5 @@
 use clap::{Parser, ValueEnum};
-use sqd_data_types::BlockNumber;
+use sqd_primitives::BlockNumber;
 use url::Url;
 
 

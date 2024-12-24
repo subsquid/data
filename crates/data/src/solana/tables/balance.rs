@@ -1,9 +1,8 @@
 use crate::solana::model::Balance;
 use crate::solana::tables::common::Base58Builder;
-use crate::types::BlockNumber;
 use sqd_array::builder::{UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
-
+use sqd_primitives::BlockNumber;
 
 table_builder! {
     BalanceBuilder {

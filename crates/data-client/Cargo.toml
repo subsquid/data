@@ -11,4 +11,4 @@ futures-timer = "3.0.3"
 reqwest = { version = "0.12.9", features = ["json", "gzip", "stream"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-sqd-data-types = { path = "../data-types", features = ["de"] }
+sqd-primitives = { path = "../primitives", features = ["from_json_bytes", "serde"] }

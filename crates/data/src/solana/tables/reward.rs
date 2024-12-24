@@ -1,8 +1,8 @@
 use crate::solana::model::Reward;
 use crate::solana::tables::common::Base58Builder;
-use crate::types::BlockNumber;
 use sqd_array::builder::{Int64Builder, StringBuilder, UInt64Builder, UInt8Builder};
 use sqd_data_core::table_builder;
+use sqd_primitives::BlockNumber;
 
 
 table_builder! {

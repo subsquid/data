@@ -1,10 +1,9 @@
 use crate::solana::model::Instruction;
 use crate::solana::tables::common::{AccountListBuilder, Base58Builder, BytesBuilder, InstructionAddressListBuilder};
-use crate::types::BlockNumber;
 use sqd_array::builder::{BooleanBuilder, StringBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
+use sqd_primitives::BlockNumber;
 use std::fmt::Write;
-
 
 table_builder! {
     InstructionBuilder {

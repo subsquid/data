@@ -1,11 +1,10 @@
 [workspace]
 members = [
-    "crates/array",
     "crates/archive",
+    "crates/array",
     "crates/data",
-    "crates/data-core",
     "crates/data-client",
-    "crates/data-types",
+    "crates/data-core",
     "crates/dataset",
     "crates/node",
     "crates/polars",

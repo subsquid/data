@@ -11,6 +11,7 @@ sqd-data = { path = "../data" }
 sqd-data-client = { path = "../data-client" }
 sqd-data-core = { path = "../data-core" }
 sqd-dataset = { path = "../dataset" }
+sqd-primitives = { path = "../primitives" }
 sqd-query = { path = "../query", features = ["storage"] }
 sqd-storage = { path = "../storage" }
 tracing = { workspace = true }

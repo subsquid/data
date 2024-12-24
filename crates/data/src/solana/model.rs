@@ -1,5 +1,6 @@
-use crate::types::{Base58Bytes, BlockNumber, ItemIndex, JsonValue};
+use crate::types::{Base58Bytes, JsonValue};
 use serde::{Deserialize, Serialize};
+use sqd_primitives::{BlockNumber, ItemIndex};
 
 
 #[derive(Deserialize)]
@@ -178,8 +179,8 @@ pub struct Block {
 }
 
 
-impl sqd_data_core::Block for Block {
-    fn number(&self) -> sqd_data_core::BlockNumber {
+impl sqd_primitives::Block for Block {
+    fn number(&self) -> BlockNumber {
         self.header.height
     }
 
@@ -187,7 +188,7 @@ impl sqd_data_core::Block for Block {
         &self.header.hash
     }
 
-    fn parent_number(&self) -> sqd_data_core::BlockNumber {
+    fn parent_number(&self) -> BlockNumber {
         self.number().saturating_sub(1)
     }
 

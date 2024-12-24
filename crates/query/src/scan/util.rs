@@ -1,7 +1,6 @@
-use crate::primitives::{RowIndex, RowIndexArrowType};
+use crate::primitives::{RowIndex, RowIndexArrowType, RowRangeList};
 use arrow::array::{ArrayRef, PrimitiveArray, RecordBatch, RecordBatchOptions, UInt32Array};
 use arrow::datatypes::{DataType, Field, SchemaBuilder, SchemaRef};
-use sqd_primitives::RowRangeList;
 use std::sync::Arc;
 
 

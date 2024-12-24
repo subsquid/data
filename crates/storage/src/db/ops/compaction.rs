@@ -52,7 +52,7 @@ impl<'a> DatasetCompaction<'a> {
             self.delete_merged_chunks(tx)?;
             tx.write_chunk(self.dataset_id, &new_chunk)?;
 
-            label.version += 1;
+            label.bump_version();
             tx.write_label(self.dataset_id, &label)?;
             Ok(CompactionStatus::Ok)
         })?;

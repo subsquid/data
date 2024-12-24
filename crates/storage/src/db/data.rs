@@ -1,6 +1,7 @@
 use crate::db::table_id::TableId;
 use borsh::{BorshDeserialize, BorshSerialize};
-use sqd_primitives::{BlockNumber, SID};
+use sqd_primitives::sid::SID;
+use sqd_primitives::{BlockNumber, BlockRef};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -14,18 +15,53 @@ pub type DatasetVersion = u64;
 pub type DatasetKind = SID<16>;
 
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, BorshSerialize, BorshDeserialize)]
-pub struct DatasetLabel {
-    pub kind: DatasetKind,
-    pub version: DatasetVersion
+#[derive(Debug, Clone, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+pub enum DatasetLabel {
+    V0 {
+        kind: DatasetKind,
+        version: DatasetVersion,
+        finalized_head: Option<BlockRef>
+    }
+}
+
+
+impl DatasetLabel {
+    pub fn kind(&self) -> DatasetKind {
+        match self { 
+            DatasetLabel::V0 { kind, .. } => *kind 
+        }
+    }
+    
+    pub fn version(&self) -> DatasetVersion {
+        match self {
+            DatasetLabel::V0 { version, .. } => *version
+        }
+    }
+    
+    pub fn bump_version(&mut self) {
+        match self {
+            DatasetLabel::V0 { version, .. } => *version += 1
+        }
+    }
+
+    pub fn finalized_head(&self) -> Option<&BlockRef> {
+        match self {
+            DatasetLabel::V0 { finalized_head, .. } => finalized_head.as_ref()
+        }
+    }
+
+    pub fn set_finalized_head(&mut self, block_ref: Option<BlockRef>) {
+        match self {
+            DatasetLabel::V0 { finalized_head, .. } => *finalized_head = block_ref
+        }
+    }
 }
 
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Dataset {
     pub id: DatasetId,
-    pub kind: DatasetKind,
-    pub version: DatasetVersion
+    pub label: DatasetLabel
 }
 
 

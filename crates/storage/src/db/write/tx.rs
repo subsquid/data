@@ -1,12 +1,12 @@
 use crate::db::data::ChunkId;
 use crate::db::db::{RocksDB, RocksTransaction, RocksTransactionIterator, RocksTransactionOptions, CF_CHUNKS, CF_DATASETS, CF_DIRTY_TABLES};
 use crate::db::read::chunk::ChunkIterator;
+use crate::db::table_id::TableId;
 use crate::db::{Chunk, DatasetId, DatasetLabel};
 use anyhow::{anyhow, bail, ensure, Context};
 use rocksdb::ColumnFamily;
 use sqd_primitives::BlockNumber;
 use std::cmp::{max, min};
-use crate::db::table_id::TableId;
 
 
 pub struct Tx<'a> {
@@ -99,7 +99,7 @@ impl <'a> Tx<'a> {
 
     pub fn bump_label(&self, dataset_id: DatasetId) -> anyhow::Result<()> {
         let mut label = self.get_label_for_update(dataset_id)?;
-        label.version += 1;
+        label.bump_version();
         self.write_label(dataset_id, &label)
     }
 
@@ -211,6 +211,18 @@ impl <'a> Tx<'a> {
         }
 
         Ok(())
+    }
+
+    pub fn retain_head(&self, dataset_id: DatasetId, from_block: BlockNumber) -> anyhow::Result<Vec<TableId>> {
+        let mut deleted_tables = Vec::new();
+        for chunk_result in self.list_chunks(dataset_id, 0, Some(from_block.saturating_sub(1))) {
+            let chunk = chunk_result?;
+            if chunk.last_block < from_block {
+                self.delete_chunk(dataset_id, &chunk)?;
+                deleted_tables.extend(chunk.tables.values())
+            }
+        }
+        Ok(deleted_tables)
     }
 
     pub fn list_chunks(

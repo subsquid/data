@@ -1,22 +1,18 @@
-use std::cmp::Ordering;
-use std::collections::HashSet;
-use std::ops::Not;
-use std::sync::Arc;
-
-use arrow::array::RecordBatch;
-use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder, RowSelection, RowSelector};
-use parquet::arrow::ProjectionMask;
-use parquet::file::metadata::RowGroupMetaData;
-use rayon::prelude::*;
-
-use sqd_primitives::RowRangeList;
-
-use crate::primitives::{Name, RowIndex};
+use crate::primitives::{Name, RowIndex, RowRangeList};
 use crate::scan::parquet::io::MmapIO;
 use crate::scan::parquet::metadata::ParquetMetadata;
 use crate::scan::reader::TableReader;
 use crate::scan::row_predicate::{RowPredicate, RowPredicateRef};
 use crate::scan::util::{add_row_index, build_row_index_array};
+use arrow::array::RecordBatch;
+use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder, RowSelection, RowSelector};
+use parquet::arrow::ProjectionMask;
+use parquet::file::metadata::RowGroupMetaData;
+use rayon::prelude::*;
+use std::cmp::Ordering;
+use std::collections::HashSet;
+use std::ops::Not;
+use std::sync::Arc;
 
 
 #[derive(Clone)]
