@@ -4308,10 +4308,12 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-timer",
+ "futures-util",
  "reqwest",
  "serde",
  "serde_json",
  "sqd-data-types",
+ "tokio",
 ]
 
 [[package]]

@@ -8,7 +8,14 @@ anyhow = { workspace = true, features = ["std"] }
 bytes = { workspace = true }
 futures-core = "0.3.31"
 futures-timer = "3.0.3"
+futures-util = "0.3.31"
 reqwest = { version = "0.12.9", features = ["json", "gzip", "stream"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqd-data-types = { path = "../data-types", features = ["de"] }
+
+[dev-dependencies]
+tokio = { version = "1.42.0", features = ["rt", "macros", "rt-multi-thread"] }
+
+[[example]]
+name = "simple-client"
