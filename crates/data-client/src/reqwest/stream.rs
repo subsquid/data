@@ -2,13 +2,12 @@ use crate::reqwest::lines::LineStream;
 use crate::{BlockRef, BlockStream};
 use anyhow::{anyhow, ensure, Context};
 use bytes::Bytes;
-use futures_core::Stream;
+use futures_core::{FusedStream, Stream};
 use reqwest::Response;
 use sqd_data_types::{Block, BlockNumber, FromJsonBytes};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::Poll;
-
 
 pub(super) fn extract_finalized_head(res: &Response) -> anyhow::Result<Option<BlockRef>> {
     let number = get_finalized_head_number(res)
@@ -27,10 +26,9 @@ pub(super) fn extract_finalized_head(res: &Response) -> anyhow::Result<Option<Bl
         )),
         (None, Some(_)) => Err(anyhow!(
             "x-sqd-finalized-head-hash header is present, but x-sqd-finalized-head-number is not"
-        ))
+        )),
     }
 }
-
 
 fn get_finalized_head_number(res: &Response) -> Option<anyhow::Result<BlockNumber>> {
     res.headers().get("x-sqd-finalized-head-number").map(|v| {
@@ -39,7 +37,6 @@ fn get_finalized_head_number(res: &Response) -> Option<anyhow::Result<BlockNumbe
     })
 }
 
-
 fn get_finalized_head_hash(res: &Response) -> Option<anyhow::Result<&str>> {
     res.headers().get("x-sqd-finalized-head-hash").map(|v| {
         let hash = v.to_str()?;
@@ -47,33 +44,31 @@ fn get_finalized_head_hash(res: &Response) -> Option<anyhow::Result<&str>> {
     })
 }
 
-
 pub(crate) type BodyStreamBox = Box<dyn Stream<Item = reqwest::Result<Bytes>> + Unpin>;
-
 
 pub struct ReqwestBlockStream<B> {
     finalized_head: anyhow::Result<Option<BlockRef>>,
     lines: Option<LineStream>,
     prev_blocks: Vec<BlockRef>,
     prev_block_hash: String,
-    phantom_data: PhantomData<B>
+    is_terminated: bool,
+    phantom_data: PhantomData<B>,
 }
-
 
 impl<B> ReqwestBlockStream<B> {
     pub(super) fn new(
         finalized_head: anyhow::Result<Option<BlockRef>>,
         body: Option<BodyStreamBox>,
         prev_blocks: Vec<BlockRef>,
-        prev_block_hash: &str
-    ) -> Self
-    {
+        prev_block_hash: &str,
+    ) -> Self {
         Self {
             finalized_head,
             lines: body.map(LineStream::new),
             prev_blocks,
             prev_block_hash: prev_block_hash.to_string(),
-            phantom_data: PhantomData::default()
+            is_terminated: false,
+            phantom_data: PhantomData::default(),
         }
     }
 
@@ -90,11 +85,13 @@ impl<B> ReqwestBlockStream<B> {
     }
 }
 
-
 impl<B: Block + FromJsonBytes + Unpin> Stream for ReqwestBlockStream<B> {
     type Item = anyhow::Result<B>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         if let Some(lines) = this.lines.as_mut() {
             Pin::new(lines).poll_next(cx).map(|maybe_line_result| {
@@ -116,15 +113,15 @@ impl<B: Block + FromJsonBytes + Unpin> Stream for ReqwestBlockStream<B> {
                 })
             })
         } else {
+            this.is_terminated = true;
             Poll::Ready(None)
         }
     }
 }
 
-
 impl<B: Block + FromJsonBytes + Unpin + Send> BlockStream for ReqwestBlockStream<B> {
     type Block = B;
-    
+
     fn take_finalized_head(&mut self) -> anyhow::Result<Option<BlockRef>> {
         self.take_finalized_head()
     }
@@ -135,5 +132,11 @@ impl<B: Block + FromJsonBytes + Unpin + Send> BlockStream for ReqwestBlockStream
 
     fn prev_blocks(&self) -> &[BlockRef] {
         self.prev_blocks()
+    }
+}
+
+impl<B: Block + FromJsonBytes + Unpin + Send> FusedStream for ReqwestBlockStream<B> {
+    fn is_terminated(&self) -> bool {
+        self.is_terminated
     }
 }
