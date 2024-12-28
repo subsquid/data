@@ -182,7 +182,7 @@ mod storage {
             }
         }
 
-        db.insert_chunk(dataset_id, &Chunk {
+        db.insert_chunk(dataset_id, &Chunk::V0 {
             first_block: 200000000,
             last_block: 200000899,
             last_block_hash: "hello".to_string(),

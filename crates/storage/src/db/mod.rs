@@ -18,3 +18,4 @@ pub use data::{
 pub use db::*;
 pub use read::snapshot::*;
 pub use write::chunk::*;
+pub use write::dataset_update::*;

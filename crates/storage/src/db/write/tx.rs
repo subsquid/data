@@ -1,5 +1,5 @@
 use crate::db::data::ChunkId;
-use crate::db::db::{RocksDB, RocksTransaction, RocksTransactionIterator, RocksTransactionOptions, CF_CHUNKS, CF_DATASETS, CF_DIRTY_TABLES};
+use crate::db::db::{RocksDB, RocksTransaction, RocksTransactionIterator, RocksTransactionOptions, CF_CHUNKS, CF_DATASETS, CF_DELETED_TABLES, CF_DIRTY_TABLES};
 use crate::db::read::chunk::ChunkIterator;
 use crate::db::table_id::TableId;
 use crate::db::{Chunk, DatasetId, DatasetLabel};
@@ -11,21 +11,12 @@ use std::cmp::{max, min};
 
 pub struct Tx<'a> {
     db: &'a RocksDB,
-    transaction: RocksTransaction<'a>,
-    with_snapshot: bool
+    transaction: RocksTransaction<'a>
 }
 
 
 impl <'a> Tx<'a> {
     pub fn new(db: &'a RocksDB) -> Self {
-        Self {
-            db,
-            transaction: db.transaction(),
-            with_snapshot: false
-        }
-    }
-
-    pub fn new_with_snapshot(db: &'a RocksDB) -> Self {
         let mut tx_options = RocksTransactionOptions::default();
         tx_options.set_snapshot(true);
 
@@ -37,7 +28,6 @@ impl <'a> Tx<'a> {
         Self {
             db,
             transaction,
-            with_snapshot: true
         }
     }
 
@@ -46,18 +36,13 @@ impl <'a> Tx<'a> {
         F: FnMut(&Self) -> anyhow::Result<R>
     {
         let db = self.db;
-        let with_snapshot = self.with_snapshot;
         let mut tx = self;
         loop {
             let result = cb(&tx)?;
             match tx.commit() {
                 Ok(_) => return Ok(result),
                 Err(err) if err.kind() == rocksdb::ErrorKind::TryAgain => {
-                    tx = if with_snapshot {
-                        Self::new_with_snapshot(db)
-                    } else {
-                        Self::new(db)
-                    }
+                    tx = Self::new(db)
                 },
                 Err(err) => return Err(err.into())
             }
@@ -97,35 +82,34 @@ impl <'a> Tx<'a> {
         Ok(())
     }
 
-    pub fn bump_label(&self, dataset_id: DatasetId) -> anyhow::Result<()> {
-        let mut label = self.get_label_for_update(dataset_id)?;
-        label.bump_version();
-        self.write_label(dataset_id, &label)
-    }
-
     pub fn write_chunk(&self, dataset_id: DatasetId, chunk: &Chunk) -> anyhow::Result<()> {
         self.transaction.put_cf(
             self.cf_handle(CF_CHUNKS),
             ChunkId::new_for_chunk(dataset_id, chunk),
             &borsh::to_vec(chunk).unwrap()
         )?;
-        for table in chunk.tables.values() {
+        for table in chunk.tables().values() {
             self.transaction.delete_cf(self.cf_handle(CF_DIRTY_TABLES), table)?;
         }
         Ok(())
     }
 
     pub fn delete_chunk(&self, dataset_id: DatasetId, chunk: &Chunk) -> anyhow::Result<()> {
-        for table_id in chunk.tables.values() {
-            self.transaction.put_cf(
-                self.cf_handle(CF_DIRTY_TABLES),
-                table_id,
-                []
-            )?
-        }
         self.transaction.delete_cf(
             self.cf_handle(CF_CHUNKS),
             ChunkId::new_for_chunk(dataset_id, chunk)
+        )?;
+        for table_id in chunk.tables().values() {
+            self.delete_table(table_id)?
+        }
+        Ok(())
+    }
+    
+    pub fn delete_table(&self, table_id: &TableId) -> anyhow::Result<()> {
+        self.transaction.put_cf(
+            self.cf_handle(CF_DELETED_TABLES),
+            table_id,
+            []
         )?;
         Ok(())
     }
@@ -134,27 +118,30 @@ impl <'a> Tx<'a> {
         &self,
         dataset_id: DatasetId,
         chunk: &Chunk
-    ) -> anyhow::Result<Vec<TableId>>
+    ) -> anyhow::Result<()>
     {
-        let mut deleted_tables = Vec::new();
-        
         let existing = self.list_chunks(
             dataset_id,
             0,
             None
         ).into_reversed();
         
-        for chunk_result in existing {
-            let head = chunk_result?;
-            if chunk.first_block <= head.first_block {
+        for head_result in existing {
+            let head = head_result?;
+            if chunk.first_block() <= head.first_block() {
                 self.delete_chunk(dataset_id, &head)?;
-                deleted_tables.extend(head.tables.values());
-            } else if head.last_block + 1 == chunk.first_block {
-                ensure!(head.last_block_hash == chunk.parent_block_hash);
+            } else if head.last_block() + 1 == chunk.first_block() {
+                ensure!(
+                    head.last_block_hash() == chunk.parent_block_hash(),
+                    "chain continuity is violated between new chunk {} and its existing parent {}, expected parent hash was {}",
+                    chunk,
+                    head,
+                    chunk.parent_block_hash()
+                );
                 break
-            } else if head.last_block < chunk.first_block {
+            } else if head.last_block() < chunk.first_block() {
                 bail!(
-                    "chain continuity was violated between new chunk {} and existing {}",
+                    "there is a gap between new chunk {} and existing {}, that is just below",
                     chunk,
                     head
                 )
@@ -165,7 +152,7 @@ impl <'a> Tx<'a> {
         
         self.write_chunk(dataset_id, chunk)?;
         
-        Ok(deleted_tables)
+        Ok(())
     }
 
     pub fn validate_chunk_insertion(
@@ -174,16 +161,16 @@ impl <'a> Tx<'a> {
         chunk: &Chunk
     ) -> anyhow::Result<()>
     {
-        ensure!(chunk.first_block <= chunk.last_block);
+        ensure!(chunk.first_block() <= chunk.last_block());
 
-        let existing = self.list_chunks(dataset_id, 0, Some(chunk.last_block + 1))
+        let existing = self.list_chunks(dataset_id, 0, Some(chunk.last_block() + 1))
             .into_reversed()
             .take(2);
         
         for chunk_result in existing {
             let n = chunk_result.context("failed to get neighbors")?;
             
-            let is_disjoint = min(n.last_block, chunk.last_block) < max(n.first_block, chunk.first_block);
+            let is_disjoint = min(n.last_block(), chunk.last_block()) < max(n.first_block(), chunk.first_block());
             ensure!(
                 is_disjoint,
                 "new chunk {} overlaps with existing {}",
@@ -191,18 +178,18 @@ impl <'a> Tx<'a> {
                 n
             );
             
-            if chunk.last_block + 1 == n.first_block {
+            if chunk.last_block() + 1 == n.first_block() {
                 ensure!(
-                    chunk.last_block_hash == n.parent_block_hash,
+                    chunk.last_block_hash() == n.parent_block_hash(),
                     "chain continuity was violated between new {} and existing {}",
                     chunk,
                     n
                 );
             }
             
-            if n.last_block + 1 == chunk.first_block {
+            if n.last_block() + 1 == chunk.first_block() {
                 ensure!(
-                    n.last_block_hash == chunk.parent_block_hash,
+                    n.last_block_hash() == chunk.parent_block_hash(),
                     "chain continuity was violated between new {} and existing {}",
                     chunk,
                     n
@@ -213,18 +200,6 @@ impl <'a> Tx<'a> {
         Ok(())
     }
 
-    pub fn retain_head(&self, dataset_id: DatasetId, from_block: BlockNumber) -> anyhow::Result<Vec<TableId>> {
-        let mut deleted_tables = Vec::new();
-        for chunk_result in self.list_chunks(dataset_id, 0, Some(from_block.saturating_sub(1))) {
-            let chunk = chunk_result?;
-            if chunk.last_block < from_block {
-                self.delete_chunk(dataset_id, &chunk)?;
-                deleted_tables.extend(chunk.tables.values())
-            }
-        }
-        Ok(deleted_tables)
-    }
-
     pub fn list_chunks(
         &self,
         dataset_id: DatasetId,
@@ -232,10 +207,16 @@ impl <'a> Tx<'a> {
         to_block: Option<BlockNumber>
     ) -> ChunkIterator<RocksTransactionIterator<'_>>
     {
+        let mut read_opts = rocksdb::ReadOptions::default();
+        read_opts.set_snapshot(&self.transaction.snapshot());
+        
+        let cursor = self.transaction.raw_iterator_cf_opt(
+            self.cf_handle(CF_CHUNKS),
+            read_opts
+        );
+        
         ChunkIterator::new(
-            self.transaction.raw_iterator_cf(
-                self.cf_handle(CF_CHUNKS)
-            ),
+            cursor,
             dataset_id,
             from_block,
             to_block

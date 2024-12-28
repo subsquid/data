@@ -3,8 +3,9 @@ use super::read::snapshot::ReadSnapshot;
 use super::write::chunk::ChunkBuilder;
 use crate::db::ops::{perform_dataset_compaction, CompactionStatus};
 use crate::db::read::datasets::list_all_datasets;
+use crate::db::write::ops::deleted_deleted_tables;
 use crate::db::write::tx::Tx;
-use crate::db::Chunk;
+use crate::db::{Chunk, DatasetUpdate};
 use anyhow::ensure;
 use rocksdb::{ColumnFamilyDescriptor, Options as RocksOptions};
 use sqd_primitives::Name;
@@ -15,6 +16,7 @@ pub(super) const CF_DATASETS: Name = "DATASETS";
 pub(super) const CF_CHUNKS: Name = "CHUNKS";
 pub(super) const CF_TABLES: Name = "TABLES";
 pub(super) const CF_DIRTY_TABLES: Name = "DIRTY_TABLES";
+pub(super) const CF_DELETED_TABLES: Name = "DELETED_TABLES";
 
 
 pub(super) type RocksDB = rocksdb::OptimisticTransactionDB;
@@ -91,7 +93,8 @@ impl DatabaseSettings {
             ColumnFamilyDescriptor::new(CF_DATASETS, RocksOptions::default()),
             ColumnFamilyDescriptor::new(CF_CHUNKS, RocksOptions::default()),
             ColumnFamilyDescriptor::new(CF_TABLES, self.tables_cf_options()),
-            ColumnFamilyDescriptor::new(CF_DIRTY_TABLES, RocksOptions::default())
+            ColumnFamilyDescriptor::new(CF_DIRTY_TABLES, RocksOptions::default()),
+            ColumnFamilyDescriptor::new(CF_DELETED_TABLES, RocksOptions::default())
         ])?;
         
         Ok(Database {
@@ -152,10 +155,8 @@ impl Database {
         chunk: &Chunk
     ) -> anyhow::Result<()>
     {
-        Tx::new_with_snapshot(&self.db).run(|tx| {
-            tx.bump_label(dataset_id)?;
-            tx.validate_chunk_insertion(dataset_id, chunk)?;
-            tx.write_chunk(dataset_id, &chunk)
+        self.update_dataset(dataset_id, |tx| {
+            tx.insert_chunk(chunk)
         })
     }
     
@@ -165,10 +166,24 @@ impl Database {
         chunk: &Chunk
     ) -> anyhow::Result<()>
     {
-        Tx::new_with_snapshot(&self.db).run(|tx| {
-            tx.bump_label(dataset_id)?;
-            tx.insert_fork(dataset_id, chunk)?;
-            Ok(())
+        self.update_dataset(dataset_id, |tx| {
+            tx.insert_fork(chunk)
+        })
+    }
+    
+    pub fn update_dataset<F, R>(
+        &self, 
+        dataset_id: DatasetId, 
+        mut cb: F
+    ) -> anyhow::Result<R> 
+    where 
+        F: FnMut(&mut DatasetUpdate<'_>) -> anyhow::Result<R>
+    {
+        Tx::new(&self.db).run(|tx| {
+            let mut upd = DatasetUpdate::new(tx, dataset_id)?;
+            let result = cb(&mut upd)?;
+            upd.finish()?;
+            Ok(result)
         })
     }
 
@@ -176,15 +191,19 @@ impl Database {
         ReadSnapshot::new(&self.db)
     }
 
-    pub fn perform_dataset_compaction(&self, dataset_id: DatasetId) -> anyhow::Result<CompactionStatus> {
-        perform_dataset_compaction(&self.db, dataset_id)
-    }
-
     pub fn get_all_datasets(&self) -> anyhow::Result<Vec<Dataset>> {
         let cursor = self.db.raw_iterator_cf(
             self.db.cf_handle(CF_DATASETS).unwrap()
         );
         list_all_datasets(cursor).collect()
+    }
+
+    pub fn perform_dataset_compaction(&self, dataset_id: DatasetId) -> anyhow::Result<CompactionStatus> {
+        perform_dataset_compaction(&self.db, dataset_id)
+    }
+
+    pub fn cleanup(&self) -> anyhow::Result<()> {
+        deleted_deleted_tables(&self.db)
     }
 
     pub fn get_statistics(&self) -> Option<String> {

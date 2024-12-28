@@ -82,7 +82,7 @@ impl ChunkId {
     }
 
     pub fn new_for_chunk(dataset_id: DatasetId, chunk: &Chunk) -> Self {
-        Self::new(dataset_id, chunk.last_block)
+        Self::new(dataset_id, chunk.last_block())
     }
 
     pub fn dataset_id(&self) -> DatasetId {
@@ -109,20 +109,38 @@ impl Display for ChunkId {
 }
 
 
-impl Debug for ChunkId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ChunkId({})", self)
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+pub enum Chunk {
+    V0 {
+        first_block: BlockNumber,
+        last_block: BlockNumber,
+        last_block_hash: String,
+        parent_block_hash: String,
+        tables: BTreeMap<String, TableId>
     }
 }
 
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
-pub struct Chunk {
-    pub first_block: BlockNumber,
-    pub last_block: BlockNumber,
-    pub last_block_hash: String,
-    pub parent_block_hash: String,
-    pub tables: BTreeMap<String, TableId>
+impl Chunk {
+    pub fn first_block(&self) -> BlockNumber {
+        match self { Chunk::V0 { first_block, .. } => *first_block }
+    }
+
+    pub fn last_block(&self) -> BlockNumber {
+        match self { Chunk::V0 { last_block, .. } => *last_block }
+    }
+
+    pub fn last_block_hash(&self) -> &str {
+        match self { Chunk::V0 { last_block_hash, .. } => last_block_hash }
+    }
+
+    pub fn parent_block_hash(&self) -> &str {
+        match self { Chunk::V0 { parent_block_hash, .. } => parent_block_hash }
+    }
+    
+    pub fn tables(&self) -> &BTreeMap<String, TableId> {
+        match self { Chunk::V0 { tables, .. } => tables }
+    }
 }
 
 
@@ -131,9 +149,9 @@ impl Display for Chunk {
         write!(
             f, 
             "{}..{}#{}",
-            self.first_block,
-            self.last_block,
-            self.last_block_hash
+            self.first_block(),
+            self.last_block(),
+            self.last_block_hash()
         )
     }
 }

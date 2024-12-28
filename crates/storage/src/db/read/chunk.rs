@@ -95,7 +95,7 @@ impl<C: KvReadCursor> ChunkIterator<C> {
 
         validate_chunk(&current_id, &chunk)?;
         
-        if self.from_block <= chunk.last_block && self.to_block.map_or(true, |end| chunk.first_block <= end) {
+        if self.from_block <= chunk.last_block() && self.to_block.map_or(true, |end| chunk.first_block() <= end) {
             return Ok(Some(chunk))
         }
 
@@ -106,17 +106,17 @@ impl<C: KvReadCursor> ChunkIterator<C> {
 
 fn validate_chunk(chunk_id: &ChunkId, chunk: &Chunk) -> anyhow::Result<()> {
     ensure!(
-        chunk_id.last_block() == chunk.last_block,
+        chunk_id.last_block() == chunk.last_block(),
         "chunk {} has unexpected last block - {}",
         chunk_id,
-        chunk.last_block
+        chunk.last_block()
     );
     ensure!(
-        chunk.first_block <= chunk.last_block,
+        chunk.first_block() <= chunk.last_block(),
         "chunk {} is invalid: last_block = {} is less than first_block = {}",
         chunk_id,
-        chunk.first_block,
-        chunk.last_block
+        chunk.first_block(),
+        chunk.last_block()
     );
     Ok(())
 }

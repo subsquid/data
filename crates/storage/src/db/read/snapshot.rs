@@ -103,7 +103,7 @@ pub struct ChunkReader<'a> {
 
 impl <'a> ChunkReader<'a> {
     fn new(snapshot: &'a ReadSnapshot<'a>, chunk: Chunk) -> Self {
-        let cache = chunk.tables.keys()
+        let cache = chunk.tables().keys()
             .map(|name| (name.to_string(), Mutex::new(None)))
             .collect();
 
@@ -115,23 +115,23 @@ impl <'a> ChunkReader<'a> {
     }
 
     pub fn first_block(&self) -> BlockNumber {
-        self.chunk.first_block
+        self.chunk.first_block()
     }
 
     pub fn last_block(&self) -> BlockNumber {
-        self.chunk.last_block
+        self.chunk.last_block()
     }
     
     pub fn last_block_hash(&self) -> &str {
-        &self.chunk.last_block_hash
+        &self.chunk.last_block_hash()
     }
     
     pub fn parent_block_hash(&self) -> &str {
-        &self.chunk.parent_block_hash
+        &self.chunk.parent_block_hash()
     }
 
     pub fn has_table(&self, name: &str) -> bool {
-        self.chunk.tables.contains_key(name)
+        self.chunk.tables().contains_key(name)
     }
     
     pub fn chunk(&self) -> &Chunk {
@@ -139,7 +139,7 @@ impl <'a> ChunkReader<'a> {
     }
     
     pub fn tables(&self) -> &BTreeMap<String, TableId> {
-        &self.chunk.tables
+        self.chunk.tables()
     }
 
     pub fn get_table_reader(&self, name: &str) -> anyhow::Result<Arc<SnapshotTableReader<'a>>> {
@@ -151,7 +151,7 @@ impl <'a> ChunkReader<'a> {
             return Ok(reader.clone())
         }
 
-        let table_id = self.chunk.tables.get(name).unwrap();
+        let table_id = self.chunk.tables().get(name).unwrap();
         let reader = self.snapshot.create_table_reader(*table_id)?;
         let reader = Arc::new(reader);
         

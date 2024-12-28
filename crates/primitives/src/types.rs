@@ -1,3 +1,6 @@
+use std::fmt::{Display, Formatter};
+
+
 pub type Name = &'static str;
 pub type BlockNumber = u64;
 pub type ItemIndex = u32;
@@ -9,6 +12,13 @@ pub type ItemIndex = u32;
 pub struct BlockRef {
     pub number: BlockNumber,
     pub hash: String
+}
+
+
+impl Display for BlockRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}#{}", self.number, self.hash)
+    }
 }
 
 

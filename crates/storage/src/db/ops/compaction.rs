@@ -1,6 +1,5 @@
 use crate::db::db::RocksDB;
 use crate::db::ops::table_merge::TableMerge;
-use crate::db::write::ops::delete_table;
 use crate::db::write::tx::Tx;
 use crate::db::{Chunk, ChunkBuilder, ChunkReader, DatasetId, ReadSnapshot};
 
@@ -39,7 +38,7 @@ impl<'a> DatasetCompaction<'a> {
             self.make_chunk(chunk_builder)
         };
 
-        let status = Tx::new_with_snapshot(self.db).run(|tx| {
+        let status = Tx::new(self.db).run(|tx| {
             let mut label = match tx.find_label_for_update(self.dataset_id)? {
                 Some(label) => label,
                 None => return Ok(CompactionStatus::Canceled)
@@ -57,7 +56,6 @@ impl<'a> DatasetCompaction<'a> {
             Ok(CompactionStatus::Ok)
         })?;
         
-        self.delete_merged_tables()?;
         Ok(status)
     }
 
@@ -87,20 +85,11 @@ impl<'a> DatasetCompaction<'a> {
         Ok(())
     }
 
-    fn delete_merged_tables(&self) -> anyhow::Result<()> {
-        for c in self.merge.iter() {
-            for table_id in c.tables().values() {
-                delete_table(self.db, *table_id)?;
-            }
-        }
-        Ok(())
-    }
-
     fn make_chunk(&self, chunk_builder: ChunkBuilder<'_>) -> Chunk {
         let tables = chunk_builder.finish();
         let first_chunk = &self.merge[0];
         let last_chunk = self.merge.last().unwrap();
-        Chunk {
+        Chunk::V0 {
             first_block: first_chunk.first_block(),
             last_block: last_chunk.last_block(),
             last_block_hash: last_chunk.last_block_hash().to_string(),
