@@ -32,7 +32,19 @@ impl<LeftStream: BlockStream, RightStream: BlockStream, ReturnItem: sqd_data_typ
 
     pub fn finalized_head(&self) -> Option<&BlockRef> {
         //self.finalized_head.as_ref().ok()?.as_ref()
-        self.left_stream.finalized_head()
+        let left = self.left_stream.finalized_head();
+        let right = self.right_stream.finalized_head();
+        if left.is_none() {
+            return right;
+        };
+        if right.is_none() {
+            return left;
+        }
+        if left.unwrap().number() > right.unwrap().number() {
+            left
+        } else {
+            right
+        }
     }
 
     pub fn prev_blocks(&self) -> &[BlockRef] {
@@ -42,13 +54,15 @@ impl<LeftStream: BlockStream, RightStream: BlockStream, ReturnItem: sqd_data_typ
 }
 
 impl<
-        LeftStream: Stream + Unpin + FusedStream,
-        RightStream: Stream + Unpin + FusedStream,
+        LeftStream: Unpin + FusedStream,
+        RightStream: Unpin + FusedStream,
         ReturnItem: sqd_data_types::Block + FromJsonBytes + Unpin,
     > Stream for CombinedBlockStream<LeftStream, RightStream, ReturnItem>
 where
-    LeftStream: Stream<Item = anyhow::Result<ReturnItem>>,
-    RightStream: Stream<Item = anyhow::Result<ReturnItem>>,
+    // LeftStream: BlockStream<Item = anyhow::Result<ReturnItem>>,
+    // RightStream: BlockStream<Item = anyhow::Result<ReturnItem>>,
+    LeftStream: BlockStream<Block = ReturnItem>,
+    RightStream: BlockStream<Block = ReturnItem>,
 {
     type Item = anyhow::Result<ReturnItem>;
 
@@ -65,14 +79,22 @@ where
             match res.poll_unpin(cx) {
                 Poll::Ready(omg) => match omg {
                     futures_util::future::Either::Left((item, right)) => {
-                        if let Some(res) = Self::process_item(&mut this.front_number, item) {
+                        if let Some(res) = Self::process_item(
+                            &mut this.front_number,
+                            this.left_stream.finalized_head(),
+                            item,
+                        ) {
                             return res;
                         }
                         let left = this.left_stream.select_next_some();
                         res = futures_util::future::select(left, right);
                     }
                     futures_util::future::Either::Right((item, left)) => {
-                        if let Some(res) = Self::process_item(&mut this.front_number, item) {
+                        if let Some(res) = Self::process_item(
+                            &mut this.front_number,
+                            this.right_stream.finalized_head(),
+                            item,
+                        ) {
                             return res;
                         }
                         let right = this.right_stream.select_next_some();
@@ -87,6 +109,10 @@ where
             }
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, None)
+    }
 }
 
 impl<LeftStream, RightStream, ReturnItem: sqd_data_types::Block>
@@ -94,27 +120,35 @@ impl<LeftStream, RightStream, ReturnItem: sqd_data_types::Block>
 {
     fn process_item(
         front_number: &mut std::option::Option<u64>,
+        finalized_head: std::option::Option<&BlockRef>,
         item: anyhow::Result<ReturnItem>,
     ) -> std::option::Option<Poll<std::option::Option<anyhow::Result<ReturnItem>>>> {
-        if let Ok(item) = item {
-            let current_height = item.number();
-            if front_number.is_none() || front_number.unwrap() < current_height {
-                *front_number = Some(current_height);
-                return Some(Poll::Ready(Some(Ok(item))));
-            };
+        let finalized_head = finalized_head?;
+        let finalized_number = finalized_head.number();
+        let Ok(item) = item else {
+            return None;
         };
-        None
+        let current_number = item.number();
+        if current_number > finalized_number {
+            return None;
+        }
+        let last_number = front_number.unwrap_or(0);
+        if last_number >= current_number {
+            return None;
+        }
+        *front_number = Some(current_number);
+        Some(Poll::Ready(Some(Ok(item))))
     }
 }
 
 impl<
-        LeftStream: Stream + Unpin + FusedStream,
-        RightStream: Stream + Unpin + FusedStream,
+        LeftStream: Unpin + FusedStream,
+        RightStream: Unpin + FusedStream,
         ReturnItem: sqd_data_types::Block + FromJsonBytes + Unpin + Send,
     > BlockStream for CombinedBlockStream<LeftStream, RightStream, ReturnItem>
 where
-    LeftStream: Stream<Item = anyhow::Result<ReturnItem>>,
-    RightStream: Stream<Item = anyhow::Result<ReturnItem>>,
+    LeftStream: BlockStream<Block = ReturnItem>,
+    RightStream: BlockStream<Block = ReturnItem>,
 {
     type Block = ReturnItem;
 
