@@ -8,7 +8,7 @@ use tracing::warn;
 
 
 #[derive(Debug)]
-pub struct DatasetController {
+pub struct WriteController {
     db: DBRef,
     dataset_id: DatasetId,
     dataset_kind: DatasetKind,
@@ -17,9 +17,40 @@ pub struct DatasetController {
 }
 
 
-impl DatasetController {
+impl WriteController {
+    pub fn new(
+        db: DBRef, 
+        dataset_id: DatasetId, 
+        dataset_kind: DatasetKind, 
+        first_block: BlockNumber
+    ) -> anyhow::Result<Self> 
+    {
+        db.create_dataset_if_not_exists(dataset_id, dataset_kind.storage_kind())?;
+        
+        let head = db.snapshot().get_last_chunk(dataset_id)?.map(|c| BlockRef {
+            number: c.last_block(),
+            hash: c.last_block_hash().to_string()
+        });
+        
+        let mut controller = Self {
+            db,
+            dataset_id,
+            dataset_kind,
+            first_block: 0,
+            head
+        };
+        
+        controller.retain_head(first_block)?;
+        
+        Ok(controller)
+    }
+    
     pub fn dataset_id(&self) -> DatasetId {
         self.dataset_id
+    }
+    
+    pub fn dataset_kind(&self) -> DatasetKind {
+        self.dataset_kind
     }
 
     pub fn head_hash(&self) -> Option<&str> {

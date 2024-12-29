@@ -4337,7 +4337,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "either",
+ "futures-channel",
  "futures-core",
+ "futures-sink",
+ "futures-util",
+ "parking_lot",
  "sqd-data",
  "sqd-data-client",
  "sqd-data-core",

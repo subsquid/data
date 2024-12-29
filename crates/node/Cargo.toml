@@ -7,6 +7,10 @@ edition = "2021"
 anyhow = { workspace = true }
 either = "1.13.0"
 futures-core = "0.3.31"
+futures-channel = { version = "0.3.31", features = ["sink"] }
+futures-util = { version = "0.3.31", features = ["sink"] }
+futures-sink = "0.3.31"
+parking_lot = { workspace = true }
 sqd-data = { path = "../data" }
 sqd-data-client = { path = "../data-client" }
 sqd-data-core = { path = "../data-core" }

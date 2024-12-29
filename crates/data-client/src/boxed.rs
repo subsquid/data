@@ -1,6 +1,6 @@
-use crate::{BlockStream, DataClient};
+use crate::{BlockStream, BlockStreamRequest, DataClient};
 use futures_core::future::BoxFuture;
-use sqd_primitives::{Block, BlockNumber, BlockRef};
+use sqd_primitives::{Block, BlockRef};
 use std::sync::Arc;
 
 
@@ -16,6 +16,10 @@ impl <B: Block> BlockStream for BlockStreamBox<B> {
 
     fn finalized_head(&self) -> Option<&BlockRef> {
         self.as_ref().finalized_head()
+    }
+
+    fn take_prev_blocks(&mut self) -> Vec<BlockRef> {
+        self.as_mut().take_prev_blocks()
     }
 
     fn prev_blocks(&self) -> &[BlockRef] {
@@ -35,10 +39,10 @@ where
 {
     type BlockStream = BlockStreamBox<<C::BlockStream as BlockStream>::Block>;
 
-    fn stream<'a>(&'a self, from: BlockNumber, prev_block_hash: &'a str) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>
+    fn stream<'a>(&'a self, req: BlockStreamRequest<'a>) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>
     {
         Box::pin(async move {
-            let stream = self.inner.stream(from, prev_block_hash).await?;
+            let stream = self.inner.stream(req).await?;
             Ok(Box::new(stream) as Self::BlockStream)
         })
     }

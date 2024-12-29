@@ -1,10 +1,10 @@
 use crate::reqwest::stream::{extract_finalized_head, ReqwestBlockStream};
-use crate::DataClient;
+use crate::{BlockStreamRequest, DataClient};
 use anyhow::{anyhow, Context};
 use futures_core::future::BoxFuture;
 use reqwest::{Client, IntoUrl, Request, Response, Url};
 use serde_json::json;
-use sqd_primitives::{Block, BlockNumber, BlockRef, FromJsonBytes};
+use sqd_primitives::{Block, BlockRef, FromJsonBytes};
 use std::error::Error;
 use std::future::Future;
 use std::io::ErrorKind;
@@ -42,18 +42,17 @@ impl <B> ReqwestDataClient<B> {
     
     pub async fn stream(
         &self,
-        from: BlockNumber,
-        prev_block_hash: &str
+        stream_req: BlockStreamRequest<'_>
     ) -> anyhow::Result<ReqwestBlockStream<B>>
     {
         let mut body = json!({
-            "fromBlock": from
+            "fromBlock": stream_req.first_block
         });
 
-        if !prev_block_hash.is_empty() {
+        if stream_req.prev_block_hash.is_some() {
             body.as_object_mut().unwrap().insert(
                 "prevBlockHash".into(),
-                prev_block_hash.into()
+                stream_req.prev_block_hash.into()
             );
         }
 
@@ -72,7 +71,7 @@ impl <B> ReqwestDataClient<B> {
                         extract_finalized_head(&res),
                         Some(Box::new(res.bytes_stream())),
                         vec![],
-                        prev_block_hash
+                        stream_req.prev_block_hash
                     )
                 },
                 204 => {
@@ -80,7 +79,7 @@ impl <B> ReqwestDataClient<B> {
                         extract_finalized_head(&res),
                         None,
                         vec![],
-                        ""
+                        None
                     )
                 },
                 409 => {
@@ -97,7 +96,7 @@ impl <B> ReqwestDataClient<B> {
                         finalized_head,
                         None,
                         prev_blocks,
-                        ""
+                        None
                     )
                 },
                 status if status < 300 => return Err(
@@ -178,8 +177,8 @@ fn is_retryable_io(err: &std::io::Error) -> bool {
 impl<B: Block + FromJsonBytes + Unpin + Send + Sync> DataClient for ReqwestDataClient<B> {
     type BlockStream = ReqwestBlockStream<B>;
 
-    fn stream<'a>(&'a self, from: BlockNumber, prev_block_hash: &'a str) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>
+    fn stream<'a>(&'a self, req: BlockStreamRequest<'a>) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>
     {
-        Box::pin(self.stream(from, prev_block_hash))
+        Box::pin(self.stream(req))
     }
 }

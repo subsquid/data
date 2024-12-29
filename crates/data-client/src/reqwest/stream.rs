@@ -58,7 +58,7 @@ pub struct ReqwestBlockStream<B> {
     finalized_head: anyhow::Result<Option<BlockRef>>,
     lines: Option<LineStream>,
     prev_blocks: Vec<BlockRef>,
-    prev_block_hash: String,
+    prev_block_hash: Option<String>,
     phantom_data: PhantomData<B>
 }
 
@@ -68,14 +68,14 @@ impl<B> ReqwestBlockStream<B> {
         finalized_head: anyhow::Result<Option<BlockRef>>,
         body: Option<BodyStreamBox>,
         prev_blocks: Vec<BlockRef>,
-        prev_block_hash: &str
+        prev_block_hash: Option<&str>
     ) -> Self
     {
         Self {
             finalized_head,
             lines: body.map(LineStream::new),
             prev_blocks,
-            prev_block_hash: prev_block_hash.to_string(),
+            prev_block_hash: prev_block_hash.map(|s| s.to_string()),
             phantom_data: PhantomData::default()
         }
     }
@@ -86,6 +86,10 @@ impl<B> ReqwestBlockStream<B> {
 
     pub fn finalized_head(&self) -> Option<&BlockRef> {
         self.finalized_head.as_ref().ok()?.as_ref()
+    }
+    
+    pub fn take_prev_blocks(&mut self) -> Vec<BlockRef> {
+        std::mem::take(&mut self.prev_blocks)
     }
 
     pub fn prev_blocks(&self) -> &[BlockRef] {
@@ -104,17 +108,19 @@ impl<B: Block + FromJsonBytes + Unpin> Stream for ReqwestBlockStream<B> {
                 maybe_line_result.map(|line_result| {
                     let line = line_result?;
                     let block = B::from_json_bytes(line)?;
-                    if !this.prev_block_hash.is_empty() {
+                    if let Some(prev_block_hash) = this.prev_block_hash.as_mut() {
                         ensure!(
-                            &this.prev_block_hash == block.parent_hash(),
+                            prev_block_hash == block.parent_hash(),
                             "chain continuity was violated by upstream service between blocks {} and {}#{}",
-                            this.prev_block_hash,
+                            prev_block_hash,
                             block.number(),
                             block.hash()
                         );
+                        prev_block_hash.clear();
+                        prev_block_hash.push_str(block.hash());
+                    } else {
+                        this.prev_block_hash = Some(block.hash().to_string());
                     }
-                    this.prev_block_hash.clear();
-                    this.prev_block_hash.insert_str(0, block.hash());
                     Ok(block)
                 })
             })
@@ -134,6 +140,10 @@ impl<B: Block + FromJsonBytes + Unpin + Send> BlockStream for ReqwestBlockStream
 
     fn finalized_head(&self) -> Option<&BlockRef> {
         self.finalized_head()
+    }
+
+    fn take_prev_blocks(&mut self) -> Vec<BlockRef> {
+        self.take_prev_blocks()
     }
 
     fn prev_blocks(&self) -> &[BlockRef] {
