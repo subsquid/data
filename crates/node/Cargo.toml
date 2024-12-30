@@ -6,16 +6,14 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 either = "1.13.0"
-futures-core = "0.3.31"
-futures-channel = { version = "0.3.31", features = ["sink"] }
-futures-util = { version = "0.3.31", features = ["sink"] }
-futures-sink = "0.3.31"
+futures = { workspace = true }
+reqwest = { workspace = true }
 parking_lot = { workspace = true }
 sqd-data = { path = "../data" }
 sqd-data-client = { path = "../data-client" }
 sqd-data-core = { path = "../data-core" }
 sqd-dataset = { path = "../dataset" }
-sqd-primitives = { path = "../primitives" }
+sqd-primitives = { path = "../primitives", features = ["serde_json", "from_json_bytes"] }
 sqd-query = { path = "../query", features = ["storage"] }
 sqd-storage = { path = "../storage" }
 tracing = { workspace = true }

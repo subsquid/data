@@ -1,7 +1,7 @@
 use crate::reqwest::client::is_retryable;
 use crate::reqwest::stream::BodyStreamBox;
 use bytes::{Buf, Bytes, BytesMut};
-use futures_core::Stream;
+use futures::Stream;
 use std::pin::Pin;
 use std::task::Poll;
 

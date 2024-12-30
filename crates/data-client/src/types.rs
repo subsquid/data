@@ -1,5 +1,5 @@
-use futures_core::future::BoxFuture;
-use futures_core::Stream;
+use futures::future::BoxFuture;
+use futures::Stream;
 use sqd_primitives::{Block, BlockNumber, BlockRef};
 
 

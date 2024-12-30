@@ -1,5 +1,5 @@
 use crate::{BlockStream, BlockStreamRequest, DataClient};
-use futures_core::future::BoxFuture;
+use futures::future::BoxFuture;
 use sqd_primitives::{Block, BlockRef};
 use std::sync::Arc;
 

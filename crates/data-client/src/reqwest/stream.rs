@@ -2,7 +2,7 @@ use crate::reqwest::lines::LineStream;
 use crate::BlockStream;
 use anyhow::{anyhow, ensure, Context};
 use bytes::Bytes;
-use futures_core::Stream;
+use futures::Stream;
 use reqwest::Response;
 use sqd_primitives::{Block, BlockNumber, BlockRef, FromJsonBytes};
 use std::marker::PhantomData;
