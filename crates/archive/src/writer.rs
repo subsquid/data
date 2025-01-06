@@ -1,111 +1,78 @@
-use crate::chain_builder::{AnyChainBuilder, ChainBuilderBox};
-use parking_lot::Mutex;
+use crate::fs::FSRef;
+use crate::layout::DataChunk;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
-use sqd_data_core::ChunkProcessor;
-use sqd_dataset::TableDescription;
+use rayon::prelude::*;
+use sqd_data_core::PreparedChunk;
+use sqd_dataset::{DatasetDescriptionRef, TableDescription};
 use std::fs::File;
-use std::ops::DerefMut;
 use std::path::Path;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 
-struct State {
-    builder: ChainBuilderBox,
-    processor: ChunkProcessor
+pub struct WriterItem {
+    pub chunk: DataChunk,
+    pub data: PreparedChunk,
+    pub description: DatasetDescriptionRef,
 }
 
 
-impl State {
-    fn spill_on_disk(&mut self) -> anyhow::Result<()> {
-        self.builder.chunk_builder().submit_to_processor(&mut self.processor)?;
-        self.builder.chunk_builder_mut().clear();
-        Ok(())
-    }
+pub struct Writer {
+    fs: FSRef,
+    chunk_receiver: UnboundedReceiver<WriterItem>,
 }
 
 
-pub struct ParquetWriter {
-    state: Mutex<State>,
-    spare_processor: Mutex<Option<ChunkProcessor>>,
-    memory_threshold: usize,
-    max_num_rows: usize
-}
-
-
-impl ParquetWriter {
-    pub fn new(chain_builder: ChainBuilderBox) -> ParquetWriter {
-        ParquetWriter {
-            state: Mutex::new(State {
-                processor: chain_builder.chunk_builder().new_chunk_processor(),
-                builder: chain_builder
-            }),
-            spare_processor: Mutex::new(None),
-            memory_threshold: 40 * 1024 * 1024,
-            max_num_rows: 200_000
-        }
+impl Writer {
+    pub fn new(fs: FSRef, chunk_receiver: UnboundedReceiver<WriterItem>) -> Writer {
+        Writer { fs, chunk_receiver }
     }
 
-    pub fn push(&self, block_json: &[u8]) -> anyhow::Result<()> {
-        let mut state = self.state.lock();
-        
-        state.builder.push(block_json)?;
-        
-        if state.builder.chunk_builder().byte_size() > self.memory_threshold {
-            state.spill_on_disk()?;
-        }
-        Ok(())
-    }
+    pub async fn start(&mut self) -> anyhow::Result<()> {
+        while let Some(mut item) = self.chunk_receiver.recv().await {
+            tracing::info!("writing {}", item.chunk.path());
 
-    pub fn last_parent_block_hash(&self) -> &str {
-        todo!()
-    }
+            let target_dir = tempfile::tempdir()?.into_path();
+            let writer_handle = tokio::task::spawn_blocking(move || {
+                write_chunk(&mut item.data, &item.description, &target_dir)
+            });
 
-    pub fn buffered_bytes(&self) -> usize {
-        let state = self.state.lock();
-        state.builder.chunk_builder().byte_size() + state.processor.byte_size()
-    }
+            let mut files = writer_handle.await??;
 
-    pub fn max_num_rows(&self) -> usize {
-        let state = self.state.lock();
-        // not precise, but should be OK practically
-        state.builder.chunk_builder().max_num_rows() + state.processor.max_num_rows()
-    }
+            let blocks_pos = files.iter().position(|file| file.ends_with("blocks.parquet")).unwrap();
+            let blocks = files.swap_remove(blocks_pos);
 
-    pub fn flush(&self, target_dir: &Path) -> anyhow::Result<()> {
-        let mut state = self.state.lock();
-
-        if state.builder.chunk_builder().max_num_rows() > 0 {
-            state.spill_on_disk()?;
-        }
-
-        let dataset_description = state.builder
-            .chunk_builder()
-            .dataset_description();
-
-        let spare_proc = {
-            let mut spare = self.spare_processor.lock();
-            std::mem::take(spare.deref_mut()).unwrap_or_else(|| {
-                state.builder.chunk_builder().new_chunk_processor()
-            })
-        };
-
-        let processor = std::mem::replace(&mut state.processor, spare_proc);
-
-        drop(state);
-
-        let mut prepared_chunk = scopeguard::guard(processor.finish()?, |chunk| {
-            let mut spare = self.spare_processor.lock();
-            if spare.is_none() {
-                *spare = chunk.into_processor().ok()
+            let chunk_path = item.chunk.path();
+            for file in files {
+                let file_name = file.file_name().unwrap().to_str().unwrap();
+                let dest = format!("{}/{}", chunk_path, file_name);
+                self.fs.move_local(&file, &dest).await?;
             }
-        });
 
-        let default_desc = TableDescription::default();
+            let dest = format!("{}/blocks.parquet", chunk_path);
+            self.fs.move_local(&blocks, &dest).await?;
+        }
+        Ok(())
+    }
+}
 
-        for (&name, table) in prepared_chunk.tables.iter_mut() {
+
+fn write_chunk(
+    prepared_chunk: &mut PreparedChunk,
+    dataset_description: &DatasetDescriptionRef,
+    target_dir: &Path,
+) -> anyhow::Result<Vec<std::path::PathBuf>> {
+    let default_desc = TableDescription::default();
+    prepared_chunk
+        .tables
+        .par_iter_mut()
+        .map(|(&name, table)| {
             let schema = table.schema();
-            let desc = dataset_description.tables.get(name).unwrap_or(&default_desc);
+            let desc = dataset_description
+                .tables
+                .get(name)
+                .unwrap_or(&default_desc);
 
             let props = WriterProperties::builder()
                 .set_compression(Compression::ZSTD(ZstdLevel::try_new(6)?))
@@ -115,9 +82,8 @@ impl ParquetWriter {
                 .set_max_row_group_size(desc.options.row_group_size)
                 .build();
 
-            let file = File::create(
-                target_dir.join(format!("{}.parquet", name))
-            )?;
+            let path = target_dir.join(format!("{}.parquet", name));
+            let file = File::create(&path)?;
 
             let mut writer = ArrowWriter::try_new(&file, schema, Some(props))?;
             let mut offset = 0;
@@ -130,8 +96,8 @@ impl ParquetWriter {
             writer.close()?;
 
             file.sync_all()?;
-        }
 
-        Ok(())
-    }
+            Ok(path)
+        })
+        .collect()
 }

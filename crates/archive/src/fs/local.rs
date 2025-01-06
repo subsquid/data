@@ -44,7 +44,7 @@ impl Fs for LocalFs {
         if let Some(dir) = dest.parent() {
             tokio::fs::create_dir_all(dir).await?;
         }
-        tokio::fs::rename(local_src, self.root.join(dest)).await?;
+        tokio::fs::rename(local_src, dest).await?;
         Ok(())
     }
 

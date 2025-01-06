@@ -1,17 +1,17 @@
 use crate::fs::local::LocalFs;
 use crate::fs::s3::S3Fs;
-use anyhow::{anyhow, ensure, Context};
+use anyhow::{anyhow, ensure};
 use async_trait::async_trait;
 use std::path::Path;
 use std::sync::Arc;
 use url::Url;
 
 
-mod local;
-mod s3;
+pub mod local;
+pub mod s3;
 
 
-pub type FSRef = Arc<dyn Fs>;
+pub type FSRef = Arc<dyn Fs + Sync + Send>;
 
     
 #[async_trait]
@@ -36,7 +36,10 @@ pub async fn create_fs(url: &str) -> anyhow::Result<FSRef> {
                     anyhow!("bucket is missing in {}", url)
                 })?;
 
-                let mut path = &u.path()[1..];
+                let mut path = &u.path()[..];
+                if path.starts_with('/') {
+                    path = &path[1..path.len()];
+                }
                 if path.ends_with('/') {
                     path = &path[0..path.len() - 1];
                 }

@@ -9,12 +9,14 @@ async-stream = "0.3.6"
 async-trait = "0.1.83"
 aws-config = { version = "1.5.9", features = ["behavior-version-latest"] }
 aws-sdk-s3 = { version = "1.59.0", features = ["rt-tokio"] }
+bytes = { workspace = true }
 clap = { version = "4.5.9", features = ["derive"] }
 futures-core = "0.3.31"
 futures-util = "0.3.31"
-parking_lot = { workspace = true }
 parquet = { workspace = true }
+rayon = { workspace = true }
 regex = "1.11.1"
+reqwest = { version = "0.12.9", features = ["json", "gzip", "stream"] }
 scopeguard = "1.2.0"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -25,4 +27,6 @@ sqd-dataset = { path = "../dataset" }
 sqd-primitives = { path = "../primitives" }
 tempfile = { workspace = true }
 tokio = { version = "1.38.0", features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "time"] }
 url = "2.5.3"

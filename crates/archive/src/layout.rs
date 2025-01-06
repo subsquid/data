@@ -219,7 +219,11 @@ impl Layout {
         }
 
         let (top, chunks, prev_hash) = if let Some(last_chunk) = last_chunk {
-            todo!()
+            let chunks = self.get_top_chunks(last_chunk.top).await?;
+            if chunks.is_empty() {
+                anyhow::bail!("Data is not supposed to be changed by external process during writing")
+            }
+            (last_chunk.top, chunks, Some(last_chunk.last_hash))
         } else {
             (first_block, vec![], None)
         };
