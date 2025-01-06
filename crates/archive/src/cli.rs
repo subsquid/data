@@ -39,4 +39,8 @@ pub struct Cli {
     /// Network kind
     #[arg(long, value_enum)]
     pub network_kind: NetworkKind,
+
+    /// Whether the logs should be structured in JSON format
+    #[arg(long)]
+    pub json_log: bool,
 }
