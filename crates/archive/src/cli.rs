@@ -43,4 +43,8 @@ pub struct Cli {
     /// Whether the logs should be structured in JSON format
     #[arg(long)]
     pub json_log: bool,
+
+    /// Port to use for built-in prometheus metrics server
+    #[arg(long)]
+    pub prom_port: Option<u16>,
 }

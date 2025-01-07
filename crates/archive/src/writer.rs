@@ -1,5 +1,6 @@
 use crate::fs::FSRef;
 use crate::layout::DataChunk;
+use crate::metrics;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
@@ -33,6 +34,7 @@ impl Writer {
         while let Some(mut item) = self.chunk_receiver.recv().await {
             tracing::info!("writing {}", item.chunk.path());
 
+            let last_block = item.chunk.last_block;
             let target_dir = tempfile::tempdir()?.into_path();
             let writer_handle = tokio::task::spawn_blocking(move || {
                 write_chunk(&mut item.data, &item.description, &target_dir)
@@ -52,6 +54,8 @@ impl Writer {
 
             let dest = format!("{}/blocks.parquet", chunk_path);
             self.fs.move_local(&blocks, &dest).await?;
+
+            metrics::LAST_SAVED_BLOCK.inc_by(last_block);
         }
         Ok(())
     }

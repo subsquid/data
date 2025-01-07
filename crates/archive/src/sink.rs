@@ -2,6 +2,7 @@ use crate::layout::ChunkWriter;
 use crate::processor::LineProcessor;
 use crate::progress::Progress;
 use crate::writer::WriterItem;
+use crate::metrics;
 use bytes::Bytes;
 use std::num::NonZeroUsize;
 use std::sync::mpsc::Receiver;
@@ -54,6 +55,7 @@ impl Sink {
 
         while let Ok(line) = self.line_receiver.recv() {
             self.processor.push(&line)?;
+            metrics::LAST_BLOCK.inc_by(self.processor.last_block());
 
             if self.processor.buffered_bytes() > self.chunk_size * 1024 * 1024 {
                 let (data, description) = self.processor.flush()?;
@@ -91,10 +93,12 @@ impl Sink {
     }
 
     fn report(&mut self) {
+        let speed = self.progress.speed();
+        metrics::PROGRESS.set(speed);
         tracing::info!(
             "last block: {}, progress: {} blocks/sec",
             self.progress.get_current_value(),
-            self.progress.speed().round(),
+            speed.round(),
         );
     }
 }
