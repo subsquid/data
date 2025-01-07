@@ -96,16 +96,21 @@ fn chunk_check(filelist: &[String]) -> bool {
 
 
 fn init_logging(json: bool) {
+    let env_filter = tracing_subscriber::EnvFilter::builder().parse_lossy(
+        std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
+            .unwrap_or(format!("{}=info", std::env!("CARGO_CRATE_NAME"))),
+    );
+
     if json {
         tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_env_filter(env_filter)
             .with_target(false)
             .json()
             .flatten_event(true)
             .init();
     } else {
         tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_env_filter(env_filter)
             .with_target(false)
             .init();
     }
