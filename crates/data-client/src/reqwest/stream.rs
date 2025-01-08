@@ -100,7 +100,7 @@ impl<B: Block + FromJsonBytes + Unpin> Stream for ReqwestBlockStream<B> {
                     let block = B::from_json_bytes(line)?;
                     if !this.prev_block_hash.is_empty() {
                         ensure!(
-                            &this.prev_block_hash == block.parent_hash(),
+                            this.prev_block_hash == block.parent_hash(),
                             "chain continuity was violated by upstream service between blocks {} and {}#{}",
                             this.prev_block_hash,
                             block.number(),

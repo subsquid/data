@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true, features = ["std"] }
+async-std = "1.13.0"
 bytes = { workspace = true }
 futures-core = "0.3.31"
 futures-timer = "3.0.3"
@@ -19,3 +20,6 @@ tokio = { version = "1.42.0", features = ["rt", "macros", "rt-multi-thread"] }
 
 [[example]]
 name = "simple-client"
+
+[[example]]
+name = "combined-client"

@@ -84,7 +84,7 @@ where
                             this.left_stream.finalized_head(),
                             item,
                         ) {
-                            return res;
+                            return Poll::Ready(res);
                         }
                         let left = this.left_stream.select_next_some();
                         res = futures_util::future::select(left, right);
@@ -95,7 +95,7 @@ where
                             this.right_stream.finalized_head(),
                             item,
                         ) {
-                            return res;
+                            return Poll::Ready(res);
                         }
                         let right = this.right_stream.select_next_some();
                         res = futures_util::future::select(left, right);
@@ -122,7 +122,7 @@ impl<LeftStream, RightStream, ReturnItem: sqd_data_types::Block>
         front_number: &mut std::option::Option<u64>,
         finalized_head: std::option::Option<&BlockRef>,
         item: anyhow::Result<ReturnItem>,
-    ) -> std::option::Option<Poll<std::option::Option<anyhow::Result<ReturnItem>>>> {
+    ) -> std::option::Option<std::option::Option<anyhow::Result<ReturnItem>>> {
         let finalized_head = finalized_head?;
         let finalized_number = finalized_head.number();
         let Ok(item) = item else {
@@ -137,7 +137,7 @@ impl<LeftStream, RightStream, ReturnItem: sqd_data_types::Block>
             return None;
         }
         *front_number = Some(current_number);
-        Some(Poll::Ready(Some(Ok(item))))
+        Some(Some(Ok(item)))
     }
 }
 
