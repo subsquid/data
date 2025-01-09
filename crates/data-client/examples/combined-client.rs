@@ -1,3 +1,4 @@
+use std::pin::pin;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -51,7 +52,7 @@ async fn main() {
     let res = req.json::<Value>().await.unwrap();
     sleep(Duration::from_secs(3));
     let start = res.get("number").unwrap().as_u64().unwrap();
-    let client: CombinedClient<Block> = CombinedClient::from_url("http://127.0.0.1:3001", "http://127.0.0.1:3000");
+    let client: CombinedClient<Block> = CombinedClient::from_url("http://127.0.0.1:3000", "http://127.0.0.1:3000");
     let mut stream = client.stream(start, "").await.unwrap();
     println!("S: {:?}", stream.finalized_head());
     while let Some(msg) = stream.next().await {
