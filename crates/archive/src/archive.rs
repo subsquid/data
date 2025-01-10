@@ -55,30 +55,28 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
 
     let processor = LineProcessor::new(chunk_builder);
 
-    let block_stream = ingest_from_service(
-        args.src.clone(),
-        chunk_writer.next_block(),
-        args.last_block
-    );
+    // let block_stream = ingest_from_service(
+    //     args.src.clone(),
+    //     chunk_writer.next_block(),
+    //     args.last_block
+    // );
 
-    let (line_sender, line_receiver) = std::sync::mpsc::sync_channel::<bytes::Bytes>(100);
+    // let (builder_sender, builder_receiver) = std::sync::mpsc::channel::<ChainBuilderBox>();
     let (chunk_sender, chunk_receiver) = tokio::sync::mpsc::unbounded_channel::<WriterItem>();
 
-    let mut sink = Sink::new(processor, chunk_writer, args.chunk_size, line_receiver, chunk_sender);
+    let mut sink = Sink::new(processor, chunk_writer, args.chunk_size, chunk_sender);
     let mut writer = Writer::new(fs, chunk_receiver);
 
-    let sink_thread = std::thread::spawn(move || sink.start());
+    // let sink_thread = tokio::spawn(async move {
+    //     sink.start().await
+    // });
     let writer_task = tokio::spawn(async move {
         writer.start().await
     });
-
-    let mut block_stream = std::pin::pin!(block_stream);
-    while let Some(line) = block_stream.try_next().await? {
-        line_sender.send(line)?;
-    }
-
-    drop(line_sender);
-    sink_thread.join().unwrap()?;
+    sink.write().await?;
+    // drop(builder_sender);
+    // builder_thread.join().unwrap();
+    // sink_thread.await??;
     writer_task.await??;
 
     Ok(())
@@ -114,4 +112,9 @@ fn init_logging(json: bool) {
             .with_target(false)
             .init();
     }
+}
+
+
+fn short_hash(value: &str) -> &str {
+    &value[value.len().saturating_sub(5)..]
 }

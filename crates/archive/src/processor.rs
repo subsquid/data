@@ -1,5 +1,6 @@
 use crate::chain_builder::{AnyChainBuilder, ChainBuilderBox};
-use sqd_data_core::ChunkProcessor;
+use sqd_data_core::{ChunkProcessor, PreparedChunk};
+use sqd_dataset::DatasetDescriptionRef;
 
 
 struct State {
@@ -68,7 +69,7 @@ impl LineProcessor {
         state.builder.chunk_builder().max_num_rows() + state.processor.max_num_rows()
     }
 
-    pub fn flush(&mut self) -> anyhow::Result<(sqd_data_core::PreparedChunk, sqd_dataset::DatasetDescriptionRef)> {
+    pub fn flush(&mut self) -> anyhow::Result<(PreparedChunk, DatasetDescriptionRef)> {
         let state = &mut self.state;
 
         if state.builder.chunk_builder().max_num_rows() > 0 {

@@ -33,7 +33,9 @@ tracing = "0.1.41"
 [profile.release]
 debug = 1
 codegen-units = 128
+incremental = true
 
 [profile.bench]
 debug = 1
 codegen-units = 128
+incremental = true

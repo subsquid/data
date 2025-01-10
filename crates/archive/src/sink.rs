@@ -1,9 +1,11 @@
+use crate::ingest::ingest_from_service;
 use crate::layout::ChunkWriter;
 use crate::processor::LineProcessor;
 use crate::progress::Progress;
 use crate::writer::WriterItem;
 use crate::metrics;
 use bytes::Bytes;
+use futures_util::TryStreamExt;
 use std::num::NonZeroUsize;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
@@ -15,7 +17,6 @@ pub struct Sink {
     chunk_writer: ChunkWriter,
     chunk_size: usize,
     progress: Progress,
-    line_receiver: Receiver<Bytes>,
     chunk_sender: UnboundedSender<WriterItem>,
 }
 
@@ -25,7 +26,6 @@ impl Sink {
         processor: LineProcessor,
         chunk_writer: ChunkWriter,
         chunk_size: usize,
-        line_receiver: Receiver<bytes::Bytes>,
         chunk_sender: UnboundedSender<WriterItem>,
     ) -> Sink {
         let window_size = NonZeroUsize::new(10).unwrap();
@@ -36,24 +36,26 @@ impl Sink {
             chunk_writer,
             chunk_size,
             progress,
-            line_receiver,
             chunk_sender,
         }
     }
 
-    pub fn start(&mut self) -> anyhow::Result<()> {
+    pub async fn write(&mut self) -> anyhow::Result<()> {
         let mut first_block = self.chunk_writer.next_block();
         let mut last_report = Instant::now();
 
+        let stream = ingest_from_service("http://localhost:7373".parse().unwrap(), 220000000, Some(220001500));
+        let mut stream = std::pin::pin!(stream);
+
         let prev_chunk_hash = self.chunk_writer.prev_chunk_hash();
         if let Some(prev_chunk_hash) = prev_chunk_hash {
-            let line = self.line_receiver.recv()?;
+            let line = stream.try_next().await?.unwrap();
             self.processor.push(&line)?;
             let parent_hash = self.processor.last_parent_block_hash();
             assert!(prev_chunk_hash == short_hash(&parent_hash));
         }
 
-        while let Ok(line) = self.line_receiver.recv() {
+        while let Some(line) = stream.try_next().await? {
             self.processor.push(&line)?;
             metrics::LAST_BLOCK.inc_by(self.processor.last_block());
 
