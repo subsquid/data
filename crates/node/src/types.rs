@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use sqd_dataset::DatasetDescriptionRef;
 use sqd_storage::db::Database;
+use std::sync::Arc;
 
 
 pub type Name = &'static str;
@@ -22,6 +23,13 @@ impl DatasetKind {
         match self {
             DatasetKind::Evm => "evm",
             DatasetKind::Solana => "solana"
+        }
+    }
+    
+    pub fn dataset_description(&self) -> DatasetDescriptionRef {
+        match self {
+            DatasetKind::Evm => unimplemented!(),
+            DatasetKind::Solana => sqd_data::solana::tables::SolanaChunkBuilder::dataset_description()
         }
     }
 }

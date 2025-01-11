@@ -8,7 +8,7 @@ mod query;
 
 
 pub use json_writer::*;
-pub use plan::{BlockWriter, Plan};
+pub use plan::{BlockWriter, Plan, UnexpectedBaseBlock};
 pub use primitives::BlockNumber;
 pub use query::*;
 #[cfg(feature = "parquet")]

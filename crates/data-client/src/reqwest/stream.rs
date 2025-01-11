@@ -51,7 +51,7 @@ fn get_finalized_head_hash(res: &Response) -> Option<anyhow::Result<&str>> {
 }
 
 
-pub(crate) type BodyStreamBox = Box<dyn Stream<Item = reqwest::Result<Bytes>> + Unpin>;
+pub(crate) type BodyStreamBox = Box<dyn Stream<Item = reqwest::Result<Bytes>> + Unpin + Send>;
 
 
 pub struct ReqwestBlockStream<B> {

@@ -1,5 +1,5 @@
+use crate::ingest::write_controller::Rollback;
 use anyhow::ensure;
-use either::Either;
 use futures::{SinkExt, TryStreamExt};
 use parking_lot::Mutex;
 use sqd_data_client::{BlockStream, BlockStreamRequest, DataClient};
@@ -11,18 +11,21 @@ use std::sync::{Arc, Weak};
 
 pub enum IngestMessage {
     FinalizedHead(BlockRef),
-    Chunk {
-        finalized_head: Option<BlockRef>,
-        parent_block_hash: String,
-        first_block: BlockNumber,
-        last_block: BlockNumber,
-        last_block_hash: String,
-        tables: PreparedTables
-    },
+    NewChunk(NewChunk),
     Fork {
         prev_blocks: Vec<BlockRef>,
-        base_block_sender: futures::channel::oneshot::Sender<Either<BlockRef, BlockNumber>>
+        rollback_sender: tokio::sync::oneshot::Sender<Rollback>
     }
+}
+
+
+pub struct NewChunk {
+    pub finalized_head: Option<BlockRef>,
+    pub parent_block_hash: String,
+    pub first_block: BlockNumber,
+    pub last_block: BlockNumber,
+    pub last_block_hash: String,
+    pub tables: PreparedTables
 }
 
 
@@ -52,12 +55,61 @@ impl Drop for PreparedTables {
 }
 
 
-pub struct IngestGeneric<DC, CB> {
-    message_sender: futures::channel::mpsc::Sender<IngestMessage>,
-    data_client: DC,
+struct DataBuilder<CB> {
     builder: CB,
     processor: ChunkProcessor,
     spare_processor: Arc<Mutex<Option<ChunkProcessor>>>,
+}
+
+
+impl<CB: BlockChunkBuilder> DataBuilder<CB> {
+    pub fn new(builder: CB) -> Self {
+        Self {
+            processor: builder.new_chunk_processor(),
+            builder,
+            spare_processor: Arc::new(Mutex::new(None))
+        }
+    }
+
+    pub fn push_block(&mut self, block: &CB::Block) {
+        self.builder.push(block)
+    }
+
+    pub fn num_rows(&self) -> usize {
+        self.builder.max_num_rows() + self.processor.max_num_rows()
+    }
+
+    pub fn in_memory_buffered_bytes(&self) -> usize {
+        self.builder.byte_size()
+    }
+
+    pub fn flush_to_processor(&mut self) -> anyhow::Result<()> {
+        self.builder.submit_to_processor(&mut self.processor)?;
+        self.builder.clear();
+        Ok(())
+    }
+
+    pub fn finish(&mut self) -> anyhow::Result<PreparedTables> {
+        self.flush_to_processor()?;
+
+        let spare_processor = std::mem::take(self.spare_processor.lock().deref_mut())
+            .unwrap_or_else(|| self.builder.new_chunk_processor());
+
+        let processor = std::mem::replace(&mut self.processor, spare_processor);
+        let prepared_chunk = processor.finish()?;
+
+        Ok(PreparedTables {
+            inner: prepared_chunk,
+            spare_cell: Arc::downgrade(&self.spare_processor)
+        })
+    }
+}
+
+
+pub struct IngestGeneric<DC, CB> {
+    message_sender: tokio::sync::mpsc::Sender<IngestMessage>,
+    data_client: DC,
+    builder: Option<DataBuilder<CB>>,
     buffered_blocks: usize,
     has_parent_block_hash: bool,
     parent_block_hash: String,
@@ -71,23 +123,20 @@ impl<DC, CB> IngestGeneric<DC, CB>
 where
     DC: DataClient,
     DC::BlockStream: Unpin,
-    CB: BlockChunkBuilder<Block=<DC::BlockStream as BlockStream>::Block>
+    CB: BlockChunkBuilder<Block=<DC::BlockStream as BlockStream>::Block> + Send + 'static
 {
     pub fn new(
         data_client: DC,
         chunk_builder: CB,
         first_block: BlockNumber,
         prev_block_hash: Option<&str>,
-        message_sender: futures::channel::mpsc::Sender<IngestMessage>
+        message_sender: tokio::sync::mpsc::Sender<IngestMessage>
     ) -> Self
     {
-        let processor = chunk_builder.new_chunk_processor();
         Self {
             message_sender,
             data_client,
-            builder: chunk_builder,
-            processor,
-            spare_processor: Arc::new(Mutex::new(None)),
+            builder: Some(DataBuilder::new(chunk_builder)),
             buffered_blocks: 0,
             has_parent_block_hash: prev_block_hash.is_some(),
             parent_block_hash: prev_block_hash.map(|s| s.to_string()).unwrap_or_default(),
@@ -153,43 +202,39 @@ where
             "data service returned rollback while no base block was given"
         );
 
-        let (tx, rx) = futures::channel::oneshot::channel();
+        let (rollback_sender, rollback_recv) = tokio::sync::oneshot::channel();
 
         self.message_sender.send(IngestMessage::Fork {
             prev_blocks,
-            base_block_sender: tx
+            rollback_sender
         }).await?;
 
-        match rx.await? {
-            Either::Left(base_head) => {
-                self.parent_block_hash = base_head.hash;
-                self.first_block = base_head.number + 1;
-            },
-            Either::Right(first_block) => {
-                self.first_block = first_block;
-                self.has_parent_block_hash = false;
-            }
-        }
+        let rollback = rollback_recv.await?;
+
+        self.first_block = rollback.first_block;
+        self.has_parent_block_hash = rollback.parent_block_hash.is_some();
+        self.parent_block_hash = rollback.parent_block_hash.unwrap_or_default();
 
         Ok(())
     }
 
     fn push_block(&mut self, block: CB::Block) {
         self.buffered_blocks += 1;
-        self.builder.push(&block);
+        self.builder.as_mut().unwrap().push_block(&block);
         self.last_block = block.number();
         self.last_block_hash.clear();
         self.last_block_hash.push_str(block.hash())
     }
 
     async fn maybe_flush(&mut self, finalized_head: Option<&BlockRef>) -> anyhow::Result<()> {
-        if self.builder.byte_size() > 30 * 1024 * 1024 {
-            self.builder.submit_to_processor(&mut self.processor)?;
-            self.builder.clear();
+        if self.builder_ref().num_rows() > 200_000_000 {
+            return self.flush(finalized_head).await;
         }
-        if self.builder.max_num_rows() + self.processor.max_num_rows() > 200_000_000 {
-            self.flush(finalized_head).await?;
+
+        if self.builder_ref().in_memory_buffered_bytes() > 30 * 1024 * 1024 {
+            return self.with_blocking_builder(|b| b.flush_to_processor()).await;
         }
+
         Ok(())
     }
 
@@ -198,10 +243,8 @@ where
             return Ok(())
         }
 
-        self.builder.submit_to_processor(&mut self.processor)?;
-        self.builder.clear();
+        let tables = self.with_blocking_builder(|b| b.finish()).await?;
 
-        let processor = self.take_processor();
         let parent_block_hash = self.parent_block_hash.clone();
         let first_block = self.first_block;
         let last_block = self.last_block;
@@ -211,24 +254,36 @@ where
         std::mem::swap(&mut self.parent_block_hash, &mut self.last_block_hash);
         self.buffered_blocks = 0;
 
-        self.message_sender.send(IngestMessage::Chunk {
+        self.message_sender.send(IngestMessage::NewChunk(NewChunk {
             finalized_head: finalized_head.cloned(),
             parent_block_hash,
             first_block,
             last_block,
             last_block_hash,
-            tables: PreparedTables {
-                inner: processor.finish()?,
-                spare_cell: Arc::downgrade(&self.spare_processor)
-            }
-        }).await?;
+            tables
+        })).await?;
 
         Ok(())
     }
 
-    fn take_processor(&mut self) -> ChunkProcessor {
-        let spare = std::mem::take(self.spare_processor.lock().deref_mut())
-            .unwrap_or_else(|| self.builder.new_chunk_processor());
-        std::mem::replace(&mut self.processor, spare)
+    async fn with_blocking_builder<R, F>(&mut self, cb: F) -> R
+    where
+        F: FnOnce(&mut DataBuilder<CB>) -> R + Send + 'static,
+        R: Send + 'static
+    {
+        let mut builder = std::mem::take(&mut self.builder).unwrap();
+
+        let (result, builder) = tokio::task::spawn_blocking(move || {
+            let result = cb(&mut builder);
+            (result, builder)
+        }).await.unwrap();
+
+        self.builder = Some(builder);
+
+        result
+    }
+
+    fn builder_ref(&self) -> &DataBuilder<CB> {
+        self.builder.as_ref().unwrap()
     }
 }

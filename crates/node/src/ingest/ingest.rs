@@ -1,19 +1,19 @@
-use futures::future::{BoxFuture, LocalBoxFuture};
+use crate::ingest::ingest_generic::{IngestGeneric, IngestMessage};
+use crate::types::DatasetKind;
+use futures::future::BoxFuture;
 use futures::FutureExt;
 use reqwest::Url;
 use sqd_data_client::ReqwestDataClient;
-use sqd_primitives::{BlockNumber};
-use crate::ingest::ingest_generic::{IngestGeneric, IngestMessage};
-use crate::types::DatasetKind;
+use sqd_primitives::BlockNumber;
 
 
-pub fn ingest(
-    message_sender: futures::channel::mpsc::Sender<IngestMessage>,
+pub fn ingest<'a, 'b>(
+    message_sender: tokio::sync::mpsc::Sender<IngestMessage>,
     url: Url,
     dataset_kind: DatasetKind,
     first_block: BlockNumber,
-    prev_block_hash: Option<&str>
-) -> LocalBoxFuture<anyhow::Result<()>> 
+    prev_block_hash: Option<&'a str>
+) -> BoxFuture<'b, anyhow::Result<()>> 
 {
     match dataset_kind {
         DatasetKind::Evm => unimplemented!(),
@@ -27,7 +27,7 @@ pub fn ingest(
                 prev_block_hash,
                 message_sender
             );
-            ingest.run().boxed_local()
+            ingest.run().boxed()
         }
     }
 }

@@ -4341,6 +4341,7 @@ dependencies = [
  "futures",
  "parking_lot",
  "reqwest",
+ "scopeguard",
  "sqd-data",
  "sqd-data-client",
  "sqd-data-core",
@@ -4348,6 +4349,7 @@ dependencies = [
  "sqd-primitives",
  "sqd-query",
  "sqd-storage",
+ "tokio",
  "tracing",
 ]
 

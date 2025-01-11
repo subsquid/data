@@ -8,6 +8,14 @@ use tracing::warn;
 
 
 #[derive(Debug)]
+pub struct Rollback {
+    pub first_block: BlockNumber,
+    pub parent_block_hash: Option<String>,
+    pub finalized_head: Option<BlockRef>
+}
+
+
+#[derive(Debug)]
 pub struct WriteController {
     db: DBRef,
     dataset_id: DatasetId,
@@ -61,7 +69,7 @@ impl WriteController {
         self.head.as_ref().map_or(self.first_block, |h| h.number + 1)
     }
 
-    pub fn compute_rollback(&self, mut prev: &[BlockRef]) -> anyhow::Result<Either<BlockRef, BlockNumber>> {
+    pub fn compute_rollback(&self, mut prev: &[BlockRef]) -> anyhow::Result<Rollback> {
         ensure!(!prev.is_empty(), "no previous blocks where provided");
         ensure!(
             prev.windows(2).all(|s| s[0].number < s[1].number),
@@ -96,7 +104,7 @@ impl WriteController {
         for chunk_result in existing_chunks {
             let head = chunk_result?;
             
-            if prev_blocks.peek().map_or(false, |b| head.last_block() > b.number) {
+            if prev_blocks.peek().map_or(false, |b| b.number < head.last_block()) {
                 continue
             }
             
@@ -104,21 +112,28 @@ impl WriteController {
                 prev_blocks.next();
             }
             
-            if let Some(&block) = prev_blocks.peek() {
-                if block.number == head.last_block() && block.hash == head.last_block_hash() {
-                    return Ok(Either::Left(block.clone()))
+            if let Some(&b) = prev_blocks.peek() {
+                if b.number == head.last_block() && b.hash == head.last_block_hash() {
+                    return Ok(Rollback {
+                        first_block: b.number + 1,
+                        parent_block_hash: Some(b.hash.clone()),
+                        finalized_head: label.finalized_head().cloned()
+                    })
                 }
             } else {
-                return Ok(
-                    Either::Left(BlockRef {
-                        number: head.last_block(),
-                        hash: head.last_block_hash().to_string()
-                    })
-                )
+                return Ok(Rollback {
+                    first_block: head.last_block() + 1,
+                    parent_block_hash: Some(head.last_block_hash().to_string()),
+                    finalized_head: label.finalized_head().cloned()
+                })
             }
         }
 
-        Ok(Either::Right(self.first_block))
+        Ok(Rollback {
+            first_block: self.first_block,
+            parent_block_hash: None,
+            finalized_head: None
+        })
     }
 
     pub fn retain_head(&mut self, from_block: BlockNumber) -> anyhow::Result<()> {
@@ -154,12 +169,12 @@ impl WriteController {
         Ok(())
     }
 
-    pub fn finalize(
-        &mut self,
-        head_hash: &str,
-        new_finalized_head: &BlockRef
-    ) -> anyhow::Result<Option<BlockRef>>
-    {
+    pub fn finalize(&mut self, new_finalized_head: &BlockRef) -> anyhow::Result<Option<BlockRef>> {
+        let head = match self.head.as_ref() {
+            None => return Ok(None),
+            Some(head) => head
+        };
+        
         self.db.update_dataset(self.dataset_id, |tx| {
             if let Some(current) = tx.label().finalized_head() {
                 if current.number > new_finalized_head.number {
@@ -181,7 +196,7 @@ impl WriteController {
                 None => return Ok(None)
             };
 
-            if head_chunk.last_block_hash() != head_hash {
+            if head_chunk.last_block_hash() != head.hash {
                 return Ok(None)
             }
 
@@ -220,7 +235,10 @@ impl WriteController {
                 (_, Some(current)) if current.number < chunk.first_block() => {
                     Some(current)
                 },
-                (_, Some(current)) => bail!(LowFinalizedHead),
+                (_, Some(current)) => bail!(            
+                    "can't fork safely, because fork base is below the current finalized head \
+                    and finalized head of the data pack is below the current"
+                ),
                 (None, None) => None
             };
 
@@ -247,21 +265,3 @@ impl WriteController {
         Ok(())
     }
 }
-
-
-#[derive(Debug)]
-pub struct LowFinalizedHead;
-
-
-impl Display for LowFinalizedHead {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "can't fork safely, because fork base is below the current finalized head \
-            and finalized head of the data pack is below the current"
-        )
-    }
-}
-
-
-impl std::error::Error for LowFinalizedHead {}

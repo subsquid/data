@@ -9,6 +9,7 @@ either = "1.13.0"
 futures = { workspace = true }
 reqwest = { workspace = true }
 parking_lot = { workspace = true }
+scopeguard = { workspace = true }
 sqd-data = { path = "../data" }
 sqd-data-client = { path = "../data-client" }
 sqd-data-core = { path = "../data-core" }
@@ -16,4 +17,5 @@ sqd-dataset = { path = "../dataset" }
 sqd-primitives = { path = "../primitives", features = ["serde_json", "from_json_bytes"] }
 sqd-query = { path = "../query", features = ["storage"] }
 sqd-storage = { path = "../storage" }
+tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }

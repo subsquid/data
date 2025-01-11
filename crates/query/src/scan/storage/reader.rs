@@ -4,6 +4,7 @@ use crate::scan::row_predicate::{ColumnStats, RowStats};
 use crate::scan::util::{add_row_index, build_row_index_array};
 use crate::scan::RowPredicateRef;
 use arrow::array::RecordBatch;
+use arrow::datatypes::SchemaRef;
 use sqd_storage::db::SnapshotTableReader;
 use std::collections::HashSet;
 
@@ -88,6 +89,10 @@ impl <'a> TableReader for SnapshotTableReader<'a> {
         }
 
         Ok(vec![record_batch])
+    }
+
+    fn schema(&self) -> SchemaRef {
+        self.schema()
     }
 }
 

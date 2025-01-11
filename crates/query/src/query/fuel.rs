@@ -608,7 +608,8 @@ impl OutputRequest {
 
 request! {
     pub struct FuelQuery {
-        pub from_block: Option<BlockNumber>,
+        pub from_block: BlockNumber,
+        pub from_parent_hash: Option<String>,
         pub to_block: Option<BlockNumber>,
         pub fields: FieldSelection,
         pub include_all_blocks: bool,

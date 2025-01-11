@@ -10,7 +10,7 @@ pub mod fuel;
 mod util;
 
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Query {
     #[serde(rename = "evm")]
@@ -50,7 +50,7 @@ impl Query {
         }
     }
 
-    pub fn first_block(&self) -> Option<BlockNumber> {
+    pub fn first_block(&self) -> BlockNumber {
         match self {
             Query::Eth(q) => q.from_block,
             Query::Solana(q) => q.from_block,
@@ -59,7 +59,7 @@ impl Query {
         }
     }
 
-    pub fn set_first_block(&mut self, block_number: Option<BlockNumber>) {
+    pub fn set_first_block(&mut self, block_number: BlockNumber) {
         match self {
             Query::Eth(q) => q.from_block = block_number,
             Query::Solana(q) => q.from_block = block_number,
@@ -77,7 +77,8 @@ impl Query {
         }
     }
 
-    pub fn set_last_block(&mut self, block_number: Option<BlockNumber>) {
+    pub fn set_last_block(&mut self, block_number: impl Into<Option<BlockNumber>>) {
+        let block_number = block_number.into();
         match self {
             Query::Eth(q) => q.to_block = block_number,
             Query::Solana(q) => q.to_block = block_number,

@@ -13,6 +13,7 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ops::Not;
 use std::sync::Arc;
+use arrow::datatypes::SchemaRef;
 
 
 #[derive(Clone)]
@@ -168,6 +169,10 @@ impl TableReader for ParquetFile {
         }
         
         Ok(record_batches)
+    }
+
+    fn schema(&self) -> SchemaRef {
+        self.metadata.metadata().schema().clone()
     }
 }
 

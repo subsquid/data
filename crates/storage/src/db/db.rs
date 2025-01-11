@@ -1,12 +1,13 @@
 use super::data::{Dataset, DatasetId, DatasetKind, DatasetLabel};
 use super::read::snapshot::ReadSnapshot;
-use super::write::chunk::ChunkBuilder;
 use crate::db::ops::{perform_dataset_compaction, CompactionStatus};
 use crate::db::read::datasets::list_all_datasets;
 use crate::db::write::ops::deleted_deleted_tables;
+use crate::db::write::table_builder::TableBuilder;
 use crate::db::write::tx::Tx;
 use crate::db::{Chunk, DatasetUpdate};
 use anyhow::ensure;
+use arrow::datatypes::SchemaRef;
 use rocksdb::{ColumnFamilyDescriptor, Options as RocksOptions};
 use sqd_primitives::Name;
 use std::path::Path;
@@ -145,8 +146,8 @@ impl Database {
         })
     }
 
-    pub fn new_chunk_builder(&self) -> ChunkBuilder<'_> {
-        ChunkBuilder::new(&self.db)
+    pub fn new_table_builder(&self, schema: SchemaRef) -> TableBuilder<'_> {
+        TableBuilder::new(&self.db, schema)
     }
 
     pub fn insert_chunk(
