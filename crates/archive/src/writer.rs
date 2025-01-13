@@ -5,7 +5,7 @@ use parquet::arrow::ArrowWriter;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use rayon::prelude::*;
-use sqd_data_core::PreparedChunk;
+use sqd_data_core::{ChunkProcessor, PreparedChunk};
 use sqd_dataset::{DatasetDescriptionRef, TableDescription};
 use std::fs::File;
 use std::path::Path;
@@ -16,6 +16,7 @@ pub struct WriterItem {
     pub chunk: DataChunk,
     pub data: PreparedChunk,
     pub description: DatasetDescriptionRef,
+    pub processor: std::sync::Arc<std::sync::Mutex<Option<ChunkProcessor>>>
 }
 
 
@@ -37,7 +38,14 @@ impl Writer {
             let last_block = item.chunk.last_block;
             let target_dir = tempfile::tempdir()?.into_path();
             let writer_handle = tokio::task::spawn_blocking(move || {
-                write_chunk(&mut item.data, &item.description, &target_dir)
+                let ret = write_chunk(&mut item.data, &item.description, &target_dir);
+                let mut processor = item.processor.lock().unwrap();
+                if processor.is_none() {
+                    *processor = item.data.into_processor().ok();
+                } else {
+                    println!("processor is not none");
+                }
+                ret
             });
 
             let mut files = writer_handle.await??;
