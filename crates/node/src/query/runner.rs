@@ -92,9 +92,9 @@ impl QueryRunner {
                 (Some(chunk), Some(plan))
             }
         };
-        
+
         let buf_capacity = if plan.is_some() {
-            2560 * 1024 
+            2560 * 1024
         } else {
             0
         };
@@ -107,7 +107,7 @@ impl QueryRunner {
             chunk_iterator,
             finalized_head,
             buf: GzEncoder::new(
-                BytesMut::with_capacity(buf_capacity).writer(), 
+                BytesMut::with_capacity(buf_capacity).writer(),
                 Compression::default()
             )
         })
@@ -125,7 +125,7 @@ impl QueryRunner {
         ensure!(self.has_next_pack());
         loop {
             self.write_next_chunk()?;
-            
+
             if !self.has_next_pack() {
                 let dummy_buf = GzEncoder::new(BytesMut::new().writer(), Compression::default());
                 let bytes = std::mem::replace(&mut self.buf, dummy_buf)
@@ -135,12 +135,20 @@ impl QueryRunner {
                     .freeze();
                 return Ok(bytes)
             }
-            
+
             if self.buf.get_ref().get_ref().len() > 1024 * 1024 {
                 let bytes = self.buf.get_mut().get_mut().split().freeze();
                 return Ok(bytes)
             }
         }
+    }
+
+    pub fn finish(self) -> Bytes {
+        self.buf
+            .finish()
+            .expect("IO errors are not possible")
+            .into_inner()
+            .freeze()
     }
 
     fn write_next_chunk(&mut self) -> anyhow::Result<()> {

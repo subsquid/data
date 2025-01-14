@@ -2,6 +2,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 
+pub type QueryExecutorRef = Arc<QueryExecutor>;
+
+
 pub struct QueryExecutor {
     in_flight: Arc<AtomicUsize>,
     max_pending_tasks: usize
@@ -21,10 +24,19 @@ impl QueryExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static
     {
+        self.run_with_ctx((), move |_| task()).await.ok()
+    }
+
+    pub async fn run_with_ctx<C, R, F>(&self, ctx: C, task: F) -> Result<R, C>
+    where
+        F: FnOnce(C) -> R + Send + 'static,
+        R: Send + 'static,
+        C: Send + 'static
+    {
         let pending = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         if pending > self.max_pending_tasks {
             self.in_flight.fetch_sub(1, Ordering::SeqCst);
-            return None
+            return Err(ctx)
         }
 
         let pending_guard = DecrementOnDrop::new(self.in_flight.clone());
@@ -33,14 +45,16 @@ impl QueryExecutor {
 
         sqd_polars::POOL.spawn(move || {
             let _ = pending_guard;
-            let result = task();
+            let result = task(ctx);
             let _ = tx.send(result);
         });
         
         // FIXME: how does this type check?
         println!("{:?}", pending_guard.counter);
 
-        rx.await.ok()
+        Ok(
+            rx.await.expect("task panicked")
+        )
     }
 }
 

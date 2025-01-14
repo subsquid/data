@@ -1,5 +1,6 @@
 #![allow(unused)]
+pub mod error;
 mod ingest;
-mod types;
-mod query;
 mod node;
+mod query;
+mod types;
