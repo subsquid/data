@@ -38,24 +38,18 @@ impl<
         let stream_a;
         match select(left_future, right_future).await {
             futures_util::future::Either::Left((item, right)) => {
-                println!("RIGHT");
                 stream_a = item.unwrap();
                 other_future = right;
             }
             futures_util::future::Either::Right((item, left)) => {
-                println!("LEFT");
                 stream_a = item.unwrap();
                 other_future = left;
             }
         }
         let dur = Duration::from_millis(500);
         let stream_b = match timeout(dur, other_future).await {
-            Ok(item) => {
-                println!("GOT other");
-                item.unwrap()
-            }
+            Ok(item) => item.unwrap(),
             Err(_) => {
-                println!("NO ANSWER");
                 return Ok(Box::pin(stream_a));
             }
         };

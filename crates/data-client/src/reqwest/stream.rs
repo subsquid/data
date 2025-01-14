@@ -110,6 +110,9 @@ impl<B: Block + FromJsonBytes + Unpin> Stream for ReqwestBlockStream<B> {
                     this.prev_block_hash.clear();
                     this.prev_block_hash.insert_str(0, block.hash());
                     Ok(block)
+                }).or_else(|| {
+                    this.is_terminated = true;
+                    None
                 })
             })
         } else {

@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, pin::Pin, task::Poll};
 
-use futures_core::{FusedFuture, FusedStream, Stream};
-use futures_util::{FutureExt, StreamExt};
+use futures_core::{FusedStream, Stream};
+use futures_util::StreamExt;
 use sqd_data_types::FromJsonBytes;
 
 use crate::{BlockRef, BlockStream};
@@ -71,14 +71,11 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        let future_left = this.left_stream.select_next_some();
-        let future_right = this.right_stream.select_next_some();
-        let mut res = futures_util::future::select(future_left, future_right);
 
         loop {
-            match res.poll_unpin(cx) {
-                Poll::Ready(omg) => match omg {
-                    futures_util::future::Either::Left((item, right)) => {
+            if !this.left_stream.is_terminated() {
+                match this.left_stream.poll_next_unpin(cx) {
+                    Poll::Ready(Some(item)) => {
                         if let Some(res) = Self::process_item(
                             &mut this.front_number,
                             this.left_stream.finalized_head(),
@@ -86,10 +83,15 @@ where
                         ) {
                             return Poll::Ready(res);
                         }
-                        let left = this.left_stream.select_next_some();
-                        res = futures_util::future::select(left, right);
+                        continue;
                     }
-                    futures_util::future::Either::Right((item, left)) => {
+                    Poll::Ready(None) => {}
+                    Poll::Pending => {}
+                }
+            }
+            if !this.right_stream.is_terminated() {
+                match this.right_stream.poll_next_unpin(cx) {
+                    Poll::Ready(Some(item)) => {
                         if let Some(res) = Self::process_item(
                             &mut this.front_number,
                             this.right_stream.finalized_head(),
@@ -97,16 +99,16 @@ where
                         ) {
                             return Poll::Ready(res);
                         }
-                        let right = this.right_stream.select_next_some();
-                        res = futures_util::future::select(left, right);
+                        continue;
                     }
-                },
-                Poll::Pending => {
-                    if res.is_terminated() {
-                        return Poll::Ready(None);
-                    }
+                    Poll::Ready(None) => {}
+                    Poll::Pending => {}
                 }
             }
+            if this.left_stream.is_terminated() && this.right_stream.is_terminated() {
+                return Poll::Ready(None);
+            }
+            return Poll::Pending;
         }
     }
 
