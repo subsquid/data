@@ -1,4 +1,5 @@
 use sqd_dataset::DatasetDescriptionRef;
+use sqd_query::Query;
 use sqd_storage::db::Database;
 use std::sync::Arc;
 
@@ -30,6 +31,14 @@ impl DatasetKind {
         match self {
             DatasetKind::Evm => unimplemented!(),
             DatasetKind::Solana => sqd_data::solana::tables::SolanaChunkBuilder::dataset_description()
+        }
+    }
+    
+    pub fn from_query(query: &Query) -> Self {
+        match query {
+            Query::Eth(_) => Self::Evm,
+            Query::Solana(_) => Self::Solana,
+            _ => unimplemented!()
         }
     }
 }

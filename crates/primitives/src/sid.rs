@@ -115,7 +115,7 @@ impl <const N: usize> Display for SID<N> {
 
 impl <const N: usize> Debug for SID<N> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SID::{}", self)
+        f.write_str(self.as_str())
     }
 }
 

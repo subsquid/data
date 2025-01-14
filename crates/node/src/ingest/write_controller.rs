@@ -22,6 +22,7 @@ pub struct WriteController {
     dataset_kind: DatasetKind,
     first_block: BlockNumber,
     head: Option<BlockRef>,
+    finalized_head: Option<BlockRef>
 }
 
 
@@ -35,17 +36,24 @@ impl WriteController {
     {
         db.create_dataset_if_not_exists(dataset_id, dataset_kind.storage_kind())?;
         
-        let head = db.snapshot().get_last_chunk(dataset_id)?.map(|c| BlockRef {
+        let snapshot = db.snapshot();
+        
+        let label = snapshot.get_label(dataset_id)?.ok_or_else(|| {
+            anyhow!("dataset got deleted")
+        })?;
+        
+        let head = snapshot.get_last_chunk(dataset_id)?.map(|c| BlockRef {
             number: c.last_block(),
             hash: c.last_block_hash().to_string()
         });
         
         let mut controller = Self {
-            db,
+            db: db.clone(),
             dataset_id,
             dataset_kind,
             first_block: 0,
-            head
+            head,
+            finalized_head: label.finalized_head().cloned()
         };
         
         controller.retain_head(first_block)?;
@@ -68,7 +76,15 @@ impl WriteController {
     pub fn next_block(&self) -> BlockNumber {
         self.head.as_ref().map_or(self.first_block, |h| h.number + 1)
     }
-
+    
+    pub fn head(&self) -> Option<&BlockRef> {
+        self.head.as_ref()
+    }
+    
+    pub fn finalized_head(&self) -> Option<&BlockRef> {
+        self.finalized_head.as_ref()
+    }
+    
     pub fn compute_rollback(&self, mut prev: &[BlockRef]) -> anyhow::Result<Rollback> {
         ensure!(!prev.is_empty(), "no previous blocks where provided");
         ensure!(
@@ -152,7 +168,7 @@ impl WriteController {
         self.first_block = from_block;
 
         if bottom_chunk.as_ref().is_none() {
-            self.head = None
+            self.head = None;
         }
 
         if let Some(chunk) = bottom_chunk {
@@ -169,13 +185,13 @@ impl WriteController {
         Ok(())
     }
 
-    pub fn finalize(&mut self, new_finalized_head: &BlockRef) -> anyhow::Result<Option<BlockRef>> {
+    pub fn finalize(&mut self, new_finalized_head: &BlockRef) -> anyhow::Result<()> {
         let head = match self.head.as_ref() {
-            None => return Ok(None),
+            None => return Ok(()),
             Some(head) => head
         };
         
-        self.db.update_dataset(self.dataset_id, |tx| {
+        let update = self.db.update_dataset(self.dataset_id, |tx| {
             if let Some(current) = tx.label().finalized_head() {
                 if current.number > new_finalized_head.number {
                     return Ok(None)
@@ -215,7 +231,13 @@ impl WriteController {
             tx.set_finalized_head(new_finalized_head.clone());
             
             Ok(Some(new_finalized_head))
-        })
+        })?;
+        
+        if let Some(new_head) = update {
+            self.finalized_head = Some(new_head);
+        }
+        
+        Ok(())
     }
 
     pub fn new_chunk(
@@ -224,7 +246,7 @@ impl WriteController {
         chunk: &StorageChunk
     ) -> anyhow::Result<()>
     {
-        self.db.update_dataset(self.dataset_id, |tx| {
+        let finalized_head = self.db.update_dataset(self.dataset_id, |tx| {
             let new_finalized_head = match (finalized_head, tx.label().finalized_head()) {
                 (Some(new), None) => {
                     Some(new)
@@ -253,15 +275,18 @@ impl WriteController {
                 }
             });
 
-            tx.set_finalized_head(new_finalized_head);
-            tx.insert_fork(chunk)
+            tx.set_finalized_head(new_finalized_head.clone());
+            tx.insert_fork(chunk)?;
+            Ok(new_finalized_head)
         })?;
 
+        self.finalized_head = finalized_head;
+        
         self.head = Some(BlockRef {
             number: chunk.last_block(),
             hash: chunk.last_block_hash().to_string()
         });
-
+        
         Ok(())
     }
 }

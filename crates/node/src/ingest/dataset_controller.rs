@@ -4,7 +4,7 @@ use crate::ingest::write_controller::WriteController;
 use crate::types::{DBRef, DatasetKind};
 use anyhow::{bail, Context};
 use reqwest::Url;
-use sqd_primitives::BlockNumber;
+use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_storage::db::{Chunk, Database, DatasetId};
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -20,6 +20,10 @@ pub struct DatasetController {
     dataset_url: Url,
     first_block_sender: tokio::sync::watch::Sender<BlockNumber>,
     first_block_receiver: tokio::sync::watch::Receiver<BlockNumber>,
+    head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
+    head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
+    finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
+    finalized_head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
     is_running: AtomicBool
 }
 
@@ -34,6 +38,8 @@ impl DatasetController {
     ) -> Self
     {
         let (first_block_sender, first_block_receiver) = tokio::sync::watch::channel(first_block);
+        let (head_sender, head_receiver) = tokio::sync::watch::channel(None);
+        let (finalized_head_sender, finalized_head_receiver) = tokio::sync::watch::channel(None);
         Self {
             db,
             dataset_id,
@@ -41,12 +47,44 @@ impl DatasetController {
             dataset_url,
             first_block_sender,
             first_block_receiver,
+            head_sender,
+            head_receiver,
+            finalized_head_sender,
+            finalized_head_receiver,
             is_running: AtomicBool::new(false)
         }
     }
 
-    pub fn retain_head(&self, block_number: BlockNumber) {
+    pub fn dataset_id(&self) -> DatasetId {
+        self.dataset_id
+    }
+    
+    pub fn dataset_kind(&self) -> DatasetKind {
+        self.dataset_kind
+    }
+
+    pub fn get_finalized_head(&self) -> Option<BlockRef> {
+        self.finalized_head_receiver.borrow().clone()
+    }
+
+    pub fn get_head(&self) -> Option<BlockRef> {
+        self.head_receiver.borrow().clone()
+    }
+
+    pub fn retain(&self, block_number: BlockNumber) {
         self.first_block_sender.send(block_number).unwrap()
+    }
+    
+    pub async fn wait_for_block(&self, block_number: BlockNumber) -> BlockRef {
+        let mut recv = self.head_receiver.clone();
+        loop {
+            if let Some(block) = recv.borrow_and_update().as_ref() {
+                if block.number >= block_number {
+                    return block.clone()
+                }
+            }
+            recv.changed().await.unwrap()
+        }
     }
 
     pub async fn run(&self) -> anyhow::Result<()> {
@@ -96,7 +134,9 @@ impl DatasetController {
             self.db.clone(),
             write,
             ingest_msg_receiver,
-            self.first_block_receiver.clone()
+            self.first_block_receiver.clone(),
+            self.head_sender.clone(),
+            self.finalized_head_sender.clone()
         ));
 
         match write_handle.await.context("failed to await on write task")? {
@@ -123,7 +163,9 @@ async fn write_loop(
     db: DBRef,
     mut write: WriteController,
     mut ingest_message_recv: tokio::sync::mpsc::Receiver<IngestMessage>,
-    mut retain_recv: tokio::sync::watch::Receiver<BlockNumber>
+    mut retain_recv: tokio::sync::watch::Receiver<BlockNumber>,
+    mut head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
+    mut finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>
 ) -> anyhow::Result<()>
 {
     macro_rules! blocking {
@@ -135,6 +177,16 @@ async fn write_loop(
             write = res.1;
             res.0
         }};
+    }
+    macro_rules! notify_finalized_head {
+        () => {
+            send_if_new(&mut finalized_head_sender, write.finalized_head().cloned())
+        };
+    }
+    macro_rules! notify_head {
+        () => {
+            send_if_new(&mut head_sender, write.head().cloned())
+        };
     }
 
     loop {
@@ -150,12 +202,15 @@ async fn write_loop(
                         blocking! {
                             write.finalize(&head)
                         }?;
+                        notify_finalized_head!();
                     },
                     IngestMessage::NewChunk(new_chunk) => {
                         let db = db.clone();
                         blocking! {
                             write_new_chunk(&db, &mut write, new_chunk)
                         }?;
+                        notify_head!();
+                        notify_finalized_head!();
                     },
                     IngestMessage::Fork {
                         prev_blocks,
@@ -174,7 +229,7 @@ async fn write_loop(
                     return Ok(())
                 }
 
-                let block_number = *retain_recv.borrow_and_update();
+                let block_number = retain_recv.borrow_and_update().clone();
 
                 if write.next_block() < block_number {
                     bail!(BehindFirstBlock(block_number))
@@ -183,6 +238,9 @@ async fn write_loop(
                 blocking! {
                     write.retain_head(block_number)
                 }?;
+
+                notify_head!();
+                notify_finalized_head!();
             }
         }
     }
@@ -210,15 +268,15 @@ fn write_new_chunk(
         }
 
         prepared.read(&mut builder, 0, prepared.num_rows())?;
-        
+
         tables.insert(
-            name.to_string(), 
+            name.to_string(),
             builder.finish()?
         );
     }
 
     let chunk = Chunk::V0 {
-        parent_block_hash: new_chunk.parent_block_hash,
+        base_block_hash: new_chunk.parent_block_hash,
         first_block: new_chunk.first_block,
         last_block: new_chunk.last_block,
         last_block_hash: new_chunk.last_block_hash,
@@ -241,3 +299,15 @@ impl Display for BehindFirstBlock {
 
 
 impl std::error::Error for BehindFirstBlock {}
+
+
+fn send_if_new<T: Eq>(sender: &mut tokio::sync::watch::Sender<T>, mut value: T) {
+    sender.send_if_modified(|current| {
+        if current == &value {
+            false
+        } else {
+            std::mem::swap(current, &mut value);
+            true
+        }
+    });
+}

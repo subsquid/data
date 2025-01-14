@@ -5,15 +5,19 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
+bytes = { workspace = true }
 either = "1.13.0"
+flate2 = { workspace = true }
 futures = { workspace = true }
-reqwest = { workspace = true }
+ouroboros = { workspace = true }
 parking_lot = { workspace = true }
+reqwest = { workspace = true }
 scopeguard = { workspace = true }
 sqd-data = { path = "../data" }
 sqd-data-client = { path = "../data-client" }
 sqd-data-core = { path = "../data-core" }
 sqd-dataset = { path = "../dataset" }
+sqd-polars = { path = "../polars" }
 sqd-primitives = { path = "../primitives", features = ["serde_json", "from_json_bytes"] }
 sqd-query = { path = "../query", features = ["storage"] }
 sqd-storage = { path = "../storage" }

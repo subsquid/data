@@ -60,7 +60,7 @@ impl <'a> ReadSnapshot<'a> {
         dataset_id: DatasetId,
         from_block: BlockNumber,
         to_block: Option<BlockNumber>
-    ) -> ChunkIterator<RocksSnapshotIterator<'a>>
+    ) -> ReadSnapshotChunkIterator<'a>
     {
         let cursor = self.db.raw_iterator_cf_opt(
             self.cf_handle(CF_CHUNKS),
@@ -92,6 +92,9 @@ impl <'a> ReadSnapshot<'a> {
         self.db.cf_handle(name).unwrap()
     }
 }
+
+
+pub type ReadSnapshotChunkIterator<'a> = ChunkIterator<RocksSnapshotIterator<'a>>;
 
 
 pub struct ChunkReader<'a> {
@@ -126,8 +129,8 @@ impl <'a> ChunkReader<'a> {
         &self.chunk.last_block_hash()
     }
     
-    pub fn parent_block_hash(&self) -> &str {
-        &self.chunk.parent_block_hash()
+    pub fn base_block_hash(&self) -> &str {
+        &self.chunk.base_block_hash()
     }
 
     pub fn has_table(&self, name: &str) -> bool {

@@ -40,7 +40,7 @@ pub struct Plan {
     relations: Vec<Rel>,
     outputs: Vec<Output>,
     include_all_blocks: bool,
-    parent_block_hash: Option<String>,
+    base_block_hash: Option<String>,
     first_block: Option<BlockNumber>,
     last_block: Option<BlockNumber>
 }
@@ -54,8 +54,8 @@ impl Plan {
         }.execute()
     }
 
-    pub fn set_parent_block_hash(&mut self, hash: impl Into<Option<String>>) {
-        self.parent_block_hash = hash.into();
+    pub fn set_base_block_hash(&mut self, hash: impl Into<Option<String>>) {
+        self.base_block_hash = hash.into();
     }
 
     pub fn set_first_block(&mut self, block_number: impl Into<Option<BlockNumber>>) {
@@ -76,7 +76,7 @@ struct PlanExecution<'a> {
 
 impl <'a> PlanExecution<'a> {
     fn execute(&self) -> anyhow::Result<BlockWriter> {
-        self.check_parent_block()?;
+        self.check_base_block()?;
 
         let relation_inputs = self.plan.relations.iter()
             .map(|_| RowList::new())
@@ -91,8 +91,8 @@ impl <'a> PlanExecution<'a> {
         self.execute_output(output_inputs)
     }
 
-    fn check_parent_block(&self) -> anyhow::Result<()> {
-        let parent_hash = match self.plan.parent_block_hash.as_ref() {
+    fn check_base_block(&self) -> anyhow::Result<()> {
+        let base_hash = match self.plan.base_block_hash.as_ref() {
             Some(s) => s.as_str(),
             None => return Ok(())
         };
@@ -157,16 +157,16 @@ impl <'a> PlanExecution<'a> {
 
         refs.sort_by(|a, b| b.number.cmp(&a.number));
 
-        let parent_block = refs.first().ok_or_else(|| {
+        let base_block = refs.first().ok_or_else(|| {
             anyhow!("block {} is not present in the chunk", block_number)
         })?;
         
-        if parent_block.hash == parent_hash {
+        if base_block.hash == base_hash {
             Ok(())
         } else {
             Err(anyhow!(UnexpectedBaseBlock {
                 prev_blocks: refs,
-                expected_hash: parent_hash.to_string()
+                expected_hash: base_hash.to_string()
             }))   
         }
     }
@@ -509,7 +509,7 @@ impl PlanBuilder{
             relations: self.relations,
             outputs: self.outputs,
             include_all_blocks: self.include_all_blocks,
-            parent_block_hash: self.parent_block_hash,
+            base_block_hash: self.parent_block_hash,
             first_block: self.first_block,
             last_block: self.last_block
         }

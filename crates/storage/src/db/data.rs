@@ -115,7 +115,7 @@ pub enum Chunk {
         first_block: BlockNumber,
         last_block: BlockNumber,
         last_block_hash: String,
-        parent_block_hash: String,
+        base_block_hash: String,
         tables: BTreeMap<String, TableId>
     }
 }
@@ -134,8 +134,8 @@ impl Chunk {
         match self { Chunk::V0 { last_block_hash, .. } => last_block_hash }
     }
 
-    pub fn parent_block_hash(&self) -> &str {
-        match self { Chunk::V0 { parent_block_hash, .. } => parent_block_hash }
+    pub fn base_block_hash(&self) -> &str {
+        match self { Chunk::V0 { base_block_hash: parent_block_hash, .. } => parent_block_hash }
     }
     
     pub fn tables(&self) -> &BTreeMap<String, TableId> {

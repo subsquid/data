@@ -49,6 +49,15 @@ impl Query {
             Query::Fuel(q) => q.validate(),
         }
     }
+    
+    pub fn base_block_hash(&self) -> Option<&str> {
+        match self {
+            Query::Eth(q) => q.from_parent_hash.as_ref(),
+            Query::Solana(q) => q.from_parent_hash.as_ref(),
+            Query::Substrate(q) => q.from_parent_hash.as_ref(),
+            Query::Fuel(q) => q.from_parent_hash.as_ref(),
+        }.map(|s| s.as_str())
+    }
 
     pub fn first_block(&self) -> BlockNumber {
         match self {
