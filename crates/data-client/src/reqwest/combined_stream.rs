@@ -13,6 +13,16 @@ pub struct CombinedBlockStream<LeftStream, RightStream, ReturnItem> {
     phantom_data: PhantomData<ReturnItem>,
 }
 
+enum ItemAction {
+    Skip,
+    Return
+}
+
+enum StreamSide {
+    Left,
+    Right
+}
+
 impl<LeftStream: BlockStream, RightStream: BlockStream, ReturnItem: sqd_data_types::Block>
     CombinedBlockStream<LeftStream, RightStream, ReturnItem>
 {
@@ -59,8 +69,6 @@ impl<
         ReturnItem: sqd_data_types::Block + FromJsonBytes + Unpin,
     > Stream for CombinedBlockStream<LeftStream, RightStream, ReturnItem>
 where
-    // LeftStream: BlockStream<Item = anyhow::Result<ReturnItem>>,
-    // RightStream: BlockStream<Item = anyhow::Result<ReturnItem>>,
     LeftStream: BlockStream<Block = ReturnItem>,
     RightStream: BlockStream<Block = ReturnItem>,
 {
@@ -76,14 +84,10 @@ where
             if !this.left_stream.is_terminated() {
                 match this.left_stream.poll_next_unpin(cx) {
                     Poll::Ready(Some(item)) => {
-                        if let Some(res) = Self::process_item(
-                            &mut this.front_number,
-                            this.left_stream.finalized_head(),
-                            item,
-                        ) {
-                            return Poll::Ready(res);
+                        match Self::process_item(this, &item, StreamSide::Left) {
+                            ItemAction::Skip => continue,
+                            ItemAction::Return => return Poll::Ready(Some(item)),
                         }
-                        continue;
                     }
                     Poll::Ready(None) => {}
                     Poll::Pending => {}
@@ -92,14 +96,10 @@ where
             if !this.right_stream.is_terminated() {
                 match this.right_stream.poll_next_unpin(cx) {
                     Poll::Ready(Some(item)) => {
-                        if let Some(res) = Self::process_item(
-                            &mut this.front_number,
-                            this.right_stream.finalized_head(),
-                            item,
-                        ) {
-                            return Poll::Ready(res);
+                        match Self::process_item(this, &item, StreamSide::Right) {
+                            ItemAction::Skip => continue,
+                            ItemAction::Return => return Poll::Ready(Some(item)),
                         }
-                        continue;
                     }
                     Poll::Ready(None) => {}
                     Poll::Pending => {}
@@ -117,29 +117,35 @@ where
     }
 }
 
-impl<LeftStream, RightStream, ReturnItem: sqd_data_types::Block>
+impl<LeftStream: BlockStream, RightStream: BlockStream, ReturnItem: sqd_data_types::Block>
     CombinedBlockStream<LeftStream, RightStream, ReturnItem>
 {
     fn process_item(
-        front_number: &mut std::option::Option<u64>,
-        finalized_head: std::option::Option<&BlockRef>,
-        item: anyhow::Result<ReturnItem>,
-    ) -> std::option::Option<std::option::Option<anyhow::Result<ReturnItem>>> {
-        let finalized_head = finalized_head?;
+        this: &mut Self,
+        item: &anyhow::Result<ReturnItem>,
+        side: StreamSide,
+    ) -> ItemAction {
+        let finalized_head_option = match side {
+            StreamSide::Left => this.left_stream.finalized_head(),
+            StreamSide::Right => this.right_stream.finalized_head(),
+        };
+        let Some(finalized_head) = finalized_head_option else {
+            return ItemAction::Skip
+        };
         let finalized_number = finalized_head.number();
         let Ok(item) = item else {
-            return None;
+            return ItemAction::Skip
         };
         let current_number = item.number();
         if current_number > finalized_number {
-            return None;
+            return ItemAction::Skip
         }
-        let last_number = front_number.unwrap_or(0);
+        let last_number = this.front_number.unwrap_or(0);
         if last_number >= current_number {
-            return None;
+            return ItemAction::Skip
         }
-        *front_number = Some(current_number);
-        Some(Some(Ok(item)))
+        this.front_number = Some(current_number);
+        ItemAction::Return
     }
 }
 
