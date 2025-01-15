@@ -4,15 +4,19 @@ use super::{CombinedBlockStream, ReqwestDataClient};
 use async_std::future::timeout;
 use futures_util::future::select;
 use reqwest::IntoUrl;
+use anyhow::anyhow;
 use sqd_data_types::{BlockNumber, FromJsonBytes};
 use std::{
     pin::{pin, Pin},
     time::Duration,
 };
 
+const DEFAULT_GRACE_PERIOD: Duration = Duration::from_millis(500);
+
 pub struct CombinedClient<B> {
     left: ReqwestDataClient<B>,
     right: ReqwestDataClient<B>,
+    grace_period: Duration,
 }
 
 impl<
@@ -23,6 +27,15 @@ impl<
         Self {
             left: ReqwestDataClient::<B>::from_url(left_url),
             right: ReqwestDataClient::<B>::from_url(right_url),
+            grace_period: DEFAULT_GRACE_PERIOD,
+        }
+    }
+
+    pub fn from_url_and_grace_period(left_url: impl IntoUrl, right_url: impl IntoUrl, grace_period: Duration) -> Self {
+        Self {
+            left: ReqwestDataClient::<B>::from_url(left_url),
+            right: ReqwestDataClient::<B>::from_url(right_url),
+            grace_period,
         }
     }
 
@@ -37,22 +50,35 @@ impl<
         let stream_a;
         match select(left_future, right_future).await {
             futures_util::future::Either::Left((item, right)) => {
-                stream_a = item?;
+                stream_a = item;
                 other_future = right;
             }
             futures_util::future::Either::Right((item, left)) => {
-                stream_a = item?;
+                stream_a = item;
                 other_future = left;
             }
         }
-        let dur = Duration::from_millis(500);
+        let dur = self.grace_period;
         let stream_b = match timeout(dur, other_future).await {
-            Ok(item) => item?,
-            Err(_) => {
-                return Ok(Box::pin(stream_a));
+            Ok(item) => item,
+            Err(err) => {
+                if let Ok(res) = stream_a {
+                    return Ok(Box::pin(res));
+                } else {
+                    return Err(anyhow!(err));
+                }
             }
         };
-        let stream = CombinedBlockStream::new(stream_a, stream_b);
+        if stream_a.is_err() && stream_b.is_err() {
+            return Err(anyhow!("Both connections failed"));
+        }
+        if stream_a.is_err() {
+            return Ok(Box::pin(stream_b?));
+        }
+        if stream_b.is_err() {
+            return Ok(Box::pin(stream_a?));
+        }
+        let stream = CombinedBlockStream::new(stream_a?, stream_b?);
         Ok(Box::pin(stream))
     }
 }
