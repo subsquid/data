@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::time::Instant;
 use crate::query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot};
 use crate::query::user_error::QueryKindMismatch;
 use crate::types::{DBRef, DatasetKind};
@@ -123,6 +124,10 @@ impl QueryRunner {
 
     pub fn next_pack(&mut self) -> anyhow::Result<Bytes> {
         ensure!(self.has_next_pack());
+
+        let start = Instant::now();
+        let mut step = 1;
+        
         loop {
             self.write_next_chunk()?;
 
@@ -136,10 +141,12 @@ impl QueryRunner {
                 return Ok(bytes)
             }
 
-            if self.buf.get_ref().get_ref().len() > 1024 * 1024 {
+            if self.buf.get_ref().get_ref().len() > 512 * 1024 || worked_long_enough(start, step) {
                 let bytes = self.buf.get_mut().get_mut().split().freeze();
                 return Ok(bytes)
             }
+
+            step += 1;
         }
     }
 
@@ -217,4 +224,11 @@ impl QueryRunner {
     fn plan_mut(&mut self) -> &mut Plan {
         self.plan.as_mut().unwrap()
     }
+}
+
+
+fn worked_long_enough(start: Instant, steps: usize) -> bool {
+    let ms = start.elapsed().as_millis();
+    let next_step_time = ms + ms / steps as u128;
+    next_step_time > 200
 }

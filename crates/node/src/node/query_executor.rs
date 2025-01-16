@@ -33,48 +33,27 @@ impl QueryExecutor {
         R: Send + 'static,
         C: Send + 'static
     {
-        let pending = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        let in_flight = self.in_flight.clone();
+        let pending = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        
+        let pending_guard = scopeguard::guard((), move |_| {
+            in_flight.fetch_sub(1, Ordering::SeqCst);
+        });
+        
         if pending > self.max_pending_tasks {
-            self.in_flight.fetch_sub(1, Ordering::SeqCst);
             return Err(ctx)
         }
-
-        let pending_guard = DecrementOnDrop::new(self.in_flight.clone());
 
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         sqd_polars::POOL.spawn(move || {
-            let _ = pending_guard;
+            let _pending_guard = pending_guard;
             let result = task(ctx);
             let _ = tx.send(result);
         });
-        
-        // FIXME: how does this type check?
-        println!("{:?}", pending_guard.counter);
 
         Ok(
             rx.await.expect("task panicked")
         )
-    }
-}
-
-
-struct DecrementOnDrop {
-    counter: Arc<AtomicUsize>
-}
-
-
-impl DecrementOnDrop {
-    pub fn new(counter: Arc<AtomicUsize>) -> Self {
-        Self {
-            counter
-        }
-    }    
-}
-
-
-impl Drop for DecrementOnDrop {
-    fn drop(&mut self) {
-        self.counter.fetch_sub(1, Ordering::SeqCst);
     }
 }

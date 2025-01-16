@@ -58,7 +58,7 @@ impl DatasetController {
     pub fn dataset_id(&self) -> DatasetId {
         self.dataset_id
     }
-    
+
     pub fn dataset_kind(&self) -> DatasetKind {
         self.dataset_kind
     }
@@ -71,16 +71,20 @@ impl DatasetController {
         self.head_receiver.borrow().clone()
     }
 
+    pub fn get_head_block_number(&self) -> Option<BlockNumber> {
+        self.head_receiver.borrow().as_ref().map(|h| h.number)
+    }
+
     pub fn retain(&self, block_number: BlockNumber) {
         self.first_block_sender.send(block_number).unwrap()
     }
-    
-    pub async fn wait_for_block(&self, block_number: BlockNumber) -> BlockRef {
+
+    pub async fn wait_for_block(&self, block_number: BlockNumber) -> BlockNumber {
         let mut recv = self.head_receiver.clone();
         loop {
             if let Some(block) = recv.borrow_and_update().as_ref() {
                 if block.number >= block_number {
-                    return block.clone()
+                    return block.number
                 }
             }
             recv.changed().await.unwrap()
