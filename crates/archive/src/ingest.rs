@@ -17,12 +17,9 @@ pub fn ingest_from_service(
     url: Url,
     from: BlockNumber,
     to: Option<BlockNumber>
-) -> impl Stream<Item = anyhow::Result<Bytes>>
+) -> impl Stream<Item = Result<Bytes, reqwest::Error>>
 {
     async_stream::try_stream! {
-        // loop {
-
-        // }
         let range = BlockRange { from, to };
         let client = reqwest::Client::new();
         let res = client.post(url.as_str()).json(&range).send().await?;

@@ -1,21 +1,26 @@
+use crate::ingest::ingest_from_service;
 use crate::layout::ChunkWriter;
+use crate::metrics;
 use crate::processor::LineProcessor;
 use crate::progress::Progress;
 use crate::writer::WriterItem;
-use crate::metrics;
-use bytes::Bytes;
+use futures_util::TryStreamExt;
+use sqd_data_core::BlockNumber;
 use std::num::NonZeroUsize;
-use std::sync::mpsc::Receiver;
+use std::pin::pin;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender;
+use url::Url;
 
 
 pub struct Sink {
     processor: LineProcessor,
     chunk_writer: ChunkWriter,
     chunk_size: usize,
+    max_num_rows: usize,
     progress: Progress,
-    line_receiver: Receiver<Bytes>,
+    url: Url,
+    last_block: Option<BlockNumber>,
     chunk_sender: UnboundedSender<WriterItem>,
 }
 
@@ -25,7 +30,8 @@ impl Sink {
         processor: LineProcessor,
         chunk_writer: ChunkWriter,
         chunk_size: usize,
-        line_receiver: Receiver<bytes::Bytes>,
+        url: Url,
+        last_block: Option<BlockNumber>,
         chunk_sender: UnboundedSender<WriterItem>,
     ) -> Sink {
         let window_size = NonZeroUsize::new(10).unwrap();
@@ -35,54 +41,80 @@ impl Sink {
             processor,
             chunk_writer,
             chunk_size,
-            progress,
-            line_receiver,
+            max_num_rows: 200_000,
             chunk_sender,
+            progress,
+            url,
+            last_block,
         }
     }
 
-    pub fn start(&mut self) -> anyhow::Result<()> {
-        let mut first_block = self.chunk_writer.next_block();
+    pub async fn r#loop(&mut self) -> anyhow::Result<()> {
+        let mut chunk_first_block = self.chunk_writer.next_block();
+        let mut next_block = self.chunk_writer.next_block();
         let mut last_report = Instant::now();
 
-        let prev_chunk_hash = self.chunk_writer.prev_chunk_hash();
-        if let Some(prev_chunk_hash) = prev_chunk_hash {
-            let line = self.line_receiver.recv()?;
-            self.processor.push(&line)?;
-            let parent_hash = self.processor.last_parent_block_hash();
-            assert!(prev_chunk_hash == short_hash(&parent_hash));
-        }
+        'outer: loop {
+            let mut stream = pin!(ingest_from_service(
+                self.url.clone(),
+                next_block,
+                self.last_block
+            ));
+            let mut data_ingested = false;
 
-        while let Ok(line) = self.line_receiver.recv() {
-            self.processor.push(&line)?;
-            metrics::LAST_BLOCK.inc_by(self.processor.last_block());
+            loop {
+                let line = match stream.try_next().await {
+                    Ok(Some(line)) => line,
+                    Ok(None) => {
+                        if let Some(last_block) = self.last_block {
+                            if last_block == self.processor.last_block() {
+                                break 'outer;
+                            }
+                        }
+                        if !data_ingested {
+                            tracing::info!("no blocks were found. waiting 5 min for a new try");
+                            tokio::time::sleep(Duration::from_secs(300)).await;
+                        }
+                        continue 'outer;
+                    }
+                    Err(_) => {
+                        tracing::error!("data streaming error, will pause for 5 sec and try again");
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        continue 'outer;
+                    }
+                };
 
-            if self.processor.buffered_bytes() > self.chunk_size * 1024 * 1024 {
-                let (data, description) = self.processor.flush()?;
-                let last_block = self.processor.last_block();
-                let last_block_hash = self.processor.last_block_hash();
-                let last_hash = short_hash(last_block_hash).to_string();
-                let chunk = self.chunk_writer.next_chunk(first_block, last_block, last_hash);
-                let item = WriterItem { description, data, chunk };
-                first_block = last_block + 1;
-                self.chunk_sender.send(item)?;
-            }
+                self.processor.push(&line)?;
 
-            self.progress.set_current_value(self.processor.last_block());
-            if last_report.elapsed() > Duration::from_secs(5) {
-                self.report();
-                last_report = Instant::now();
+                let prev_chunk_hash = self.chunk_writer.prev_chunk_hash();
+                if let Some(prev_chunk_hash) = prev_chunk_hash {
+                    if chunk_first_block == self.processor.last_block() {
+                        let parent_hash = self.processor.last_parent_block_hash();
+                        anyhow::ensure!(prev_chunk_hash == short_hash(&parent_hash));
+                    }
+                }
+
+                if self.processor.buffered_bytes() > self.chunk_size * 1024 * 1024
+                    || self.processor.max_num_rows() >= self.max_num_rows
+                {
+                    self.submit_chunk(chunk_first_block)?;
+                    chunk_first_block = self.processor.last_block() + 1;
+                }
+
+                self.progress.set_current_value(self.processor.last_block());
+                if last_report.elapsed() > Duration::from_secs(5) {
+                    self.report();
+                    last_report = Instant::now();
+                }
+
+                data_ingested = true;
+                next_block = self.processor.last_block() + 1;
+                metrics::LAST_BLOCK.inc_by(self.processor.last_block());
             }
         }
 
         if self.processor.max_num_rows() > 0 {
-            let (data, description) = self.processor.flush()?;
-            let last_block = self.processor.last_block();
-            let last_block_hash = self.processor.last_block_hash();
-            let last_hash = short_hash(last_block_hash).to_string();
-            let chunk = self.chunk_writer.next_chunk(first_block, last_block, last_hash);
-            let item = WriterItem { description, data, chunk };
-            self.chunk_sender.send(item)?;
+            self.submit_chunk(chunk_first_block)?;
         }
 
         if self.progress.has_news() {
@@ -101,8 +133,23 @@ impl Sink {
             speed.round(),
         );
     }
-}
 
+    fn submit_chunk(&mut self, first_block: BlockNumber) -> anyhow::Result<()> {
+        let description = self.processor.dataset_description();
+        let data = self.processor.flush()?;
+        let last_block = self.processor.last_block();
+        let last_block_hash = self.processor.last_block_hash();
+        let last_hash = short_hash(last_block_hash).to_string();
+        let chunk = self.chunk_writer.next_chunk(first_block, last_block, last_hash);
+        let item = WriterItem {
+            description,
+            data,
+            chunk,
+        };
+        self.chunk_sender.send(item)?;
+        Ok(())
+    }
+}
 
 fn short_hash(value: &str) -> &str {
     &value[value.len().saturating_sub(5)..]

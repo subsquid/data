@@ -1,5 +1,6 @@
 use crate::chain_builder::{AnyChainBuilder, ChainBuilderBox};
-use sqd_data_core::ChunkProcessor;
+use sqd_data_core::{ChunkProcessor, PreparedChunk};
+use sqd_dataset::DatasetDescriptionRef;
 
 
 struct State {
@@ -20,7 +21,6 @@ impl State {
 pub struct LineProcessor {
     state: State,
     memory_threshold: usize,
-    max_num_rows: usize
 }
 
 
@@ -32,7 +32,6 @@ impl LineProcessor {
                 builder: chain_builder
             },
             memory_threshold: 40 * 1024 * 1024,
-            max_num_rows: 200_000
         }
     }
 
@@ -68,21 +67,21 @@ impl LineProcessor {
         state.builder.chunk_builder().max_num_rows() + state.processor.max_num_rows()
     }
 
-    pub fn flush(&mut self) -> anyhow::Result<(sqd_data_core::PreparedChunk, sqd_dataset::DatasetDescriptionRef)> {
+    pub fn dataset_description(&self) -> DatasetDescriptionRef {
+        self.state.builder.chunk_builder().dataset_description()
+    }
+
+    pub fn flush(&mut self) -> anyhow::Result<PreparedChunk> {
         let state = &mut self.state;
 
         if state.builder.chunk_builder().max_num_rows() > 0 {
             state.spill_on_disk()?;
         }
 
-        let dataset_description = state.builder
-            .chunk_builder()
-            .dataset_description();
-
         let new_processor = state.builder.chunk_builder().new_chunk_processor();
         let processor = std::mem::replace(&mut state.processor, new_processor);
         let prepared_chunk = processor.finish()?;
 
-        Ok((prepared_chunk, dataset_description))
+        Ok(prepared_chunk)
     }
 }

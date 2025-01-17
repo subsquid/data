@@ -1,7 +1,6 @@
 use crate::chain_builder::{ChainBuilder, ChainBuilderBox};
 use crate::cli::{Cli, NetworkKind};
 use crate::fs::create_fs;
-use crate::ingest::ingest_from_service;
 use crate::layout::Layout;
 use crate::metrics;
 use crate::processor::LineProcessor;
@@ -9,10 +8,10 @@ use crate::server::run_server;
 use crate::sink::Sink;
 use crate::writer::{Writer, WriterItem};
 use anyhow::ensure;
-use futures_util::TryStreamExt;
 use sqd_data::solana::tables::SolanaChunkBuilder;
 use sqd_data_types::BlockNumber;
 use prometheus_client::registry::Registry;
+use tokio::task::JoinSet;
 
 
 pub async fn run(args: &Cli) -> anyhow::Result<()> {
@@ -55,31 +54,28 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
 
     let processor = LineProcessor::new(chunk_builder);
 
-    let block_stream = ingest_from_service(
-        args.src.clone(),
-        chunk_writer.next_block(),
-        args.last_block
-    );
-
-    let (line_sender, line_receiver) = std::sync::mpsc::sync_channel::<bytes::Bytes>(100);
     let (chunk_sender, chunk_receiver) = tokio::sync::mpsc::unbounded_channel::<WriterItem>();
 
-    let mut sink = Sink::new(processor, chunk_writer, args.chunk_size, line_receiver, chunk_sender);
+    let mut sink = Sink::new(
+        processor,
+        chunk_writer,
+        args.chunk_size,
+        args.src.clone(),
+        args.last_block,
+        chunk_sender,
+    );
     let mut writer = Writer::new(fs, chunk_receiver);
 
-    let sink_thread = std::thread::spawn(move || sink.start());
-    let writer_task = tokio::spawn(async move {
+    let mut set = JoinSet::new();
+    set.spawn(async move {
+        sink.r#loop().await
+    });
+    set.spawn(async move {
         writer.start().await
     });
-
-    let mut block_stream = std::pin::pin!(block_stream);
-    while let Some(line) = block_stream.try_next().await? {
-        line_sender.send(line)?;
+    while let Some(res) = set.join_next().await {
+        res??;
     }
-
-    drop(line_sender);
-    sink_thread.join().unwrap()?;
-    writer_task.await??;
 
     Ok(())
 }
