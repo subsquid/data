@@ -7,8 +7,7 @@ use reqwest::IntoUrl;
 use anyhow::anyhow;
 use sqd_data_types::{BlockNumber, FromJsonBytes};
 use std::{
-    pin::{pin, Pin},
-    time::Duration,
+    pin::{pin, Pin}, time::Duration
 };
 
 const DEFAULT_GRACE_PERIOD: Duration = Duration::from_millis(500);
@@ -20,7 +19,7 @@ pub struct CombinedClient<B> {
 }
 
 impl<
-        B: sqd_data_types::Block + std::marker::Unpin + std::marker::Send + FromJsonBytes + 'static,
+        B: sqd_data_types::Block + Unpin + Clone + Send + FromJsonBytes + 'static,
     > CombinedClient<B>
 {
     pub fn from_url(left_url: impl IntoUrl, right_url: impl IntoUrl) -> Self {

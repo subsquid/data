@@ -11,7 +11,7 @@ use sqd_data_types::BlockNumber;
 
 pub type Base58Bytes = String;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockHeader {
     pub hash: Base58Bytes,
@@ -22,7 +22,7 @@ pub struct BlockHeader {
     pub timestamp: i64,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Block {
     pub header: BlockHeader,
@@ -30,7 +30,7 @@ pub struct Block {
 
 impl sqd_data_types::Block for Block {
     fn number(&self) -> sqd_data_types::BlockNumber {
-        self.header.height
+        self.header.slot
     }
 
     fn hash(&self) -> &str {
