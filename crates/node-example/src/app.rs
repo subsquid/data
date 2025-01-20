@@ -90,7 +90,7 @@ fn error_to_response(err: anyhow::Error) -> Response {
         StatusCode::INTERNAL_SERVER_ERROR
     };
 
-    (status_code, format!("{}", err)).into_response()
+    (status_code, format!("{:?}", err)).into_response()
 }
 
 

@@ -606,9 +606,6 @@ impl<'a, S: KvRead + Sync> CursorReaderFactory<'a, S> {
             Ok(if i == pages.len() - 1 {
                 bit_util::ceil(o as usize, 8) as u32
             } else {
-                if 0 % 8 != 0 {
-                    println!("{:?}", pages)
-                }
                 ensure!(
                     o % 8 == 0,
                     "unaligned intermediate bitmask page: buffer {}, page {}",
