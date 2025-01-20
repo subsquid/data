@@ -1,13 +1,13 @@
-use crate::ingest::ingest::ingest;
+use crate::ingest::ingest::{ingest, DataSource};
 use crate::ingest::ingest_generic::{IngestMessage, NewChunk};
 use crate::ingest::write_controller::WriteController;
 use crate::types::{DBRef, DatasetKind};
 use anyhow::{bail, Context};
-use reqwest::Url;
 use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_storage::db::{Chunk, Database, DatasetId};
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
+use std::future::pending;
 use std::ops::DerefMut;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::select;
@@ -17,7 +17,7 @@ pub struct DatasetController {
     db: DBRef,
     dataset_id: DatasetId,
     dataset_kind: DatasetKind,
-    dataset_url: Url,
+    data_sources: Vec<DataSource>,
     first_block_sender: tokio::sync::watch::Sender<BlockNumber>,
     first_block_receiver: tokio::sync::watch::Receiver<BlockNumber>,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
@@ -31,10 +31,10 @@ pub struct DatasetController {
 impl DatasetController {
     pub fn new(
         db: DBRef,
-        dataset_id: DatasetId,
         dataset_kind: DatasetKind,
-        dataset_url: Url,
-        first_block: BlockNumber
+        dataset_id: DatasetId,
+        first_block: BlockNumber,
+        data_sources: Vec<DataSource>
     ) -> Self
     {
         let (first_block_sender, first_block_receiver) = tokio::sync::watch::channel(first_block);
@@ -44,7 +44,7 @@ impl DatasetController {
             db,
             dataset_id,
             dataset_kind,
-            dataset_url,
+            data_sources,
             first_block_sender,
             first_block_receiver,
             head_sender,
@@ -114,17 +114,24 @@ impl DatasetController {
         let write = tokio::task::spawn_blocking(move || {
             WriteController::new(
                 db,
-                dataset_id,
                 dataset_kind,
+                dataset_id,
                 first_block
             )
         }).await.context("failed to await on write init")??;
+        
+        self.head_sender.send(write.head().cloned());
+        self.finalized_head_sender.send(write.finalized_head().cloned());
+        
+        if self.data_sources.is_empty() {
+            return Ok(pending().await)
+        }
 
         let (ingest_msg_sender, ingest_msg_receiver) = tokio::sync::mpsc::channel(1);
 
         let ingest_handle = tokio::spawn(ingest(
             ingest_msg_sender,
-            self.dataset_url.clone(),
+            self.data_sources.clone(),
             dataset_kind,
             write.next_block(),
             write.head_hash()
@@ -280,7 +287,7 @@ fn write_new_chunk(
     }
 
     let chunk = Chunk::V0 {
-        base_block_hash: new_chunk.parent_block_hash,
+        parent_block_hash: new_chunk.parent_block_hash,
         first_block: new_chunk.first_block,
         last_block: new_chunk.last_block,
         last_block_hash: new_chunk.last_block_hash,

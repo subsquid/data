@@ -7,10 +7,10 @@ use sqd_primitives::{BlockNumber, ItemIndex};
 #[serde(rename_all = "camelCase")]
 pub struct BlockHeader {
     pub hash: Base58Bytes,
-    pub height: BlockNumber,
-    pub slot: BlockNumber,
-    pub parent_slot: BlockNumber,
+    pub number: BlockNumber,
+    pub parent_number: BlockNumber,
     pub parent_hash: Base58Bytes,
+    pub height: BlockNumber,
     pub timestamp: i64,
 }
 
@@ -181,7 +181,7 @@ pub struct Block {
 
 impl sqd_primitives::Block for Block {
     fn number(&self) -> BlockNumber {
-        self.header.height
+        self.header.number
     }
 
     fn hash(&self) -> &str {
@@ -189,7 +189,7 @@ impl sqd_primitives::Block for Block {
     }
 
     fn parent_number(&self) -> BlockNumber {
-        self.number().saturating_sub(1)
+        self.header.parent_number
     }
 
     fn parent_hash(&self) -> &str {

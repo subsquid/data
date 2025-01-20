@@ -24,8 +24,8 @@ impl LineStream {
     
     fn check_line(&mut self) -> Option<Bytes> {
         if let Some(pos) = self.line.as_ref()[self.unchecked_pos..].iter().position(|b| *b == b'\n') {
-            let line = self.line.split_to(pos).freeze();
-            self.line.advance(if self.line.get(2).copied() == Some(b'\r') {
+            let line = self.line.split_to(self.unchecked_pos + pos).freeze();
+            self.line.advance(if self.line.get(1).copied() == Some(b'\r') {
                 2
             } else {
                 1

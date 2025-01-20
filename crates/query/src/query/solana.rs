@@ -91,20 +91,20 @@ field_selection! {
 
 item_field_selection! {
     BlockFieldSelection {
-        number,
         hash,
-        slot,
-        parent_slot,
+        number,
+        parent_number,
         parent_hash,
+        height,
         timestamp,
     }
 
     project(this) json_object! {{
-        this.number,
         this.hash,
-        this.slot,
-        this.parent_slot,
+        this.number,
+        this.parent_number,
         this.parent_hash,
+        this.height,
         [this.timestamp]: TimestampSecond,
     }}
 }
@@ -559,7 +559,7 @@ impl RewardRequest {
 request! {
     pub struct SolanaQuery {
         pub from_block: BlockNumber,
-        pub from_parent_hash: Option<String>,
+        pub parent_block_hash: Option<String>,
         pub to_block: Option<BlockNumber>,
         pub fields: FieldSelection,
         pub include_all_blocks: bool,

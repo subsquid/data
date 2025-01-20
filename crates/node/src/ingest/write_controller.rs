@@ -28,11 +28,11 @@ pub struct WriteController {
 
 impl WriteController {
     pub fn new(
-        db: DBRef, 
-        dataset_id: DatasetId, 
-        dataset_kind: DatasetKind, 
+        db: DBRef,
+        dataset_kind: DatasetKind,
+        dataset_id: DatasetId,
         first_block: BlockNumber
-    ) -> anyhow::Result<Self> 
+    ) -> anyhow::Result<Self>
     {
         db.create_dataset_if_not_exists(dataset_id, dataset_kind.storage_kind())?;
         
@@ -55,7 +55,7 @@ impl WriteController {
             head,
             finalized_head: label.finalized_head().cloned()
         };
-        
+
         controller.retain_head(first_block)?;
         
         Ok(controller)
@@ -72,11 +72,11 @@ impl WriteController {
     pub fn head_hash(&self) -> Option<&str> {
         self.head.as_ref().map(|h| h.hash.as_ref())
     }
-    
+
     pub fn next_block(&self) -> BlockNumber {
         self.head.as_ref().map_or(self.first_block, |h| h.number + 1)
     }
-    
+
     pub fn head(&self) -> Option<&BlockRef> {
         self.head.as_ref()
     }

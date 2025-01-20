@@ -130,7 +130,7 @@ impl <'a> ChunkReader<'a> {
     }
     
     pub fn base_block_hash(&self) -> &str {
-        &self.chunk.base_block_hash()
+        &self.chunk.parent_block_hash()
     }
 
     pub fn has_table(&self, name: &str) -> bool {

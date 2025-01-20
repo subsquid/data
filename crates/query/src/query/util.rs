@@ -174,7 +174,7 @@ macro_rules! compile_plan {
         use crate::plan::*;
         let mut plan = PlanBuilder::new($table_ref);
         plan.set_include_all_blocks($this.include_all_blocks);
-        plan.set_parent_block_hash($this.from_parent_hash.clone());
+        plan.set_parent_block_hash($this.parent_block_hash.clone());
         plan.set_first_block($this.from_block);
         plan.set_last_block($this.to_block);
         $(

@@ -471,7 +471,7 @@ impl GearUserMessageSentRequest {
 request! {
     pub struct SubstrateQuery {
         pub from_block: BlockNumber,
-        pub from_parent_hash: Option<String>,
+        pub parent_block_hash: Option<String>,
         pub to_block: Option<BlockNumber>,
         pub fields: FieldSelection,
         pub include_all_blocks: bool,

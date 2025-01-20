@@ -13,6 +13,7 @@ ouroboros = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true }
 scopeguard = { workspace = true }
+serde = { workspace = true }
 sqd-data = { path = "../data" }
 sqd-data-client = { path = "../data-client" }
 sqd-data-core = { path = "../data-core" }

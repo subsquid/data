@@ -238,7 +238,7 @@ impl<S: KvRead + Sync> TableReader<S> {
         };
 
         validate_offsets(&offsets, 0).map_err(|msg| anyhow!(msg))?;
-        ensure!(offsets[0] == 0, "");
+        ensure!(offsets[0] == 0);
 
         let offsets = unsafe {
             OffsetBuffer::new_unchecked(offsets)
@@ -606,6 +606,9 @@ impl<'a, S: KvRead + Sync> CursorReaderFactory<'a, S> {
             Ok(if i == pages.len() - 1 {
                 bit_util::ceil(o as usize, 8) as u32
             } else {
+                if 0 % 8 != 0 {
+                    println!("{:?}", pages)
+                }
                 ensure!(
                     o % 8 == 0,
                     "unaligned intermediate bitmask page: buffer {}, page {}",

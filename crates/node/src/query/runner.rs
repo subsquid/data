@@ -71,21 +71,21 @@ impl QueryRunner {
                 );
 
                 let plan = if query.first_block() == chunk.first_block() {
-                    if let Some(base_hash) = query.base_block_hash() {
+                    if let Some(parent_hash) = query.parent_block_hash() {
                         ensure!(
-                            base_hash == chunk.base_block_hash(),
+                            parent_hash == chunk.parent_block_hash(),
                             sqd_query::UnexpectedBaseBlock {
                                 prev_blocks: vec![BlockRef {
                                     number: chunk.first_block().saturating_sub(1),
-                                    hash: chunk.base_block_hash().to_string()
+                                    hash: chunk.parent_block_hash().to_string()
                                 }],
-                                expected_hash: base_hash.to_string()
+                                expected_hash: parent_hash.to_string()
                             }
                         );
                     }
                     let mut plan = query.compile();
                     plan.set_first_block(None);
-                    plan.set_base_block_hash(None);
+                    plan.set_parent_block_hash(None);
                     plan
                 } else {
                     query.compile()
@@ -95,7 +95,7 @@ impl QueryRunner {
         };
 
         let buf_capacity = if plan.is_some() {
-            2560 * 1024
+            1024 * 1024
         } else {
             0
         };
@@ -126,9 +126,10 @@ impl QueryRunner {
         ensure!(self.has_next_pack());
 
         let start = Instant::now();
-        let mut step = 1;
+        let mut step = 0;
         
         loop {
+            step += 1;
             self.write_next_chunk()?;
 
             if !self.has_next_pack() {
@@ -141,12 +142,10 @@ impl QueryRunner {
                 return Ok(bytes)
             }
 
-            if self.buf.get_ref().get_ref().len() > 512 * 1024 || worked_long_enough(start, step) {
+            if self.buf.get_ref().get_ref().len() > 256 * 1024 || worked_long_enough(start, step) {
                 let bytes = self.buf.get_mut().get_mut().split().freeze();
                 return Ok(bytes)
             }
-
-            step += 1;
         }
     }
 
@@ -178,7 +177,7 @@ impl QueryRunner {
 
         // no matter what, we are moving to the next chunk
         self.plan_mut().set_first_block(None);
-        self.plan_mut().set_base_block_hash(None);
+        self.plan_mut().set_parent_block_hash(None);
 
         let mut block_writer = query_result?;
 
@@ -228,7 +227,7 @@ impl QueryRunner {
 
 
 fn worked_long_enough(start: Instant, steps: usize) -> bool {
-    let ms = start.elapsed().as_millis();
-    let next_step_time = ms + ms / steps as u128;
-    next_step_time > 200
+    let time = start.elapsed().as_millis();
+    let next_eta = time + time / steps as u128;
+    next_eta > 100
 }

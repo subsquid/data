@@ -12,3 +12,4 @@ reqwest = { workspace = true, features = ["json", "gzip", "stream"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqd-primitives = { path = "../primitives", features = ["from_json_bytes", "serde"] }
+tracing = { workspace = true }

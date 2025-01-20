@@ -103,6 +103,14 @@ impl<CB: BlockChunkBuilder> DataBuilder<CB> {
             spare_cell: Arc::downgrade(&self.spare_processor)
         })
     }
+    
+    pub fn clear(&mut self) -> anyhow::Result<()> {
+        self.builder.clear();
+        if self.processor.max_num_rows() > 0 {
+            let _ = self.finish()?;
+        }
+        Ok(())
+    }
 }
 
 
@@ -172,12 +180,12 @@ where
                         self.parent_block_hash.push_str(block.parent_hash());
                         self.has_parent_block_hash = true;
                     }
-
+                    
                     self.push_block(block);
                     self.maybe_flush(finalized_head.as_ref()).await?;
 
                     while let Some(block) = stream.try_next().await? {
-                        ensure!(block.parent_hash() == self.parent_block_hash.as_str());
+                        ensure!(block.parent_hash() == self.last_block_hash.as_str());
                         self.push_block(block);
                         self.maybe_flush(finalized_head.as_ref()).await?;
                     }
@@ -209,8 +217,10 @@ where
             rollback_sender
         }).await?;
 
-        let rollback = rollback_recv.await?;
+        self.with_blocking_builder(|b| b.clear()).await?;
 
+        let rollback = rollback_recv.await?;
+        
         self.first_block = rollback.first_block;
         self.has_parent_block_hash = rollback.parent_block_hash.is_some();
         self.parent_block_hash = rollback.parent_block_hash.unwrap_or_default();
@@ -223,7 +233,7 @@ where
         self.builder.as_mut().unwrap().push_block(&block);
         self.last_block = block.number();
         self.last_block_hash.clear();
-        self.last_block_hash.push_str(block.hash())
+        self.last_block_hash.push_str(block.hash());
     }
 
     async fn maybe_flush(&mut self, finalized_head: Option<&BlockRef>) -> anyhow::Result<()> {
@@ -252,6 +262,7 @@ where
 
         self.first_block = self.last_block + 1;
         std::mem::swap(&mut self.parent_block_hash, &mut self.last_block_hash);
+        self.has_parent_block_hash = true;
         self.buffered_blocks = 0;
 
         self.message_sender.send(IngestMessage::NewChunk(NewChunk {

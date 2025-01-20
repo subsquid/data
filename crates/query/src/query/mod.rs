@@ -50,12 +50,12 @@ impl Query {
         }
     }
     
-    pub fn base_block_hash(&self) -> Option<&str> {
+    pub fn parent_block_hash(&self) -> Option<&str> {
         match self {
-            Query::Eth(q) => q.from_parent_hash.as_ref(),
-            Query::Solana(q) => q.from_parent_hash.as_ref(),
-            Query::Substrate(q) => q.from_parent_hash.as_ref(),
-            Query::Fuel(q) => q.from_parent_hash.as_ref(),
+            Query::Eth(q) => q.parent_block_hash.as_ref(),
+            Query::Solana(q) => q.parent_block_hash.as_ref(),
+            Query::Substrate(q) => q.parent_block_hash.as_ref(),
+            Query::Fuel(q) => q.parent_block_hash.as_ref(),
         }.map(|s| s.as_str())
     }
 

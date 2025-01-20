@@ -132,11 +132,11 @@ impl <'a> Tx<'a> {
                 self.delete_chunk(dataset_id, &head)?;
             } else if head.last_block() + 1 == chunk.first_block() {
                 ensure!(
-                    head.last_block_hash() == chunk.base_block_hash(),
+                    head.last_block_hash() == chunk.parent_block_hash(),
                     "chain continuity is violated between new chunk {} and its existing parent {}, expected parent hash was {}",
                     chunk,
                     head,
-                    chunk.base_block_hash()
+                    chunk.parent_block_hash()
                 );
                 break
             } else if head.last_block() < chunk.first_block() {
@@ -180,7 +180,7 @@ impl <'a> Tx<'a> {
             
             if chunk.last_block() + 1 == n.first_block() {
                 ensure!(
-                    chunk.last_block_hash() == n.base_block_hash(),
+                    chunk.last_block_hash() == n.parent_block_hash(),
                     "chain continuity was violated between new {} and existing {}",
                     chunk,
                     n
@@ -189,7 +189,7 @@ impl <'a> Tx<'a> {
             
             if n.last_block() + 1 == chunk.first_block() {
                 ensure!(
-                    n.last_block_hash() == chunk.base_block_hash(),
+                    n.last_block_hash() == chunk.parent_block_hash(),
                     "chain continuity was violated between new {} and existing {}",
                     chunk,
                     n

@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use sqd_dataset::DatasetDescriptionRef;
 use sqd_query::Query;
 use sqd_storage::db::Database;
@@ -8,9 +9,11 @@ pub type Name = &'static str;
 pub type DBRef = Arc<Database>;
 
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DatasetKind {
+    #[serde(rename = "evm")]
     Evm,
+    #[serde(rename = "solana")]
     Solana
 }
 
