@@ -5,9 +5,9 @@ use std::sync::atomic::AtomicU64;
 
 
 lazy_static::lazy_static! {
-    pub static ref PROGRESS: Gauge<f64, AtomicU64> = Default::default();
-    pub static ref LAST_BLOCK: Counter = Default::default();
-    pub static ref LAST_SAVED_BLOCK: Counter = Default::default();
+    pub static ref PROGRESS: Gauge<f64, AtomicU64> = Gauge::default();
+    pub static ref LAST_BLOCK: Counter = Counter::default();
+    pub static ref LAST_SAVED_BLOCK: Counter = Counter::default();
 }
 
 

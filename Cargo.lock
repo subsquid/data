@@ -4422,6 +4422,7 @@ dependencies = [
  "sqd-primitives",
  "tempfile",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "url",

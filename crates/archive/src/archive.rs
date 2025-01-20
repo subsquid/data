@@ -10,6 +10,7 @@ use crate::writer::{Writer, WriterItem};
 use anyhow::ensure;
 use sqd_data::solana::tables::SolanaChunkBuilder;
 use sqd_data_types::BlockNumber;
+use std::time::Duration;
 use prometheus_client::registry::Registry;
 use tokio::task::JoinSet;
 
@@ -56,11 +57,13 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
 
     let (chunk_sender, chunk_receiver) = tokio::sync::mpsc::unbounded_channel::<WriterItem>();
 
+    let block_stream_interval = Duration::from_secs(args.block_stream_interval.into());
     let mut sink = Sink::new(
         processor,
         chunk_writer,
         args.chunk_size,
         args.src.clone(),
+        block_stream_interval,
         args.last_block,
         chunk_sender,
     );

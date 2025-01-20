@@ -20,6 +20,7 @@ pub struct Sink {
     max_num_rows: usize,
     progress: Progress,
     url: Url,
+    block_stream_interval: Duration,
     last_block: Option<BlockNumber>,
     chunk_sender: UnboundedSender<WriterItem>,
 }
@@ -31,6 +32,7 @@ impl Sink {
         chunk_writer: ChunkWriter,
         chunk_size: usize,
         url: Url,
+        block_stream_interval: Duration,
         last_block: Option<BlockNumber>,
         chunk_sender: UnboundedSender<WriterItem>,
     ) -> Sink {
@@ -45,6 +47,7 @@ impl Sink {
             chunk_sender,
             progress,
             url,
+            block_stream_interval,
             last_block,
         }
     }
@@ -72,8 +75,11 @@ impl Sink {
                             }
                         }
                         if !data_ingested {
-                            tracing::info!("no blocks were found. waiting 5 min for a new try");
-                            tokio::time::sleep(Duration::from_secs(300)).await;
+                            tracing::info!(
+                                "no blocks were found. waiting {} sec for a new try",
+                                self.block_stream_interval.as_secs()
+                            );
+                            tokio::time::sleep(self.block_stream_interval).await;
                         }
                         continue 'outer;
                     }
@@ -90,7 +96,7 @@ impl Sink {
                 if let Some(prev_chunk_hash) = prev_chunk_hash {
                     if chunk_first_block == self.processor.last_block() {
                         let parent_hash = self.processor.last_parent_block_hash();
-                        anyhow::ensure!(prev_chunk_hash == short_hash(&parent_hash));
+                        anyhow::ensure!(prev_chunk_hash == short_hash(parent_hash));
                     }
                 }
 
@@ -109,7 +115,9 @@ impl Sink {
 
                 data_ingested = true;
                 next_block = self.processor.last_block() + 1;
-                metrics::LAST_BLOCK.inc_by(self.processor.last_block());
+
+                let val = self.processor.last_block() - metrics::LAST_BLOCK.get();
+                metrics::LAST_BLOCK.inc_by(val);
             }
         }
 
@@ -141,11 +149,7 @@ impl Sink {
         let last_block_hash = self.processor.last_block_hash();
         let last_hash = short_hash(last_block_hash).to_string();
         let chunk = self.chunk_writer.next_chunk(first_block, last_block, last_hash);
-        let item = WriterItem {
-            description,
-            data,
-            chunk,
-        };
+        let item = WriterItem { description, data, chunk };
         self.chunk_sender.send(item)?;
         Ok(())
     }

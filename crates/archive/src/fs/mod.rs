@@ -45,7 +45,7 @@ pub async fn create_fs(url: &str) -> anyhow::Result<FSRef> {
                 }
 
                 let mut config_loader = aws_config::from_env();
-                if let Some(s3_endpoint) = std::env::var("AWS_S3_ENDPOINT").ok() {
+                if let Ok(s3_endpoint) = std::env::var("AWS_S3_ENDPOINT") {
                     config_loader = config_loader.endpoint_url(s3_endpoint);
                 }
                 let config = config_loader.load().await;

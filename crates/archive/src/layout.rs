@@ -276,9 +276,7 @@ impl ChunkWriter {
         assert!(first_block <= last_block);
         assert!(last_block <= self.last_block_limit);
 
-        if self.chunks.len() < self.top_dir_size {
-            self.top = self.top;
-        } else {
+        if self.chunks.len() >= self.top_dir_size {
             self.top = first_block;
             self.chunks.clear();
         }
