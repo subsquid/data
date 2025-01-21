@@ -38,7 +38,8 @@ async fn stream(
         Ok(Ok(stream)) => {
             let mut res = Response::builder()
                 .status(200)
-                .header("content-type", "text/plain");
+                .header("content-type", "text/plain")
+                .header("content-encoding", "gzip");
 
             if let Some(head) = stream.finalized_head() {
                 res = res.header("x-sqd-finalized-head-number", head.number);

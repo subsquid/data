@@ -1,15 +1,16 @@
-use std::io::Write;
-use std::time::Instant;
 use crate::query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot};
 use crate::query::user_error::QueryKindMismatch;
 use crate::types::{DBRef, DatasetKind};
 use anyhow::{bail, ensure};
 use bytes::{BufMut, Bytes, BytesMut};
-use flate2::Compression;
 use flate2::write::GzEncoder;
+use flate2::Compression;
 use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_query::{JsonLinesWriter, Plan, Query};
 use sqd_storage::db::{Chunk as StorageChunk, DatasetId};
+use std::io::Write;
+use std::time::Instant;
+use tracing::info;
 
 
 struct LeftOver {

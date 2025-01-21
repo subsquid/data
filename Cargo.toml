@@ -40,10 +40,9 @@ tokio = "1.42.0"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 
-[profile.release]
-debug = 1
-codegen-units = 128
-
-[profile.bench]
-debug = 1
-codegen-units = 128
+#[profile.release]
+#debug = 1
+#codegen-units = 128
+#
+#[profile.bench]
+#codegen-units = 128

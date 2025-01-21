@@ -4,7 +4,7 @@ use either::Either;
 use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_storage::db::{Chunk as StorageChunk, Chunk, DatasetId};
 use std::fmt::{Display, Formatter};
-use tracing::warn;
+use tracing::{info, instrument, warn};
 
 
 #[derive(Debug)]
@@ -185,6 +185,7 @@ impl WriteController {
         Ok(())
     }
 
+    #[instrument(skip(self), fields(dataset_id =? self.dataset_id()))]
     pub fn finalize(&mut self, new_finalized_head: &BlockRef) -> anyhow::Result<()> {
         let head = match self.head.as_ref() {
             None => return Ok(()),
@@ -233,13 +234,21 @@ impl WriteController {
             Ok(Some(new_finalized_head))
         })?;
         
-        if let Some(new_head) = update {
-            self.finalized_head = Some(new_head);
+        match update {
+            Some(new_head) if Some(&new_head) != self.finalized_head.as_ref() => {
+                self.finalized_head = Some(new_head);
+                info!(
+                    finlized_head =? self.finalized_head.as_ref(),
+                    "using new finalized head"
+                )
+            },
+            _ => info!("ignoring this update")
         }
         
         Ok(())
     }
 
+    #[instrument(skip(self), fields(dataset_id =? self.dataset_id()))]
     pub fn new_chunk(
         &mut self,
         finalized_head: Option<&BlockRef>,

@@ -6,11 +6,12 @@ use reqwest::{Client, IntoUrl, Request, Response, Url};
 use serde_json::json;
 use sqd_primitives::{Block, BlockRef, FromJsonBytes};
 use std::error::Error;
+use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::time::Duration;
-use tracing::warn;
+use tracing::{instrument, warn};
 
 
 pub fn default_http_client() -> Client {
@@ -31,6 +32,15 @@ pub struct ReqwestDataClient<B> {
 }
 
 
+impl<B> Debug for ReqwestDataClient<B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReqwestDataClient")
+            .field("url", &self.url.as_str())
+            .finish()
+    }
+}
+
+
 impl <B> ReqwestDataClient<B> {
     pub fn from_url(url: impl IntoUrl) -> Self {
         let http = default_http_client();
@@ -45,38 +55,39 @@ impl <B> ReqwestDataClient<B> {
         }
     }
     
+    #[instrument(level = "debug")]
     pub async fn stream(
         &self,
-        stream_req: BlockStreamRequest<'_>
+        req: BlockStreamRequest<'_>
     ) -> anyhow::Result<ReqwestBlockStream<B>>
     {
         let mut body = json!({
-            "fromBlock": stream_req.first_block
+            "fromBlock": req.first_block
         });
 
-        if stream_req.prev_block_hash.is_some() {
+        if req.prev_block_hash.is_some() {
             body.as_object_mut().unwrap().insert(
                 "prevBlockHash".into(),
-                stream_req.prev_block_hash.into()
+                req.prev_block_hash.into()
             );
         }
 
         let mut url = self.url.clone();
         url.path_segments_mut().unwrap().push("stream");
 
-        let req = self.http
+        let http_req = self.http
             .post(url.clone())
             .json(&body)
             .build()?;
 
-        self.with_retries(&req, |res| async {
+        self.with_retries(&http_req, |res| async {
             Ok(match res.status().as_u16() {
                 200 => {
                     ReqwestBlockStream::new(
                         extract_finalized_head(&res),
                         Some(Box::new(res.bytes_stream())),
                         vec![],
-                        stream_req.prev_block_hash
+                        req.prev_block_hash
                     )
                 },
                 204 => {
@@ -147,6 +158,7 @@ impl <B> ReqwestDataClient<B> {
             warn!(
                 url = req.url().as_str(),
                 method = req.method().as_str(),
+                body = body_str(req),
                 error = retry_error.as_ref() as &dyn std::error::Error,
                 "http request failed, will retry it in {} ms", 
                 pause
@@ -166,6 +178,16 @@ async fn response_error(response: Response) -> anyhow::Error {
     } else {
         anyhow!("got HTTP {}", status)
     }
+}
+
+
+fn body_str(req: &Request) -> Option<&str> {
+    req.body()
+        .map(|body| body.as_bytes())
+        .flatten()
+        .map(|bytes| {
+            std::str::from_utf8(bytes).unwrap_or("<binary>")
+        })
 }
 
 

@@ -5,6 +5,7 @@ use bytes::Bytes;
 use futures::Stream;
 use reqwest::Response;
 use sqd_primitives::{Block, BlockNumber, BlockRef, FromJsonBytes};
+use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::Poll;
@@ -60,6 +61,17 @@ pub struct ReqwestBlockStream<B> {
     prev_blocks: Vec<BlockRef>,
     prev_block_hash: Option<String>,
     phantom_data: PhantomData<B>
+}
+
+
+impl<B> Debug for ReqwestBlockStream<B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReqwestBlockStream")
+            .field("finalized_head", &self.finalized_head)
+            .field("prev_blocks", &self.prev_blocks)
+            .field("has_data", &self.lines.is_some())
+            .finish()
+    }
 }
 
 
