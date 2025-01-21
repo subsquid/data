@@ -12,7 +12,6 @@ use sqd_data::solana::tables::SolanaChunkBuilder;
 use sqd_data_types::BlockNumber;
 use std::time::Duration;
 use prometheus_client::registry::Registry;
-use tokio::task::JoinSet;
 
 
 pub async fn run(args: &Cli) -> anyhow::Result<()> {
@@ -69,16 +68,10 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
     );
     let mut writer = Writer::new(fs, chunk_receiver);
 
-    let mut set = JoinSet::new();
-    set.spawn(async move {
-        sink.r#loop().await
-    });
-    set.spawn(async move {
-        writer.start().await
-    });
-    while let Some(res) = set.join_next().await {
-        res??;
-    }
+    tokio::try_join!(
+        sink.r#loop(),
+        writer.start()
+    )?;
 
     Ok(())
 }
