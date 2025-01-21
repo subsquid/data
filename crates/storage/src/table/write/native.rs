@@ -1,8 +1,15 @@
+use std::sync::LazyLock;
 use crate::table::write::page::PageWriter;
 use anyhow::ensure;
 use arrow_buffer::{bit_util, ArrowNativeType, MutableBuffer, ToByteSlice};
+use parking_lot::RwLock;
 use sqd_array::index::RangeList;
 use sqd_array::writer::NativeWriter;
+
+
+pub static PAGE_SIZE: LazyLock<RwLock<usize>> = LazyLock::new(|| {
+    RwLock::new(64 * 1024)
+});
 
 
 pub struct NativePageWriter<P> {
@@ -16,7 +23,7 @@ pub struct NativePageWriter<P> {
 impl<P: PageWriter> NativePageWriter<P> {
     pub fn new(page_writer: P, item_size: usize) -> Self {
         assert!(item_size > 0);
-        let page_size = std::cmp::max(64 * 1024, item_size);
+        let page_size = std::cmp::max(PAGE_SIZE.read().clone(), item_size);
         Self {
             page_writer,
             buffer: MutableBuffer::new(page_size * 2),

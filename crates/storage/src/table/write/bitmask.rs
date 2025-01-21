@@ -1,7 +1,14 @@
+use std::sync::LazyLock;
+use parking_lot::RwLock;
 use super::page::PageWriter;
 use sqd_array::builder::bitmask::BitmaskBuilder;
 use sqd_array::index::RangeList;
 use sqd_array::writer::BitmaskWriter;
+
+
+pub static PAGE_SIZE: LazyLock<RwLock<usize>> = LazyLock::new(|| {
+    RwLock::new(16 * 1024)
+});
 
 
 pub struct BitmaskPageWriter<P> {
@@ -13,7 +20,7 @@ pub struct BitmaskPageWriter<P> {
 
 impl<P: PageWriter> BitmaskPageWriter<P> {
     pub fn new(page_writer: P) -> Self {
-        let page_size = 16 * 1024;
+        let page_size = PAGE_SIZE.read().clone();
         Self {
             page_writer,
             builder: BitmaskBuilder::new(page_size * 2),

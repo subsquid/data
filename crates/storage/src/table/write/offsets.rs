@@ -1,9 +1,16 @@
 use crate::table::write::page::PageWriter;
 use arrow_buffer::ToByteSlice;
+use parking_lot::RwLock;
 use sqd_array::builder::offsets::OffsetsBuilder;
 use sqd_array::index::RangeList;
 use sqd_array::offsets::Offsets;
 use sqd_array::writer::OffsetsWriter;
+use std::sync::LazyLock;
+
+
+pub static PAGE_LEN: LazyLock<RwLock<usize>> = LazyLock::new(|| {
+    RwLock::new(16 * 1024)
+});
 
 
 pub struct OffsetPageWriter<P> {
@@ -15,7 +22,7 @@ pub struct OffsetPageWriter<P> {
 
 impl<P: PageWriter> OffsetPageWriter<P> {
     pub fn new(page_writer: P) -> Self {
-        let page_len = 16 * 1024;
+        let page_len = PAGE_LEN.read().clone();
         Self {
             page_writer,
             builder: OffsetsBuilder::new(page_len * 2),

@@ -4608,10 +4608,12 @@ dependencies = [
  "arrow-buffer",
  "borsh",
  "parking_lot",
+ "proptest",
  "rayon",
  "rocksdb",
  "sqd-array",
  "sqd-primitives",
+ "tempfile",
  "uuid",
 ]
 
