@@ -74,6 +74,7 @@ impl Stream for LineStream {
                     Poll::Ready(Some(Err(err))) => {
                         this.inner = None;
                         this.line = BytesMut::new();
+                        this.unchecked_pos = 0;
                         return if is_retryable(&err) {
                             Poll::Ready(None)
                         } else {

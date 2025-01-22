@@ -3,23 +3,23 @@ use futures::Stream;
 use sqd_primitives::{Block, BlockNumber, BlockRef};
 
 
-#[derive(Debug, Copy, Clone)]
-pub struct BlockStreamRequest<'a> {
+#[derive(Debug, Clone)]
+pub struct BlockStreamRequest {
     pub first_block: BlockNumber,
-    pub prev_block_hash: Option<&'a str>
+    pub parent_block_hash: Option<String>
 }
 
 
-impl<'a> BlockStreamRequest<'a> {
+impl BlockStreamRequest {
     pub fn new(first_block: BlockNumber) -> Self {
         Self {
             first_block,
-            prev_block_hash: None
+            parent_block_hash: None
         }
     }
     
-    pub fn with_prev_block_hash(mut self, prev_block_hash: impl Into<Option<&'a str>>) -> Self {
-        self.prev_block_hash = prev_block_hash.into();
+    pub fn with_parent_block_hash(mut self, parent_block_hash: impl Into<Option<String>>) -> Self {
+        self.parent_block_hash = parent_block_hash.into();
         self
     }
 }
@@ -28,10 +28,10 @@ impl<'a> BlockStreamRequest<'a> {
 pub trait DataClient: Sync {
     type BlockStream: BlockStream;
     
-    fn stream<'a>(
-        &'a self, 
-        req: BlockStreamRequest<'a>
-    ) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>;
+    fn stream(
+        &self,
+        req: BlockStreamRequest
+    ) -> BoxFuture<anyhow::Result<Self::BlockStream>>;
 }
 
 

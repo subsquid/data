@@ -15,7 +15,7 @@ pub fn ingest<'a, 'b>(
     sources: Vec<DataSource>,
     dataset_kind: DatasetKind,
     first_block: BlockNumber,
-    prev_block_hash: Option<&'a str>
+    parent_block_hash: Option<&'a str>
 ) -> BoxFuture<'b, anyhow::Result<()>> 
 {
     match dataset_kind {
@@ -27,7 +27,7 @@ pub fn ingest<'a, 'b>(
                 data_client,
                 builder,
                 first_block,
-                prev_block_hash,
+                parent_block_hash.map(|s| s.to_string()),
                 message_sender
             );
             ingest.run().boxed()

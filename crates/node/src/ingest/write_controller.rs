@@ -152,6 +152,7 @@ impl WriteController {
         })
     }
 
+    #[instrument(skip(self), fields(dataset_id =? self.dataset_id()), err)]
     pub fn retain_head(&mut self, from_block: BlockNumber) -> anyhow::Result<()> {
         let bottom_chunk = self.db.update_dataset(self.dataset_id, |tx| {
             for chunk_result in tx.list_chunks(0, None) {
@@ -185,8 +186,8 @@ impl WriteController {
         Ok(())
     }
 
-    #[instrument(skip(self), fields(dataset_id =? self.dataset_id()))]
-    pub fn finalize(&mut self, new_finalized_head: &BlockRef) -> anyhow::Result<()> {
+    #[instrument(skip(self), fields(dataset_id =? self.dataset_id()), err)]
+    pub fn finalize(&mut self, finalized_head: &BlockRef) -> anyhow::Result<()> {
         let head = match self.head.as_ref() {
             None => return Ok(()),
             Some(head) => head
@@ -194,11 +195,11 @@ impl WriteController {
         
         let update = self.db.update_dataset(self.dataset_id, |tx| {
             if let Some(current) = tx.label().finalized_head() {
-                if current.number > new_finalized_head.number {
+                if current.number > finalized_head.number {
                     return Ok(None)
                 }
-                if current.number == new_finalized_head.number {
-                    ensure!(current.hash == new_finalized_head.hash);
+                if current.number == finalized_head.number {
+                    ensure!(current.hash == finalized_head.hash);
                     return Ok(None)
                 }
             }
@@ -217,16 +218,16 @@ impl WriteController {
                 return Ok(None)
             }
 
-            let new_finalized_head = if new_finalized_head.number > head_chunk.last_block() {
+            let new_finalized_head = if finalized_head.number > head_chunk.last_block() {
                 BlockRef {
                     number: head_chunk.last_block(),
                     hash: head_chunk.last_block_hash().to_string()
                 }
-            } else if new_finalized_head.number == head_chunk.last_block() {
-                ensure!(new_finalized_head.hash == head_chunk.last_block_hash());
-                new_finalized_head.clone()
+            } else if finalized_head.number == head_chunk.last_block() {
+                ensure!(finalized_head.hash == head_chunk.last_block_hash());
+                finalized_head.clone()
             } else {
-                new_finalized_head.clone()
+                finalized_head.clone()
             };
             
             tx.set_finalized_head(new_finalized_head.clone());
@@ -237,18 +238,15 @@ impl WriteController {
         match update {
             Some(new_head) if Some(&new_head) != self.finalized_head.as_ref() => {
                 self.finalized_head = Some(new_head);
-                info!(
-                    finlized_head =? self.finalized_head.as_ref(),
-                    "using new finalized head"
-                )
+                info!(new_finalized_head =? self.finalized_head, "updated finalized head");
             },
-            _ => info!("ignoring this update")
+            _ => info!("ignored")
         }
         
         Ok(())
     }
 
-    #[instrument(skip(self), fields(dataset_id =? self.dataset_id()))]
+    #[instrument(skip(self), fields(dataset_id =? self.dataset_id()), err)]
     pub fn new_chunk(
         &mut self,
         finalized_head: Option<&BlockRef>,
@@ -289,8 +287,13 @@ impl WriteController {
             Ok(new_finalized_head)
         })?;
 
-        self.finalized_head = finalized_head;
-        
+        info!("accepted");
+
+        if self.finalized_head != finalized_head {
+            self.finalized_head = finalized_head;
+            info!(new_finalized_head =? self.finalized_head, "updated finalized head");
+        }
+
         self.head = Some(BlockRef {
             number: chunk.last_block(),
             hash: chunk.last_block_hash().to_string()

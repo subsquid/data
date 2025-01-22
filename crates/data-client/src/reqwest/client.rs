@@ -11,13 +11,13 @@ use std::future::Future;
 use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::time::Duration;
-use tracing::{instrument, warn};
+use tracing::{debug, instrument, warn};
 
 
 pub fn default_http_client() -> Client {
     Client::builder()
-        // .read_timeout(Duration::from_secs(5))
-        // .connect_timeout(Duration::from_secs(5))
+        .read_timeout(Duration::from_secs(20))
+        .connect_timeout(Duration::from_secs(20))
         .gzip(true)
         .build()
         .unwrap()
@@ -55,20 +55,20 @@ impl <B> ReqwestDataClient<B> {
         }
     }
     
-    #[instrument(level = "debug")]
+    #[instrument(level = "debug", ret, err)]
     pub async fn stream(
         &self,
-        req: BlockStreamRequest<'_>
+        req: BlockStreamRequest
     ) -> anyhow::Result<ReqwestBlockStream<B>>
     {
         let mut body = json!({
             "fromBlock": req.first_block
         });
 
-        if req.prev_block_hash.is_some() {
+        if req.parent_block_hash.is_some() {
             body.as_object_mut().unwrap().insert(
                 "prevBlockHash".into(),
-                req.prev_block_hash.into()
+                req.parent_block_hash.clone().into()
             );
         }
 
@@ -80,6 +80,8 @@ impl <B> ReqwestDataClient<B> {
             .json(&body)
             .build()?;
 
+        debug!("send request");
+
         self.with_retries(&http_req, |res| async {
             Ok(match res.status().as_u16() {
                 200 => {
@@ -87,7 +89,7 @@ impl <B> ReqwestDataClient<B> {
                         extract_finalized_head(&res),
                         Some(Box::new(res.bytes_stream())),
                         vec![],
-                        req.prev_block_hash
+                        req.parent_block_hash.clone()
                     )
                 },
                 204 => {
@@ -160,7 +162,7 @@ impl <B> ReqwestDataClient<B> {
                 method = req.method().as_str(),
                 body = body_str(req),
                 error = retry_error.as_ref() as &dyn std::error::Error,
-                "http request failed, will retry it in {} ms", 
+                "http request failed, will retry in {} ms",
                 pause
             );
             
@@ -213,7 +215,7 @@ fn is_retryable_io(err: &std::io::Error) -> bool {
 impl<B: Block + FromJsonBytes + Unpin + Send + Sync> DataClient for ReqwestDataClient<B> {
     type BlockStream = ReqwestBlockStream<B>;
 
-    fn stream<'a>(&'a self, req: BlockStreamRequest<'a>) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>
+    fn stream(&self, req: BlockStreamRequest) -> BoxFuture<anyhow::Result<Self::BlockStream>>
     {
         Box::pin(self.stream(req))
     }

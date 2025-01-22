@@ -119,7 +119,7 @@ pub struct IngestGeneric<DC, CB> {
     data_client: DC,
     builder: Option<DataBuilder<CB>>,
     buffered_blocks: usize,
-    has_parent_block_hash: bool,
+    req: BlockStreamRequest,
     parent_block_hash: String,
     first_block: BlockNumber,
     last_block: BlockNumber,
@@ -137,7 +137,7 @@ where
         data_client: DC,
         chunk_builder: CB,
         first_block: BlockNumber,
-        prev_block_hash: Option<&str>,
+        parent_block_hash: Option<String>,
         message_sender: tokio::sync::mpsc::Sender<IngestMessage>
     ) -> Self
     {
@@ -146,8 +146,11 @@ where
             data_client,
             builder: Some(DataBuilder::new(chunk_builder)),
             buffered_blocks: 0,
-            has_parent_block_hash: prev_block_hash.is_some(),
-            parent_block_hash: prev_block_hash.map(|s| s.to_string()).unwrap_or_default(),
+            req: BlockStreamRequest {
+                first_block,
+                parent_block_hash
+            },
+            parent_block_hash: String::new(),
             first_block,
             last_block: 0,
             last_block_hash: String::new()
@@ -156,13 +159,7 @@ where
 
     pub async fn run(mut self) -> anyhow::Result<()> {
         loop {
-            let mut req = BlockStreamRequest::new(self.first_block);
-            if self.has_parent_block_hash {
-                req = req.with_prev_block_hash(self.parent_block_hash.as_ref())
-            }
-
-            let mut stream = self.data_client.stream(req).await?;
-
+            let mut stream = self.data_client.stream(self.req.clone()).await?;
             if stream.prev_blocks().is_empty() {
                 let finalized_head = stream.take_finalized_head()?;
 
@@ -173,14 +170,10 @@ where
                 }
 
                 if let Some(block) = stream.try_next().await? {
-                    if self.has_parent_block_hash {
-                        ensure!(block.parent_hash() == self.parent_block_hash.as_str());
-                    } else {
-                        self.parent_block_hash.clear();
-                        self.parent_block_hash.push_str(block.parent_hash());
-                        self.has_parent_block_hash = true;
+                    if let Some(hash) = self.req.parent_block_hash.as_ref() {
+                        ensure!(block.parent_hash() == hash);
                     }
-                    
+
                     self.push_block(block);
                     self.maybe_flush(finalized_head.as_ref()).await?;
 
@@ -189,6 +182,9 @@ where
                         self.push_block(block);
                         self.maybe_flush(finalized_head.as_ref()).await?;
                     }
+
+                    self.req.first_block = self.last_block + 1;
+                    self.req.parent_block_hash = Some(self.last_block_hash.clone());
                 }
 
                 if finalized_head.as_ref().map_or(true, |h| h.number <= self.last_block) {
@@ -201,15 +197,6 @@ where
     }
 
     async fn handle_rollback(&mut self, prev_blocks: Vec<BlockRef>) -> anyhow::Result<()> {
-        ensure!(
-            self.buffered_blocks == 0,
-            "attempt to rollback beyond finalized head"
-        );
-        ensure!(
-            self.has_parent_block_hash,
-            "data service returned rollback while no base block was given"
-        );
-
         let (rollback_sender, rollback_recv) = tokio::sync::oneshot::channel();
 
         self.message_sender.send(IngestMessage::Fork {
@@ -220,15 +207,25 @@ where
         self.with_blocking_builder(|b| b.clear()).await?;
 
         let rollback = rollback_recv.await?;
-        
-        self.first_block = rollback.first_block;
-        self.has_parent_block_hash = rollback.parent_block_hash.is_some();
-        self.parent_block_hash = rollback.parent_block_hash.unwrap_or_default();
+
+        if self.buffered_blocks > 0 && self.first_block < rollback.first_block {
+            self.req.first_block = self.first_block;
+            self.req.parent_block_hash = Some(self.parent_block_hash.clone());
+        } else {
+            self.req.first_block = rollback.first_block;
+            self.req.parent_block_hash = rollback.parent_block_hash;
+        }
+        self.buffered_blocks = 0;
 
         Ok(())
     }
 
     fn push_block(&mut self, block: CB::Block) {
+        if self.buffered_blocks == 0 {
+            self.first_block = block.number();
+            self.parent_block_hash.clear();
+            self.parent_block_hash.push_str(block.parent_hash());
+        }
         self.buffered_blocks += 1;
         self.builder.as_mut().unwrap().push_block(&block);
         self.last_block = block.number();
@@ -237,7 +234,7 @@ where
     }
 
     async fn maybe_flush(&mut self, finalized_head: Option<&BlockRef>) -> anyhow::Result<()> {
-        if self.builder_ref().num_rows() > 200_000_000 {
+        if self.builder_ref().num_rows() > 200_000 {
             return self.flush(finalized_head).await;
         }
 
@@ -253,17 +250,14 @@ where
             return Ok(())
         }
 
+        self.buffered_blocks = 0;
+
         let tables = self.with_blocking_builder(|b| b.finish()).await?;
 
         let parent_block_hash = self.parent_block_hash.clone();
         let first_block = self.first_block;
         let last_block = self.last_block;
         let last_block_hash = self.last_block_hash.clone();
-
-        self.first_block = self.last_block + 1;
-        std::mem::swap(&mut self.parent_block_hash, &mut self.last_block_hash);
-        self.has_parent_block_hash = true;
-        self.buffered_blocks = 0;
 
         self.message_sender.send(IngestMessage::NewChunk(NewChunk {
             finalized_head: finalized_head.cloned(),

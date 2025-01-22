@@ -9,6 +9,7 @@ use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::Poll;
+use tracing::debug;
 
 
 pub(super) fn extract_finalized_head(res: &Response) -> anyhow::Result<Option<BlockRef>> {
@@ -80,14 +81,14 @@ impl<B> ReqwestBlockStream<B> {
         finalized_head: anyhow::Result<Option<BlockRef>>,
         body: Option<BodyStreamBox>,
         prev_blocks: Vec<BlockRef>,
-        prev_block_hash: Option<&str>
+        prev_block_hash: Option<String>
     ) -> Self
     {
         Self {
             finalized_head,
             lines: body.map(LineStream::new),
             prev_blocks,
-            prev_block_hash: prev_block_hash.map(|s| s.to_string()),
+            prev_block_hash,
             phantom_data: PhantomData::default()
         }
     }
@@ -133,10 +134,12 @@ impl<B: Block + FromJsonBytes + Unpin> Stream for ReqwestBlockStream<B> {
                     } else {
                         this.prev_block_hash = Some(block.hash().to_string());
                     }
+                    debug!("received block {}#{}", block.number(), block.hash());
                     Ok(block)
                 })
             })
         } else {
+            this.lines = None;
             Poll::Ready(None)
         }
     }

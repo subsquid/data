@@ -39,7 +39,7 @@ where
 {
     type BlockStream = BlockStreamBox<<C::BlockStream as BlockStream>::Block>;
 
-    fn stream<'a>(&'a self, req: BlockStreamRequest<'a>) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>
+    fn stream(&self, req: BlockStreamRequest) -> BoxFuture<anyhow::Result<Self::BlockStream>>
     {
         Box::pin(async move {
             let stream = self.inner.stream(req).await?;
