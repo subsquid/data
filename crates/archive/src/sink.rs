@@ -5,6 +5,7 @@ use crate::processor::LineProcessor;
 use crate::progress::Progress;
 use crate::writer::WriterItem;
 use futures_util::TryStreamExt;
+use prometheus_client::metrics::gauge::Atomic;
 use sqd_data_core::BlockNumber;
 use std::num::NonZeroUsize;
 use std::pin::pin;
@@ -116,8 +117,7 @@ impl Sink {
                 data_ingested = true;
                 next_block = self.processor.last_block() + 1;
 
-                let val = self.processor.last_block() - metrics::LAST_BLOCK.get();
-                metrics::LAST_BLOCK.inc_by(val);
+                metrics::LAST_BLOCK.inner().set(self.processor.last_block());
             }
         }
 

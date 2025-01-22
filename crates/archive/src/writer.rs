@@ -4,6 +4,7 @@ use crate::metrics;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
+use prometheus_client::metrics::gauge::Atomic;
 use rayon::prelude::*;
 use sqd_data_core::PreparedChunk;
 use sqd_dataset::{DatasetDescriptionRef, TableDescription};
@@ -55,8 +56,7 @@ impl Writer {
             let dest = format!("{}/blocks.parquet", chunk_path);
             self.fs.move_local(&blocks, &dest).await?;
 
-            let val = last_block - metrics::LAST_SAVED_BLOCK.get();
-            metrics::LAST_SAVED_BLOCK.inc_by(val);
+            metrics::LAST_SAVED_BLOCK.inner().set(last_block);
         }
         Ok(())
     }
