@@ -4,7 +4,7 @@ use crate::io::writer::IOWriter;
 use crate::writer::{AnyArrayWriter, ArrayWriter, Writer};
 use arrow::datatypes::DataType;
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Seek, SeekFrom, Write};
 
 
 pub type FileWriter = IOWriter<BufWriter<File>>;
@@ -22,7 +22,8 @@ impl ArrayFileWriter {
         
         let mut factory = move || {
             let shared = buffers.next().expect("no more buffers left");
-            let file = shared.into_file();
+            let mut file = shared.into_file();
+            file.seek(SeekFrom::Start(0))?;
             file.set_len(0)?;
             Ok(BufWriter::new(file))
         };
