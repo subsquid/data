@@ -10,7 +10,6 @@ use sqd_query::{JsonLinesWriter, Plan, Query};
 use sqd_storage::db::{Chunk as StorageChunk, DatasetId};
 use std::io::Write;
 use std::time::Instant;
-use tracing::info;
 
 
 struct LeftOver {

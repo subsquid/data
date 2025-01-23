@@ -55,7 +55,11 @@ impl <B> ReqwestDataClient<B> {
         }
     }
     
-    #[instrument(level = "debug", ret, err)]
+    #[instrument(level = "debug", skip_all, ret, err(Debug), fields(
+        url = %self.url.as_str(),
+        first_block = %req.first_block,
+        parent_block_hash = %req.parent_block_hash.as_ref().map_or("None", |s| s.as_str())
+    ))]
     pub async fn stream(
         &self,
         req: BlockStreamRequest
@@ -158,10 +162,10 @@ impl <B> ReqwestDataClient<B> {
             let pause = retry_schedule[std::cmp::min(retry_attempt, retry_schedule.len() - 1)];
 
             warn!(
-                url = req.url().as_str(),
-                method = req.method().as_str(),
-                body = body_str(req),
-                error = retry_error.as_ref() as &dyn std::error::Error,
+                url = %req.url().as_str(),
+                method = %req.method().as_str(),
+                body = %body_str(req).unwrap_or("None"),
+                error = ?retry_error,
                 "http request failed, will retry in {} ms",
                 pause
             );

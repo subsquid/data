@@ -148,7 +148,7 @@ impl Display for Chunk {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f, 
-            "{}..{}#{}",
+            "{}-{}-{}",
             self.first_block(),
             self.last_block(),
             self.last_block_hash()

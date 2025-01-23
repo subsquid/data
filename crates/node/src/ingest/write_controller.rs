@@ -1,10 +1,10 @@
 use crate::types::{DBRef, DatasetKind};
 use anyhow::{anyhow, bail, ensure};
 use either::Either;
-use sqd_primitives::{BlockNumber, BlockRef};
+use sqd_primitives::{BlockNumber, BlockRef, DisplayBlockRefOption};
 use sqd_storage::db::{Chunk as StorageChunk, Chunk, DatasetId};
 use std::fmt::{Display, Formatter};
-use tracing::{info, instrument, warn};
+use tracing::{info, instrument, warn, Level};
 
 
 #[derive(Debug)]
@@ -152,7 +152,7 @@ impl WriteController {
         })
     }
 
-    #[instrument(skip(self), fields(dataset_id =? self.dataset_id()), err)]
+    #[instrument(skip(self), fields(dataset_id =? self.dataset_id()))]
     pub fn retain_head(&mut self, from_block: BlockNumber) -> anyhow::Result<()> {
         let bottom_chunk = self.db.update_dataset(self.dataset_id, |tx| {
             for chunk_result in tx.list_chunks(0, None) {
@@ -168,11 +168,8 @@ impl WriteController {
 
         self.first_block = from_block;
 
-        if bottom_chunk.as_ref().is_none() {
-            self.head = None;
-        }
-
-        if let Some(chunk) = bottom_chunk {
+        if let Some(chunk) = bottom_chunk.as_ref() {
+            info!("the bottom chunk is now {}", chunk);
             if chunk.first_block() > from_block {
                 warn!(
                     "there is a gap between requested trim horizon {} \
@@ -181,13 +178,19 @@ impl WriteController {
                     chunk
                 );
             }
+        } else {
+            self.head = None;
+            info!("the dataset is now empty")
         }
 
         Ok(())
     }
 
-    #[instrument(skip(self), fields(dataset_id =? self.dataset_id()), err)]
-    pub fn finalize(&mut self, finalized_head: &BlockRef) -> anyhow::Result<()> {
+    #[instrument(skip_all, fields(
+        dataset_id = %self.dataset_id(),
+        new_finalized_head = %new_finalized_head
+    ))]
+    pub fn finalize(&mut self, new_finalized_head: &BlockRef) -> anyhow::Result<()> {
         let head = match self.head.as_ref() {
             None => return Ok(()),
             Some(head) => head
@@ -195,11 +198,11 @@ impl WriteController {
         
         let update = self.db.update_dataset(self.dataset_id, |tx| {
             if let Some(current) = tx.label().finalized_head() {
-                if current.number > finalized_head.number {
+                if current.number > new_finalized_head.number {
                     return Ok(None)
                 }
-                if current.number == finalized_head.number {
-                    ensure!(current.hash == finalized_head.hash);
+                if current.number == new_finalized_head.number {
+                    ensure!(current.hash == new_finalized_head.hash);
                     return Ok(None)
                 }
             }
@@ -218,16 +221,16 @@ impl WriteController {
                 return Ok(None)
             }
 
-            let new_finalized_head = if finalized_head.number > head_chunk.last_block() {
+            let new_finalized_head = if new_finalized_head.number > head_chunk.last_block() {
                 BlockRef {
                     number: head_chunk.last_block(),
                     hash: head_chunk.last_block_hash().to_string()
                 }
-            } else if finalized_head.number == head_chunk.last_block() {
-                ensure!(finalized_head.hash == head_chunk.last_block_hash());
-                finalized_head.clone()
+            } else if new_finalized_head.number == head_chunk.last_block() {
+                ensure!(new_finalized_head.hash == head_chunk.last_block_hash());
+                new_finalized_head.clone()
             } else {
-                finalized_head.clone()
+                new_finalized_head.clone()
             };
             
             tx.set_finalized_head(new_finalized_head.clone());
@@ -237,8 +240,8 @@ impl WriteController {
         
         match update {
             Some(new_head) if Some(&new_head) != self.finalized_head.as_ref() => {
+                info!(committed_finalized_head = %new_head, "committed");
                 self.finalized_head = Some(new_head);
-                info!(new_finalized_head =? self.finalized_head, "updated finalized head");
             },
             _ => info!("ignored")
         }
@@ -246,7 +249,11 @@ impl WriteController {
         Ok(())
     }
 
-    #[instrument(skip(self), fields(dataset_id =? self.dataset_id()), err)]
+    #[instrument(skip_all, fields(
+        dataset_id = %self.dataset_id(),
+        finalized_head = %DisplayBlockRefOption(finalized_head),
+        chunk = %chunk
+    ))]
     pub fn new_chunk(
         &mut self,
         finalized_head: Option<&BlockRef>,
@@ -287,11 +294,13 @@ impl WriteController {
             Ok(new_finalized_head)
         })?;
 
-        info!("accepted");
+        info!(
+            committed_finalized_head = %DisplayBlockRefOption(finalized_head.as_ref()),
+            "commited"
+        );
 
         if self.finalized_head != finalized_head {
             self.finalized_head = finalized_head;
-            info!(new_finalized_head =? self.finalized_head, "updated finalized head");
         }
 
         self.head = Some(BlockRef {

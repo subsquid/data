@@ -1,10 +1,11 @@
+use std::fmt::{Display, Formatter};
 use crate::ingest::write_controller::Rollback;
 use anyhow::ensure;
 use futures::{SinkExt, TryStreamExt};
 use parking_lot::Mutex;
 use sqd_data_client::{BlockStream, BlockStreamRequest, DataClient};
 use sqd_data_core::{BlockChunkBuilder, ChunkProcessor, PreparedChunk, PreparedTable};
-use sqd_primitives::{Block, BlockNumber, BlockRef, Name};
+use sqd_primitives::{Block, BlockNumber, BlockRef, DisplayBlockRefOption, Name};
 use std::ops::DerefMut;
 use std::sync::{Arc, Weak};
 
@@ -26,6 +27,20 @@ pub struct NewChunk {
     pub last_block: BlockNumber,
     pub last_block_hash: String,
     pub tables: PreparedTables
+}
+
+
+impl Display for NewChunk {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f, 
+            "{}-{}-{} (finalized_head = {})", 
+            self.first_block, 
+            self.last_block, 
+            &self.last_block_hash,
+            DisplayBlockRefOption(self.finalized_head.as_ref())
+        )
+    }
 }
 
 

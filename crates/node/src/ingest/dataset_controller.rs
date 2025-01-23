@@ -11,6 +11,7 @@ use std::future::pending;
 use std::ops::DerefMut;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::select;
+use tracing::info;
 
 
 pub struct DatasetController {
@@ -216,10 +217,15 @@ async fn write_loop(
                         notify_finalized_head!();
                     },
                     IngestMessage::NewChunk(new_chunk) => {
+                        info!(
+                            dataset_id = %write.dataset_id(), 
+                            "received new chunk {}", new_chunk
+                        );
                         let db = db.clone();
-                        blocking! {
-                            write_new_chunk(&db, &mut write, new_chunk)
-                        }?;
+                        blocking! {{
+                            let ctx = format!("failed to write new chunk {}", new_chunk);
+                            write_new_chunk(&db, &mut write, new_chunk).context(ctx)
+                        }}?;
                         notify_head!();
                         notify_finalized_head!();
                     },
@@ -247,7 +253,9 @@ async fn write_loop(
                 }
 
                 blocking! {
-                    write.retain_head(block_number)
+                    write.retain_head(block_number).with_context(|| {
+                        format!("failed to retain dataset from block {}", block_number)
+                    })
                 }?;
 
                 notify_head!();

@@ -111,29 +111,39 @@ impl Drop for Node {
 fn run(datasets: Vec<Arc<DatasetController>>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut completion_stream: FuturesUnordered<_> = datasets.into_iter()
-            .map(|c| async {
-                let result = c.run().await;
-                (result, c)
-            })
+            .map(|c| run_dataset_controller(false, c))
             .collect();
 
         while let Some((result, c)) = completion_stream.next().await {
             match result {
                 Ok(_) => {
                     error!(
-                        "data ingestion was terminated for dataset '{}', it will be no longer updated", 
+                        "data ingestion was terminated for dataset '{}'",
                         c.dataset_id()
                     );
                 },
                 Err(err) => {
-                    let err: &dyn std::error::Error = err.as_ref();
                     error!(
-                        reason = err,
-                        "data ingestion was terminated for dataset '{}', it will be no longer updated",
+                        reason = ?err,
+                        "data ingestion was terminated for dataset '{}'",
                         c.dataset_id()
                     )
                 }
             }
+            completion_stream.push(run_dataset_controller(true, c))
         }
     })
+}
+
+
+async fn run_dataset_controller(
+    pause: bool,
+    c: Arc<DatasetController>
+) -> (anyhow::Result<()>, Arc<DatasetController>)
+{
+    if pause {
+        tokio::time::sleep(Duration::from_secs(120)).await;
+    }
+    let result = c.run().await;
+    (result, c)
 }

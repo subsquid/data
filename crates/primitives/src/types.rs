@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 
 pub type Name = &'static str;
@@ -18,6 +18,20 @@ pub struct BlockRef {
 impl Display for BlockRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}#{}", self.number, self.hash)
+    }
+}
+
+
+pub struct DisplayBlockRefOption<'a>(pub Option<&'a BlockRef>);
+
+
+impl<'a> Display for DisplayBlockRefOption<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if let Some(r) = self.0 {
+            write!(f, "{}", r)
+        } else {
+            write!(f, "None")
+        }
     }
 }
 
