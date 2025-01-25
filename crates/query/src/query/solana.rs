@@ -91,8 +91,8 @@ field_selection! {
 
 item_field_selection! {
     BlockFieldSelection {
-        hash,
         number,
+        hash,
         parent_number,
         parent_hash,
         height,
@@ -100,8 +100,8 @@ item_field_selection! {
     }
 
     project(this) json_object! {{
-        this.hash,
         this.number,
+        this.hash,
         this.parent_number,
         this.parent_hash,
         this.height,

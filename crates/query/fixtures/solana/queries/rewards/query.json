@@ -1,12 +1,12 @@
 {
   "type": "solana",
-  "fromBlock": 200000000,
+  "fromBlock": 0,
   "fields": {
     "block": {
-      "slot": true,
       "timestamp": true,
-      "number": true,
-      "hash": true
+      "hash": true,
+      "height": true,
+      "number": true
     },
     "reward": {
       "lamports": true,

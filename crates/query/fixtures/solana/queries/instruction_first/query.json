@@ -3,12 +3,12 @@
   "fromBlock": 0,
   "fields": {
     "block": {
-      "slot": true,
       "parentHash": true,
-      "parentSlot": true,
       "timestamp": true,
+      "hash": true,
+      "height": true,
       "number": true,
-      "hash": true
+      "parentNumber": true
     },
     "instruction": {
       "programId": true,
