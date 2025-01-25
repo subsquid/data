@@ -6,8 +6,8 @@ use sqd_primitives::{BlockNumber, ItemIndex};
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockHeader {
-    pub hash: Base58Bytes,
     pub number: BlockNumber,
+    pub hash: Base58Bytes,
     pub parent_number: BlockNumber,
     pub parent_hash: Base58Bytes,
     pub height: BlockNumber,

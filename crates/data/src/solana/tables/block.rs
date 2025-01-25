@@ -6,8 +6,8 @@ use sqd_data_core::table_builder;
 
 table_builder! {
     BlockBuilder {
-        hash: Base58Builder,
         number: UInt64Builder,
+        hash: Base58Builder,
         parent_number: UInt64Builder,
         parent_hash: Base58Builder,
         height: UInt64Builder,
@@ -25,8 +25,8 @@ table_builder! {
 
 impl BlockBuilder {
     pub fn push(&mut self, row: &BlockHeader) {
-        self.hash.append(&row.hash);
         self.number.append(row.number);
+        self.hash.append(&row.hash);
         self.parent_number.append(row.parent_number);
         self.parent_hash.append(&row.parent_hash);
         self.height.append(row.height);

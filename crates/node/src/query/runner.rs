@@ -190,8 +190,14 @@ impl QueryRunner {
             })
         }
 
-        JsonLinesWriter::new(&mut self.buf)
+        let mut json_lines_writer = JsonLinesWriter::new(&mut self.buf);
+
+        json_lines_writer
             .write_blocks(&mut block_writer)
+            .expect("IO errors are not possible");
+
+        json_lines_writer
+            .finish()
             .expect("IO errors are not possible");
 
         self.buf.flush().expect("IO errors are not possible");
