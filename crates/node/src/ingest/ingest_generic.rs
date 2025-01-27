@@ -1,4 +1,3 @@
-use std::fmt::{Display, Formatter};
 use crate::ingest::write_controller::Rollback;
 use anyhow::ensure;
 use futures::{SinkExt, TryStreamExt};
@@ -6,6 +5,7 @@ use parking_lot::Mutex;
 use sqd_data_client::{BlockStream, BlockStreamRequest, DataClient};
 use sqd_data_core::{BlockChunkBuilder, ChunkProcessor, PreparedChunk, PreparedTable};
 use sqd_primitives::{Block, BlockNumber, BlockRef, DisplayBlockRefOption, Name};
+use std::fmt::{Display, Formatter};
 use std::ops::DerefMut;
 use std::sync::{Arc, Weak};
 
@@ -231,18 +231,18 @@ where
             self.req.parent_block_hash = rollback.parent_block_hash;
         }
         self.buffered_blocks = 0;
+        self.first_block = self.req.first_block;
 
         Ok(())
     }
 
     fn push_block(&mut self, block: CB::Block) {
+        self.builder.as_mut().unwrap().push_block(&block);
         if self.buffered_blocks == 0 {
-            self.first_block = block.number();
             self.parent_block_hash.clear();
             self.parent_block_hash.push_str(block.parent_hash());
         }
         self.buffered_blocks += 1;
-        self.builder.as_mut().unwrap().push_block(&block);
         self.last_block = block.number();
         self.last_block_hash.clear();
         self.last_block_hash.push_str(block.hash());
@@ -265,14 +265,15 @@ where
             return Ok(())
         }
 
-        self.buffered_blocks = 0;
-
         let tables = self.with_blocking_builder(|b| b.finish()).await?;
 
         let parent_block_hash = self.parent_block_hash.clone();
         let first_block = self.first_block;
         let last_block = self.last_block;
         let last_block_hash = self.last_block_hash.clone();
+
+        self.buffered_blocks = 0;
+        self.first_block = last_block + 1;
 
         self.message_sender.send(IngestMessage::NewChunk(NewChunk {
             finalized_head: finalized_head.cloned(),
