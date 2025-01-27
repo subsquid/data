@@ -1,3 +1,4 @@
+use crate::error::BlockRangeMissing;
 use crate::query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot};
 use crate::query::user_error::QueryKindMismatch;
 use crate::types::{DBRef, DatasetKind};
@@ -65,9 +66,10 @@ impl QueryRunner {
             Some(chunk) => {
                 ensure!(
                     chunk.first_block() <= query.first_block(),
-                    "blocks from {} to {} are missed in the database",
-                    query.first_block(),
-                    chunk.first_block()
+                    BlockRangeMissing {
+                        first_block: query.first_block(),
+                        last_block: chunk.first_block() - 1
+                    }
                 );
 
                 let plan = if query.first_block() == chunk.first_block() {

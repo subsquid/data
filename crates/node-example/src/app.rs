@@ -85,13 +85,21 @@ fn error_to_response(err: anyhow::Error) -> Response {
         StatusCode::NOT_FOUND
     } else if err.is::<sqd_node::error::QueryKindMismatch>() {
         StatusCode::BAD_REQUEST
+    } else if err.is::<sqd_node::error::BlockRangeMissing>() {
+        StatusCode::BAD_REQUEST
     } else if err.is::<sqd_node::error::Busy>() {
         StatusCode::SERVICE_UNAVAILABLE
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
     };
+    
+    let message = if status_code == StatusCode::INTERNAL_SERVER_ERROR {
+        format!("{:?}", err)
+    } else {
+        format!("{}", err)
+    };
 
-    (status_code, format!("{:?}", err)).into_response()
+    (status_code, message).into_response()
 }
 
 
