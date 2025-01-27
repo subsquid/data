@@ -1,9 +1,9 @@
 use crate::dataset_config::DatasetConfig;
+use anyhow::Context;
 use clap::Parser;
 use sqd_node::{Node, NodeBuilder};
 use sqd_storage::db::DatabaseSettings;
 use std::sync::Arc;
-use anyhow::Context;
 
 
 #[derive(Parser, Debug)]
@@ -36,7 +36,7 @@ impl CLI {
         let mut builder = NodeBuilder::new(db);
         
         for (id, cfg) in datasets {
-            let ds = builder.add_dataset(cfg.kind, id, cfg.first_block);
+            let ds = builder.add_dataset(cfg.kind, id, cfg.retention);
             for url in cfg.data_sources {
                 ds.add_data_source(url);
             }

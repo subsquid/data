@@ -3,7 +3,7 @@ use crate::ingest::DatasetController;
 use crate::node::node_builder::NodeBuilder;
 use crate::node::query_executor::{QueryExecutor, QueryExecutorRef};
 use crate::node::query_response::QueryResponse;
-use crate::types::{DBRef, DatasetKind};
+use crate::types::{DBRef, DatasetKind, RetentionStrategy};
 use anyhow::ensure;
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
@@ -28,13 +28,19 @@ pub struct Node {
 impl Node {
     pub(super) fn new(builder: NodeBuilder) -> Self {
         let datasets: HashMap<_, _> = builder.datasets.into_iter().map(|cfg| {
+            let first_block = match cfg.retention {
+                RetentionStrategy::FromBlock(first_block) => first_block,
+                RetentionStrategy::Head(_) => unimplemented!("head retention strategy is not implemented")
+            };
+            
             let controller = DatasetController::new(
                 builder.db.clone(),
                 cfg.dataset_kind,
                 cfg.dataset_id,
-                cfg.first_block,
+                first_block,
                 cfg.data_sources
             );
+            
             (cfg.dataset_id, Arc::new(controller))
         }).collect();
         
@@ -91,6 +97,14 @@ impl Node {
 
     pub fn get_head(&self, dataset_id: DatasetId) -> Result<Option<BlockRef>, UnknownDataset> {
         self.get_dataset(dataset_id).map(|d| d.get_head())
+    }
+    
+    pub fn retain(&self, dataset_id: DatasetId, retention_strategy: RetentionStrategy) {
+        let first_block = match retention_strategy {
+            RetentionStrategy::FromBlock(first_block) => first_block,
+            RetentionStrategy::Head(_) => unimplemented!("head retention strategy is not implemented")
+        };
+        self.get_dataset(dataset_id).unwrap().retain(first_block)
     }
 
     fn get_dataset(&self, dataset_id: DatasetId) -> Result<&DatasetController, UnknownDataset> {

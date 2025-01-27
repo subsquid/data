@@ -1,15 +1,15 @@
-use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
-use sqd_node::DatasetKind;
-use url::Url;
+use sqd_node::{DatasetKind, RetentionStrategy};
 use sqd_storage::db::DatasetId;
+use std::collections::BTreeMap;
+use url::Url;
 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DatasetConfig {
     pub kind: DatasetKind,
-    pub first_block: u64,
+    pub retention: RetentionStrategy,
     pub data_sources: Vec<Url>
 }
 

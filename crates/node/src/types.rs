@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sqd_dataset::DatasetDescriptionRef;
-use sqd_query::Query;
+use sqd_query::{BlockNumber, Query};
 use sqd_storage::db::Database;
 use std::sync::Arc;
 
@@ -44,4 +44,11 @@ impl DatasetKind {
             _ => unimplemented!()
         }
     }
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RetentionStrategy {
+    FromBlock(BlockNumber),
+    Head(BlockNumber)
 }

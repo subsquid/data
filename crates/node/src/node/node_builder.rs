@@ -1,8 +1,7 @@
 use crate::ingest::DataSource;
 use crate::node::node::Node;
-use crate::types::{DBRef, DatasetKind};
+use crate::types::{DBRef, DatasetKind, RetentionStrategy};
 use reqwest::IntoUrl;
-use sqd_primitives::BlockNumber;
 use sqd_storage::db::DatasetId;
 
 
@@ -10,7 +9,7 @@ use sqd_storage::db::DatasetId;
 pub struct DatasetConfig {
     pub(super) dataset_id: DatasetId,
     pub(super) dataset_kind: DatasetKind,
-    pub(super) first_block: BlockNumber,
+    pub(super) retention: RetentionStrategy,
     pub(super) data_sources: Vec<DataSource>,
     pub(super) default_http_client: reqwest::Client
 }
@@ -51,15 +50,15 @@ impl NodeBuilder {
     }
     
     pub fn add_dataset(
-        &mut self, 
-        dataset_kind: DatasetKind, 
-        dataset_id: DatasetId, 
-        first_block: BlockNumber
+        &mut self,
+        dataset_kind: DatasetKind,
+        dataset_id: DatasetId,
+        retention: RetentionStrategy
     ) -> &mut DatasetConfig {
         self.datasets.push(DatasetConfig {
             dataset_id,
             dataset_kind,
-            first_block,
+            retention,
             data_sources: vec![],
             default_http_client: self.default_http_client.clone()
         });
