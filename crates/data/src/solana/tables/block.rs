@@ -26,7 +26,7 @@ table_builder! {
 impl BlockBuilder {
     pub fn push(&mut self, row: &BlockHeader) {
         self.number.append(row.height);
-        self.hash.append(&row.parent_hash);
+        self.hash.append(&row.hash);
         self.slot.append(row.slot);
         self.parent_slot.append(row.parent_slot);
         self.parent_hash.append(&row.parent_hash);
