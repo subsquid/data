@@ -126,11 +126,10 @@ impl QueryRunner {
         ensure!(self.has_next_pack());
 
         let start = Instant::now();
-        let mut step = 0;
+        let mut processed = 0;
         
         loop {
-            step += 1;
-            self.write_next_chunk()?;
+            processed += self.write_next_chunk()?;
 
             if !self.has_next_pack() {
                 let dummy_buf = GzEncoder::new(BytesMut::new().writer(), Compression::default());
@@ -142,7 +141,7 @@ impl QueryRunner {
                 return Ok(bytes)
             }
 
-            if self.buf.get_ref().get_ref().len() > 256 * 1024 || worked_long_enough(start, step) {
+            if self.buf.get_ref().get_ref().len() > 256 * 1024 || self.worked_long_enough(start, processed) {
                 let bytes = self.buf.get_mut().get_mut().split().freeze();
                 return Ok(bytes)
             }
@@ -157,7 +156,7 @@ impl QueryRunner {
             .freeze()
     }
 
-    fn write_next_chunk(&mut self) -> anyhow::Result<()> {
+    fn write_next_chunk(&mut self) -> anyhow::Result<usize> {
         let chunk = if let Some(left_over) = self.left_over.take() {
             self.plan_mut().set_first_block(left_over.next_block);
             left_over.chunk
@@ -179,30 +178,33 @@ impl QueryRunner {
         self.plan_mut().set_first_block(None);
         self.plan_mut().set_parent_block_hash(None);
 
-        let mut block_writer = query_result?;
+        if let Some(mut block_writer) = query_result? {
+            if chunk.last_block() > block_writer.last_block()
+                && self.last_block.map_or(true, |end| end > block_writer.last_block())
+            {
+                self.left_over = Some(LeftOver {
+                    chunk,
+                    next_block: block_writer.last_block() + 1
+                })
+            }
 
-        if chunk.last_block() > block_writer.last_block()
-            && self.last_block.map_or(true, |end| end > block_writer.last_block())
-        {
-            self.left_over = Some(LeftOver {
-                chunk,
-                next_block: block_writer.last_block() + 1
-            })
+            let mut json_lines_writer = JsonLinesWriter::new(&mut self.buf);
+
+            json_lines_writer
+                .write_blocks(&mut block_writer)
+                .expect("IO errors are not possible");
+
+            json_lines_writer
+                .finish()
+                .expect("IO errors are not possible");
+
+            self.buf.flush().expect("IO errors are not possible");
+            
+            let processed = block_writer.last_block() - block_writer.first_block() + 1;
+            Ok(processed as usize)
+        } else {
+            Ok(0)
         }
-
-        let mut json_lines_writer = JsonLinesWriter::new(&mut self.buf);
-
-        json_lines_writer
-            .write_blocks(&mut block_writer)
-            .expect("IO errors are not possible");
-
-        json_lines_writer
-            .finish()
-            .expect("IO errors are not possible");
-
-        self.buf.flush().expect("IO errors are not possible");
-
-        Ok(())
     }
 
     fn next_chunk(&mut self) -> anyhow::Result<StorageChunk> {
@@ -221,6 +223,29 @@ impl QueryRunner {
 
         Ok(chunk)
     }
+    
+    fn worked_long_enough(&self, start: Instant, processed: usize) -> bool {
+        if processed == 0 { 
+            // such call is technically impossible, but let's not assert that here
+            return false
+        }
+        
+        let next_chunk_range = self.left_over.as_ref()
+            .map(|lo| lo.chunk.last_block() - lo.next_block + 1)
+            .or_else(|| {
+                self.next_chunk.as_ref().map(|c| {
+                    let last_block = self.last_block.map_or(c.last_block(), |last| {
+                        std::cmp::min(last, c.last_block())
+                    });
+                    last_block - c.first_block() + 1
+                })
+            })
+            .unwrap_or(0);
+
+        let elapsed = start.elapsed().as_millis();
+        let eta = elapsed + elapsed * next_chunk_range as u128 / processed as u128;
+        eta > 100
+    }
 
     fn plan(&self) -> &Plan {
         self.plan.as_ref().unwrap()
@@ -229,11 +254,4 @@ impl QueryRunner {
     fn plan_mut(&mut self) -> &mut Plan {
         self.plan.as_mut().unwrap()
     }
-}
-
-
-fn worked_long_enough(start: Instant, steps: usize) -> bool {
-    let time = start.elapsed().as_millis();
-    let next_eta = time + time / steps as u128;
-    next_eta > 100
 }

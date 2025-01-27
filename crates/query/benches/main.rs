@@ -50,8 +50,9 @@ static WHIRLPOOL_SWAP: LazyLock<Query> = LazyLock::new(|| {
 fn perform_query(plan: &Plan, chunk: &dyn Chunk) -> anyhow::Result<Vec<u8>> {
     sqd_polars::POOL.install(|| {
         let mut json_writer = JsonLinesWriter::new(Vec::new());
-        let mut blocks = plan.execute(chunk)?;
-        json_writer.write_blocks(&mut blocks)?;
+        if let Some(mut blocks) = plan.execute(chunk)? {
+            json_writer.write_blocks(&mut blocks)?;
+        }
         Ok(json_writer.finish()?)
     })
 }

@@ -7,11 +7,11 @@ fn execute_query(chunk: &dyn Chunk, query_file: impl AsRef<Path>) -> anyhow::Res
     let query = Query::from_json_bytes(
         &std::fs::read(query_file)?
     )?;
-    let plan = query.compile();
-    let mut result = plan.execute(chunk)?;
     let data = Vec::with_capacity(4 * 1024 * 1024);
     let mut writer = JsonArrayWriter::new(data);
-    writer.write_blocks(&mut result)?;
+    if let Some(mut blocks) = query.compile().execute(chunk)? {
+        writer.write_blocks(&mut blocks)?;
+    }
     Ok(writer.finish()?)
 }
 

@@ -6,7 +6,7 @@ use crate::plan::table::{ColumnWeight, TableSet};
 use crate::primitives::{BlockNumber, Name, RowRangeList, RowWeight, RowWeightPolarsType};
 use crate::scan::{col_between, col_gt_eq, col_lt_eq, Chunk, RowPredicateRef};
 use crate::UnexpectedBaseBlock;
-use anyhow::{anyhow, bail, ensure};
+use anyhow::{anyhow, bail};
 use rayon::prelude::*;
 use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
 use sqd_primitives::BlockRef;
@@ -47,7 +47,7 @@ pub struct Plan {
 
 
 impl Plan {
-    pub fn execute(&self, data_chunk: &dyn Chunk) -> anyhow::Result<BlockWriter> {
+    pub fn execute(&self, data_chunk: &dyn Chunk) -> anyhow::Result<Option<BlockWriter>> {
         PlanExecution {
             data_chunk,
             plan: self,
@@ -75,7 +75,7 @@ struct PlanExecution<'a> {
 
 
 impl <'a> PlanExecution<'a> {
-    fn execute(&self) -> anyhow::Result<BlockWriter> {
+    fn execute(&self) -> anyhow::Result<Option<BlockWriter>> {
         self.check_parent_block()?;
 
         let relation_inputs = self.plan.relations.iter()
@@ -102,7 +102,7 @@ impl <'a> PlanExecution<'a> {
             None => bail!("invalid plan: parent block hash is specified, but block number is not available")
         };
 
-        let block_scan = self.data_chunk.scan_table("blocks")?;
+        let block_scan = self.data_chunk.scan_table(self.plan.outputs[0].table)?;
 
         let mut refs: Vec<_> = if block_scan.schema().column_with_name("parent_number").is_some() {
             // this is Solana with possible gaps in block numbers
@@ -214,7 +214,7 @@ impl <'a> PlanExecution<'a> {
         })
     }
 
-    fn execute_output(&self, output_inputs: Vec<RowList>) -> anyhow::Result<BlockWriter> {
+    fn execute_output(&self, output_inputs: Vec<RowList>) -> anyhow::Result<Option<BlockWriter>> {
         use sqd_polars::prelude::*;
 
         let rows = output_inputs.into_par_iter()
@@ -235,7 +235,7 @@ impl <'a> PlanExecution<'a> {
                 let record_batches = self.data_chunk
                     .scan_table(output.table)?
                     .with_row_selection(maybe_row_selection)
-                    .with_predicate(self.get_block_number_predicate(output.key[0]))
+                    .with_predicate(self.get_block_number_predicate(idx))
                     .with_row_index(true)
                     .with_column(output.key[0])
                     .with_columns(output.weight_columns.iter().copied())
@@ -264,7 +264,9 @@ impl <'a> PlanExecution<'a> {
 
         let header_rows = &rows[0];
 
-        ensure!(header_rows.shape().0 > 0, "no desired blocks in the data chunk");
+        if header_rows.is_empty() {
+            return Ok(None)
+        }
 
         let mut item_union = Vec::with_capacity(self.plan.outputs.len() + 1);
 
@@ -399,12 +401,12 @@ impl <'a> PlanExecution<'a> {
             Ok(())
         })?;
 
-        Ok(BlockWriter::new(data_items_mutex
+        Ok(Some(BlockWriter::new(data_items_mutex
             .into_inner()
             .into_iter()
             .flatten()
             .collect()
-        ))
+        )))
     }
 
     fn get_output_index(&self, table: Name) -> usize {
@@ -413,11 +415,12 @@ impl <'a> PlanExecution<'a> {
             .unwrap()
     }
 
-    fn get_block_number_predicate(&self, block_number_column: Name) -> Option<RowPredicateRef> {
+    fn get_block_number_predicate(&self, output_idx: usize) -> Option<RowPredicateRef> {
+        let column = self.plan.outputs[output_idx].key[0];
         match (self.plan.first_block, self.plan.last_block) {
-            (Some(fst), Some(lst)) => Some(col_between(block_number_column, fst, lst)),
-            (Some(fst), None) => Some(col_gt_eq(block_number_column, fst)),
-            (None, Some(lst)) => Some(col_lt_eq(block_number_column, lst)),
+            (Some(fst), Some(lst)) => Some(col_between(column, fst, lst)),
+            (None, Some(lst)) => Some(col_lt_eq(column, lst)),
+            (Some(fst), None) => Some(col_gt_eq(column, fst)),
             (None, None) => None
         }
     }
