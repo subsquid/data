@@ -3,7 +3,7 @@ use crate::layout::DataChunk;
 use crate::metrics;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::{Compression, ZstdLevel};
-use parquet::file::properties::WriterProperties;
+use parquet::file::properties::{EnabledStatistics, WriterProperties};
 use prometheus_client::metrics::gauge::Atomic;
 use rayon::prelude::*;
 use sqd_data_core::PreparedChunk;
@@ -79,13 +79,21 @@ fn write_chunk(
                 .get(name)
                 .unwrap_or(&default_desc);
 
-            let props = WriterProperties::builder()
+            let mut builder = WriterProperties::builder()
                 .set_compression(Compression::ZSTD(ZstdLevel::try_new(6)?))
-                .set_data_page_size_limit(32 * 1024)
-                .set_dictionary_page_size_limit(192 * 1024)
-                .set_write_batch_size(50)
+                .set_data_page_size_limit(desc.options.default_page_size)
                 .set_max_row_group_size(desc.options.row_group_size)
-                .build();
+                .set_dictionary_page_size_limit(192 * 1024)
+                .set_write_batch_size(50);
+
+            for (column, options) in &desc.options.column_options {
+                if options.stats_enable {
+                    builder = builder.set_column_statistics_enabled((*column).into(), EnabledStatistics::Page);
+                    builder = builder.set_column_max_statistics_size((*column).into(), options.stats_partition);
+                }
+            }
+
+            let props = builder.build();
 
             let path = target_dir.join(format!("{}.parquet", name));
             let file = File::create(&path)?;
