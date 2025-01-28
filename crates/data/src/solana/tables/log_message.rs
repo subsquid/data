@@ -22,6 +22,8 @@ table_builder! {
         d.sort_key = vec!["program_id", "block_number", "transaction_index", "log_index"];
         d.options.add_stats("program_id");
         d.options.add_stats("block_number");
+        d.options.use_dictionary("program_id");
+        d.options.use_dictionary("kind");
         d.options.row_group_size = 5_000;
     }
 }

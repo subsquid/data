@@ -89,7 +89,10 @@ fn write_chunk(
             for (column, options) in &desc.options.column_options {
                 if options.stats_enable {
                     builder = builder.set_column_statistics_enabled((*column).into(), EnabledStatistics::Page);
-                    builder = builder.set_column_max_statistics_size((*column).into(), options.stats_partition);
+                }
+
+                if options.dictionary_encoding {
+                    builder = builder.set_column_dictionary_enabled((*column).into(), true);
                 }
             }
 
