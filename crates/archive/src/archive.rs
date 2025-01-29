@@ -8,6 +8,7 @@ use crate::server::run_server;
 use crate::sink::Sink;
 use crate::writer::{Writer, WriterItem};
 use anyhow::ensure;
+use futures_util::FutureExt;
 use sqd_data::solana::tables::SolanaChunkBuilder;
 use sqd_data_types::BlockNumber;
 use std::time::Duration;
@@ -69,7 +70,12 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
     let mut writer = Writer::new(fs, chunk_receiver);
 
     tokio::try_join!(
-        sink.r#loop(),
+        async {
+            let res = sink.r#loop().await;
+            // manual drop should close writer's channel
+            drop(sink);
+            res
+        },
         writer.start()
     )?;
 
