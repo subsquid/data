@@ -14,7 +14,7 @@ pub struct CLI {
     pub datasets: String,
 
     /// Database directory
-    #[arg(long = "db", default_value = "node.db")]
+    #[arg(long = "db")]
     pub database_dir: String,
 
     #[arg(long, value_name = "MB", default_value = "4096")]
