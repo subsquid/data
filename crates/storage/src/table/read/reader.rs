@@ -145,7 +145,11 @@ impl<S: KvRead + Sync> TableReader<S> {
         )
     }
 
-    pub fn create_column_reader(&self, column_index: usize) -> anyhow::Result<impl ArrayReader> {
+    pub fn create_column_reader(
+        &self,
+        column_index: usize
+    ) -> anyhow::Result<AnyReader<IOReader<CursorByteReader<<S as KvRead>::Cursor>>>> 
+    {
         let mut factory = CursorReaderFactory {
             table: self,
             buffer: self.column_positions[column_index]

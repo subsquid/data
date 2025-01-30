@@ -5,7 +5,7 @@ use anyhow::ensure;
 use arrow::datatypes::{DataType, SchemaRef};
 use sqd_array::builder::AnyTableBuilder;
 use sqd_array::chunking::ChunkRange;
-use sqd_array::reader::ArrayReader;
+use sqd_array::reader::{AnyChunkedReader, ArrayReader, ChunkedArrayReader};
 use sqd_array::schema_metadata::{get_sort_key, SQD_SORT_KEY};
 use sqd_array::schema_patch::SchemaPatch;
 use sqd_array::slice::{AsSlice, Slice};
@@ -161,18 +161,12 @@ impl<'a> TableMerge<'a> {
                 dst
             )
         } else {
-            let mut readers = self.chunks.iter()
-                .enumerate()
-                .map(|(i, t)| {
-                    t.create_column_reader(chunk_columns[i])
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
-
-            ArrayReader::read_chunk_ranges(
-                readers.as_mut_slice(),
-                dst,
-                order.iter().cloned()
-            )
+            let mut reader = AnyChunkedReader::with_capacity(self.chunks.len(), field.data_type());
+            for (i, t) in self.chunks.iter().enumerate() {
+                let chunk = t.create_column_reader(chunk_columns[i])?;
+                reader.push(chunk)
+            }
+            reader.read_chunked_ranges(dst, order.iter().cloned())
         }
     }
 

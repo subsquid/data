@@ -1,4 +1,4 @@
-FROM rust:1.82-bookworm AS rust
+FROM rust:1.84-bookworm AS rust
 RUN cargo install cargo-chef --locked --version "0.1.70" \
     && rm -rf $CARGO_HOME/registry/
 

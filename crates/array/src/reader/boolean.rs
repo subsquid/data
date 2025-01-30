@@ -1,6 +1,5 @@
 use crate::chunking::ChunkRange;
-use crate::reader::chunked::ChunkedArrayReader;
-use crate::reader::{ArrayReader, BitmaskReader, Reader};
+use crate::reader::{ArrayReader, BitmaskReader, ChunkedArrayReader, Reader};
 use crate::writer::ArrayWriter;
 use anyhow::ensure;
 
@@ -45,27 +44,59 @@ impl <R: Reader> ArrayReader for BooleanReader<R> {
         self.nulls.read_slice(dst.nullmask(0), offset, len)?;
         self.values.read_slice(dst.bitmask(1), offset, len)
     }
+}
 
-    fn read_chunk_ranges(
-        chunks: &mut (impl ChunkedArrayReader<ArrayReader=Self> + ?Sized),
-        dst: &mut impl ArrayWriter,
+
+pub struct ChunkedBooleanReader<R: Reader> {
+    nulls: Vec<R::Nullmask>,
+    values: Vec<R::Bitmask>
+}
+
+
+impl<R: Reader> ChunkedBooleanReader<R> {
+    pub fn with_capacity(cap: usize) -> Self {
+        Self {
+            nulls: Vec::with_capacity(cap),
+            values: Vec::with_capacity(cap)
+        }
+    }
+} 
+
+
+impl<R: Reader> ChunkedArrayReader for ChunkedBooleanReader<R> {
+    type Chunk = BooleanReader<R>;
+
+    fn num_buffers(&self) -> usize {
+        2
+    }
+
+    fn push(&mut self, chunk: Self::Chunk) {
+        self.nulls.push(chunk.nulls);
+        self.values.push(chunk.values)
+    }
+
+    fn read_chunked_ranges(
+        &mut self, 
+        dst: &mut impl ArrayWriter, 
         ranges: impl Iterator<Item=ChunkRange> + Clone
-    ) -> anyhow::Result<()>
+    ) -> anyhow::Result<()> 
     {
         let nullmask_dst = dst.nullmask(0);
         for r in ranges.clone() {
-            chunks
-                .chunk(r.chunk_index())
-                .nulls
-                .read_slice(nullmask_dst, r.offset_index(), r.len_index())?
+            self.nulls[r.chunk_index()].read_slice(
+               nullmask_dst,
+               r.offset_index(),
+               r.len_index()
+            )?;
         }
-
+        
         let bitmask_dst = dst.bitmask(1);
         for r in ranges {
-            chunks
-                .chunk(r.chunk_index())
-                .values
-                .read_slice(bitmask_dst, r.offset_index(), r.len_index())?
+            self.values[r.chunk_index()].read_slice(
+                bitmask_dst,
+                r.offset_index(),
+                r.len_index()
+            )?;
         }
         
         Ok(())
