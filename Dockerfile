@@ -9,7 +9,6 @@ WORKDIR /app
 ADD Cargo.toml .
 ADD Cargo.lock .
 ADD crates crates
-RUN cargo fetch
 
 
 FROM builder AS node-builder
