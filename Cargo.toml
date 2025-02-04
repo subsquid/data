@@ -5,6 +5,7 @@ members = [
     "crates/data",
     "crates/data-client",
     "crates/data-core",
+    "crates/data-source",
     "crates/dataset",
     "crates/node",
     "crates/node-example",

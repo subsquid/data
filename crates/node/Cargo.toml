@@ -14,12 +14,14 @@ parking_lot = { workspace = true }
 reqwest = { workspace = true }
 scopeguard = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 sqd-data = { path = "../data" }
 sqd-data-client = { path = "../data-client" }
 sqd-data-core = { path = "../data-core" }
+sqd-data-source = { path = "../data-source" }
 sqd-dataset = { path = "../dataset" }
 sqd-polars = { path = "../polars" }
-sqd-primitives = { path = "../primitives", features = ["serde_json", "from_json_bytes"] }
+sqd-primitives = { path = "../primitives" }
 sqd-query = { path = "../query", features = ["storage"] }
 sqd-storage = { path = "../storage" }
 tokio = { workspace = true, features = ["macros"] }

@@ -7,9 +7,7 @@ edition = "2021"
 anyhow = { workspace = true, features = ["std"] }
 bytes = { workspace = true }
 futures = { workspace = true }
-futures-timer = { workspace = true }
 reqwest = { workspace = true, features = ["json", "gzip", "stream"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-sqd-primitives = { path = "../primitives", features = ["from_json_bytes", "serde"] }
-tracing = { workspace = true }
+sqd-primitives = { path = "../primitives", features = ["serde"] }

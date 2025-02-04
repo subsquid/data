@@ -1,9 +1,10 @@
 use crate::ingest::write_controller::Rollback;
 use anyhow::ensure;
-use futures::{SinkExt, TryStreamExt};
+use futures::{SinkExt, StreamExt};
 use parking_lot::Mutex;
-use sqd_data_client::{BlockStream, BlockStreamRequest, DataClient};
+use sqd_data_client::DataClient;
 use sqd_data_core::{BlockChunkBuilder, ChunkProcessor, PreparedChunk, PreparedTable};
+use sqd_data_source::{DataEvent, DataSource};
 use sqd_primitives::{Block, BlockNumber, BlockRef, DisplayBlockRefOption, Name};
 use std::fmt::{Display, Formatter};
 use std::ops::DerefMut;
@@ -131,10 +132,10 @@ impl<CB: BlockChunkBuilder> DataBuilder<CB> {
 
 pub struct IngestGeneric<DC, CB> {
     message_sender: tokio::sync::mpsc::Sender<IngestMessage>,
-    data_client: DC,
+    data_source: DC,
     builder: Option<DataBuilder<CB>>,
+    finalized_head: Option<BlockRef>,
     buffered_blocks: usize,
-    req: BlockStreamRequest,
     parent_block_hash: String,
     first_block: BlockNumber,
     last_block: BlockNumber,
@@ -142,29 +143,26 @@ pub struct IngestGeneric<DC, CB> {
 }
 
 
-impl<DC, CB> IngestGeneric<DC, CB>
+impl<DS, CB> IngestGeneric<DS, CB>
 where
-    DC: DataClient,
-    DC::BlockStream: Unpin,
-    CB: BlockChunkBuilder<Block=<DC::BlockStream as BlockStream>::Block> + Send + 'static
+    DS: DataSource,
+    CB: BlockChunkBuilder<Block = DS::Block> + Send + 'static
 {
     pub fn new(
-        data_client: DC,
+        mut data_source: DS,
         chunk_builder: CB,
         first_block: BlockNumber,
         parent_block_hash: Option<String>,
         message_sender: tokio::sync::mpsc::Sender<IngestMessage>
     ) -> Self
     {
+        data_source.set_position(first_block, parent_block_hash);
         Self {
             message_sender,
-            data_client,
+            data_source,
             builder: Some(DataBuilder::new(chunk_builder)),
+            finalized_head: None,
             buffered_blocks: 0,
-            req: BlockStreamRequest {
-                first_block,
-                parent_block_hash
-            },
             parent_block_hash: String::new(),
             first_block,
             last_block: 0,
@@ -173,45 +171,32 @@ where
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
-        loop {
-            let mut stream = self.data_client.stream(self.req.clone()).await?;
-            if stream.prev_blocks().is_empty() {
-                let finalized_head = stream.take_finalized_head()?;
-
-                if let Some(finalized_head) = finalized_head.clone() {
-                    self.message_sender.send(
-                        IngestMessage::FinalizedHead(finalized_head)
-                    ).await?;
-                }
-
-                if let Some(block) = stream.try_next().await? {
-                    if let Some(hash) = self.req.parent_block_hash.as_ref() {
-                        ensure!(block.parent_hash() == hash);
+        while let Some(event) = self.data_source.next().await {
+            match event {
+                DataEvent::FinalizedHead(head) => {
+                    self.set_finalized_head(head.number, &head.hash);
+                    if head.number < self.first_block {
+                        self.message_sender.send(
+                            IngestMessage::FinalizedHead(head)
+                        ).await?;
                     }
-
-                    self.push_block(block);
-                    self.maybe_flush(finalized_head.as_ref()).await?;
-
-                    while let Some(block) = stream.try_next().await? {
-                        ensure!(block.parent_hash() == self.last_block_hash.as_str());
-                        self.push_block(block);
-                        self.maybe_flush(finalized_head.as_ref()).await?;
-                    }
-
-                    self.req.first_block = self.last_block + 1;
-                    self.req.parent_block_hash = Some(self.last_block_hash.clone());
+                },
+                DataEvent::Block { block, is_final } => {
+                    self.push_block(block, is_final)?;
+                    self.maybe_flush().await?
+                },
+                DataEvent::Fork(prev_blocks) => {
+                    self.handle_fork(prev_blocks).await?
+                },
+                DataEvent::MaybeOnHead => {
+                    self.flush().await?
                 }
-
-                if finalized_head.as_ref().map_or(true, |h| h.number <= self.last_block) {
-                    self.flush(finalized_head.as_ref()).await?
-                }
-            } else {
-                self.handle_rollback(stream.take_prev_blocks()).await?
             }
         }
+        Ok(())
     }
 
-    async fn handle_rollback(&mut self, prev_blocks: Vec<BlockRef>) -> anyhow::Result<()> {
+    async fn handle_fork(&mut self, prev_blocks: Vec<BlockRef>) -> anyhow::Result<()> {
         let (rollback_sender, rollback_recv) = tokio::sync::oneshot::channel();
 
         self.message_sender.send(IngestMessage::Fork {
@@ -220,47 +205,49 @@ where
         }).await?;
 
         self.with_blocking_builder(|b| b.clear()).await?;
-
         let rollback = rollback_recv.await?;
 
-        if self.buffered_blocks > 0 && self.first_block < rollback.first_block {
-            self.req.first_block = self.first_block;
-            self.req.parent_block_hash = Some(self.parent_block_hash.clone());
-        } else {
-            self.req.first_block = rollback.first_block;
-            self.req.parent_block_hash = rollback.parent_block_hash;
-        }
         self.buffered_blocks = 0;
-        self.first_block = self.req.first_block;
+        self.first_block = rollback.first_block;
+        self.data_source.set_position(rollback.first_block, rollback.parent_block_hash);
 
         Ok(())
     }
 
-    fn push_block(&mut self, block: CB::Block) {
+    fn push_block(&mut self, block: CB::Block, is_final: bool) -> anyhow::Result<()> {
         self.builder.as_mut().unwrap().push_block(&block);
         if self.buffered_blocks == 0 {
             self.parent_block_hash.clear();
             self.parent_block_hash.push_str(block.parent_hash());
+        } else {
+            ensure!(
+                self.last_block_hash == block.parent_hash(),
+                "chain continuity was violated around block {}#{}",
+                block.number(),
+                block.hash()
+            );
         }
         self.buffered_blocks += 1;
         self.last_block = block.number();
         self.last_block_hash.clear();
         self.last_block_hash.push_str(block.hash());
-    }
-
-    async fn maybe_flush(&mut self, finalized_head: Option<&BlockRef>) -> anyhow::Result<()> {
-        if self.builder_ref().num_rows() > 200_000 {
-            return self.flush(finalized_head).await;
+        if is_final {
+            self.set_finalized_head(block.number(), block.hash());
         }
-
-        if self.builder_ref().in_memory_buffered_bytes() > 30 * 1024 * 1024 {
-            return self.with_blocking_builder(|b| b.flush_to_processor()).await;
-        }
-
         Ok(())
     }
 
-    async fn flush(&mut self, finalized_head: Option<&BlockRef>) -> anyhow::Result<()> {
+    async fn maybe_flush(&mut self) -> anyhow::Result<()> {
+        if self.builder_ref().num_rows() > 200_000 {
+            return self.flush().await;
+        }
+        if self.builder_ref().in_memory_buffered_bytes() > 30 * 1024 * 1024 {
+            return self.with_blocking_builder(|b| b.flush_to_processor()).await;
+        }
+        Ok(())
+    }
+
+    async fn flush(&mut self) -> anyhow::Result<()> {
         if self.buffered_blocks == 0 {
             return Ok(())
         }
@@ -276,7 +263,7 @@ where
         self.first_block = last_block + 1;
 
         self.message_sender.send(IngestMessage::NewChunk(NewChunk {
-            finalized_head: finalized_head.cloned(),
+            finalized_head: self.finalized_head.clone(),
             parent_block_hash,
             first_block,
             last_block,
@@ -306,5 +293,18 @@ where
 
     fn builder_ref(&self) -> &DataBuilder<CB> {
         self.builder.as_ref().unwrap()
+    }
+
+    fn set_finalized_head(&mut self, number: BlockNumber, hash: &str) {
+        if let Some(current) = self.finalized_head.as_mut() {
+            current.number = number;
+            current.hash.clear();
+            current.hash.push_str(hash);
+        } else {
+            self.finalized_head = Some(BlockRef {
+                number,
+                hash: hash.to_string()
+            })
+        }
     }
 }

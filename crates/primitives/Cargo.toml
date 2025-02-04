@@ -4,13 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = { workspace = true, optional = true }
 borsh = { workspace = true, optional = true }
-bytes = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
-serde_json = { workspace = true, optional = true }
 
 [features]
-from_json_bytes = ["dep:anyhow", "dep:bytes"]
 range = []
 sid = []

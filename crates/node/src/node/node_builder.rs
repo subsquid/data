@@ -40,7 +40,7 @@ impl NodeBuilder {
         Self {
             db,
             datasets: vec![],
-            default_http_client: sqd_data_client::default_http_client(),
+            default_http_client: sqd_data_client::reqwest::default_http_client(),
             max_pending_query_tasks: sqd_polars::POOL.current_num_threads() * 50
         }
     }

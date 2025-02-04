@@ -4467,12 +4467,10 @@ dependencies = [
  "anyhow",
  "bytes",
  "futures",
- "futures-timer",
  "reqwest",
  "serde",
  "serde_json",
  "sqd-primitives",
- "tracing",
 ]
 
 [[package]]
@@ -4487,6 +4485,18 @@ dependencies = [
  "serde_json",
  "sqd-array",
  "sqd-dataset",
+]
+
+[[package]]
+name = "sqd-data-source"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "sqd-data-client",
+ "sqd-primitives",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -4507,9 +4517,11 @@ dependencies = [
  "reqwest",
  "scopeguard",
  "serde",
+ "serde_json",
  "sqd-data",
  "sqd-data-client",
  "sqd-data-core",
+ "sqd-data-source",
  "sqd-dataset",
  "sqd-polars",
  "sqd-primitives",
@@ -4554,11 +4566,8 @@ dependencies = [
 name = "sqd-primitives"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "borsh",
- "bytes",
  "serde",
- "serde_json",
 ]
 
 [[package]]
