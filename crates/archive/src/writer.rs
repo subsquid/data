@@ -83,6 +83,7 @@ fn write_chunk(
                 .set_compression(Compression::ZSTD(ZstdLevel::try_new(6)?))
                 .set_data_page_size_limit(desc.options.default_page_size)
                 .set_max_row_group_size(desc.options.row_group_size)
+                .set_dictionary_enabled(false)
                 .set_dictionary_page_size_limit(192 * 1024)
                 .set_write_batch_size(50);
 
