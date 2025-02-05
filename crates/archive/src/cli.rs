@@ -1,4 +1,4 @@
-use clap::{Parser, ValueEnum};
+use clap::{value_parser, Parser, ValueEnum};
 use sqd_primitives::BlockNumber;
 use url::Url;
 
@@ -39,4 +39,16 @@ pub struct Cli {
     /// Network kind
     #[arg(long, value_enum)]
     pub network_kind: NetworkKind,
+
+    /// Whether the logs should be structured in JSON format
+    #[arg(long)]
+    pub json_log: bool,
+
+    /// Port to use for built-in prometheus metrics server
+    #[arg(long)]
+    pub prom_port: Option<u16>,
+
+    // Interval between attempts to stream new blocks in seconds
+    #[arg(long, value_parser = value_parser!(u16).range(1..), default_value_t = 300)]
+    pub block_stream_interval: u16,
 }

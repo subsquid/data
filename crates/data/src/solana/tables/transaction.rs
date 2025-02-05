@@ -53,6 +53,11 @@ table_builder! {
         d.sort_key = vec!["fee_payer", "block_number", "transaction_index"];
         d.options.add_stats("fee_payer");
         d.options.add_stats("block_number");
+        d.options.use_dictionary("account_keys.list.element");
+        d.options.use_dictionary("address_table_lookups.list.element.account_key");
+        d.options.use_dictionary("loaded_addresses.readonly.list.element");
+        d.options.use_dictionary("loaded_addresses.writable.list.element");
+        d.options.use_dictionary("fee_payer");
         d.options.row_group_size = 5_000;
     }
 }

@@ -59,6 +59,24 @@ table_builder! {
         d.options.add_stats("d8");
         d.options.add_stats("program_id");
         d.options.add_stats("block_number");
+        d.options.use_dictionary("program_id");
+        d.options.use_dictionary("a0");
+        d.options.use_dictionary("a1");
+        d.options.use_dictionary("a2");
+        d.options.use_dictionary("a3");
+        d.options.use_dictionary("a4");
+        d.options.use_dictionary("a5");
+        d.options.use_dictionary("a6");
+        d.options.use_dictionary("a8");
+        d.options.use_dictionary("a9");
+        d.options.use_dictionary("a10");
+        d.options.use_dictionary("a11");
+        d.options.use_dictionary("a12");
+        d.options.use_dictionary("a13");
+        d.options.use_dictionary("a14");
+        d.options.use_dictionary("a15");
+        d.options.use_dictionary("rest_accounts.list.element");
+        d.options.use_dictionary("d1");
         d.options.row_group_size = 20_000;
     }
 }

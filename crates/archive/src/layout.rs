@@ -219,7 +219,11 @@ impl Layout {
         }
 
         let (top, chunks, prev_hash) = if let Some(last_chunk) = last_chunk {
-            todo!()
+            let chunks = self.get_top_chunks(last_chunk.top).await?;
+            if chunks.is_empty() {
+                anyhow::bail!("Data is not supposed to be changed by external process during writing")
+            }
+            (last_chunk.top, chunks, Some(last_chunk.last_hash))
         } else {
             (first_block, vec![], None)
         };
@@ -272,9 +276,7 @@ impl ChunkWriter {
         assert!(first_block <= last_block);
         assert!(last_block <= self.last_block_limit);
 
-        if self.chunks.len() < self.top_dir_size {
-            self.top = self.top;
-        } else {
+        if self.chunks.len() >= self.top_dir_size {
             self.top = first_block;
             self.chunks.clear();
         }
