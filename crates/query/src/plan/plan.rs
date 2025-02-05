@@ -110,7 +110,7 @@ impl <'a> PlanExecution<'a> {
                 .with_column("parent_number")
                 .with_column("parent_hash")
                 .with_predicate(
-                    col_between("parent_number", block_number.saturating_sub(10), block_number.saturating_sub(1))
+                    col_between("parent_number", block_number.saturating_sub(100), block_number.saturating_sub(1))
                 )
                 .to_lazy_df()?
                 .collect()?;
@@ -134,7 +134,7 @@ impl <'a> PlanExecution<'a> {
                 .with_column("number")
                 .with_column("parent_hash")
                 .with_predicate(
-                    col_between("number", block_number.saturating_sub(9), block_number)
+                    col_between("number", block_number.saturating_sub(100), block_number)
                 )
                 .to_lazy_df()?
                 .collect()?;
@@ -155,9 +155,9 @@ impl <'a> PlanExecution<'a> {
             }).collect()
         };
 
-        refs.sort_by(|a, b| b.number.cmp(&a.number));
+        refs.sort_by(|a, b| a.number.cmp(&b.number));
 
-        let parent_block = refs.first().ok_or_else(|| {
+        let parent_block = refs.last().ok_or_else(|| {
             anyhow!("block {} is not present in the chunk", block_number)
         })?;
         
