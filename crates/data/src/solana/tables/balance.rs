@@ -20,6 +20,7 @@ table_builder! {
         d.sort_key = vec!["account", "block_number", "transaction_index"];
         d.options.add_stats("account");
         d.options.add_stats("block_number");
+        d.options.use_dictionary("account");
         d.options.row_group_size = 5_000;
     }
 }

@@ -25,14 +25,18 @@ impl Fs for LocalFs {
     }
 
     async fn ls(&self) -> anyhow::Result<Vec<String>> {
-        let mut read_dir = tokio::fs::read_dir(self.root.as_path()).await?;
-        let mut result = Vec::new();
-        while let Some(entry) = read_dir.next_entry().await? {
-            if let Some(name) = entry.file_name().to_str() {
-                result.push(name.to_string());
+        match tokio::fs::read_dir(&self.root).await {
+            Ok(mut read_dir) => {
+                let mut result = Vec::new();
+                while let Some(entry) = read_dir.next_entry().await? {
+                    if let Some(name) = entry.file_name().to_str() {
+                        result.push(name.to_string());
+                    }
+                }
+                Ok(result)
             }
+            Err(_) => Ok(vec![])
         }
-        Ok(result)
     }
 
     async fn move_local(&self, local_src: &Path, dest: &str) -> anyhow::Result<()> {
@@ -40,7 +44,7 @@ impl Fs for LocalFs {
         if let Some(dir) = dest.parent() {
             tokio::fs::create_dir_all(dir).await?;
         }
-        tokio::fs::rename(local_src, self.root.join(dest)).await?;
+        tokio::fs::rename(local_src, dest).await?;
         Ok(())
     }
 

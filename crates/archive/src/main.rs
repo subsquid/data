@@ -4,6 +4,11 @@ mod cli;
 mod fs;
 mod ingest;
 mod layout;
+mod metrics;
+mod processor;
+mod progress;
+mod server;
+mod sink;
 mod writer;
 
 

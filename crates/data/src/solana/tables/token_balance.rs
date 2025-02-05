@@ -40,6 +40,13 @@ table_builder! {
         d.options.add_stats("pre_owner");
         d.options.add_stats("post_owner");
         d.options.add_stats("block_number");
+        d.options.use_dictionary("account");
+        d.options.use_dictionary("pre_mint");
+        d.options.use_dictionary("post_mint");
+        d.options.use_dictionary("pre_owner");
+        d.options.use_dictionary("post_owner");
+        d.options.use_dictionary("pre_program_id");
+        d.options.use_dictionary("post_program_id");
         d.options.row_group_size = 5_000;
     }
 }

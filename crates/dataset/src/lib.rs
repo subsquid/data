@@ -49,6 +49,11 @@ impl TableOptions {
         let options = self.column_options.entry(name).or_default();
         options.stats_enable = true
     }
+
+    pub fn use_dictionary(&mut self, name: Name) {
+        let options = self.column_options.entry(name).or_default();
+        options.dictionary_encoding = true
+    }
 }
 
 
@@ -66,7 +71,8 @@ impl Default for TableOptions {
 #[derive(Clone, Debug)]
 pub struct ColumnOptions {
     pub stats_enable: bool,
-    pub stats_partition: usize
+    pub stats_partition: usize,
+    pub dictionary_encoding: bool,
 }
 
 
@@ -74,7 +80,8 @@ impl Default for ColumnOptions {
     fn default() -> Self {
         Self {
             stats_enable: false,
-            stats_partition: 4096
+            stats_partition: 4096,
+            dictionary_encoding: false,
         }
     }
 }
