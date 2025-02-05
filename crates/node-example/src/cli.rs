@@ -1,7 +1,7 @@
 use crate::dataset_config::DatasetConfig;
 use anyhow::Context;
 use clap::Parser;
-use sqd_node::{Node, NodeBuilder};
+use sqd_node::{DBRef, Node, NodeBuilder};
 use sqd_storage::db::DatabaseSettings;
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ pub struct CLI {
 
 
 impl CLI {
-    pub fn build_node(&self) -> anyhow::Result<Arc<Node>> {
+    pub fn build_node(&self) -> anyhow::Result<(Arc<Node>, DBRef)> {
         let datasets = DatasetConfig::read_config_file(&self.datasets)
             .context("failed to read datasets config")?;
 
@@ -33,7 +33,7 @@ impl CLI {
             .map(Arc::new)
             .context("failed to open rocksdb database")?;
         
-        let mut builder = NodeBuilder::new(db);
+        let mut builder = NodeBuilder::new(db.clone());
         
         for (id, cfg) in datasets {
             let ds = builder.add_dataset(cfg.kind, id, cfg.retention);
@@ -42,6 +42,6 @@ impl CLI {
             }
         }
         
-        Ok(Arc::new(builder.build()))
+        Ok((Arc::new(builder.build()), db))
     }
 }

@@ -4,11 +4,18 @@ use crate::table::key::TableKeyFactory;
 
 
 pub fn deleted_deleted_tables(db: &RocksDB) -> anyhow::Result<()> {
-    let cf_deleted_tables = db.cf_handle(CF_DELETED_TABLES).unwrap();
-    let mut it = db.raw_iterator_cf(cf_deleted_tables);
-    for_each_key(&mut it, |key| {
-        delete_table(db, key)
-    })
+    loop {
+        let mut is_clean = true;
+        let cf_deleted_tables = db.cf_handle(CF_DELETED_TABLES).unwrap();
+        let mut it = db.raw_iterator_cf(cf_deleted_tables);
+        for_each_key(&mut it, |key| {
+            is_clean = false;
+            delete_table(db, key)
+        })?;
+        if is_clean {
+            return Ok(())
+        }
+    }
 }
 
 

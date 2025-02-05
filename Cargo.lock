@@ -4547,6 +4547,7 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tower-http",
+ "tracing",
  "tracing-subscriber",
  "url",
 ]
