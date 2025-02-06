@@ -1,5 +1,5 @@
-use futures_core::Stream;
-use futures_util::TryStreamExt;
+use async_stream::try_stream;
+use futures::{Stream, TryStreamExt};
 use serde::Serialize;
 use sqd_primitives::BlockNumber;
 use std::io::{Error, ErrorKind};
@@ -19,20 +19,22 @@ pub fn ingest_from_service(
     url: Url,
     from: BlockNumber,
     to: Option<BlockNumber>
-) -> impl Stream<Item = Result<Vec<u8>, anyhow::Error>>
+) -> impl Stream<Item = anyhow::Result<String>>
 {
-    async_stream::try_stream! {
-        let range = BlockRange { from, to };
-        let client = reqwest::Client::new();
-        let res = client.post(url.as_str()).json(&range).send().await?;
-        let stream = res.bytes_stream().map_err(|err| Error::new(ErrorKind::Other, err));
-        let mut reader = StreamReader::new(stream);
-        loop {
-            let mut buf = vec![];
-            if 0 == reader.read_until(b'\n', &mut buf).await? {
-                break;
-            }
-            yield buf;
+    try_stream! {
+        let byte_stream = reqwest::Client::new()
+            .post(url.as_str())
+            .json(&BlockRange { from, to })
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes_stream()
+            .map_err(|err| Error::new(ErrorKind::Other, err));
+        
+        let mut line_stream = StreamReader::new(byte_stream).lines();
+        
+        while let Some(line) = line_stream.next_line().await? {
+            yield line;
         }
     }
 }

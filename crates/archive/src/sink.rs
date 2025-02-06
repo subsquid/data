@@ -4,13 +4,12 @@ use crate::metrics;
 use crate::processor::LineProcessor;
 use crate::progress::Progress;
 use crate::writer::WriterItem;
-use futures_util::TryStreamExt;
+use futures::TryStreamExt;
 use prometheus_client::metrics::gauge::Atomic;
 use sqd_primitives::BlockNumber;
 use std::num::NonZeroUsize;
 use std::pin::pin;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc::UnboundedSender;
 use url::Url;
 
 
@@ -23,7 +22,7 @@ pub struct Sink {
     url: Url,
     block_stream_interval: Duration,
     last_block: Option<BlockNumber>,
-    chunk_sender: UnboundedSender<WriterItem>,
+    chunk_sender: tokio::sync::mpsc::Sender<WriterItem>,
 }
 
 
@@ -35,7 +34,7 @@ impl Sink {
         url: Url,
         block_stream_interval: Duration,
         last_block: Option<BlockNumber>,
-        chunk_sender: UnboundedSender<WriterItem>,
+        chunk_sender: tokio::sync::mpsc::Sender<WriterItem>,
     ) -> Sink {
         let window_size = NonZeroUsize::new(10).unwrap();
         let granularity = Duration::from_secs(1);
@@ -91,7 +90,7 @@ impl Sink {
                     }
                 };
 
-                self.processor.push(&line)?;
+                self.processor.push(line.as_bytes())?;
 
                 let prev_chunk_hash = self.chunk_writer.prev_chunk_hash();
                 if let Some(prev_chunk_hash) = prev_chunk_hash {
@@ -104,7 +103,7 @@ impl Sink {
                 if self.processor.buffered_bytes() > self.chunk_size * 1024 * 1024
                     || self.processor.max_num_rows() >= self.max_num_rows
                 {
-                    self.submit_chunk(chunk_first_block)?;
+                    self.submit_chunk(chunk_first_block).await?;
                     chunk_first_block = self.processor.last_block() + 1;
                 }
 
@@ -122,7 +121,7 @@ impl Sink {
         }
 
         if self.processor.max_num_rows() > 0 {
-            self.submit_chunk(chunk_first_block)?;
+            self.submit_chunk(chunk_first_block).await?;
         }
 
         if self.progress.has_news() {
@@ -142,7 +141,7 @@ impl Sink {
         );
     }
 
-    fn submit_chunk(&mut self, first_block: BlockNumber) -> anyhow::Result<()> {
+    async fn submit_chunk(&mut self, first_block: BlockNumber) -> anyhow::Result<()> {
         let description = self.processor.dataset_description();
         let data = self.processor.flush()?;
         let last_block = self.processor.last_block();
@@ -150,7 +149,7 @@ impl Sink {
         let last_hash = short_hash(last_block_hash).to_string();
         let chunk = self.chunk_writer.next_chunk(first_block, last_block, last_hash);
         let item = WriterItem { description, data, chunk };
-        self.chunk_sender.send(item)?;
+        self.chunk_sender.send(item).await?;
         Ok(())
     }
 }

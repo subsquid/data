@@ -7,12 +7,11 @@ use crate::processor::LineProcessor;
 use crate::server::run_server;
 use crate::sink::Sink;
 use crate::writer::{Writer, WriterItem};
-use anyhow::ensure;
-use futures_util::FutureExt;
+use anyhow::{ensure, Context};
+use prometheus_client::registry::Registry;
 use sqd_data::solana::tables::SolanaChunkBuilder;
 use sqd_primitives::BlockNumber;
 use std::time::Duration;
-use prometheus_client::registry::Registry;
 
 
 pub async fn run(args: &Cli) -> anyhow::Result<()> {
@@ -55,9 +54,10 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
 
     let processor = LineProcessor::new(chunk_builder);
 
-    let (chunk_sender, chunk_receiver) = tokio::sync::mpsc::unbounded_channel::<WriterItem>();
+    let (chunk_sender, chunk_receiver) = tokio::sync::mpsc::channel(5);
 
     let block_stream_interval = Duration::from_secs(args.block_stream_interval.into());
+    
     let mut sink = Sink::new(
         processor,
         chunk_writer,
@@ -67,17 +67,29 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
         args.last_block,
         chunk_sender,
     );
-    let mut writer = Writer::new(fs, chunk_receiver);
+    
+    let sink_task = tokio::spawn(async move { 
+        sink.r#loop().await 
+    });
 
-    tokio::try_join!(
-        async {
-            let res = sink.r#loop().await;
-            // manual drop should close writer's channel
-            drop(sink);
-            res
+    let write_task = tokio::spawn(async move {
+        let mut writer = Writer::new(fs, chunk_receiver);
+        writer.start().await 
+    });
+    
+    match write_task.await.context("write task panicked") {
+        Ok(Ok(_)) => {
+            sink_task.await.context("sink task panicked")??;
         },
-        writer.start()
-    )?;
+        Ok(Err(err)) => {
+            sink_task.abort();
+            return Err(err)
+        },
+        Err(err) => {
+            sink_task.abort();
+            return Err(err)
+        }
+    }
 
     Ok(())
 }
@@ -96,7 +108,7 @@ fn chunk_check(filelist: &[String]) -> bool {
 fn init_logging(json: bool) {
     let env_filter = tracing_subscriber::EnvFilter::builder().parse_lossy(
         std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
-            .unwrap_or(format!("{}=info", std::env!("CARGO_CRATE_NAME"))),
+            .unwrap_or(format!("{}=info", env!("CARGO_CRATE_NAME"))),
     );
 
     if json {

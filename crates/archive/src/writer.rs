@@ -10,7 +10,6 @@ use sqd_data_core::PreparedChunk;
 use sqd_dataset::{DatasetDescriptionRef, TableDescription};
 use std::fs::File;
 use std::path::Path;
-use tokio::sync::mpsc::UnboundedReceiver;
 
 
 pub struct WriterItem {
@@ -22,12 +21,12 @@ pub struct WriterItem {
 
 pub struct Writer {
     fs: FSRef,
-    chunk_receiver: UnboundedReceiver<WriterItem>,
+    chunk_receiver: tokio::sync::mpsc::Receiver<WriterItem>,
 }
 
 
 impl Writer {
-    pub fn new(fs: FSRef, chunk_receiver: UnboundedReceiver<WriterItem>) -> Writer {
+    pub fn new(fs: FSRef, chunk_receiver: tokio::sync::mpsc::Receiver<WriterItem>) -> Writer {
         Writer { fs, chunk_receiver }
     }
 

@@ -5,26 +5,23 @@ use axum::routing::get;
 use axum::{Extension, Router};
 use prometheus_client::registry::Registry;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 
 async fn get_metrics(Extension(registry): Extension<Arc<Registry>>) -> impl IntoResponse {
-    lazy_static::lazy_static! {
-        static ref HEADERS: HeaderMap = {
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                CONTENT_TYPE,
-                "application/openmetrics-text; version=1.0.0; charset=utf-8"
-                    .parse()
-                    .unwrap(),
-            );
-            headers
-        };
-    }
+    static HEADERS: LazyLock<HeaderMap> = LazyLock::new(|| {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONTENT_TYPE,
+            "application/openmetrics-text; version=1.0.0; charset=utf-8"
+                .parse()
+                .unwrap(),
+        );
+        headers
+    });
 
     let mut buffer = String::new();
     prometheus_client::encoding::text::encode(&mut buffer, &registry).unwrap();
-
     (HEADERS.clone(), buffer)
 }
 

@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 async-stream = { workspace = true }
-axum = "0.8.1"
+axum = { workspace = true }
 clap =  { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -18,4 +18,4 @@ tokio = { workspace = true, features = ["full"] }
 tower-http = { version = "0.6.2", features = ["timeout"]}
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-url = { version = "2.5.4", features = ["serde"] }
+url = { workspace = true, features = ["serde"] }

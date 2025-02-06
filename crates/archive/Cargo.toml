@@ -5,22 +5,18 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
-async-stream = "0.3.6"
+async-stream = { workspace = true }
 async-trait = "0.1.83"
 aws-config = { version = "1.5.9", features = ["behavior-version-latest"] }
 aws-sdk-s3 = { version = "1.59.0", features = ["rt-tokio"] }
-axum = "0.8.1"
-bytes = { workspace = true }
+axum = { workspace = true }
 clap = { version = "4.5.9", features = ["derive"] }
-futures-core = "0.3.31"
-futures-util = "0.3.31"
-lazy_static = "1.5.0"
+futures = { workspace = true }
 parquet = { workspace = true }
 prometheus-client = "0.23.0"
 rayon = { workspace = true }
 regex = "1.11.1"
-reqwest = { version = "0.12.9", features = ["json", "gzip", "stream"] }
-scopeguard = "1.2.0"
+reqwest = { workspace = true, features = ["json", "gzip", "stream"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqd-data = { path = "../data" }
@@ -28,8 +24,8 @@ sqd-data-core = { path = "../data-core" }
 sqd-dataset = { path = "../dataset" }
 sqd-primitives = { path = "../primitives" }
 tempfile = { workspace = true }
-tokio = { version = "1.38.0", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 tokio-util = "0.7.13"
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json", "time"] }
-url = "2.5.3"
+tracing-subscriber = { workspace = true, features = ["env-filter", "json", "time"] }
+url = { workspace = true }

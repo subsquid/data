@@ -1,14 +1,13 @@
-use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::metrics::counter::Counter;
+use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::registry::Registry;
 use std::sync::atomic::AtomicU64;
+use std::sync::LazyLock;
 
 
-lazy_static::lazy_static! {
-    pub static ref PROGRESS: Gauge<f64, AtomicU64> = Gauge::default();
-    pub static ref LAST_BLOCK: Counter = Counter::default();
-    pub static ref LAST_SAVED_BLOCK: Counter = Counter::default();
-}
+pub static PROGRESS: LazyLock<Gauge<f64, AtomicU64>> = LazyLock::new(Gauge::default);
+pub static LAST_BLOCK: LazyLock<Counter> = LazyLock::new(Counter::default);
+pub static LAST_SAVED_BLOCK: LazyLock<Counter> = LazyLock::new(Counter::default);
 
 
 pub fn register_metrics(registry: &mut Registry) {

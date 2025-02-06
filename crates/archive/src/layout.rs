@@ -1,8 +1,7 @@
 use crate::fs::FSRef;
 use anyhow::ensure;
 use async_stream::try_stream;
-use futures_core::Stream;
-use futures_util::{StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt};
 use regex::Regex;
 use sqd_primitives::BlockNumber;
 use std::pin::pin;
