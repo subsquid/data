@@ -1,12 +1,13 @@
-use anyhow::{anyhow, Context};
-use arrow::array::{AsArray, PrimitiveArray, RecordBatch, StructArray};
-use arrow::datatypes::{DataType, UInt64Type};
-
-use crate::json::encoder::{Encoder, EncoderObject};
 use crate::json::encoder::util::{json_close, make_object_prop};
+use crate::json::encoder::{Encoder, EncoderObject};
 use crate::json::exp::Exp;
 use crate::plan::sort::{compute_order, Position};
 use crate::primitives::{BlockNumber, Name};
+use anyhow::{anyhow, Context};
+use arrow::array::{AsArray, PrimitiveArray, RecordBatch, StructArray};
+use arrow::datatypes::{DataType, UInt64Type};
+use sqd_primitives::BlockRef;
+use std::fmt::{Display, Formatter};
 
 
 pub(super) struct DataItem {
@@ -158,3 +159,26 @@ impl BlockWriter {
         json_close(b'}', out)
     }
 }
+
+
+#[derive(Clone, Debug)]
+pub struct UnexpectedBaseBlock {
+    pub prev_blocks: Vec<BlockRef>,
+    pub expected_hash: String
+}
+
+
+impl Display for UnexpectedBaseBlock {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f, 
+            "unexpected base block: expected {}, but got {}#{}", 
+            self.expected_hash,
+            self.prev_blocks[0].number,
+            self.prev_blocks[0].hash
+        )
+    }
+}
+
+
+impl std::error::Error for UnexpectedBaseBlock {}

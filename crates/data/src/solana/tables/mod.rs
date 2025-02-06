@@ -37,7 +37,7 @@ impl sqd_data_core::BlockChunkBuilder for SolanaChunkBuilder {
     type Block = Block;
 
     fn push(&mut self, block: &Self::Block) {
-        let block_number = block.header.height;
+        let block_number = block.header.number;
 
         self.blocks.push(&block.header);
 

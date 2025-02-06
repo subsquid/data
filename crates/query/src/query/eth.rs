@@ -597,7 +597,8 @@ impl StateDiffRequest {
 
 request! {
     pub struct EthQuery {
-        pub from_block: Option<BlockNumber>,
+        pub from_block: BlockNumber,
+        pub parent_block_hash: Option<String>,
         pub to_block: Option<BlockNumber>,
         pub fields: FieldSelection,
         pub include_all_blocks: bool,

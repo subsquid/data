@@ -1,0 +1,12 @@
+[package]
+name = "sqd-data-source"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+futures = { workspace = true }
+sqd-data-client = { path = "../data-client" }
+sqd-primitives = { path = "../primitives" }
+tokio = { workspace = true }
+tracing = { workspace = true }

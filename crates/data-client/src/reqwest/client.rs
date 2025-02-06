@@ -1,185 +1,200 @@
-use crate::reqwest::stream::{extract_finalized_head, ReqwestBlockStream};
-use crate::{BlockRef, DataClient};
-use anyhow::{anyhow, Context};
-use futures_core::future::BoxFuture;
-use reqwest::{Client, IntoUrl, Request, Response, Url};
+use super::lines::LineStream;
+use crate::types::{BlockStreamRequest, BlockStreamResponse};
+use crate::DataClient;
+use anyhow::{anyhow, bail, ensure, Context};
+use bytes::Bytes;
+use futures::future::BoxFuture;
+use futures::{FutureExt, StreamExt};
+use reqwest::{Client, IntoUrl, Response, Url};
 use serde_json::json;
-use sqd_data_types::{Block, BlockNumber, FromJsonBytes};
-use std::error::Error;
-use std::future::Future;
-use std::io::ErrorKind;
-use std::marker::PhantomData;
+use sqd_primitives::{BlockNumber, BlockRef};
+use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
 use std::time::Duration;
 
 
-#[derive(Clone)]
-pub struct ReqwestDataClient<B> {
-    http: Client,
-    url: Url,
-    phantom_data: PhantomData<B>
+pub fn default_http_client() -> Client {
+    Client::builder()
+        .read_timeout(Duration::from_secs(20))
+        .connect_timeout(Duration::from_secs(20))
+        .gzip(true)
+        .build()
+        .unwrap()
 }
 
 
-impl <B> ReqwestDataClient<B> {
+#[derive(Clone)]
+pub struct ReqwestDataClient {
+    http: Client,
+    url: Arc<Url>
+}
+
+
+impl Debug for ReqwestDataClient {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReqwestDataClient")
+            .field("url", &self.url.as_str())
+            .finish()
+    }
+}
+
+
+impl ReqwestDataClient {
     pub fn from_url(url: impl IntoUrl) -> Self {
-        let http = Client::builder()
-            .read_timeout(Duration::from_secs(5))
-            .connect_timeout(Duration::from_secs(5))
-            .gzip(true)
-            .build()
-            .unwrap();
-        
+        let http = default_http_client();
         Self::new(http, url)
     }
     
     pub fn new(http: Client, url: impl IntoUrl) -> Self {
         Self {
             http,
-            url: url.into_url().unwrap(),
-            phantom_data: PhantomData::default()
+            url: Arc::new(url.into_url().unwrap())
         }
     }
-    
+
     pub async fn stream(
         &self,
-        from: BlockNumber,
-        prev_block_hash: &str
-    ) -> anyhow::Result<ReqwestBlockStream<B>>
+        req: BlockStreamRequest
+    ) -> anyhow::Result<BlockStreamResponse<Bytes>>
     {
         let mut body = json!({
-            "fromBlock": from
+            "fromBlock": req.first_block
         });
 
-        if !prev_block_hash.is_empty() {
+        if req.parent_block_hash.is_some() {
             body.as_object_mut().unwrap().insert(
                 "prevBlockHash".into(),
-                prev_block_hash.into()
+                req.parent_block_hash.clone().into()
             );
         }
 
-        let mut url = self.url.clone();
+        let mut url = self.url.as_ref().clone();
         url.path_segments_mut().unwrap().push("stream");
 
-        let req = self.http
-            .post(url.clone())
+        let res = self.http
+            .post(url)
             .json(&body)
-            .build()?;
+            .send()
+            .await?
+            .error_for_status()?;
 
-        self.with_retries(&req, |res| async {
-            Ok(match res.status().as_u16() {
-                200 => {
-                    ReqwestBlockStream::new(
-                        extract_finalized_head(&res),
-                        Some(Box::new(res.bytes_stream())),
-                        vec![],
-                        prev_block_hash
-                    )
-                },
-                204 => {
-                    ReqwestBlockStream::new(
-                        extract_finalized_head(&res),
-                        None,
-                        vec![],
-                        ""
-                    )
-                },
-                409 => {
-                    let finalized_head = extract_finalized_head(&res);
-
-                    let prev_blocks: Vec<BlockRef> = res
-                        .json()
-                        .await
-                        .context(
-                            "failed to receive a list of previous blocks after base-block hash mismatch"
-                        )?;
-
-                    ReqwestBlockStream::new(
-                        finalized_head,
-                        None,
-                        prev_blocks,
-                        ""
-                    )
-                },
-                status if status < 300 => return Err(
-                    anyhow!("unexpected success response status - {}", status)
-                ),
-                _ => return Err(response_error(res).await)
-            })
-        }).await
-    }
-
-    async fn with_retries<R, F, Fut>(
-        &self,
-        req: &Request,
-        mut cb: F
-    ) -> anyhow::Result<R>
-    where
-        F: FnMut(Response) -> Fut,
-        Fut: Future<Output=anyhow::Result<R>>
-    {
-        let mut retry_attempt = 0;
-        let retry_schedule = [0, 100, 200, 500, 1000, 2000];
-        loop {
-            let _retry_error = match self.http.execute(req.try_clone().unwrap()).await {
-                Ok(res) => match res.status().as_u16() {
-                    429 | 502 | 503 | 504 | 524 => response_error(res).await,
-                    _ => match cb(res).await {
-                        Ok(res) => return Ok(res),
-                        Err(err) => if is_retryable(err.as_ref()) {
-                            err
-                        } else {
-                            return Err(err)
-                        }
-                    }
-                },
-                Err(err) if err.is_timeout() || err.is_connect() || err.is_request() => {
-                    anyhow!(err)
-                },
-                Err(err) => return Err(err.into())
-            };
-            
-            let pause = retry_schedule[std::cmp::max(retry_attempt, retry_schedule.len() - 1)];
-            retry_attempt = retry_attempt.saturating_add(1);
-            futures_timer::Delay::new(Duration::from_millis(pause)).await;
+        match res.status().as_u16() {
+            200 => {
+                let finalized_head = extract_finalized_head(&res)?;
+                let blocks = LineStream::new(res.bytes_stream());
+                Ok(BlockStreamResponse::Stream {
+                    blocks: blocks.boxed(),
+                    finalized_head
+                })
+            },
+            204 => {
+                let finalized_head = extract_finalized_head(&res)?;
+                Ok(BlockStreamResponse::Stream {
+                    blocks: futures::stream::empty().boxed(),
+                    finalized_head
+                })
+            },
+            409 => {
+                let prev_blocks: Vec<BlockRef> = res
+                    .json()
+                    .await
+                    .context(
+                        "failed to receive a list of previous blocks after base-block hash mismatch"
+                    )?;
+                ensure!(
+                    !prev_blocks.is_empty(),
+                    "got an empty list of prev blocks"
+                );
+                Ok(BlockStreamResponse::Fork(prev_blocks))
+            },
+            _ => bail!("unexpected HTTP response status: {}", res.status().as_u16())
         }
     }
+
+    pub async fn get_finalized_head(&self) -> anyhow::Result<Option<BlockRef>> {
+        self.fetch_head("finalized-head").await
+    }
+
+    pub async fn get_head(&self) -> anyhow::Result<Option<BlockRef>> {
+        self.fetch_head("head").await
+    }
+
+    async fn fetch_head(&self, slug: &str) -> anyhow::Result<Option<BlockRef>> {
+        let mut url = self.url.as_ref().clone();
+        url.path_segments_mut().unwrap().push(slug);
+
+        let head: Option<BlockRef> = self.http
+            .get(url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await
+            .context("failed to parse returned block reference")?;
+
+        Ok(head)
+    }
 }
 
+fn extract_finalized_head(res: &Response) -> anyhow::Result<Option<BlockRef>> {
+    let number = get_finalized_head_number(res)
+        .transpose()
+        .context("invalid x-sqd-finalized-head-number header")?;
 
-async fn response_error(response: Response) -> anyhow::Error {
-    let status = response.status().as_u16();
-    if let Some(text) = response.text().await.ok() {
-        anyhow!("got HTTP {}: {}", status, text)
-    } else {
-        anyhow!("got HTTP {}", status)
+    let hash = get_finalized_head_hash(res)
+        .transpose()
+        .context("invalid x-sqd-finalized-head-hash header")?;
+
+    match (number, hash) {
+        (Some(number), Some(hash)) => Ok(Some(BlockRef {
+            number,
+            hash: hash.to_string()
+        })),
+        (None, None) => Ok(None),
+        (Some(_), None) => Err(anyhow!(
+            "x-sqd-finalized-head-number header is present, but x-sqd-finalized-head-hash is not"
+        )),
+        (None, Some(_)) => Err(anyhow!(
+            "x-sqd-finalized-head-hash header is present, but x-sqd-finalized-head-number is not"
+        ))
     }
 }
 
 
-pub(crate) fn is_retryable(err: &(dyn Error + 'static)) -> bool {
-    if let Some(io_err) = err.downcast_ref::<std::io::Error>() {
-        is_retryable_io(io_err)
-    } else {
-        err.source().map(is_retryable).unwrap_or(false)
-    }
+fn get_finalized_head_number(res: &Response) -> Option<anyhow::Result<BlockNumber>> {
+    res.headers().get("x-sqd-finalized-head-number").map(|v| {
+        let num = v.to_str()?.parse()?;
+        Ok(num)
+    })
 }
 
 
-fn is_retryable_io(err: &std::io::Error) -> bool {
-    match err.kind() {
-        ErrorKind::ConnectionReset => true,
-        ErrorKind::ConnectionAborted => true,
-        ErrorKind::TimedOut => true,
-        _ => false
-    }
+fn get_finalized_head_hash(res: &Response) -> Option<anyhow::Result<&str>> {
+    res.headers().get("x-sqd-finalized-head-hash").map(|v| {
+        let hash = v.to_str()?;
+        Ok(hash)
+    })
 }
 
 
-impl<B: Block + FromJsonBytes + Unpin + Send + Sync> DataClient for ReqwestDataClient<B> {
-    type BlockStream = ReqwestBlockStream<B>;
+impl DataClient for ReqwestDataClient {
+    type Block = Bytes;
 
-    fn stream<'a>(&'a self, from: BlockNumber, prev_block_hash: &'a str) -> BoxFuture<'a, anyhow::Result<Self::BlockStream>>
-    {
-        Box::pin(self.stream(from, prev_block_hash))
+    fn stream(&self, req: BlockStreamRequest) -> BoxFuture<'static, anyhow::Result<BlockStreamResponse<Self::Block>>> {
+        let this = self.clone();
+        async move {
+            this.stream(req).await
+        }.boxed()
+    }
+
+    fn get_finalized_head(&self) -> BoxFuture<'static, anyhow::Result<Option<BlockRef>>> {
+        let this = self.clone();
+        async move {
+            this.get_finalized_head().await
+        }.boxed()
+    }
+
+    fn is_retryable(&self, _err: &anyhow::Error) -> bool {
+        true
     }
 }

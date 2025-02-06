@@ -1,15 +1,16 @@
-use crate::types::{Base58Bytes, BlockNumber, ItemIndex, JsonValue};
+use crate::types::{Base58Bytes, JsonValue};
 use serde::{Deserialize, Serialize};
+use sqd_primitives::{BlockNumber, ItemIndex};
 
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockHeader {
+    pub number: BlockNumber,
     pub hash: Base58Bytes,
-    pub height: BlockNumber,
-    pub slot: BlockNumber,
-    pub parent_slot: BlockNumber,
+    pub parent_number: BlockNumber,
     pub parent_hash: Base58Bytes,
+    pub height: BlockNumber,
     pub timestamp: i64,
 }
 
@@ -178,17 +179,17 @@ pub struct Block {
 }
 
 
-impl sqd_data_core::Block for Block {
-    fn number(&self) -> sqd_data_core::BlockNumber {
-        self.header.height
+impl sqd_primitives::Block for Block {
+    fn number(&self) -> BlockNumber {
+        self.header.number
     }
 
     fn hash(&self) -> &str {
         &self.header.hash
     }
 
-    fn parent_number(&self) -> sqd_data_core::BlockNumber {
-        self.number().saturating_sub(1)
+    fn parent_number(&self) -> BlockNumber {
+        self.header.parent_number
     }
 
     fn parent_hash(&self) -> &str {

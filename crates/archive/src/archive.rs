@@ -10,7 +10,7 @@ use crate::writer::{Writer, WriterItem};
 use anyhow::ensure;
 use futures_util::FutureExt;
 use sqd_data::solana::tables::SolanaChunkBuilder;
-use sqd_data_types::BlockNumber;
+use sqd_primitives::BlockNumber;
 use std::time::Duration;
 use prometheus_client::registry::Registry;
 

@@ -1,8 +1,8 @@
-use std::collections::HashSet;
-use arrow::array::RecordBatch;
-use sqd_primitives::RowRangeList;
-use crate::primitives::Name;
+use crate::primitives::{Name, RowRangeList};
 use crate::scan::RowPredicateRef;
+use arrow::array::RecordBatch;
+use arrow::datatypes::SchemaRef;
+use std::collections::HashSet;
 
 
 pub trait TableReader {
@@ -13,4 +13,6 @@ pub trait TableReader {
         row_selection: Option<&RowRangeList>,
         with_row_index: bool
     ) -> anyhow::Result<Vec<RecordBatch>>;
+    
+    fn schema(&self) -> SchemaRef;
 }

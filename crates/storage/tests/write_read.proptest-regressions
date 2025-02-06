@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6c4da2aa833bee947f964424bb092553d36883b5ab051fe00ea98c12172866ad # shrinks to tables = [RecordBatch { schema: Schema { fields: [Field { name: "c0", data_type: UInt32, nullable: true, dict_id: 0, dict_is_ordered: false, metadata: {} }], metadata: {} }, columns: [PrimitiveArray<UInt32> [   null,   null,   null,   null,   null,   null,   null,   null,   null,   null,   ...85 elements...,   null,   null,   null,   null,   null,   null,   null,   null,   null,   null, ]], row_count: 105 }]

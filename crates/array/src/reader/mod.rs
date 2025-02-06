@@ -7,7 +7,6 @@ use std::ops::Range;
 mod any;
 mod binary;
 mod boolean;
-mod chunked;
 mod list;
 mod native;
 mod primitive;
@@ -17,7 +16,6 @@ mod r#struct;
 pub use any::*;
 pub use binary::*;
 pub use boolean::*;
-pub use chunked::*;
 pub use list::*;
 pub use primitive::*;
 pub use r#struct::*;
@@ -95,9 +93,18 @@ pub trait ArrayReader {
         offset: usize,
         len: usize
     ) -> anyhow::Result<()>;
+}
 
-    fn read_chunk_ranges(
-        chunks: &mut (impl ChunkedArrayReader<ArrayReader=Self> + ?Sized),
+
+pub trait ChunkedArrayReader {
+    type Chunk;
+
+    fn num_buffers(&self) -> usize;
+
+    fn push(&mut self, chunk: Self::Chunk);
+
+    fn read_chunked_ranges(
+        &mut self,
         dst: &mut impl ArrayWriter,
         ranges: impl Iterator<Item=ChunkRange> + Clone
     ) -> anyhow::Result<()>;

@@ -1,14 +1,11 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-
+use crate::primitives::{Name, RowRangeList};
+use crate::scan::array_predicate;
+use crate::scan::array_predicate::{ArrayPredicateRef, ArrayStats};
 use anyhow::bail;
 use arrow::array::{Array, ArrayRef, BooleanArray, RecordBatch};
 use arrow::buffer::OffsetBuffer;
-use sqd_primitives::RowRangeList;
-
-use crate::primitives::Name;
-use crate::scan::array_predicate;
-use crate::scan::array_predicate::{ArrayPredicateRef, ArrayStats};
+use std::collections::HashSet;
+use std::sync::Arc;
 
 
 pub type RowPredicateRef = Arc<dyn RowPredicate>;

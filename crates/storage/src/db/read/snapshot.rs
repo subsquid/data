@@ -1,6 +1,6 @@
 use crate::db::data::{Chunk, DatasetId};
 use crate::db::db::{RocksDB, RocksSnapshot, RocksSnapshotIterator, CF_CHUNKS, CF_DATASETS, CF_TABLES};
-use crate::db::read::chunk::{list_chunks, list_chunks_in_reversed_order};
+use crate::db::read::chunk::ChunkIterator;
 use crate::db::table_id::TableId;
 use crate::db::DatasetLabel;
 use crate::kv::KvRead;
@@ -60,25 +60,18 @@ impl <'a> ReadSnapshot<'a> {
         dataset_id: DatasetId,
         from_block: BlockNumber,
         to_block: Option<BlockNumber>
-    ) -> impl Iterator<Item=anyhow::Result<Chunk>> + '_
+    ) -> ReadSnapshotChunkIterator<'a>
     {
         let cursor = self.db.raw_iterator_cf_opt(
             self.cf_handle(CF_CHUNKS),
             self.new_options()
         );
-        list_chunks(cursor, dataset_id, from_block, to_block)
-    }
-    
-    pub fn list_chunks_in_reversed_order(
-        &self,
-        dataset_id: DatasetId,
-    ) -> impl Iterator<Item=anyhow::Result<Chunk>> + '_
-    {
-        let cursor = self.db.raw_iterator_cf_opt(
-            self.cf_handle(CF_CHUNKS),
-            self.new_options()
-        );
-        list_chunks_in_reversed_order(cursor, dataset_id)
+        ChunkIterator::new(
+            cursor, 
+            dataset_id, 
+            from_block, 
+            to_block
+        )
     }
     
     pub fn get_first_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<Chunk>> {
@@ -86,7 +79,7 @@ impl <'a> ReadSnapshot<'a> {
     }
 
     pub fn get_last_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<Chunk>> {
-        self.list_chunks_in_reversed_order(dataset_id).next().transpose()
+        self.list_chunks(dataset_id, 0, None).into_reversed().next().transpose()
     }
 
     fn new_options(&self) -> ReadOptions {
@@ -101,6 +94,9 @@ impl <'a> ReadSnapshot<'a> {
 }
 
 
+pub type ReadSnapshotChunkIterator<'a> = ChunkIterator<RocksSnapshotIterator<'a>>;
+
+
 pub struct ChunkReader<'a> {
     snapshot: &'a ReadSnapshot<'a>,
     chunk: Chunk,
@@ -110,7 +106,7 @@ pub struct ChunkReader<'a> {
 
 impl <'a> ChunkReader<'a> {
     fn new(snapshot: &'a ReadSnapshot<'a>, chunk: Chunk) -> Self {
-        let cache = chunk.tables.keys()
+        let cache = chunk.tables().keys()
             .map(|name| (name.to_string(), Mutex::new(None)))
             .collect();
 
@@ -122,19 +118,23 @@ impl <'a> ChunkReader<'a> {
     }
 
     pub fn first_block(&self) -> BlockNumber {
-        self.chunk.first_block
+        self.chunk.first_block()
     }
 
     pub fn last_block(&self) -> BlockNumber {
-        self.chunk.last_block
+        self.chunk.last_block()
     }
     
     pub fn last_block_hash(&self) -> &str {
-        &self.chunk.last_block_hash
+        &self.chunk.last_block_hash()
+    }
+    
+    pub fn base_block_hash(&self) -> &str {
+        &self.chunk.parent_block_hash()
     }
 
     pub fn has_table(&self, name: &str) -> bool {
-        self.chunk.tables.contains_key(name)
+        self.chunk.tables().contains_key(name)
     }
     
     pub fn chunk(&self) -> &Chunk {
@@ -142,7 +142,7 @@ impl <'a> ChunkReader<'a> {
     }
     
     pub fn tables(&self) -> &BTreeMap<String, TableId> {
-        &self.chunk.tables
+        self.chunk.tables()
     }
 
     pub fn get_table_reader(&self, name: &str) -> anyhow::Result<Arc<SnapshotTableReader<'a>>> {
@@ -154,7 +154,7 @@ impl <'a> ChunkReader<'a> {
             return Ok(reader.clone())
         }
 
-        let table_id = self.chunk.tables.get(name).unwrap();
+        let table_id = self.chunk.tables().get(name).unwrap();
         let reader = self.snapshot.create_table_reader(*table_id)?;
         let reader = Arc::new(reader);
         

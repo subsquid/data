@@ -46,6 +46,7 @@ impl ChunkProcessor {
 }
 
 
+#[derive(Default)]
 pub struct PreparedChunk {
     pub tables: BTreeMap<Name, PreparedTable>
 }

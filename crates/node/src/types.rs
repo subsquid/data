@@ -1,13 +1,19 @@
-use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use sqd_dataset::DatasetDescriptionRef;
+use sqd_query::{BlockNumber, Query};
 use sqd_storage::db::Database;
+use std::sync::Arc;
 
 
+pub type Name = &'static str;
 pub type DBRef = Arc<Database>;
 
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DatasetKind {
+    #[serde(rename = "evm")]
     Evm,
+    #[serde(rename = "solana")]
     Solana
 }
 
@@ -23,4 +29,26 @@ impl DatasetKind {
             DatasetKind::Solana => "solana"
         }
     }
+    
+    pub fn dataset_description(&self) -> DatasetDescriptionRef {
+        match self {
+            DatasetKind::Evm => unimplemented!(),
+            DatasetKind::Solana => sqd_data::solana::tables::SolanaChunkBuilder::dataset_description()
+        }
+    }
+    
+    pub fn from_query(query: &Query) -> Self {
+        match query {
+            Query::Eth(_) => Self::Evm,
+            Query::Solana(_) => Self::Solana,
+            _ => unimplemented!()
+        }
+    }
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RetentionStrategy {
+    FromBlock(BlockNumber),
+    Head(BlockNumber)
 }

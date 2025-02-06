@@ -1,8 +1,8 @@
 use crate::solana::model::{Transaction, TransactionVersion};
 use crate::solana::tables::common::{AccountIndexList, AccountListBuilder, AddressListBuilder, Base58Builder, JsonBuilder, SignatureListBuilder};
-use crate::types::BlockNumber;
 use sqd_array::builder::{BooleanBuilder, Int16Builder, ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder};
 use sqd_data_core::{struct_builder, table_builder};
+use sqd_primitives::BlockNumber;
 
 
 type AddressTableLookupListBuilder = ListBuilder<AddressTableLookupBuilder>;

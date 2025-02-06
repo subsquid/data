@@ -145,7 +145,11 @@ impl<S: KvRead + Sync> TableReader<S> {
         )
     }
 
-    pub fn create_column_reader(&self, column_index: usize) -> anyhow::Result<impl ArrayReader> {
+    pub fn create_column_reader(
+        &self,
+        column_index: usize
+    ) -> anyhow::Result<AnyReader<IOReader<CursorByteReader<<S as KvRead>::Cursor>>>> 
+    {
         let mut factory = CursorReaderFactory {
             table: self,
             buffer: self.column_positions[column_index]
@@ -238,7 +242,7 @@ impl<S: KvRead + Sync> TableReader<S> {
         };
 
         validate_offsets(&offsets, 0).map_err(|msg| anyhow!(msg))?;
-        ensure!(offsets[0] == 0, "");
+        ensure!(offsets[0] == 0);
 
         let offsets = unsafe {
             OffsetBuffer::new_unchecked(offsets)
@@ -651,13 +655,14 @@ impl<'a, S: KvRead + Sync> ReaderFactory for CursorReaderFactory<'a, S> {
     type Reader = IOReader<CursorByteReader<S::Cursor>>;
 
     fn nullmask(&mut self) -> anyhow::Result<<Self::Reader as Reader>::Nullmask> {
-        let pages = self.table.get_nullmask_pages(self.buffer)?;
-        let bit_len = pages.last().copied().unwrap();
-        Ok(if pages.len() == 2 {
+        let page_offsets = self.table.get_nullmask_pages(self.buffer)?;
+        let bit_len = page_offsets.last().copied().unwrap();
+        Ok(if page_offsets.len() == 2 {
             self.buffer += 1;
             NullmaskIOReader::new_empty(bit_len as usize)
         } else {
-            let bitmask = self.next_bitmask(pages.slice(0, pages.len() - 1))?;
+            let num_pages = page_offsets.len() - 1;
+            let bitmask = self.next_bitmask(page_offsets.slice(0, num_pages - 1))?;
             NullmaskIOReader::from_bitmask(bitmask)
         })
     }

@@ -1,13 +1,11 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-
-use arrow::array::RecordBatch;
-use sqd_primitives::RowRangeList;
-
-use crate::primitives::Name;
+use crate::primitives::{Name, RowRangeList};
 use crate::scan::reader::TableReader;
 use crate::scan::RowPredicateRef;
+use arrow::array::RecordBatch;
+use arrow::datatypes::SchemaRef;
 use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
+use std::collections::HashSet;
+use std::sync::Arc;
 
 
 pub struct Scan<'a> {
@@ -28,6 +26,10 @@ impl <'a> Scan<'a> {
             row_selection: None,
             row_index: false
         }
+    }
+    
+    pub fn schema(&self) -> SchemaRef {
+        self.reader.schema()
     }
 
     pub fn with_predicate<P: Into<Option<RowPredicateRef>>>(mut self, predicate: P) -> Self {

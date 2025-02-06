@@ -1,0 +1,18 @@
+target
+
+crates/*/fixtures
+
+# Our temprorary files (e.g. ad-hoc scripts)
+**/*.temp.*
+**/*.temp
+
+# IDE and tools
+.git
+.idea
+**/*.log
+
+# READMEs and docs
+**/*.md
+
+# Ignore Dockerfile, so that we can work on it without full rebuild each time
+Dockerfile

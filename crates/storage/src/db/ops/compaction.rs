@@ -1,8 +1,9 @@
 use crate::db::db::RocksDB;
 use crate::db::ops::table_merge::TableMerge;
-use crate::db::write::ops::delete_table;
+use crate::db::table_id::TableId;
 use crate::db::write::tx::Tx;
-use crate::db::{Chunk, ChunkBuilder, ChunkReader, DatasetId, ReadSnapshot};
+use crate::db::{Chunk, ChunkReader, DatasetId, ReadSnapshot, TableBuilder};
+use std::collections::BTreeMap;
 
 
 pub enum CompactionStatus {
@@ -34,12 +35,12 @@ impl<'a> DatasetCompaction<'a> {
         self.prepare_merge_plan()?;
 
         let new_chunk = {
-            let mut chunk_builder = ChunkBuilder::new(self.db);
-            self.merge_all_tables(&mut chunk_builder)?;
-            self.make_chunk(chunk_builder)
+            let mut tables = BTreeMap::new();
+            self.merge_all_tables(&mut tables)?;
+            self.make_chunk(tables)
         };
 
-        let status = Tx::new_with_snapshot(self.db).run(|tx| {
+        let status = Tx::new(self.db).run(|tx| {
             let mut label = match tx.find_label_for_update(self.dataset_id)? {
                 Some(label) => label,
                 None => return Ok(CompactionStatus::Canceled)
@@ -52,12 +53,11 @@ impl<'a> DatasetCompaction<'a> {
             self.delete_merged_chunks(tx)?;
             tx.write_chunk(self.dataset_id, &new_chunk)?;
 
-            label.version += 1;
+            label.bump_version();
             tx.write_label(self.dataset_id, &label)?;
             Ok(CompactionStatus::Ok)
         })?;
         
-        self.delete_merged_tables()?;
         Ok(status)
     }
 
@@ -87,44 +87,38 @@ impl<'a> DatasetCompaction<'a> {
         Ok(())
     }
 
-    fn delete_merged_tables(&self) -> anyhow::Result<()> {
-        for c in self.merge.iter() {
-            for table_id in c.tables().values() {
-                delete_table(self.db, *table_id)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn make_chunk(&self, chunk_builder: ChunkBuilder<'_>) -> Chunk {
-        let tables = chunk_builder.finish();
+    fn make_chunk(&self, tables: BTreeMap<String, TableId>) -> Chunk {
         let first_chunk = &self.merge[0];
         let last_chunk = self.merge.last().unwrap();
-        Chunk {
+        Chunk::V0 {
             first_block: first_chunk.first_block(),
             last_block: last_chunk.last_block(),
             last_block_hash: last_chunk.last_block_hash().to_string(),
+            parent_block_hash: first_chunk.base_block_hash().to_string(),
             tables
         }
     }
 
-    fn merge_all_tables(&self, chunk_builder: &mut ChunkBuilder<'a>) -> anyhow::Result<()> {
+    fn merge_all_tables(&self, tables: &mut BTreeMap<String, TableId>) -> anyhow::Result<()> {
         for name in self.merge[0].tables().keys() {
-            self.merge_table(name, chunk_builder)?
+            self.merge_table(name, tables)?
         }
         Ok(())
     }
 
-    fn merge_table(&self, name: &str, chunk_builder: &mut ChunkBuilder<'a>) -> anyhow::Result<()> {
+    fn merge_table(&self, name: &str, tables: &mut BTreeMap<String, TableId>) -> anyhow::Result<()> {
         let chunks = self.merge.iter()
             .map(|ch| ch.get_table_reader(name))
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         let src = TableMerge::prepare(&chunks)?;
-        let mut table_writer = chunk_builder.add_table(name, src.schema());
-        table_writer.set_stats(src.columns_with_stats().iter().copied())?;
-        src.write(&mut table_writer)?;
-        table_writer.finish()
+        let mut table_builder = TableBuilder::new(self.db, src.schema());
+        table_builder.set_stats(src.columns_with_stats().iter().copied())?;
+        src.write(&mut table_builder)?;
+        let table_id = table_builder.finish()?;
+        
+        tables.insert(name.to_string(), table_id);
+        Ok(())
     }
 
     fn prepare_merge_plan(&mut self) -> anyhow::Result<()> {

@@ -32,8 +32,7 @@ pub fn list_all_datasets<C: KvReadCursor>(
         
         Ok(Some(Dataset {
             id,
-            kind: label.kind,
-            version: label.version
+            label
         }))
     };
     

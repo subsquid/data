@@ -13,4 +13,8 @@ rayon = { workspace = true }
 rocksdb = "0.22.0"
 uuid = { version = "1.8.0", features = ["v7", "borsh"] }
 sqd-array = { path = "../array" }
-sqd-primitives = { path = "../primitives", features = ["borsh"] }
+sqd-primitives = { path = "../primitives", features = ["borsh", "sid", "range"] }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }

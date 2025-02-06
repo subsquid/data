@@ -59,7 +59,7 @@ pub fn col_gt_eq<T: IntoArrow>(name: Name, value: T) -> RowPredicateRef {
 }
 
 
-// low <= column <= high
+/// low <= column <= high
 pub fn col_between<T: IntoArrow>(name: Name, low: T, high: T) -> RowPredicateRef {
     make_column_predicate!(name, array_predicate::And::new(vec![
         Arc::new(array_predicate::LtEq::new(low)),

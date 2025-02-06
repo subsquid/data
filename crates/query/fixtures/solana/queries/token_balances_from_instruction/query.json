@@ -3,9 +3,9 @@
   "fromBlock": 0,
   "fields": {
     "block": {
-      "slot": true,
-      "number": true,
-      "hash": true
+      "hash": true,
+      "height": true,
+      "number": true
     },
     "transaction": {
       "signatures": true,

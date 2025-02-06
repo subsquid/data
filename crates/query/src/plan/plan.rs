@@ -1,18 +1,16 @@
-use std::collections::{HashMap, HashSet};
-
-use anyhow::ensure;
-use rayon::prelude::*;
-
-use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
-use sqd_primitives::RowRangeList;
-
 use crate::json::exp::Exp;
 use crate::plan::rel::Rel;
 use crate::plan::result::{BlockWriter, DataItem};
 use crate::plan::row_list::RowList;
 use crate::plan::table::{ColumnWeight, TableSet};
-use crate::primitives::{BlockNumber, Name, RowWeight, RowWeightPolarsType};
-use crate::scan::{Chunk, col_between, col_gt_eq, col_lt_eq, RowPredicateRef};
+use crate::primitives::{BlockNumber, Name, RowRangeList, RowWeight, RowWeightPolarsType};
+use crate::scan::{col_between, col_gt_eq, col_lt_eq, Chunk, RowPredicateRef};
+use crate::UnexpectedBaseBlock;
+use anyhow::{anyhow, bail};
+use rayon::prelude::*;
+use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
+use sqd_primitives::BlockRef;
+use std::collections::{HashMap, HashSet};
 
 
 type Idx = usize;
@@ -42,17 +40,30 @@ pub struct Plan {
     relations: Vec<Rel>,
     outputs: Vec<Output>,
     include_all_blocks: bool,
+    parent_block_hash: Option<String>,
     first_block: Option<BlockNumber>,
     last_block: Option<BlockNumber>
 }
 
 
 impl Plan {
-    pub fn execute(&self, data_chunk: &dyn Chunk) -> anyhow::Result<BlockWriter> {
+    pub fn execute(&self, data_chunk: &dyn Chunk) -> anyhow::Result<Option<BlockWriter>> {
         PlanExecution {
             data_chunk,
             plan: self,
         }.execute()
+    }
+
+    pub fn set_parent_block_hash(&mut self, hash: impl Into<Option<String>>) {
+        self.parent_block_hash = hash.into();
+    }
+
+    pub fn set_first_block(&mut self, block_number: impl Into<Option<BlockNumber>>) {
+        self.first_block = block_number.into()
+    }
+
+    pub fn set_last_block(&mut self, block_number: impl Into<Option<BlockNumber>>) {
+        self.last_block = block_number.into()
     }
 }
 
@@ -64,7 +75,9 @@ struct PlanExecution<'a> {
 
 
 impl <'a> PlanExecution<'a> {
-    fn execute(&self) -> anyhow::Result<BlockWriter> {
+    fn execute(&self) -> anyhow::Result<Option<BlockWriter>> {
+        self.check_parent_block()?;
+
         let relation_inputs = self.plan.relations.iter()
             .map(|_| RowList::new())
             .collect();
@@ -76,6 +89,86 @@ impl <'a> PlanExecution<'a> {
         self.execute_scans(&relation_inputs, &output_inputs)?;
         self.execute_relations(relation_inputs, &output_inputs)?;
         self.execute_output(output_inputs)
+    }
+
+    fn check_parent_block(&self) -> anyhow::Result<()> {
+        let parent_hash = match self.plan.parent_block_hash.as_ref() {
+            Some(s) => s.as_str(),
+            None => return Ok(())
+        };
+
+        let block_number = match self.plan.first_block {
+            Some(bn) => bn,
+            None => bail!("invalid plan: parent block hash is specified, but block number is not available")
+        };
+
+        let block_scan = self.data_chunk.scan_table(self.plan.outputs[0].table)?;
+
+        let mut refs: Vec<_> = if block_scan.schema().column_with_name("parent_number").is_some() {
+            // this is Solana with possible gaps in block numbers
+            let df = block_scan
+                .with_column("parent_number")
+                .with_column("parent_hash")
+                .with_predicate(
+                    col_between("parent_number", block_number.saturating_sub(100), block_number.saturating_sub(1))
+                )
+                .to_lazy_df()?
+                .collect()?;
+
+            let numbers = df.column("parent_number")?.cast(&sqd_polars::prelude::DataType::UInt64)?;
+            let numbers = numbers.u64()?;
+
+            let hashes = df.column("parent_hash")?;
+            let hashes = hashes.str()?;
+
+            (0..df.shape().0).map(|i| {
+                let number = numbers.get(i).expect("block number can't be null according to the predicate applied");
+                let hash = hashes.get(i).unwrap_or("");
+                BlockRef {
+                    number,
+                    hash: hash.to_string()
+                }
+            }).collect()
+        } else {
+            let df = block_scan
+                .with_column("number")
+                .with_column("parent_hash")
+                .with_predicate(
+                    col_between("number", block_number.saturating_sub(100), block_number)
+                )
+                .to_lazy_df()?
+                .collect()?;
+            
+            let numbers = df.column("number")?.cast(&sqd_polars::prelude::DataType::UInt64)?;
+            let numbers = numbers.u64()?;
+
+            let hashes = df.column("parent_hash")?;
+            let hashes = hashes.str()?;
+
+            (0..df.shape().0).map(|i| {
+                let number = numbers.get(i).expect("block number can't be null according to the predicate applied");
+                let hash = hashes.get(i).unwrap_or("");
+                BlockRef {
+                    number: number.saturating_sub(1),
+                    hash: hash.to_string()
+                }
+            }).collect()
+        };
+
+        refs.sort_by(|a, b| a.number.cmp(&b.number));
+
+        let parent_block = refs.last().ok_or_else(|| {
+            anyhow!("block {} is not present in the chunk", block_number)
+        })?;
+        
+        if parent_block.hash == parent_hash {
+            Ok(())
+        } else {
+            Err(anyhow!(UnexpectedBaseBlock {
+                prev_blocks: refs,
+                expected_hash: parent_hash.to_string()
+            }))   
+        }
     }
 
     fn execute_scans(
@@ -121,7 +214,7 @@ impl <'a> PlanExecution<'a> {
         })
     }
 
-    fn execute_output(&self, output_inputs: Vec<RowList>) -> anyhow::Result<BlockWriter> {
+    fn execute_output(&self, output_inputs: Vec<RowList>) -> anyhow::Result<Option<BlockWriter>> {
         use sqd_polars::prelude::*;
 
         let rows = output_inputs.into_par_iter()
@@ -142,7 +235,7 @@ impl <'a> PlanExecution<'a> {
                 let record_batches = self.data_chunk
                     .scan_table(output.table)?
                     .with_row_selection(maybe_row_selection)
-                    .with_predicate(self.get_block_number_predicate(output.key[0]))
+                    .with_predicate(self.get_block_number_predicate(idx))
                     .with_row_index(true)
                     .with_column(output.key[0])
                     .with_columns(output.weight_columns.iter().copied())
@@ -171,7 +264,9 @@ impl <'a> PlanExecution<'a> {
 
         let header_rows = &rows[0];
 
-        ensure!(header_rows.shape().0 > 0, "no desired blocks in the data chunk");
+        if header_rows.is_empty() {
+            return Ok(None)
+        }
 
         let mut item_union = Vec::with_capacity(self.plan.outputs.len() + 1);
 
@@ -203,7 +298,7 @@ impl <'a> PlanExecution<'a> {
                 ])
                 .collect()?;
 
-            let mut block_numbers = agg.column("first_block").unwrap().clone();
+            let mut block_numbers = agg.column("first_block")?.clone();
             block_numbers.append(agg.column("last_block").unwrap())?;
             block_numbers.rename("block_number".into());
 
@@ -306,12 +401,12 @@ impl <'a> PlanExecution<'a> {
             Ok(())
         })?;
 
-        Ok(BlockWriter::new(data_items_mutex
+        Ok(Some(BlockWriter::new(data_items_mutex
             .into_inner()
             .into_iter()
             .flatten()
             .collect()
-        ))
+        )))
     }
 
     fn get_output_index(&self, table: Name) -> usize {
@@ -320,11 +415,12 @@ impl <'a> PlanExecution<'a> {
             .unwrap()
     }
 
-    fn get_block_number_predicate(&self, block_number_column: Name) -> Option<RowPredicateRef> {
+    fn get_block_number_predicate(&self, output_idx: usize) -> Option<RowPredicateRef> {
+        let column = self.plan.outputs[output_idx].key[0];
         match (self.plan.first_block, self.plan.last_block) {
-            (Some(fst), Some(lst)) => Some(col_between(block_number_column, fst, lst)),
-            (Some(fst), None) => Some(col_gt_eq(block_number_column, fst)),
-            (None, Some(lst)) => Some(col_lt_eq(block_number_column, lst)),
+            (Some(fst), Some(lst)) => Some(col_between(column, fst, lst)),
+            (None, Some(lst)) => Some(col_lt_eq(column, lst)),
+            (Some(fst), None) => Some(col_gt_eq(column, fst)),
             (None, None) => None
         }
     }
@@ -337,6 +433,7 @@ pub struct PlanBuilder {
     relations: Vec<Rel>,
     outputs: Vec<Output>,
     include_all_blocks: bool,
+    parent_block_hash: Option<String>,
     first_block: Option<BlockNumber>,
     last_block: Option<BlockNumber>
 }
@@ -360,6 +457,7 @@ impl PlanBuilder{
                 }
             }).collect(),
             include_all_blocks: false,
+            parent_block_hash: None,
             first_block: None,
             last_block: None
         }
@@ -391,12 +489,17 @@ impl PlanBuilder{
         self
     }
 
-    pub fn set_first_block<B: Into<Option<BlockNumber>>>(&mut self, block_number: B) -> &mut Self {
+    pub fn set_parent_block_hash(&mut self, hash: impl Into<Option<String>>) -> &mut Self {
+        self.parent_block_hash = hash.into();
+        self
+    }
+
+    pub fn set_first_block(&mut self, block_number: impl Into<Option<BlockNumber>>) -> &mut Self {
         self.first_block = block_number.into();
         self
     }
 
-    pub fn set_last_block<B: Into<Option<BlockNumber>>>(&mut self, block_number: B) -> &mut Self {
+    pub fn set_last_block(&mut self, block_number: impl Into<Option<BlockNumber>>) -> &mut Self {
         self.last_block = block_number.into();
         self
     }
@@ -409,6 +512,7 @@ impl PlanBuilder{
             relations: self.relations,
             outputs: self.outputs,
             include_all_blocks: self.include_all_blocks,
+            parent_block_hash: self.parent_block_hash,
             first_block: self.first_block,
             last_block: self.last_block
         }

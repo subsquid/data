@@ -6,10 +6,10 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 arrow = { workspace = true }
-arrow-buffer = { workspace = true }
 bs58 = "0.5.1"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["preserve_order"] }
 sqd-array = { path = "../array" }
 sqd-data-core = { path = "../data-core" }
 sqd-dataset = { path = "../dataset" }
+sqd-primitives = { path = "../primitives" }

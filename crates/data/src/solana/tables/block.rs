@@ -8,14 +8,14 @@ table_builder! {
     BlockBuilder {
         number: UInt64Builder,
         hash: Base58Builder,
-        slot: UInt64Builder,
-        parent_slot: UInt64Builder,
+        parent_number: UInt64Builder,
         parent_hash: Base58Builder,
+        height: UInt64Builder,
         timestamp: TimestampSecondBuilder,
     }
 
     description(d) {
-        d.downcast.block_number = vec!["number", "slot", "parent_slot"];
+        d.downcast.block_number = vec!["number", "parent_number", "height"];
         d.sort_key = vec!["number"];
         d.options.add_stats("number");
         d.options.row_group_size = 5_000;
@@ -25,11 +25,11 @@ table_builder! {
 
 impl BlockBuilder {
     pub fn push(&mut self, row: &BlockHeader) {
-        self.number.append(row.height);
+        self.number.append(row.number);
         self.hash.append(&row.hash);
-        self.slot.append(row.slot);
-        self.parent_slot.append(row.parent_slot);
+        self.parent_number.append(row.parent_number);
         self.parent_hash.append(&row.parent_hash);
+        self.height.append(row.height);
         self.timestamp.append(row.timestamp);
     }
 }

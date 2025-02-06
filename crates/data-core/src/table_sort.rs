@@ -1,8 +1,8 @@
 use arrow::datatypes::FieldRef;
 use sqd_array::builder::{AnyBuilder, ArrayBuilder};
 use sqd_array::chunking::ChunkRange;
-use sqd_array::io::file::{ArrayFile, ArrayFileReader, ArrayFileWriter};
-use sqd_array::reader::ArrayReader;
+use sqd_array::io::file::{ArrayFile, ArrayFileWriter, FileReader};
+use sqd_array::reader::{AnyChunkedReader, ChunkedArrayReader};
 use sqd_array::slice::{AnyTableSlice, AsSlice, Slice};
 use sqd_array::sort::sort_table_to_indexes;
 use sqd_array::util::{build_offsets, get_offset_position};
@@ -74,10 +74,12 @@ impl TableSorter {
 
         let num_batches = self.batch_offsets.len() - 1;
 
-        let readers = data_table.iter().map(|c| {
-            (0..num_batches)
-                .map(|_| c.read())
-                .collect::<anyhow::Result<Vec<_>>>()
+        let data_readers = data_table.iter().map(|c| {
+            let mut chunked = AnyChunkedReader::with_capacity(num_batches, c.data_type());
+            for _ in 0..num_batches {
+                chunked.push(c.read()?);
+            }
+            Ok(chunked)
         }).collect::<anyhow::Result<Vec<_>>>()?;
 
         let sort_table = AnyTableSlice::new(
@@ -99,7 +101,7 @@ impl TableSorter {
             batch_offsets: self.batch_offsets,
             order,
             chunk_tracker,
-            readers,
+            data_readers,
         })
     }
 }
@@ -113,13 +115,13 @@ pub struct SortedTable {
     batch_offsets: Vec<usize>,
     order: Vec<usize>,
     chunk_tracker: ChunkTracker,
-    readers: Vec<Vec<ArrayFileReader>>,
+    data_readers: Vec<AnyChunkedReader<FileReader>>,
 }
 
 
 impl SortedTable {
     pub fn into_sorter(mut self) -> anyhow::Result<TableSorter> {
-        drop(self.readers);
+        drop(self.data_readers);
 
         let data_table = self.data_table.into_iter()
             .map(|c| c.write())
@@ -168,31 +170,11 @@ impl SortedTable {
             )
         } else {
             let pos = self.data_key.iter().position(|c| *c == i).unwrap();
-            let readers = self.readers[pos].as_mut_slice();
+            let reader = &mut self.data_readers[pos];
             let (first, middle, last) = self.chunk_tracker.find(offset, len);
-
-            if let Some(first) = first {
-                readers[first.chunk_index()].read_slice(
-                    dst,
-                    first.offset_index(),
-                    first.len_index(),
-                )?;
-            }
-
-            ArrayReader::read_chunk_ranges(
-                readers,
-                dst,
-                middle.iter().cloned(),
-            )?;
-
-            if let Some(last) = last {
-                readers[last.chunk_index()].read_slice(
-                    dst,
-                    last.offset_index(),
-                    last.len_index(),
-                )?;
-            }
-
+            reader.read_chunked_ranges(dst, first.into_iter())?;
+            reader.read_chunked_ranges(dst, middle.iter().cloned())?;
+            reader.read_chunked_ranges(dst, last.into_iter())?;
             Ok(())
         }
     }

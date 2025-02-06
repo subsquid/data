@@ -50,8 +50,9 @@ static WHIRLPOOL_SWAP: LazyLock<Query> = LazyLock::new(|| {
 fn perform_query(plan: &Plan, chunk: &dyn Chunk) -> anyhow::Result<Vec<u8>> {
     sqd_polars::POOL.install(|| {
         let mut json_writer = JsonLinesWriter::new(Vec::new());
-        let mut blocks = plan.execute(chunk)?;
-        json_writer.write_blocks(&mut blocks)?;
+        if let Some(mut blocks) = plan.execute(chunk)? {
+            json_writer.write_blocks(&mut blocks)?;
+        }
         Ok(json_writer.finish()?)
     })
 }
@@ -92,6 +93,7 @@ mod storage {
     use sqd_data::solana::tables::SolanaChunkBuilder;
     use sqd_dataset::DatasetDescription;
     use sqd_storage::db::{Chunk, Database, DatabaseSettings, DatasetId, DatasetKind};
+    use std::collections::BTreeMap;
     use std::fs::File;
     use std::path::Path;
 
@@ -145,7 +147,7 @@ mod storage {
 
         db.create_dataset(dataset_id, dataset_kind)?;
 
-        let chunk_builder = db.new_chunk_builder();
+        let mut tables = BTreeMap::new();
 
         let parquet_chunk_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("fixtures/solana/chunk");
@@ -161,12 +163,9 @@ mod storage {
                     .with_batch_size(500)
                     .build()?;
 
-                let mut writer = chunk_builder.add_table(
-                    table,
-                    parquet_reader.schema()
-                );
+                let mut builder = db.new_table_builder(parquet_reader.schema());
                 
-                writer.set_stats(
+                builder.set_stats(
                     get_columns_with_stats(
                         &SolanaChunkBuilder::dataset_description(),
                         table,
@@ -175,19 +174,20 @@ mod storage {
                 )?;
 
                 while let Some(record_batch) = parquet_reader.next().transpose()? {
-                    writer.write_record_batch(&record_batch)?;
+                    builder.write_record_batch(&record_batch)?;
                 }
 
-                writer.finish()?
+                tables.insert(table.to_string(), builder.finish()?);
             }
         }
 
-        db.insert_chunk(dataset_id, &Chunk {
+        db.insert_chunk(dataset_id, &Chunk::V0 {
             first_block: 200000000,
             last_block: 200000899,
             last_block_hash: "hello".to_string(),
-            tables: chunk_builder.finish()
-        }, None)?;
+            parent_block_hash: "".to_string(),
+            tables
+        })?;
 
         Ok(dataset_id)
     }

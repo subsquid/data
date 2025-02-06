@@ -1,11 +1,11 @@
 use crate::chunking::ChunkRange;
-use crate::reader::chunked::ChunkedArrayReader;
-use crate::reader::native::NativeArrayReader;
-use crate::reader::{ArrayReader, BinaryReader, BooleanReader, ListReader, PrimitiveReader, Reader, ReaderFactory, StructReader};
+use crate::reader::native::{ChunkedNativeArrayReader, NativeArrayReader};
+use crate::reader::{ArrayReader, BinaryReader, BooleanReader, ChunkedArrayReader, ChunkedBinaryReader, ChunkedBooleanReader, ChunkedListReader, ChunkedPrimitiveReader, ChunkedStructReader, ListReader, PrimitiveReader, Reader, ReaderFactory, StructReader};
 use crate::visitor::DataTypeVisitor;
 use crate::writer::ArrayWriter;
 use arrow::array::ArrowPrimitiveType;
 use arrow::datatypes::{DataType, FieldRef};
+use std::marker::PhantomData;
 
 
 pub type AnyListReader<R> = ListReader<R, AnyReader<R>>;
@@ -103,61 +103,6 @@ impl <R: Reader> ArrayReader for AnyReader<R> {
             AnyReader::Struct(r) => r.read_slice(dst, offset, len),
         }
     }
-
-    fn read_chunk_ranges(
-        chunks: &mut (impl ChunkedArrayReader<ArrayReader=Self> + ?Sized),
-        dst: &mut impl ArrayWriter,
-        mut ranges: impl Iterator<Item=ChunkRange> + Clone
-    ) -> anyhow::Result<()>
-    {
-        if chunks.num_chunks() == 0 {
-            if ranges.next().is_some() {
-                panic!("attempt to extract a range from an empty chunked array")
-            } else {
-                return Ok(())
-            }
-        }
-
-        match chunks.chunk(0) {
-            AnyReader::Boolean(_) => {
-                BooleanReader::read_chunk_ranges(
-                    &mut chunks.map(|c| c.as_boolean()),
-                    dst,
-                    ranges
-                )?;
-            },
-            AnyReader::Primitive(_) => {
-                PrimitiveReader::read_chunk_ranges(
-                    &mut chunks.map(|c| c.as_primitive()),
-                    dst,
-                    ranges
-                )?;
-            },
-            AnyReader::Binary(_) => {
-                BinaryReader::read_chunk_ranges(
-                    &mut chunks.map(|c| c.as_binary()),
-                    dst,
-                    ranges
-                )?;
-            },
-            AnyReader::List(_) => {
-                ListReader::read_chunk_ranges(
-                    &mut chunks.map(|c| c.as_list()),
-                    dst,
-                    ranges
-                )?;
-            },
-            AnyReader::Struct(_) => {
-                StructReader::read_chunk_ranges(
-                    &mut chunks.map(|c| c.as_struct()),
-                    dst,
-                    ranges
-                )?;
-            }
-        }
-
-        Ok(())
-    }
 }
 
 
@@ -252,5 +197,110 @@ impl <'a, F: ReaderFactory> DataTypeVisitor for AnyReaderFactory<'a, F> {
         let reader = StructReader::try_new(nulls, columns)?;
         
         Ok(reader.into())
+    }
+}
+
+
+pub type AnyChunkedListReader<R> = ChunkedListReader<R, AnyChunkedReader<R>>;
+
+
+pub enum AnyChunkedReader<R: Reader> {
+    Boolean(ChunkedBooleanReader<R>),
+    Primitive(ChunkedPrimitiveReader<R>),
+    Binary(ChunkedBinaryReader<R>),
+    List(Box<AnyChunkedListReader<R>>),
+    Struct(ChunkedStructReader<R>)
+}
+
+
+impl<R: Reader> AnyChunkedReader<R> {
+    pub fn new(data_type: &DataType) -> Self {
+        Self::with_capacity(0, data_type)
+    }
+    
+    pub fn with_capacity(cap: usize, data_type: &DataType) -> Self {
+        AnyChunkedReaderFactory {
+            cap,
+            phantom_data: PhantomData::<R>::default()
+        }.visit(data_type)
+    }
+}
+
+
+impl<R: Reader> ChunkedArrayReader for AnyChunkedReader<R> {
+    type Chunk = AnyReader<R>;
+
+    fn num_buffers(&self) -> usize {
+        match self {
+            AnyChunkedReader::Boolean(r) => r.num_buffers(),
+            AnyChunkedReader::Primitive(r) => r.num_buffers(),
+            AnyChunkedReader::Binary(r) => r.num_buffers(),
+            AnyChunkedReader::List(r) => r.num_buffers(),
+            AnyChunkedReader::Struct(r) => r.num_buffers(),
+        }
+    }
+
+    fn push(&mut self, chunk: Self::Chunk) {
+        match (self, chunk) {
+            (AnyChunkedReader::Boolean(c), AnyReader::Boolean(r)) => c.push(r),
+            (AnyChunkedReader::Primitive(c), AnyReader::Primitive(r)) => c.push(r),
+            (AnyChunkedReader::Binary(c), AnyReader::Binary(r)) => c.push(r),
+            (AnyChunkedReader::List(c), AnyReader::List(r)) => c.push(*r),
+            (AnyChunkedReader::Struct(c), AnyReader::Struct(r)) => c.push(r),
+            _ => panic!("array type mismatch")
+        }
+    }
+
+    fn read_chunked_ranges(
+        &mut self,
+        dst: &mut impl ArrayWriter,
+        ranges: impl Iterator<Item=ChunkRange> + Clone
+    ) -> anyhow::Result<()>
+    {
+        match self {
+            AnyChunkedReader::Boolean(r) => r.read_chunked_ranges(dst, ranges),
+            AnyChunkedReader::Primitive(r) => r.read_chunked_ranges(dst, ranges),
+            AnyChunkedReader::Binary(r) => r.read_chunked_ranges(dst, ranges),
+            AnyChunkedReader::List(r) => r.read_chunked_ranges(dst, ranges),
+            AnyChunkedReader::Struct(r) => r.read_chunked_ranges(dst, ranges),
+        }
+    }
+}
+
+
+struct AnyChunkedReaderFactory<R> {
+    cap: usize,
+    phantom_data: PhantomData<R>
+}
+
+
+impl<R: Reader> DataTypeVisitor for AnyChunkedReaderFactory<R> {
+    type Result = AnyChunkedReader<R>;
+
+    fn boolean(&mut self) -> Self::Result {
+        AnyChunkedReader::Boolean(ChunkedBooleanReader::with_capacity(self.cap))
+    }
+
+    fn primitive<T: ArrowPrimitiveType>(&mut self) -> Self::Result {
+        AnyChunkedReader::Primitive(ChunkedPrimitiveReader::with_capacity(self.cap))
+    }
+
+    fn binary(&mut self) -> Self::Result {
+        AnyChunkedReader::Binary(ChunkedBinaryReader::new(
+            self.cap,
+            ChunkedNativeArrayReader::with_capacity(self.cap)
+        ))
+    }
+
+    fn list(&mut self, item: &DataType) -> Self::Result {
+        AnyChunkedReader::List(Box::new(
+            AnyChunkedListReader::new(self.cap, self.visit(item))
+        ))
+    }
+
+    fn r#struct(&mut self, fields: &[FieldRef]) -> Self::Result {
+        let columns = fields.iter().map(|f| self.visit(f.data_type())).collect();
+        let reader = ChunkedStructReader::new(self.cap, columns);
+        AnyChunkedReader::Struct(reader)
     }
 }

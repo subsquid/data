@@ -6,7 +6,7 @@ use crate::progress::Progress;
 use crate::writer::WriterItem;
 use futures_util::TryStreamExt;
 use prometheus_client::metrics::gauge::Atomic;
-use sqd_data_core::BlockNumber;
+use sqd_primitives::BlockNumber;
 use std::num::NonZeroUsize;
 use std::pin::pin;
 use std::time::{Duration, Instant};

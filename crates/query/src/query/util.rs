@@ -74,11 +74,9 @@ pub(crate) use request;
 
 macro_rules! ensure_block_range {
     ($query:ident) => {
-        if let Some(from_block) = $query.from_block {
-            if let Some(to_block) = $query.to_block {
-                use anyhow::ensure;
-                ensure!(from_block <= to_block, "got \"toBlock\" < \"fromBlock\"")
-            }
+        if let Some(to_block) = $query.to_block {
+            use anyhow::ensure;
+            ensure!($query.from_block <= to_block, "got \"toBlock\" < \"fromBlock\"")
         }
     };
 }
@@ -176,6 +174,7 @@ macro_rules! compile_plan {
         use crate::plan::*;
         let mut plan = PlanBuilder::new($table_ref);
         plan.set_include_all_blocks($this.include_all_blocks);
+        plan.set_parent_block_hash($this.parent_block_hash.clone());
         plan.set_first_block($this.from_block);
         plan.set_last_block($this.to_block);
         $(

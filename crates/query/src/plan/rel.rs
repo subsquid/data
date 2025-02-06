@@ -1,16 +1,12 @@
-use std::collections::{BTreeSet, HashSet};
-
+use crate::plan::key::{GenericListKey, Key, PrimitiveGenericListKey};
+use crate::plan::row_list::RowList;
+use crate::primitives::{schema_error, Name, RowIndex, RowIndexArrowType, RowRangeList, SchemaError};
+use crate::scan::Chunk;
 use anyhow::bail;
 use arrow::array::{Array, ArrayRef, ArrowPrimitiveType, AsArray, OffsetSizeTrait};
 use arrow::datatypes::{DataType, Int32Type, UInt16Type, UInt32Type};
-
 use sqd_polars::arrow::{polars_series_to_arrow_array, polars_series_to_row_index_iter};
-use sqd_primitives::RowRangeList;
-
-use crate::plan::key::{GenericListKey, Key, PrimitiveGenericListKey};
-use crate::plan::row_list::RowList;
-use crate::primitives::{schema_error, Name, RowIndex, RowIndexArrowType, SchemaError};
-use crate::scan::Chunk;
+use std::collections::{BTreeSet, HashSet};
 
 
 #[derive(PartialEq, Eq, Hash, Clone)]

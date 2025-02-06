@@ -191,6 +191,7 @@ impl PreparedTable {
     }
     
     pub fn into_processor(self) -> anyhow::Result<TableProcessor> {
+        self.downcast.reset();
         Ok(TableProcessor {
             downcast: self.downcast,
             schema: self.writer_schema,
