@@ -353,6 +353,7 @@ where
     }
 }
 
+
 impl<B, C, F> Stream for StandardDataSource<C, F>
 where
     B: Block,
@@ -367,7 +368,6 @@ where
 }
 
 
-
 impl<B, C, F> DataSource for StandardDataSource<C, F>
 where
     B: Block,
@@ -380,12 +380,10 @@ where
         self.state.position.first_block = next_block;
         self.state.position.parent_block_hash = parent_block_hash;
         self.state.position_is_canonical = false;
+        self.state.finalized_head = None;
         for ep in self.endpoints.iter_mut() {
             ep.state = EndpointState::Ready;
             ep.last_committed_block = None;
-        }
-        if self.state.finalized_head.as_ref().map_or(false, |h| h.number >= next_block) {
-            self.state.finalized_head = None;
         }
     }
 }

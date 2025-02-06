@@ -208,9 +208,10 @@ where
         let rollback = rollback_recv.await?;
 
         self.buffered_blocks = 0;
+        self.finalized_head = None;
         self.first_block = rollback.first_block;
         self.data_source.set_position(rollback.first_block, rollback.parent_block_hash);
-
+        
         Ok(())
     }
 
