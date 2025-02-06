@@ -311,6 +311,7 @@ where
 
     fn poll_next_event(&mut self, cx: &mut std::task::Context<'_>) -> Poll<DataEvent<B>> {
         self.state.forks = 0;
+        
         for ep in self.endpoints.iter_mut() {
             let event_poll = self.state.poll_endpoint(ep, cx);
             if event_poll.is_ready() {
@@ -318,11 +319,21 @@ where
             }
         }
 
-        if self.state.forks > self.endpoints.len() / 2 {
+        if self.state.forks > self.endpoints.len() / 2 || self.state.forks == self.active_endpoints() {
             Poll::Ready(DataEvent::Fork(self.extract_fork()))
         } else {
             Poll::Pending
         }
+    }
+
+    fn active_endpoints(&self) -> usize {
+        self.endpoints.iter().map(|ep| {
+            if let EndpointState::Backoff(_) = &ep.state {
+                0
+            } else {
+                1
+            }
+        }).sum()
     }
 
     fn extract_fork(&mut self) -> Vec<BlockRef> {
