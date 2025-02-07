@@ -15,7 +15,7 @@ FROM builder AS node-builder
 RUN cargo build -p sqd-node-example --release
 
 
-FROM rust AS node
+FROM rust AS node-example
 WORKDIR /app
 COPY --from=node-builder /app/target/release/sqd-node-example .
 RUN mkdir -p /etc/sqd/node && echo "{}" > /etc/sqd/node/datasets.json
