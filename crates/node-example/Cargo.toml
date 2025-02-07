@@ -12,6 +12,7 @@ futures = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqd-node = { path = "../node" }
+sqd-polars = { path = "../polars" }
 sqd-storage = { path = "../storage" }
 tikv-jemallocator = "0.6.0"
 tokio = { workspace = true, features = ["full"] }

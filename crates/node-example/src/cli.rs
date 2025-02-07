@@ -18,7 +18,11 @@ pub struct CLI {
     pub database_dir: String,
 
     #[arg(long, value_name = "MB", default_value = "4096")]
-    pub data_cache_size: usize
+    pub data_cache_size: usize,
+    
+    /// Max number of threads to use for query execution
+    #[arg(long)]
+    pub query_threads: Option<usize>
 }
 
 

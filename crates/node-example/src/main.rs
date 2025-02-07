@@ -19,6 +19,12 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() -> anyhow::Result<()> {
     let args = CLI::parse();
+    
+    if let Some(n_threads) = args.query_threads {
+        unsafe {
+            sqd_polars::set_polars_thread_pool_size(n_threads);
+        }
+    }
 
     let env_filter = tracing_subscriber::EnvFilter::builder().parse_lossy(
         std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
