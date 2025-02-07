@@ -1,4 +1,4 @@
-use crate::error::BlockRangeMissing;
+use crate::error::{BlockRangeMissing, QueryIsAboveTheHead};
 use crate::query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot};
 use crate::query::user_error::QueryKindMismatch;
 use crate::types::{DBRef, DatasetKind};
@@ -20,7 +20,7 @@ struct LeftOver {
 
 
 pub struct QueryRunner {
-    plan: Option<Plan>,
+    plan: Plan,
     last_block: Option<BlockNumber>,
     left_over: Option<LeftOver>,
     next_chunk: Option<StorageChunk>,
@@ -60,57 +60,51 @@ impl QueryRunner {
             query.first_block(),
             None
         );
+        
+        let Some(first_chunk) = chunk_iterator.next().transpose()? else {
+            bail!(QueryIsAboveTheHead {
+                finalized_head: None
+            })
+        };
 
-        let (first_chunk, plan) = match chunk_iterator.next().transpose()? {
-            None => (None, None),
-            Some(chunk) => {
+        ensure!(
+            first_chunk.first_block() <= query.first_block(),
+            BlockRangeMissing {
+                first_block: query.first_block(),
+                last_block: first_chunk.first_block() - 1
+            }
+        );
+        
+        let plan = if query.first_block() == first_chunk.first_block() {
+            if let Some(parent_hash) = query.parent_block_hash() {
                 ensure!(
-                    chunk.first_block() <= query.first_block(),
-                    BlockRangeMissing {
-                        first_block: query.first_block(),
-                        last_block: chunk.first_block() - 1
+                    parent_hash == first_chunk.parent_block_hash(),
+                    sqd_query::UnexpectedBaseBlock {
+                        prev_blocks: vec![BlockRef {
+                            number: first_chunk.first_block().saturating_sub(1),
+                            hash: first_chunk.parent_block_hash().to_string()
+                        }],
+                        expected_hash: parent_hash.to_string()
                     }
                 );
-
-                let plan = if query.first_block() == chunk.first_block() {
-                    if let Some(parent_hash) = query.parent_block_hash() {
-                        ensure!(
-                            parent_hash == chunk.parent_block_hash(),
-                            sqd_query::UnexpectedBaseBlock {
-                                prev_blocks: vec![BlockRef {
-                                    number: chunk.first_block().saturating_sub(1),
-                                    hash: chunk.parent_block_hash().to_string()
-                                }],
-                                expected_hash: parent_hash.to_string()
-                            }
-                        );
-                    }
-                    let mut plan = query.compile();
-                    plan.set_first_block(None);
-                    plan.set_parent_block_hash(None);
-                    plan
-                } else {
-                    query.compile()
-                };
-                (Some(chunk), Some(plan))
             }
-        };
-
-        let buf_capacity = if plan.is_some() {
-            1024 * 1024
+            let mut plan = query.compile();
+            plan.set_first_block(None);
+            plan.set_parent_block_hash(None);
+            plan
         } else {
-            0
+            query.compile()
         };
-
+        
         Ok(Self {
             plan,
             last_block: query.last_block(),
             left_over: None,
-            next_chunk: first_chunk,
+            next_chunk: Some(first_chunk),
             chunk_iterator,
             finalized_head,
             buf: GzEncoder::new(
-                BytesMut::with_capacity(buf_capacity).writer(),
+                BytesMut::new().writer(),
                 Compression::default()
             )
         })
@@ -160,7 +154,7 @@ impl QueryRunner {
 
     fn write_next_chunk(&mut self) -> anyhow::Result<usize> {
         let chunk = if let Some(left_over) = self.left_over.take() {
-            self.plan_mut().set_first_block(left_over.next_block);
+            self.plan.set_first_block(left_over.next_block);
             left_over.chunk
         } else {
             let chunk = self.next_chunk()?;
@@ -169,16 +163,16 @@ impl QueryRunner {
 
         if self.last_block.map_or(false, |end| end < chunk.last_block()) {
             let last_block = self.last_block;
-            self.plan_mut().set_last_block(last_block);
+            self.plan.set_last_block(last_block);
         } else {
-            self.plan_mut().set_last_block(None);
+            self.plan.set_last_block(None);
         }
 
-        let query_result = chunk.with_reader(|reader| self.plan().execute(reader));
+        let query_result = chunk.with_reader(|reader| self.plan.execute(reader));
 
         // no matter what, we are moving to the next chunk
-        self.plan_mut().set_first_block(None);
-        self.plan_mut().set_parent_block_hash(None);
+        self.plan.set_first_block(None);
+        self.plan.set_parent_block_hash(None);
 
         if let Some(mut block_writer) = query_result? {
             if chunk.last_block() > block_writer.last_block()
@@ -247,13 +241,5 @@ impl QueryRunner {
         let elapsed = start.elapsed().as_millis();
         let eta = elapsed + elapsed * next_chunk_range as u128 / processed as u128;
         eta > 100
-    }
-
-    fn plan(&self) -> &Plan {
-        self.plan.as_ref().unwrap()
-    }
-
-    fn plan_mut(&mut self) -> &mut Plan {
-        self.plan.as_mut().unwrap()
     }
 }

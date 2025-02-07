@@ -1,10 +1,10 @@
-use crate::error::{QueryKindMismatch, UnknownDataset};
+use crate::error::{QueryIsAboveTheHead, QueryKindMismatch, UnknownDataset};
 use crate::ingest::DatasetController;
 use crate::node::node_builder::NodeBuilder;
 use crate::node::query_executor::{QueryExecutor, QueryExecutorRef};
 use crate::node::query_response::QueryResponse;
 use crate::types::{DBRef, DatasetKind, RetentionStrategy};
-use anyhow::ensure;
+use anyhow::{bail, ensure};
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
 use reqwest::Url;
@@ -58,9 +58,7 @@ impl Node {
         &self,
         dataset_id: DatasetId,
         query: Query
-    ) -> anyhow::Result<
-        Result<QueryResponse, Option<BlockRef>>
-    >
+    ) -> anyhow::Result<QueryResponse>
     {
         let ds = self.get_dataset(dataset_id)?;
 
@@ -71,15 +69,38 @@ impl Node {
                 dataset_kind: ds.dataset_kind().storage_kind()
             }
         );
-
-        if ds.get_head_block_number().map_or(false, |head| head < query.first_block()) {
+        
+        let should_wait = match ds.get_head() {
+            Some(head) if head.number >= query.first_block() => false,
+            Some(head) if head.number + 1 == query.first_block() => {
+                if let Some(parent_hash) = query.parent_block_hash() {
+                    ensure!(
+                        head.hash == parent_hash,
+                        sqd_query::UnexpectedBaseBlock {
+                            prev_blocks: vec![head],
+                            expected_hash: parent_hash.to_string()
+                        }
+                    );
+                }
+                true
+            },
+            Some(_) | None => true
+        };
+        
+        if should_wait {
             // FIXME: there should be a bound on a maximum number of per-dataset waiters
             match tokio::time::timeout(
                 Duration::from_secs(5),
                 ds.wait_for_block(query.first_block())
             ).await {
                 Ok(_) => {}
-                Err(_) => return Ok(Err(ds.get_finalized_head()))
+                Err(_) => {
+                    // FIXME: here we ignore possible finalization progress,
+                    // that's because ds.get_finalized_head() and ds.get_head() are not synchronized
+                    bail!(QueryIsAboveTheHead {
+                        finalized_head: None
+                    });
+                }
             }
         }
 
@@ -88,7 +109,7 @@ impl Node {
             self.db.clone(),
             dataset_id,
             query
-        ).await.map(Ok)
+        ).await
     }
 
     pub fn get_finalized_head(&self, dataset_id: DatasetId) -> Result<Option<BlockRef>, UnknownDataset> {

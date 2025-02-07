@@ -1,8 +1,8 @@
 pub use super::query::user_error::*;
+use sqd_primitives::{BlockNumber, BlockRef};
 pub use sqd_query::UnexpectedBaseBlock;
 use sqd_storage::db::DatasetId;
 use std::fmt::{Display, Formatter};
-use sqd_primitives::BlockNumber;
 
 
 #[derive(Debug)]
@@ -54,3 +54,19 @@ impl Display for BlockRangeMissing {
 
 
 impl std::error::Error for BlockRangeMissing {}
+
+
+#[derive(Debug)]
+pub struct QueryIsAboveTheHead {
+    pub finalized_head: Option<BlockRef>
+}
+
+
+impl Display for QueryIsAboveTheHead {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "first block requested by the query is above the current dataset head")
+    }
+}
+
+
+impl std::error::Error for QueryIsAboveTheHead {}

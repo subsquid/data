@@ -35,7 +35,7 @@ async fn stream(
     }
 
     match node.query(dataset_id, query).await {
-        Ok(Ok(stream)) => {
+        Ok(stream) => {
             let mut res = Response::builder()
                 .status(200)
                 .header("content-type", "text/plain")
@@ -52,16 +52,6 @@ async fn stream(
 
             res.body(body).unwrap()
         },
-        Ok(Err(finalized_head)) => {
-            let mut res = Response::builder().status(204);
-
-            if let Some(head) = finalized_head {
-                res = res.header("x-sqd-finalized-head-number", head.number);
-                res = res.header("x-sqd-finalized-head-hash", head.hash.as_str());
-            }
-
-            res.body(Body::empty()).unwrap()
-        },
         Err(err) => error_to_response(err)
     }
 }
@@ -77,6 +67,15 @@ fn stream_query_response(mut stream: QueryResponse) -> impl TryStream<Ok=Bytes, 
 
 
 fn error_to_response(err: anyhow::Error) -> Response {
+    if let Some(above_the_head) = err.downcast_ref::<sqd_node::error::QueryIsAboveTheHead>() {
+        let mut res = Response::builder().status(204);
+        if let Some(head) = above_the_head.finalized_head.as_ref() {
+            res = res.header("x-sqd-finalized-head-number", head.number);
+            res = res.header("x-sqd-finalized-head-hash", head.hash.as_str());
+        }
+        return res.body(Body::empty()).unwrap()
+    }
+    
     if let Some(fork) = err.downcast_ref::<sqd_node::error::UnexpectedBaseBlock>() {
         return (StatusCode::CONFLICT, Json(&fork.prev_blocks)).into_response()
     }
