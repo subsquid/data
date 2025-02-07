@@ -31,11 +31,7 @@ impl QueryResponse {
         
         let (runner, next_pack) = executor.run(move || -> anyhow::Result<_> {
             let mut runner = QueryRunner::new(db, dataset_id, &query)?;
-            let pack = if runner.has_next_pack() {
-                runner.next_pack()?
-            } else {
-                Bytes::new()
-            };
+            let pack = runner.next_pack()?;
             Ok((runner, pack))
         })
         .await
