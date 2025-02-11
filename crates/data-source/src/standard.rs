@@ -319,7 +319,9 @@ where
             }
         }
 
-        if self.state.forks > self.endpoints.len() / 2 || self.state.forks == self.active_endpoints() {
+        if self.state.forks > self.endpoints.len() / 2
+            || self.state.forks > 0 && self.state.forks == self.active_endpoints()
+        {
             Poll::Ready(DataEvent::Fork(self.extract_fork()))
         } else {
             Poll::Pending
