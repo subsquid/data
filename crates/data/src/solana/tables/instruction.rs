@@ -1,9 +1,15 @@
 use crate::solana::model::Instruction;
-use crate::solana::tables::common::{AccountListBuilder, Base58Builder, BytesBuilder, InstructionAddressListBuilder};
+use crate::solana::tables::common::{AccountListBuilder, Base58Builder, BloomFilterBuilder, BytesBuilder, InstructionAddressListBuilder};
 use sqd_array::builder::{BooleanBuilder, StringBuilder, UInt32Builder, UInt64Builder};
+use sqd_bloom_filter::BloomFilter;
 use sqd_data_core::table_builder;
 use sqd_primitives::BlockNumber;
 use std::fmt::Write;
+
+
+pub const BITS: usize = 64 * 8;
+pub const NUM_HASHES: usize = 7;
+
 
 table_builder! {
     InstructionBuilder {
@@ -29,6 +35,7 @@ table_builder! {
         a14: Base58Builder,
         a15: Base58Builder,
         rest_accounts: AccountListBuilder,
+        accounts_bloom: BloomFilterBuilder,
 
         compute_units_consumed: UInt64Builder,
         error: StringBuilder,
@@ -121,6 +128,7 @@ impl InstructionBuilder {
             self.rest_accounts.append_null();
         }
 
+        self.append_accounts_bloom(&row.accounts);
         let accounts_size = row.accounts.iter().map(|val| val.len() as u64).sum();
         self.accounts_size.append(accounts_size);
 
@@ -140,6 +148,23 @@ impl InstructionBuilder {
         write_hex(&mut self.d2, data.get(..2).unwrap_or_default());
         write_hex(&mut self.d4, data.get(..4).unwrap_or_default());
         write_hex(&mut self.d8, data.get(..8).unwrap_or_default());
+    }
+
+    fn append_accounts_bloom(&mut self, accounts: &[String]) {
+        if accounts.len() > 0 {
+            let mut bloom = BloomFilter::new(BITS, NUM_HASHES);
+            for account in accounts {
+                bloom.insert(account);
+            }
+            let bit_array = bloom.to_bit_array();
+
+            for bit in bit_array {
+                self.accounts_bloom.values().append(bit);
+            }
+            self.accounts_bloom.append();
+        } else {
+            self.accounts_bloom.append_null();
+        }
     }
 }
 

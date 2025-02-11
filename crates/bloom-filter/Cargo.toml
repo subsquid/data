@@ -1,0 +1,15 @@
+[package]
+name = "sqd-bloom-filter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde_json = { workspace = true }
+xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "main"
+harness = false

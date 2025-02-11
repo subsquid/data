@@ -4541,6 +4541,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqd-bloom-filter"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "serde_json",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "sqd-data"
 version = "0.1.0"
 dependencies = [
@@ -4550,6 +4559,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqd-array",
+ "sqd-bloom-filter",
  "sqd-data-core",
  "sqd-dataset",
  "sqd-primitives",
@@ -4689,6 +4699,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "sqd-bloom-filter",
  "sqd-data",
  "sqd-data-core",
  "sqd-dataset",

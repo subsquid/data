@@ -68,6 +68,11 @@ pub fn col_between<T: IntoArrow>(name: Name, low: T, high: T) -> RowPredicateRef
 }
 
 
+pub fn bloom_filter<T: IntoArrow>(name: Name, values: Vec<T>) -> RowPredicateRef {
+    make_column_predicate!(name, array_predicate::BloomFilter::new(values))
+}
+
+
 pub fn and(predicates: Vec<RowPredicateRef>) -> RowPredicateRef {
     if predicates.len() == 1 {
         predicates.into_iter().next().unwrap()

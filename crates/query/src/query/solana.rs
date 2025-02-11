@@ -313,6 +313,7 @@ request! {
         pub d2: Option<Vec<Bytes>>,
         pub d4: Option<Vec<Bytes>>,
         pub d8: Option<Vec<Bytes>>,
+        pub account: Option<Vec<Bytes>>,
         pub a0: Option<Vec<Bytes>>,
         pub a1: Option<Vec<Bytes>>,
         pub a2: Option<Vec<Bytes>>,
@@ -345,6 +346,7 @@ impl InstructionRequest {
         p.col_in_list("d2", self.d2.clone());
         p.col_in_list("d4", self.d4.clone());
         p.col_in_list("d8", self.d8.clone());
+        p.bloom_filter("accounts_bloom", self.account.clone());
         p.col_in_list("a0", self.a0.clone());
         p.col_in_list("a1", self.a1.clone());
         p.col_in_list("a2", self.a2.clone());

@@ -47,6 +47,40 @@ static WHIRLPOOL_SWAP: LazyLock<Query> = LazyLock::new(|| {
 });
 
 
+static ACCOUNTS_BLOOM: LazyLock<Query> = LazyLock::new(|| {
+    let query = json!({
+        "type": "solana",
+        "fromBlock": 200_000_000,
+        "fields": {
+            "block": {
+                "number": true,
+                "parentHash": true,
+                "parentNumber": true
+            },
+            "transaction": {
+                "signatures": true,
+                "err": true
+            },
+            "instruction": {
+                "programId": true,
+                "accounts": true,
+                "data": true
+            }
+        },
+        "instructions": [
+            {
+                "account": [
+                  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+                ],
+                "transaction": true
+            }
+        ]
+    });
+
+    Query::from_json_value(query).unwrap()
+});
+
+
 fn perform_query(plan: &Plan, chunk: &dyn Chunk) -> anyhow::Result<Vec<u8>> {
     sqd_polars::POOL.install(|| {
         let mut json_writer = JsonLinesWriter::new(Vec::new());
@@ -59,7 +93,7 @@ fn perform_query(plan: &Plan, chunk: &dyn Chunk) -> anyhow::Result<Vec<u8>> {
 
 
 mod parquet {
-    use crate::{perform_query, WHIRLPOOL_SWAP};
+    use crate::{perform_query, ACCOUNTS_BLOOM, WHIRLPOOL_SWAP};
     use criterion::Criterion;
     use sqd_query::ParquetChunk;
     use std::path::Path;
@@ -75,6 +109,21 @@ mod parquet {
             );
 
             let plan = WHIRLPOOL_SWAP.compile();
+
+            bench.iter(|| {
+                perform_query(&plan, &chunk).unwrap()
+            })
+        });
+
+        c.bench_function("parquet: accounts bloom filter", |bench| {
+            let chunk = ParquetChunk::new(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("fixtures/solana/chunk")
+                    .to_str()
+                    .unwrap()
+            );
+
+            let plan = ACCOUNTS_BLOOM.compile();
 
             bench.iter(|| {
                 perform_query(&plan, &chunk).unwrap()

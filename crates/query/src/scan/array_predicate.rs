@@ -410,3 +410,48 @@ impl ArrayPredicate for InList {
         Ok(mask)
     }
 }
+
+
+pub struct BloomFilter {
+    list: sqd_polars::prelude::Series
+}
+
+
+impl BloomFilter {
+    pub fn new<T: IntoArrow>(values: Vec<T>) -> Self {
+        let arr = T::make_array(values);
+        let list = sqd_polars::arrow::array_series("value_list", &arr).unwrap();
+        Self {
+            list
+        }
+    }
+
+    pub fn bloom_contains(&self, opt: Option<sqd_polars::prelude::Series>) -> anyhow::Result<bool> {
+        if let Some(val) = opt {
+            let bit_array: Vec<_> = val.bool()?.iter().map(|opt| opt.unwrap()).collect();
+            let bloom = sqd_bloom_filter::BloomFilter::from_bit_array(bit_array, 7);
+
+            for item in self.list.str()? {
+                if !bloom.contains(&item.unwrap()) {
+                    return Ok(false)
+                }
+            }
+
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+
+impl ArrayPredicate for BloomFilter {
+    fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
+        let mut result_mask = Vec::with_capacity(arr.len());
+        let series = sqd_polars::arrow::array_series("values", arr)?;
+        for value in series.list()? {
+            result_mask.push(self.bloom_contains(value)?);
+        }
+        Ok(BooleanArray::from(result_mask))
+    }
+}
