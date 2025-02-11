@@ -32,7 +32,7 @@ parking_lot = "0.12.3"
 parquet = "54.1.0"
 proptest = "1.4.0"
 rayon = "1.10.0"
-reqwest = "0.12.11"
+reqwest = { git = "https://github.com/subsquid/reqwest.git", rev = "620aa86a", version = "0.12.12" }
 scopeguard = "1.2.0"
 serde = "1.0.203"
 serde_json = "1.0.118"
