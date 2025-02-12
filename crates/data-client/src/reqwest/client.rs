@@ -6,6 +6,7 @@ use bytes::Bytes;
 use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt};
 use reqwest::{Client, IntoUrl, Response, StatusCode, Url};
+use serde::Deserialize;
 use serde_json::json;
 use sqd_primitives::{BlockNumber, BlockRef};
 use std::fmt::{Debug, Display, Formatter};
@@ -95,17 +96,17 @@ impl ReqwestDataClient {
                 })
             },
             409 => {
-                let prev_blocks: Vec<BlockRef> = res
+                let conflict: BaseBlockConflict = res
                     .json()
                     .await
                     .context(
                         "failed to receive a list of previous blocks after base-block hash mismatch"
                     )?;
                 ensure!(
-                    !prev_blocks.is_empty(),
+                    !conflict.last_blocks.is_empty(),
                     "got an empty list of prev blocks"
                 );
-                Ok(BlockStreamResponse::Fork(prev_blocks))
+                Ok(BlockStreamResponse::Fork(conflict.last_blocks))
             },
             _ => {
                 let status = res.status();
@@ -217,7 +218,7 @@ impl DataClient for ReqwestDataClient {
                     _ => {}
                 }
                 if reqwest_error.is_timeout() {
-                   return true 
+                   return true
                 }
             }
 
@@ -255,3 +256,10 @@ impl Display for UnexpectedHttpStatus {
 
 
 impl std::error::Error for UnexpectedHttpStatus {}
+
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BaseBlockConflict {
+    last_blocks: Vec<BlockRef>
+}

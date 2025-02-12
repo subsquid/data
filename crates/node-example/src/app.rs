@@ -6,7 +6,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{BoxError, Extension, Json, Router};
 use futures::TryStream;
+use serde::Serialize;
 use sqd_node::{Node, Query, QueryResponse};
+use sqd_primitives::BlockRef;
 use sqd_storage::db::DatasetId;
 use std::sync::Arc;
 
@@ -77,7 +79,12 @@ fn error_to_response(err: anyhow::Error) -> Response {
     }
     
     if let Some(fork) = err.downcast_ref::<sqd_node::error::UnexpectedBaseBlock>() {
-        return (StatusCode::CONFLICT, Json(&fork.prev_blocks)).into_response()
+        return (
+            StatusCode::CONFLICT, 
+            Json(BaseBlockConflict {
+                last_blocks: &fork.prev_blocks
+            })
+        ).into_response()
     }
 
     let status_code = if err.is::<sqd_node::error::UnknownDataset>() {
@@ -99,6 +106,13 @@ fn error_to_response(err: anyhow::Error) -> Response {
     };
 
     (status_code, message).into_response()
+}
+
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BaseBlockConflict<'a> {
+    last_blocks: &'a [BlockRef]
 }
 
 
