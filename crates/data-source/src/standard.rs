@@ -247,12 +247,20 @@ impl<C: DataClient> Endpoint<C> {
         let pause = if self.client.is_retryable(&error) {
             let backoff = [0, 100, 200, 500, 1000, 2000, 5000, 10000];
             let pause = backoff[std::cmp::min(self.error_counter, backoff.len() - 1)];
-            warn!(
-                error =? error,
-                data_source =? self.client,
-                "data ingestion error, will disable the data source for {} ms",
-                pause
-            );
+            if pause > 0 {
+                warn!(
+                    error =? error,
+                    data_source =? self.client,
+                    "data ingestion error, will disable the data source for {} ms",
+                    pause
+                );
+            } else {
+                warn!(
+                    error =? error,
+                    data_source =? self.client,
+                    "data ingestion error",
+                );
+            }
             pause
         } else {
             error!(
@@ -311,21 +319,21 @@ where
 
     fn poll_next_event(&mut self, cx: &mut std::task::Context<'_>) -> Poll<DataEvent<B>> {
         self.state.forks = 0;
-        
+
         for ep in self.endpoints.iter_mut() {
-            let event_poll = self.state.poll_endpoint(ep, cx);
-            if event_poll.is_ready() {
-                return event_poll
+            let event = self.state.poll_endpoint(ep, cx);
+            if event.is_ready() {
+                return event
             }
         }
 
-        if self.state.forks > self.endpoints.len() / 2
-            || self.state.forks > 0 && self.state.forks == self.active_endpoints()
-        {
-            Poll::Ready(DataEvent::Fork(self.extract_fork()))
-        } else {
-            Poll::Pending
+        if self.state.forks > 0 {
+            if self.state.forks > self.endpoints.len() / 2 || self.state.forks == self.active_endpoints() {
+                return Poll::Ready(DataEvent::Fork(self.extract_fork()))
+            }
         }
+
+        Poll::Pending
     }
 
     fn active_endpoints(&self) -> usize {

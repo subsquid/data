@@ -5,10 +5,11 @@ use anyhow::{anyhow, bail, ensure, Context};
 use bytes::Bytes;
 use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt};
-use reqwest::{Client, IntoUrl, Response, Url};
+use reqwest::{Client, IntoUrl, Response, StatusCode, Url};
 use serde_json::json;
 use sqd_primitives::{BlockNumber, BlockRef};
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
+use std::io::ErrorKind;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -75,8 +76,7 @@ impl ReqwestDataClient {
             .post(url)
             .json(&body)
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
 
         match res.status().as_u16() {
             200 => {
@@ -107,7 +107,14 @@ impl ReqwestDataClient {
                 );
                 Ok(BlockStreamResponse::Fork(prev_blocks))
             },
-            _ => bail!("unexpected HTTP response status: {}", res.status().as_u16())
+            _ => {
+                let status = res.status();
+                let text = res.text().await.unwrap_or_default();
+                bail!(UnexpectedHttpStatus {
+                    status,
+                    text
+                })
+            }
         }
     }
 
@@ -135,6 +142,7 @@ impl ReqwestDataClient {
         Ok(head)
     }
 }
+
 
 fn extract_finalized_head(res: &Response) -> anyhow::Result<Option<BlockRef>> {
     let number = get_finalized_head_number(res)
@@ -194,7 +202,56 @@ impl DataClient for ReqwestDataClient {
         }.boxed()
     }
 
-    fn is_retryable(&self, _err: &anyhow::Error) -> bool {
-        true
+    fn is_retryable(&self, err: &anyhow::Error) -> bool {
+        for cause in err.chain() {
+            if let Some(unexpected_status) = cause.downcast_ref::<UnexpectedHttpStatus>() {
+                return match unexpected_status.status.as_u16() {
+                    429 | 502 | 503 | 504 | 524 => true,
+                    _ => false
+                }
+            }
+
+            if let Some(reqwest_error) = cause.downcast_ref::<reqwest::Error>() {
+                match reqwest_error.status().unwrap_or_default().as_u16() {
+                    429 | 502 | 503 | 504 | 524 => return true,
+                    _ => {}
+                }
+                if reqwest_error.is_timeout() {
+                   return true 
+                }
+            }
+
+            if let Some(io_error) = cause.downcast_ref::<std::io::Error>() {
+                match io_error.kind() {
+                    ErrorKind::ConnectionReset => return true,
+                    ErrorKind::ConnectionAborted => return true,
+                    ErrorKind::TimedOut => return true,
+                    _ => {}
+                }
+            }
+        }
+        false
     }
 }
+
+
+#[derive(Debug)]
+pub struct UnexpectedHttpStatus {
+    pub status: StatusCode,
+    pub text: String
+}
+
+
+impl Display for UnexpectedHttpStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match (self.status.is_success(), self.text.is_empty()) {
+            (true, true) => write!(f, "got unexpected http status: {}", self.status),
+            (true, false) => write!(f, "got unexpected http status: {}, text: {}", self.status, self.text),
+            (false, true) => write!(f, "got http {}", self.status),
+            (false, false) => write!(f, "got http {}, text: {}", self.status, self.text)
+        }
+    }
+}
+
+
+impl std::error::Error for UnexpectedHttpStatus {}
