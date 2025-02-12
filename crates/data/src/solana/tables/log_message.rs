@@ -13,6 +13,7 @@ table_builder! {
         program_id: Base58Builder,
         kind: StringBuilder,
         message: StringBuilder,
+        message_size: UInt64Builder,
     }
 
     description(d) {
@@ -42,5 +43,6 @@ impl LogMessageBuilder {
         self.program_id.append(&row.program_id);
         self.kind.append(row.kind.to_str());
         self.message.append(&row.message);
+        self.message_size.append(row.message.len() as u64);
     }
 }
