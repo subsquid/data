@@ -151,7 +151,8 @@ pub fn get_num_buffers(data_type: &DataType) -> usize {
         DataType::Time32(_) |
         DataType::Time64(_) |
         DataType::Duration(_) |
-        DataType::Interval(_) => {
+        DataType::Interval(_) |
+        DataType::Decimal128(_, _) => {
             2
         }
         DataType::Binary |

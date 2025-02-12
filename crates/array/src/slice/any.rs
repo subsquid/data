@@ -22,6 +22,7 @@ pub enum AnySlice<'a> {
     Int16(PrimitiveSlice<'a, i16>),
     Int32(PrimitiveSlice<'a, i32>),
     Int64(PrimitiveSlice<'a, i64>),
+    Int128(PrimitiveSlice<'a, i128>),
     Binary(ListSlice<'a, &'a [u8]>),
     List(ListSlice<'a, AnyListItem<'a>>),
     Struct(AnyStructSlice<'a>)
@@ -127,6 +128,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int16(s) => s.num_buffers(),
             AnySlice::Int32(s) => s.num_buffers(),
             AnySlice::Int64(s) => s.num_buffers(),
+            AnySlice::Int128(s) => s.num_buffers(),
             AnySlice::Binary(s) => s.num_buffers(),
             AnySlice::List(s) => s.num_buffers(),
             AnySlice::Struct(s) => s.num_buffers(),
@@ -144,6 +146,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int16(s) => s.byte_size(),
             AnySlice::Int32(s) => s.byte_size(),
             AnySlice::Int64(s) => s.byte_size(),
+            AnySlice::Int128(s) => s.byte_size(),
             AnySlice::Binary(s) => s.byte_size(),
             AnySlice::List(s) => s.byte_size(),
             AnySlice::Struct(s) => s.byte_size(),
@@ -161,6 +164,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int16(s) => s.len(),
             AnySlice::Int32(s) => s.len(),
             AnySlice::Int64(s) => s.len(),
+            AnySlice::Int128(s) => s.len(),
             AnySlice::Binary(s) => s.len(),
             AnySlice::List(s) => s.len(),
             AnySlice::Struct(s) => s.len(),
@@ -178,6 +182,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int16(s) => AnySlice::Int16(s.slice(offset, len)),
             AnySlice::Int32(s) => AnySlice::Int32(s.slice(offset, len)),
             AnySlice::Int64(s) => AnySlice::Int64(s.slice(offset, len)),
+            AnySlice::Int128(s) => AnySlice::Int128(s.slice(offset, len)),
             AnySlice::Binary(s) => AnySlice::Binary(s.slice(offset, len)),
             AnySlice::List(s) => AnySlice::List(s.slice(offset, len)),
             AnySlice::Struct(s) => AnySlice::Struct(s.slice(offset, len)),
@@ -195,6 +200,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int16(s) => s.write(dst),
             AnySlice::Int32(s) => s.write(dst),
             AnySlice::Int64(s) => s.write(dst),
+            AnySlice::Int128(s) => s.write(dst),
             AnySlice::Binary(s) => s.write(dst),
             AnySlice::List(s) => s.write(dst),
             AnySlice::Struct(s) => s.write(dst),
@@ -212,6 +218,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int16(s) => s.write_range(dst, range),
             AnySlice::Int32(s) => s.write_range(dst, range),
             AnySlice::Int64(s) => s.write_range(dst, range),
+            AnySlice::Int128(s) => s.write_range(dst, range),
             AnySlice::Binary(s) => s.write_range(dst, range),
             AnySlice::List(s) => s.write_range(dst, range),
             AnySlice::Struct(s) => s.write_range(dst, range),
@@ -229,6 +236,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int16(s) => s.write_ranges(dst, ranges),
             AnySlice::Int32(s) => s.write_ranges(dst, ranges),
             AnySlice::Int64(s) => s.write_ranges(dst, ranges),
+            AnySlice::Int128(s) => s.write_ranges(dst, ranges),
             AnySlice::Binary(s) => s.write_ranges(dst, ranges),
             AnySlice::List(s) => s.write_ranges(dst, ranges),
             AnySlice::Struct(s) => s.write_ranges(dst, ranges),
@@ -251,6 +259,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int16(s) => s.write_indexes(dst, indexes),
             AnySlice::Int32(s) => s.write_indexes(dst, indexes),
             AnySlice::Int64(s) => s.write_indexes(dst, indexes),
+            AnySlice::Int128(s) => s.write_indexes(dst, indexes),
             AnySlice::Binary(s) => s.write_indexes(dst, indexes),
             AnySlice::List(s) => s.write_indexes(dst, indexes),
             AnySlice::Struct(s) => s.write_indexes(dst, indexes),
@@ -414,3 +423,4 @@ impl_from_prim!(i8, Int8);
 impl_from_prim!(i16, Int16);
 impl_from_prim!(i32, Int32);
 impl_from_prim!(i64, Int64);
+impl_from_prim!(i128, Int128);

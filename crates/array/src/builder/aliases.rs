@@ -1,5 +1,5 @@
 use crate::builder::PrimitiveBuilder;
-use arrow::datatypes::{Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, TimestampMillisecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
+use arrow::datatypes::{Decimal128Type, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, TimestampMillisecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 
 
 /// A signed 8-bit integer array builder.
@@ -24,6 +24,8 @@ pub type Float16Builder = PrimitiveBuilder<Float16Type>;
 pub type Float32Builder = PrimitiveBuilder<Float32Type>;
 /// A 64-bit floating point array builder.
 pub type Float64Builder = PrimitiveBuilder<Float64Type>;
+/// A 128-bit decimal array builder.
+pub type Decimal128Builder = PrimitiveBuilder<Decimal128Type>;
 
 /// A timestamp second array builder.
 pub type TimestampSecondBuilder = PrimitiveBuilder<TimestampSecondType>;

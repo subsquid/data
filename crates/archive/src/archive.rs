@@ -10,6 +10,7 @@ use crate::writer::{Writer, WriterItem};
 use anyhow::{ensure, Context};
 use prometheus_client::registry::Registry;
 use sqd_data::solana::tables::SolanaChunkBuilder;
+use sqd_data::substrate::tables::SubstrateChunkBuilder;
 use sqd_primitives::BlockNumber;
 use std::time::Duration;
 
@@ -50,6 +51,9 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
         NetworkKind::Solana => Box::new(
             ChainBuilder::<SolanaChunkBuilder>::default(),
         ),
+        NetworkKind::Substrate => Box::new(
+            ChainBuilder::<SubstrateChunkBuilder>::default(),
+        )
     };
 
     let processor = LineProcessor::new(chunk_builder);

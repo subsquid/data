@@ -1,5 +1,5 @@
 use arrow::array::ArrowPrimitiveType;
-use arrow::datatypes::{DataType, FieldRef, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit, TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
+use arrow::datatypes::{DataType, Decimal128Type, FieldRef, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit, TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 use std::sync::Arc;
 
 
@@ -44,6 +44,7 @@ pub trait DataTypeVisitor {
             DataType::Float16 => self.primitive::<Float16Type>(),
             DataType::Float32 => self.primitive::<Float32Type>(),
             DataType::Float64 => self.primitive::<Float64Type>(),
+            DataType::Decimal128(_, _) => self.primitive::<Decimal128Type>(),
             DataType::Timestamp(time_unit, tz) => self.timestamp(time_unit, tz),
             DataType::Binary => self.binary(),
             DataType::Utf8 => self.string(),

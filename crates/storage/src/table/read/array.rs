@@ -1,7 +1,7 @@
 use anyhow::{anyhow, ensure, Context};
 use arrow::array::{ArrayDataBuilder, ArrayRef, ArrowPrimitiveType, BinaryArray, BooleanArray, ListArray, PrimitiveArray, StringArray, StructArray};
 use arrow::buffer::{BooleanBuffer, NullBuffer, OffsetBuffer, ScalarBuffer};
-use arrow::datatypes::{ArrowNativeType, DataType, FieldRef, Fields, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
+use arrow::datatypes::{ArrowNativeType, DataType, Decimal128Type, FieldRef, Fields, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 use arrow_buffer::MutableBuffer;
 use rayon::prelude::*;
 use sqd_array::util::build_field_offsets;
@@ -66,6 +66,7 @@ pub fn read_array(
         DataType::Float16 => read_primitive_array::<Float16Type>(storage, pos, ranges),
         DataType::Float32 => read_primitive_array::<Float32Type>(storage, pos, ranges),
         DataType::Float64 => read_primitive_array::<Float64Type>(storage, pos, ranges),
+        DataType::Decimal128(_, _) => read_primitive_array::<Decimal128Type>(storage, pos, ranges),
         DataType::Timestamp(unit, tz) => read_primitive_data(
             storage,
             pos,

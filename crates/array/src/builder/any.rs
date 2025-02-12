@@ -4,7 +4,7 @@ use crate::builder::{ArrayBuilder, BinaryBuilder, BooleanBuilder, ListBuilder, P
 use crate::slice::{AnySlice, AsSlice};
 use crate::writer::{ArrayWriter, Writer};
 use arrow::array::ArrayRef;
-use arrow::datatypes::{DataType, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit, TimestampMillisecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
+use arrow::datatypes::{DataType, Decimal128Type, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit, TimestampMillisecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 
 
 pub enum AnyBuilder {
@@ -17,6 +17,7 @@ pub enum AnyBuilder {
     UInt16(PrimitiveBuilder<UInt16Type>),
     UInt32(PrimitiveBuilder<UInt32Type>),
     UInt64(PrimitiveBuilder<UInt64Type>),
+    Decimal128(PrimitiveBuilder<Decimal128Type>),
     TimestampSecond(PrimitiveBuilder<TimestampSecondType>),
     TimestampMillisecond(PrimitiveBuilder<TimestampMillisecondType>),
     Binary(BinaryBuilder),
@@ -40,6 +41,7 @@ impl ArrayWriter for AnyBuilder {
             AnyBuilder::UInt16(b) => b.bitmask(buf),
             AnyBuilder::UInt32(b) => b.bitmask(buf),
             AnyBuilder::UInt64(b) => b.bitmask(buf),
+            AnyBuilder::Decimal128(b) => b.bitmask(buf),
             AnyBuilder::TimestampSecond(b) => b.bitmask(buf),
             AnyBuilder::TimestampMillisecond(b) => b.bitmask(buf),
             AnyBuilder::Binary(b) => b.bitmask(buf),
@@ -60,6 +62,7 @@ impl ArrayWriter for AnyBuilder {
             AnyBuilder::UInt16(b) => b.nullmask(buf),
             AnyBuilder::UInt32(b) => b.nullmask(buf),
             AnyBuilder::UInt64(b) => b.nullmask(buf),
+            AnyBuilder::Decimal128(b) => b.nullmask(buf),
             AnyBuilder::TimestampSecond(b) => b.nullmask(buf),
             AnyBuilder::TimestampMillisecond(b) => b.nullmask(buf),
             AnyBuilder::Binary(b) => b.nullmask(buf),
@@ -80,6 +83,7 @@ impl ArrayWriter for AnyBuilder {
             AnyBuilder::UInt16(b) => b.native(buf),
             AnyBuilder::UInt32(b) => b.native(buf),
             AnyBuilder::UInt64(b) => b.native(buf),
+            AnyBuilder::Decimal128(b) => b.native(buf),
             AnyBuilder::TimestampSecond(b) => b.native(buf),
             AnyBuilder::TimestampMillisecond(b) => b.native(buf),
             AnyBuilder::Binary(b) => b.native(buf),
@@ -100,6 +104,7 @@ impl ArrayWriter for AnyBuilder {
             AnyBuilder::UInt16(b) => b.offset(buf),
             AnyBuilder::UInt32(b) => b.offset(buf),
             AnyBuilder::UInt64(b) => b.offset(buf),
+            AnyBuilder::Decimal128(b) => b.offset(buf),
             AnyBuilder::TimestampSecond(b) => b.offset(buf),
             AnyBuilder::TimestampMillisecond(b) => b.offset(buf),
             AnyBuilder::Binary(b) => b.offset(buf),
@@ -125,6 +130,7 @@ impl AsSlice for AnyBuilder {
             AnyBuilder::UInt16(b) => b.as_slice().into(),
             AnyBuilder::UInt32(b) => b.as_slice().into(),
             AnyBuilder::UInt64(b) => b.as_slice().into(),
+            AnyBuilder::Decimal128(b) => b.as_slice().into(),
             AnyBuilder::TimestampSecond(b) => b.as_slice().into(),
             AnyBuilder::TimestampMillisecond(b) => b.as_slice().into(),
             AnyBuilder::Binary(b) => b.as_slice().into(),
@@ -148,6 +154,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::UInt16(b) => b.data_type(),
             AnyBuilder::UInt32(b) => b.data_type(),
             AnyBuilder::UInt64(b) => b.data_type(),
+            AnyBuilder::Decimal128(b) => b.data_type(),
             AnyBuilder::TimestampSecond(b) => b.data_type(),
             AnyBuilder::TimestampMillisecond(b) => b.data_type(),
             AnyBuilder::Binary(b) => b.data_type(),
@@ -168,6 +175,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::UInt16(b) => b.len(),
             AnyBuilder::UInt32(b) => b.len(),
             AnyBuilder::UInt64(b) => b.len(),
+            AnyBuilder::Decimal128(b) => b.len(),
             AnyBuilder::TimestampSecond(b) => b.len(),
             AnyBuilder::TimestampMillisecond(b) => b.len(),
             AnyBuilder::Binary(b) => b.len(),
@@ -188,6 +196,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::UInt16(b) => b.byte_size(),
             AnyBuilder::UInt32(b) => b.byte_size(),
             AnyBuilder::UInt64(b) => b.byte_size(),
+            AnyBuilder::Decimal128(b) => b.byte_size(),
             AnyBuilder::TimestampSecond(b) => b.byte_size(),
             AnyBuilder::TimestampMillisecond(b) => b.byte_size(),
             AnyBuilder::Binary(b) => b.byte_size(),
@@ -208,6 +217,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::UInt16(b) => b.clear(),
             AnyBuilder::UInt32(b) => b.clear(),
             AnyBuilder::UInt64(b) => b.clear(),
+            AnyBuilder::Decimal128(b) => b.clear(),
             AnyBuilder::TimestampSecond(b) => b.clear(),
             AnyBuilder::TimestampMillisecond(b) => b.clear(),
             AnyBuilder::Binary(b) => b.clear(),
@@ -228,6 +238,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::UInt16(b) => ArrayBuilder::finish(b),
             AnyBuilder::UInt32(b) => ArrayBuilder::finish(b),
             AnyBuilder::UInt64(b) => ArrayBuilder::finish(b),
+            AnyBuilder::Decimal128(b) => ArrayBuilder::finish(b),
             AnyBuilder::TimestampSecond(b) => ArrayBuilder::finish(b),
             AnyBuilder::TimestampMillisecond(b) => ArrayBuilder::finish(b),
             AnyBuilder::Binary(b) => ArrayBuilder::finish(b),
@@ -248,6 +259,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::UInt16(b) => ArrayBuilder::finish_unchecked(b),
             AnyBuilder::UInt32(b) => ArrayBuilder::finish_unchecked(b),
             AnyBuilder::UInt64(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::Decimal128(b) => ArrayBuilder::finish_unchecked(b),
             AnyBuilder::TimestampSecond(b) => ArrayBuilder::finish_unchecked(b),
             AnyBuilder::TimestampMillisecond(b) => ArrayBuilder::finish_unchecked(b),
             AnyBuilder::Binary(b) => ArrayBuilder::finish_unchecked(b),
@@ -283,6 +295,7 @@ impl_from_primitive!(UInt8, UInt8Type);
 impl_from_primitive!(UInt16, UInt16Type);
 impl_from_primitive!(UInt32, UInt32Type);
 impl_from_primitive!(UInt64, UInt64Type);
+impl_from_primitive!(Decimal128, Decimal128Type);
 impl_from_primitive!(TimestampSecond, TimestampSecondType);
 impl_from_primitive!(TimestampMillisecond, TimestampMillisecondType);
 
@@ -333,6 +346,7 @@ impl AnyBuilder {
             DataType::Timestamp(TimeUnit::Millisecond, _) => {
                 PrimitiveBuilder::<TimestampMillisecondType>::new(0).into()
             },
+            DataType::Decimal128(_, _) => PrimitiveBuilder::<Decimal128Type>::new(0).into(),
             DataType::Binary => BinaryBuilder::new(0, 0).into(),
             DataType::Utf8 => StringBuilder::new(0, 0).into(),
             DataType::List(f) => {

@@ -15,6 +15,7 @@ macro_rules! with_order {
             AnySlice::Int16(s) => dispatch_nulls!(s, $order, $cb),
             AnySlice::Int32(s) => dispatch_nulls!(s, $order, $cb),
             AnySlice::Int64(s) => dispatch_nulls!(s, $order, $cb),
+            AnySlice::Int128(s) => dispatch_nulls!(s, $order, $cb),
             AnySlice::Binary(s) => dispatch_nulls!(s, $order, $cb),
             AnySlice::List(list) => {
                 match list.values().item() {
