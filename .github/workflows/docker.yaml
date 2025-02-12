@@ -8,6 +8,10 @@ on:
       tag:
         description: image tag
         required: true
+      platforms:
+        description: image platforms
+        required: true
+        default: linux/amd64, linux/arm64
 
 env:
   CI: true
@@ -33,7 +37,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64, linux/arm64
+          platforms: ${{ inputs.platforms }}
           push: true
           target: ${{ inputs.target }}
           tags: subsquid/data-${{ inputs.target }}:${{ inputs.tag }}
