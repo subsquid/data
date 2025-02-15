@@ -54,7 +54,7 @@ impl<C: KvReadCursor> ChunkIterator<C> {
 
     fn seek_last(&mut self) -> anyhow::Result<()> {
         if let Some(to_block) = self.to_block {
-            self.cursor.seek(
+            self.cursor.seek_prev(
                 self.chunk_id(to_block).as_ref()
             )
         } else {
