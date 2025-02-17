@@ -1,7 +1,7 @@
 use crate::dataset_config::DatasetConfig;
 use anyhow::Context;
 use clap::Parser;
-use sqd_node::{DBRef, Node, NodeBuilder};
+use sqd_hotblocks::{DBRef, Node, NodeBuilder};
 use sqd_storage::db::DatabaseSettings;
 use std::sync::Arc;
 

@@ -1,5 +1,5 @@
 [package]
-name = "sqd-node-example"
+name = "sqd-hotblocks-example"
 version = "0.1.0"
 edition = "2021"
 
@@ -11,7 +11,7 @@ clap =  { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-sqd-node = { path = "../node" }
+sqd-hotblocks = { path = "../hotblocks" }
 sqd-polars = { path = "../polars" }
 sqd-primitives = { path = "../primitives", features = ["serde"] }
 sqd-storage = { path = "../storage" }
