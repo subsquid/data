@@ -11,7 +11,7 @@ pub struct Busy;
 
 impl Display for Busy {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "node is busy")
+        write!(f, "hotblocks server is busy")
     }
 }
 

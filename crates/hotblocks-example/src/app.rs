@@ -7,27 +7,27 @@ use axum::routing::{get, post};
 use axum::{BoxError, Extension, Json, Router};
 use futures::TryStream;
 use serde::Serialize;
-use sqd_hotblocks::{Node, Query, QueryResponse};
+use sqd_hotblocks::{HotblocksServer, Query, QueryResponse};
 use sqd_primitives::BlockRef;
 use sqd_storage::db::DatasetId;
 use std::sync::Arc;
 
 
-type NodeRef = Arc<Node>;
+type HotblocksRef = Arc<HotblocksServer>;
 
 
-pub fn build_app(node: NodeRef) -> Router {
+pub fn build_app(hotblocks: HotblocksRef) -> Router {
     Router::new()
         .route("/", get(|| async { "Welcome to SQD hot block data service!" }))
         .route("/datasets/{id}/stream", post(stream))
         .route("/datasets/{id}/finalized-head", get(get_finalized_head))
         .route("/datasets/{id}/head", get(get_head))
-        .layer(Extension(node))
+        .layer(Extension(hotblocks))
 }
 
 
 async fn stream(
-    Extension(node): Extension<NodeRef>,
+    Extension(hotblocks): Extension<HotblocksRef>,
     Path(dataset_id): Path<DatasetId>,
     Json(query): Json<Query>
 ) -> Response
@@ -36,7 +36,7 @@ async fn stream(
         return (StatusCode::BAD_REQUEST, format!("{}", err)).into_response()
     }
 
-    match node.query(dataset_id, query).await {
+    match hotblocks.query(dataset_id, query).await {
         Ok(stream) => {
             let mut res = Response::builder()
                 .status(200)
@@ -117,11 +117,11 @@ struct BaseBlockConflict<'a> {
 
 
 async fn get_finalized_head(
-    Extension(node): Extension<NodeRef>,
+    Extension(hotblocks): Extension<HotblocksRef>,
     Path(dataset_id): Path<DatasetId>
 ) -> Response
 {
-    match node.get_finalized_head(dataset_id) {
+    match hotblocks.get_finalized_head(dataset_id) {
         Ok(head) => (StatusCode::OK, Json(head)).into_response(),
         Err(err) => (StatusCode::NOT_FOUND, format!("{}", err)).into_response()
     }
@@ -129,11 +129,11 @@ async fn get_finalized_head(
 
 
 async fn get_head(
-    Extension(node): Extension<NodeRef>,
+    Extension(hotblocks): Extension<HotblocksRef>,
     Path(dataset_id): Path<DatasetId>
 ) -> Response
 {
-    match node.get_head(dataset_id) {
+    match hotblocks.get_head(dataset_id) {
         Ok(head) => (StatusCode::OK, Json(head)).into_response(),
         Err(err) => (StatusCode::NOT_FOUND, format!("{}", err)).into_response()
     }

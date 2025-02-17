@@ -1,8 +1,8 @@
 use crate::error::{QueryIsAboveTheHead, QueryKindMismatch, UnknownDataset};
 use crate::ingest::DatasetController;
-use crate::node::node_builder::NodeBuilder;
-use crate::node::query_executor::{QueryExecutor, QueryExecutorRef};
-use crate::node::query_response::QueryResponse;
+use crate::hotblocks::server_builder::HotblocksServerBuilder;
+use crate::hotblocks::query_executor::{QueryExecutor, QueryExecutorRef};
+use crate::hotblocks::query_response::QueryResponse;
 use crate::types::{DBRef, DatasetKind, RetentionStrategy};
 use anyhow::{bail, ensure};
 use futures::stream::FuturesUnordered;
@@ -17,7 +17,7 @@ use std::time::Duration;
 use tracing::{error, info};
 
 
-pub struct Node {
+pub struct HotblocksServer {
     executor: QueryExecutorRef,
     db: DBRef,
     datasets: HashMap<DatasetId, Arc<DatasetController>>,
@@ -25,8 +25,8 @@ pub struct Node {
 }
 
 
-impl Node {
-    pub(super) fn new(builder: NodeBuilder) -> Self {
+impl HotblocksServer {
+    pub(super) fn new(builder: HotblocksServerBuilder) -> Self {
         let datasets: HashMap<_, _> = builder.datasets.into_iter().map(|cfg| {
             let first_block = match cfg.retention {
                 RetentionStrategy::FromBlock(first_block) => first_block,
@@ -136,7 +136,7 @@ impl Node {
 }
 
 
-impl Drop for Node {
+impl Drop for HotblocksServer {
     fn drop(&mut self) {
         self.ingest_handle.abort()
     }

@@ -40,11 +40,11 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .build()?
         .block_on(async {
-            let (node, db) = args.build_node()?;
+            let (hotblocks, db) = args.build_server()?;
 
             tokio::spawn(db_cleanup_task(db));
 
-            let app = build_app(node).layer(TimeoutLayer::new(Duration::from_secs(10)));
+            let app = build_app(hotblocks).layer(TimeoutLayer::new(Duration::from_secs(10)));
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
 

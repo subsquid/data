@@ -1,5 +1,5 @@
 use crate::error::Busy;
-use crate::node::query_executor::QueryExecutorRef;
+use crate::hotblocks::query_executor::QueryExecutorRef;
 use crate::query::runner::QueryRunner;
 use crate::types::DBRef;
 use anyhow::bail;

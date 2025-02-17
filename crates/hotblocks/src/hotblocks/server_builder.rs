@@ -1,5 +1,5 @@
 use crate::ingest::DataSource;
-use crate::node::node::Node;
+use crate::hotblocks::server::HotblocksServer;
 use crate::types::{DBRef, DatasetKind, RetentionStrategy};
 use reqwest::IntoUrl;
 use sqd_storage::db::DatasetId;
@@ -27,7 +27,7 @@ impl DatasetConfig {
 }
 
 
-pub struct NodeBuilder {
+pub struct HotblocksServerBuilder {
     pub(super) db: DBRef,
     pub(super) datasets: Vec<DatasetConfig>,
     pub(super) default_http_client: reqwest::Client,
@@ -35,7 +35,7 @@ pub struct NodeBuilder {
 }
 
 
-impl NodeBuilder {
+impl HotblocksServerBuilder {
     pub fn new(db: DBRef) -> Self {
         Self {
             db,
@@ -65,7 +65,7 @@ impl NodeBuilder {
         self.datasets.last_mut().unwrap()
     }
     
-    pub fn build(self) -> Node {
-        Node::new(self)
+    pub fn build(self) -> HotblocksServer {
+        HotblocksServer::new(self)
     }
 }
