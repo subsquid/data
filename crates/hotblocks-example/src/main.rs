@@ -6,7 +6,7 @@ mod app;
 use crate::app::build_app;
 use crate::cli::CLI;
 use clap::Parser;
-use sqd_node::DBRef;
+use sqd_hotblocks::DBRef;
 use std::time::Duration;
 use tokio::signal;
 use tower_http::timeout::TimeoutLayer;

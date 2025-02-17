@@ -4621,7 +4621,7 @@ name = "sqd-dataset"
 version = "0.1.0"
 
 [[package]]
-name = "sqd-node"
+name = "sqd-hotblocks"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -4649,7 +4649,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sqd-node-example"
+name = "sqd-hotblocks-example"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -4659,7 +4659,7 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
- "sqd-node",
+ "sqd-hotblocks",
  "sqd-polars",
  "sqd-primitives",
  "sqd-storage",
