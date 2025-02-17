@@ -1,7 +1,7 @@
 use crate::dataset_config::DatasetConfig;
 use anyhow::Context;
 use clap::Parser;
-use sqd_hotblocks::{DBRef, Node, NodeBuilder};
+use sqd_hotblocks::{DBRef, HotblocksServer, HotblocksServerBuilder};
 use sqd_storage::db::DatabaseSettings;
 use std::sync::Arc;
 
@@ -27,7 +27,7 @@ pub struct CLI {
 
 
 impl CLI {
-    pub fn build_node(&self) -> anyhow::Result<(Arc<Node>, DBRef)> {
+    pub fn build_server(&self) -> anyhow::Result<(Arc<HotblocksServer>, DBRef)> {
         let datasets = DatasetConfig::read_config_file(&self.datasets)
             .context("failed to read datasets config")?;
 
@@ -37,7 +37,7 @@ impl CLI {
             .map(Arc::new)
             .context("failed to open rocksdb database")?;
         
-        let mut builder = NodeBuilder::new(db.clone());
+        let mut builder = HotblocksServerBuilder::new(db.clone());
         
         for (id, cfg) in datasets {
             let ds = builder.add_dataset(cfg.kind, id, cfg.retention);
