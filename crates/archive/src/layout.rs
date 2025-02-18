@@ -271,7 +271,6 @@ impl ChunkWriter {
         last_hash: String
     ) -> DataChunk
     {
-        assert_eq!(self.next_block(), first_block);
         assert!(first_block <= last_block);
         assert!(last_block <= self.last_block_limit);
 
