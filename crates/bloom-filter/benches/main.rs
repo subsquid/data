@@ -3,7 +3,7 @@ use sqd_bloom_filter::BloomFilter;
 
 
 fn bloom_filter_benchmark(c: &mut Criterion) {
-    let mut bloom = BloomFilter::new(64 * 8, 7);
+    let mut bloom = BloomFilter::<64>::new(7);
 
     c.bench_function("insert solana accounts", |bench| {
         bench.iter(|| {

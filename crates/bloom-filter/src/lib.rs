@@ -2,39 +2,43 @@ use std::hash::{Hash, Hasher};
 use xxhash_rust::xxh3::Xxh3Builder;
 
 
-pub struct BloomFilter {
-    bit_array: Vec<bool>,
+pub struct BloomFilter<const N: usize> {
+    bit_array: [u8; N],
     num_hashes: usize,
 }
 
 
-impl BloomFilter {
-    pub fn new(size: usize, num_hashes: usize) -> Self {
+impl<const N: usize> BloomFilter<N> {
+    pub fn new(num_hashes: usize) -> Self {
         BloomFilter {
-            bit_array: vec![false; size],
+            bit_array: [0; N],
             num_hashes,
         }
     }
 
-    pub fn from_bit_array(bit_array: Vec<bool>, num_hashes: usize) -> Self {
+    pub fn from_bit_array(bit_array: [u8; N], num_hashes: usize) -> Self {
         BloomFilter { bit_array, num_hashes }
     }
 
-    pub fn to_bit_array(self) -> Vec<bool> {
+    pub fn to_bit_array(self) -> [u8; N] {
         self.bit_array
     }
 
     pub fn insert<T: Hash>(&mut self, item: &T) {
         for i in 0..self.num_hashes {
             let hash = self.hash(item, i as u64);
-            self.bit_array[hash] = true;
+            let byte_index = hash / 8;
+            let bit_index = hash % 8;
+            self.bit_array[byte_index] |= 1 << bit_index;
         }
     }
 
     pub fn contains<T: Hash>(&self, item: &T) -> bool {
         for i in 0..self.num_hashes {
             let hash = self.hash(item, i as u64);
-            if !self.bit_array[hash] {
+            let byte_index = hash / 8;
+            let bit_index = hash % 8;
+            if self.bit_array[byte_index] & (1 << bit_index) == 0 {
                 return false;
             }
         }
@@ -44,7 +48,7 @@ impl BloomFilter {
     fn hash<T: Hash>(&self, item: &T, seed: u64) -> usize {
         let mut hasher = Xxh3Builder::new().with_seed(seed).build();
         item.hash(&mut hasher);
-        (hasher.finish() % self.bit_array.len() as u64) as usize
+        (hasher.finish() % self.bit_array.len() as u64 * 8) as usize
     }
 }
 
@@ -56,7 +60,7 @@ mod test {
 
     #[test]
     fn basic_test() {
-        let mut bloom_filter = BloomFilter::new(64 * 8, 7);
+        let mut bloom_filter = BloomFilter::<64>::new(7);
 
         bloom_filter.insert(&"3NgFNFJBp7GAZDgm9vinbowrEvj7f4wepKVzKeqhcDFN");
         bloom_filter.insert(&"BRwHsJGf5Z2VLB2Gi57YMr4oRZ6FkfNbyUX9dtJW2hhY");
