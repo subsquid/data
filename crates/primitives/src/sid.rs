@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::{fmt::{Debug, Display, Formatter}, str::FromStr};
 
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -46,6 +46,14 @@ impl <const N: usize> TryFrom<&str> for SID<N> {
         Ok(Self {
             bytes
         })
+    }
+}
+
+impl <const N: usize> FromStr for SID<N> {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
     }
 }
 
