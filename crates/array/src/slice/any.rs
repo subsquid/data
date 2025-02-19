@@ -1,5 +1,6 @@
 use crate::index::RangeList;
 use crate::slice::boolean::BooleanSlice;
+use crate::slice::fixed_size_list::FixedSizeListSlice;
 use crate::slice::list::ListSlice;
 use crate::slice::primitive::PrimitiveSlice;
 use crate::slice::r#struct::AnyStructSlice;
@@ -23,7 +24,9 @@ pub enum AnySlice<'a> {
     Int32(PrimitiveSlice<'a, i32>),
     Int64(PrimitiveSlice<'a, i64>),
     Binary(ListSlice<'a, &'a [u8]>),
+    FixedSizeBinary(FixedSizeListSlice<'a, &'a [u8]>),
     List(ListSlice<'a, AnyListItem<'a>>),
+    FixedSizeList(FixedSizeListSlice<'a, AnyListItem<'a>>),
     Struct(AnyStructSlice<'a>)
 }
 
@@ -99,10 +102,24 @@ impl<'a> AnySlice<'a> {
         }
     }
 
+    pub fn as_fixed_size_binary(&self) -> FixedSizeListSlice<'a, &'a [u8]> {
+        match self {
+            AnySlice::FixedSizeBinary(s) => s.clone(),
+            _ => panic!("not a fixed size binary slice")
+        }
+    }
+
     pub fn as_list(&self) -> ListSlice<'a, AnySlice<'a>> {
         match self {
             AnySlice::List(s) => ListSlice::new(s.offsets(), s.values().item(), s.nulls().bitmask()),
             _ => panic!("not a list slice")
+        }
+    }
+
+    pub fn as_fixed_size_list(&self) -> FixedSizeListSlice<'a, AnySlice<'a>> {
+        match self {
+            AnySlice::FixedSizeList(s) => FixedSizeListSlice::new(s.size(), s.values().item(), s.nulls().bitmask()),
+            _ => panic!("not a fixed size list slice")
         }
     }
 
@@ -128,7 +145,9 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int32(s) => s.num_buffers(),
             AnySlice::Int64(s) => s.num_buffers(),
             AnySlice::Binary(s) => s.num_buffers(),
+            AnySlice::FixedSizeBinary(s) => s.num_buffers(),
             AnySlice::List(s) => s.num_buffers(),
+            AnySlice::FixedSizeList(s) => s.num_buffers(),
             AnySlice::Struct(s) => s.num_buffers(),
         }
     }
@@ -145,7 +164,9 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int32(s) => s.byte_size(),
             AnySlice::Int64(s) => s.byte_size(),
             AnySlice::Binary(s) => s.byte_size(),
+            AnySlice::FixedSizeBinary(s) => s.byte_size(),
             AnySlice::List(s) => s.byte_size(),
+            AnySlice::FixedSizeList(s) => s.byte_size(),
             AnySlice::Struct(s) => s.byte_size(),
         }
     }
@@ -162,7 +183,9 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int32(s) => s.len(),
             AnySlice::Int64(s) => s.len(),
             AnySlice::Binary(s) => s.len(),
+            AnySlice::FixedSizeBinary(s) => s.len(),
             AnySlice::List(s) => s.len(),
+            AnySlice::FixedSizeList(s) => s.len(),
             AnySlice::Struct(s) => s.len(),
         }
     }
@@ -179,7 +202,9 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int32(s) => AnySlice::Int32(s.slice(offset, len)),
             AnySlice::Int64(s) => AnySlice::Int64(s.slice(offset, len)),
             AnySlice::Binary(s) => AnySlice::Binary(s.slice(offset, len)),
+            AnySlice::FixedSizeBinary(s) => AnySlice::FixedSizeBinary(s.slice(offset, len)),
             AnySlice::List(s) => AnySlice::List(s.slice(offset, len)),
+            AnySlice::FixedSizeList(s) => AnySlice::FixedSizeList(s.slice(offset, len)),
             AnySlice::Struct(s) => AnySlice::Struct(s.slice(offset, len)),
         }
     }
@@ -196,7 +221,9 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int32(s) => s.write(dst),
             AnySlice::Int64(s) => s.write(dst),
             AnySlice::Binary(s) => s.write(dst),
+            AnySlice::FixedSizeBinary(s) => s.write(dst),
             AnySlice::List(s) => s.write(dst),
+            AnySlice::FixedSizeList(s) => s.write(dst),
             AnySlice::Struct(s) => s.write(dst),
         }
     }
@@ -213,7 +240,9 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int32(s) => s.write_range(dst, range),
             AnySlice::Int64(s) => s.write_range(dst, range),
             AnySlice::Binary(s) => s.write_range(dst, range),
+            AnySlice::FixedSizeBinary(s) => s.write_range(dst, range),
             AnySlice::List(s) => s.write_range(dst, range),
+            AnySlice::FixedSizeList(s) => s.write_range(dst, range),
             AnySlice::Struct(s) => s.write_range(dst, range),
         }
     }
@@ -230,7 +259,9 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int32(s) => s.write_ranges(dst, ranges),
             AnySlice::Int64(s) => s.write_ranges(dst, ranges),
             AnySlice::Binary(s) => s.write_ranges(dst, ranges),
+            AnySlice::FixedSizeBinary(s) => s.write_ranges(dst, ranges),
             AnySlice::List(s) => s.write_ranges(dst, ranges),
+            AnySlice::FixedSizeList(s) => s.write_ranges(dst, ranges),
             AnySlice::Struct(s) => s.write_ranges(dst, ranges),
         }
     }
@@ -252,7 +283,9 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::Int32(s) => s.write_indexes(dst, indexes),
             AnySlice::Int64(s) => s.write_indexes(dst, indexes),
             AnySlice::Binary(s) => s.write_indexes(dst, indexes),
+            AnySlice::FixedSizeBinary(s) => s.write_indexes(dst, indexes),
             AnySlice::List(s) => s.write_indexes(dst, indexes),
+            AnySlice::FixedSizeList(s) => s.write_indexes(dst, indexes),
             AnySlice::Struct(s) => s.write_indexes(dst, indexes),
         }
     }
@@ -344,8 +377,10 @@ impl <'a> From<&'a dyn Array> for AnySlice<'a> {
                 AnySlice::Int64(value.as_primitive::<TimestampMillisecondType>().into())
             },
             DataType::Binary => AnySlice::Binary(value.as_binary::<i32>().into()),
+            DataType::FixedSizeBinary(_) => AnySlice::FixedSizeBinary(value.as_fixed_size_binary().into()),
             DataType::Utf8 => AnySlice::Binary(value.as_string::<i32>().into()),
             DataType::List(_) => AnySlice::List(value.as_list::<i32>().into()),
+            DataType::FixedSizeList(_, _) => AnySlice::FixedSizeList(value.as_fixed_size_list().into()),
             DataType::Struct(_) => AnySlice::Struct(value.as_struct().into()),
             ty => panic!("unsupported arrow type - {}", ty)
         }
@@ -376,6 +411,13 @@ impl <'a> From<ListSlice<'a, &'a [u8]>> for AnySlice<'a> {
 }
 
 
+impl <'a> From<FixedSizeListSlice<'a, &'a [u8]>> for AnySlice<'a> {
+    fn from(value: FixedSizeListSlice<'a, &'a [u8]>) -> Self {
+        AnySlice::FixedSizeBinary(value)
+    }
+}
+
+
 impl <'a, T: Slice + Into<AnySlice<'a>>> From<ListSlice<'a, T>> for AnySlice<'a> {
     fn from(value: ListSlice<'a, T>) -> Self {
         let nulls = value.nulls();
@@ -385,6 +427,20 @@ impl <'a, T: Slice + Into<AnySlice<'a>>> From<ListSlice<'a, T>> for AnySlice<'a>
         );
         AnySlice::List(
             ListSlice::new(offsets, items, nulls.bitmask())
+        )
+    }
+}
+
+
+impl <'a, T: Slice + Into<AnySlice<'a>>> From<FixedSizeListSlice<'a, T>> for AnySlice<'a> {
+    fn from(value: FixedSizeListSlice<'a, T>) -> Self {
+        let size = value.size();
+        let nulls = value.nulls();
+        let items = AnyListItem::new(
+            value.values().into()
+        );
+        AnySlice::FixedSizeList(
+            FixedSizeListSlice::new(size, items, nulls.bitmask())
         )
     }
 }

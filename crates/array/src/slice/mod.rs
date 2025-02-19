@@ -6,6 +6,7 @@ use std::ops::Range;
 mod any;
 pub mod bitmask;
 mod boolean;
+mod fixed_size_list;
 mod list;
 mod native;
 pub mod nullmask;
@@ -15,6 +16,7 @@ mod r#struct;
 
 pub use any::*;
 pub use boolean::*;
+pub use fixed_size_list::*;
 pub use list::*;
 pub use primitive::*;
 pub use r#struct::*;

@@ -143,6 +143,16 @@ impl <'a, W: Writer, F: WriterFactory<Writer=W>> DataTypeVisitor for AnyArrayFac
         Ok(())
     }
 
+    fn fixed_size_binary(&mut self, _size: usize) -> Self::Result {
+        let nulls = self.writer_factory.nullmask()?;
+        self.buffers.push(AnyWriter::Nullmask(nulls));
+
+        let values = self.writer_factory.native::<u8>()?;
+        self.buffers.push(AnyWriter::Native(values));
+
+        Ok(())
+    }
+
     fn list(&mut self, item: &DataType) -> Self::Result {
         let nulls = self.writer_factory.nullmask()?;
         self.buffers.push(AnyWriter::Nullmask(nulls));

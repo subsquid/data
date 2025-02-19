@@ -158,8 +158,14 @@ pub fn get_num_buffers(data_type: &DataType) -> usize {
         DataType::Utf8 => {
             3
         }
+        DataType::FixedSizeBinary(_) => {
+            2
+        }
         DataType::List(f) => {
             2 + get_num_buffers(f.data_type())
+        }
+        DataType::FixedSizeList(f, _) => {
+            1 + get_num_buffers(f.data_type())
         }
         DataType::Struct(fields) => {
             1 + fields.iter().map(|f| get_num_buffers(f.data_type())).sum::<usize>()
