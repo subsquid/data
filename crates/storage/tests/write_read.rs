@@ -4,12 +4,11 @@ use proptest::prelude::{prop, ProptestConfig};
 use proptest::proptest;
 use proptest::strategy::Strategy;
 use sqd_array::builder::{AnyBuilder, ArrayBuilder};
-use sqd_array::index::{MaterializedRangeList, RangeList};
 use sqd_array::reader::ArrayReader;
 use sqd_storage::db::{Database, DatabaseSettings};
 use sqd_storage::table::write::use_small_buffers;
 use core::assert_eq;
-use core::convert::{From, TryFrom};
+use core::convert::TryFrom;
 use std::sync::Arc;
 
 mod arb_array;
@@ -129,6 +128,14 @@ fn boolean_write_read() {
 #[test]
 fn binary_write_read() {
     test_write_read(arb_array::with_nullmask(arb_array::binary(0..WRITE_READ_ARRAY_SIZE))).unwrap()
+}
+
+#[test]
+fn fixed_size_binary_write_read() {
+    // Strategy returned from `fixed_size_binary` within a single call to `test_write_read` has to generate
+    // arrays with the same sizes so that they can be concatenated into a single RecordBatch.
+    test_write_read(arb_array::with_nullmask(arb_array::fixed_size_binary(0..WRITE_READ_ARRAY_SIZE, 12))).unwrap();
+    test_write_read(arb_array::with_nullmask(arb_array::fixed_size_binary(0..WRITE_READ_ARRAY_SIZE, 128))).unwrap();
 }
 
 #[test]

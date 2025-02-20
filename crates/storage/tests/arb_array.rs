@@ -1,7 +1,6 @@
-use arrow::array::{Array, ArrayRef, BinaryArray, BooleanArray, Int16Array, Int32Array, Int64Array, Int8Array, ListArray, StringArray, StructArray, TimestampSecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array};
+use arrow::array::{Array, ArrayRef, BinaryArray, BooleanArray, FixedSizeBinaryArray, Int16Array, Int32Array, Int64Array, Int8Array, ListArray, StringArray, StructArray, TimestampSecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array};
 use arrow_buffer::BooleanBuffer;
 use arrow::datatypes::{DataType, Field};
-use proptest::bool::Any;
 use proptest::collection::SizeRange;
 use proptest::prelude::*;
 use proptest::string::string_regex;
@@ -26,6 +25,15 @@ pub fn binary(len: impl Into<SizeRange> + Clone) -> impl Strategy<Value=ArrayRef
         let array = BinaryArray::from_vec(res);
         Arc::new(array) as ArrayRef
     })
+}
+
+pub fn fixed_size_binary(len: impl Into<SizeRange> + Clone, size: usize) -> impl Strategy<Value=ArrayRef> {
+    prop::collection::vec(prop::collection::vec(any::<u8>(), size), len.clone())
+        .prop_map(move |vecs| {
+            let iter = vecs.into_iter().map(Some);
+            let array = FixedSizeBinaryArray::try_from_sparse_iter_with_size(iter, size as i32).unwrap();
+            Arc::new(array) as ArrayRef
+        })
 }
 
 pub fn list(len: impl Into<SizeRange> + Clone) -> impl Strategy<Value=ArrayRef> {
