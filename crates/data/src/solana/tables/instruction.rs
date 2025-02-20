@@ -7,7 +7,7 @@ use sqd_primitives::BlockNumber;
 use std::fmt::Write;
 
 
-pub const BITS: usize = 64 * 8;
+pub const BITS: usize = 64;
 pub const NUM_HASHES: usize = 7;
 
 
@@ -152,16 +152,12 @@ impl InstructionBuilder {
 
     fn append_accounts_bloom(&mut self, accounts: &[String]) {
         if accounts.len() > 0 {
-            let mut bloom = BloomFilter::new(BITS, NUM_HASHES);
+            let mut bloom = BloomFilter::<BITS>::new(NUM_HASHES);
             for account in accounts {
                 bloom.insert(account);
             }
             let bit_array = bloom.to_bit_array();
-
-            for bit in bit_array {
-                self.accounts_bloom.values().append(bit);
-            }
-            self.accounts_bloom.append();
+            self.accounts_bloom.append(&bit_array);
         } else {
             self.accounts_bloom.append_null();
         }
