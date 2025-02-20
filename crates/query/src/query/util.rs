@@ -1,5 +1,6 @@
 use crate::primitives::Name;
 use crate::scan::{and, col_eq, col_gt_eq, col_in_list, col_lt_eq, bloom_filter, IntoArrow, RowPredicateRef};
+use std::hash::Hash;
 
 macro_rules! item_field_selection {
     (
@@ -151,7 +152,7 @@ impl PredicateBuilder {
 
     pub fn bloom_filter<L>(&mut self, name: Name, maybe_list: Option<L>) -> &mut Self
         where L: IntoIterator,
-              L::Item: IntoArrow
+              L::Item: Hash
     {
         if let Some(list) = maybe_list {
             let list: Vec<_> = list.into_iter().collect();

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::hash::Hash;
 
 use crate::scan::array_predicate;
 use crate::scan::array_predicate::ArrayPredicateRef;
@@ -68,7 +69,7 @@ pub fn col_between<T: IntoArrow>(name: Name, low: T, high: T) -> RowPredicateRef
 }
 
 
-pub fn bloom_filter<T: IntoArrow>(name: Name, values: Vec<T>) -> RowPredicateRef {
+pub fn bloom_filter<T: Hash>(name: Name, values: Vec<T>) -> RowPredicateRef {
     make_column_predicate!(name, array_predicate::BloomFilter::new(values))
 }
 

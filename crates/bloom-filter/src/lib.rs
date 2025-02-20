@@ -16,10 +16,6 @@ impl<const N: usize> BloomFilter<N> {
         }
     }
 
-    pub fn from_bit_array(bit_array: [u8; N], num_hashes: usize) -> Self {
-        BloomFilter { bit_array, num_hashes }
-    }
-
     pub fn to_bit_array(self) -> [u8; N] {
         self.bit_array
     }
@@ -48,7 +44,7 @@ impl<const N: usize> BloomFilter<N> {
     fn hash<T: Hash>(&self, item: &T, seed: u64) -> usize {
         let mut hasher = Xxh3Builder::new().with_seed(seed).build();
         item.hash(&mut hasher);
-        (hasher.finish() % self.bit_array.len() as u64 * 8) as usize
+        (hasher.finish() % (self.bit_array.len() as u64 * 8)) as usize
     }
 }
 

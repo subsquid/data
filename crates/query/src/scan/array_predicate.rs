@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::hash::Hash;
 
 use crate::scan::arrow::IntoArrow;
 use anyhow::bail;
@@ -412,32 +413,35 @@ impl ArrayPredicate for InList {
 }
 
 
+fn bitwise_and<const N: usize>(value: [u8; N], other: [u8; N]) -> [u8; N] {
+    let mut arr = [0; N];
+    for i in 0..N {
+        arr[i] = value[i] & other[i];
+    }
+    arr
+}
+
+
 pub struct BloomFilter {
-    list: sqd_polars::prelude::Series
+    bit_array: [u8; 64]
 }
 
 
 impl BloomFilter {
-    pub fn new<T: IntoArrow>(values: Vec<T>) -> Self {
-        let arr = T::make_array(values);
-        let list = sqd_polars::arrow::array_series("value_list", &arr).unwrap();
-        Self {
-            list
+    pub fn new<T: Hash>(values: Vec<T>) -> Self {
+        let mut bloom = sqd_bloom_filter::BloomFilter::<64>::new(7);
+        for value in values {
+            bloom.insert(&value);
         }
+        let bit_array = bloom.to_bit_array();
+        Self { bit_array }
     }
 
-    pub fn bloom_contains(&self, opt: Option<sqd_polars::prelude::Series>) -> anyhow::Result<bool> {
+    pub fn bloom_contains(&self, opt: Option<&[u8]>) -> anyhow::Result<bool> {
         if let Some(val) = opt {
-            let bit_array: Vec<_> = val.bool()?.iter().map(|opt| opt.unwrap()).collect();
-            let bloom = sqd_bloom_filter::BloomFilter::from_bit_array(bit_array, 7);
-
-            for item in self.list.str()? {
-                if !bloom.contains(&item.unwrap()) {
-                    return Ok(false)
-                }
-            }
-
-            Ok(true)
+            let value: [u8; 64] = val.try_into()?;
+            let arr = bitwise_and(self.bit_array, value);
+            Ok(arr == self.bit_array)
         } else {
             Ok(false)
         }
@@ -449,7 +453,7 @@ impl ArrayPredicate for BloomFilter {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
         let mut result_mask = Vec::with_capacity(arr.len());
         let series = sqd_polars::arrow::array_series("values", arr)?;
-        for value in series.list()? {
+        for value in series.binary()? {
             result_mask.push(self.bloom_contains(value)?);
         }
         Ok(BooleanArray::from(result_mask))
