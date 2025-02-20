@@ -32,6 +32,7 @@ pub fn can_have_stats(data_type: &DataType) -> bool {
         DataType::Timestamp(TimeUnit::Second, _) => true,
         DataType::Timestamp(TimeUnit::Millisecond, _) => true,
         DataType::Binary => true,
+        DataType::FixedSizeBinary(_) => true,
         DataType::Utf8 => true,
         _ => false
     }
