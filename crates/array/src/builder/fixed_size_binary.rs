@@ -25,7 +25,7 @@ impl FixedSizeBinaryBuilder {
     }
 
     pub fn append(&mut self, val: &[u8]) {
-        assert!(val.len() == self.size);
+        assert_eq!(val.len(), self.size);
         self.values.extend_from_slice(val);
         self.nulls.append(true);
     }

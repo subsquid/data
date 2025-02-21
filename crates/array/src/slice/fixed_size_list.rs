@@ -1,10 +1,10 @@
 use crate::access::Access;
-use crate::index::{MaterializedRangeList, RangeList, RangeListFromIterator};
+use crate::index::{RangeList, RangeListFromIterator};
 use crate::slice::bitmask::BitmaskSlice;
 use crate::slice::nullmask::NullmaskSlice;
 use crate::slice::{AnyListItem, AnySlice, Slice};
 use crate::writer::ArrayWriter;
-use arrow::array::{FixedSizeListArray, FixedSizeBinaryArray};
+use arrow::array::{FixedSizeBinaryArray, FixedSizeListArray};
 use std::ops::Range;
 
 #[derive(Clone)]
@@ -16,7 +16,7 @@ pub struct FixedSizeListSlice<'a, T: Clone> {
 
 impl<'a, T: Slice> FixedSizeListSlice<'a, T> {
     pub fn new(size: usize, values: T, nulls: Option<BitmaskSlice<'a>>) -> Self {
-        assert!(values.len() % size == 0);
+        assert_eq!(values.len() % size, 0);
         let len = values.len() / size;
         Self {
             size,
@@ -91,11 +91,7 @@ impl<'a, T: Slice> Slice for FixedSizeListSlice<'a, T> {
     ) -> anyhow::Result<()> {
         self.nulls.write_ranges(dst.nullmask(0), ranges)?;
 
-        let mut value_ranges = MaterializedRangeList::from_iter(ranges.iter().map(|r| {
-            let beg = r.start * self.size;
-            let end = r.end * self.size;
-            beg..end
-        }));
+        let mut value_ranges = ranges.scale(self.size);
 
         self.values
             .write_ranges(&mut dst.shift(1), &mut value_ranges)
@@ -121,12 +117,12 @@ impl<'a, T: Slice> Slice for FixedSizeListSlice<'a, T> {
     }
 }
 
-impl<'a> From<&'a FixedSizeBinaryArray> for FixedSizeListSlice<'a, &'a[u8]> {
+impl<'a> From<&'a FixedSizeBinaryArray> for FixedSizeListSlice<'a, &'a [u8]> {
     fn from(value: &'a FixedSizeBinaryArray) -> Self {
         Self {
             size: value.value_length() as usize,
             nulls: NullmaskSlice::from_array(value),
-            values: value.values().as_ref()
+            values: value.values().as_ref(),
         }
     }
 }
@@ -136,7 +132,7 @@ impl<'a> From<&'a FixedSizeListArray> for FixedSizeListSlice<'a, AnySlice<'a>> {
         Self {
             size: value.value_length() as usize,
             nulls: NullmaskSlice::from_array(value),
-            values: value.values().as_ref().into()
+            values: value.values().as_ref().into(),
         }
     }
 }
@@ -146,7 +142,7 @@ impl<'a> From<&'a FixedSizeListArray> for FixedSizeListSlice<'a, AnyListItem<'a>
         Self {
             size: value.value_length() as usize,
             nulls: NullmaskSlice::from_array(value),
-            values: AnyListItem::new(value.values().as_ref().into())
+            values: AnyListItem::new(value.values().as_ref().into()),
         }
     }
 }

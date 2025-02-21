@@ -182,11 +182,14 @@ fn read_fixed_size_binary(
         .context("failed to read null mask")?;
 
     let value_ranges = ranges.map(|list| {
-        list.iter()
-            .map(|r| (r.start * size as u32)..(r.end * size as u32))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap()
+        unsafe {
+            // SAFETY: monotonicity, non-emptiness and non-overlapping are guaranteed by construction
+            RangeList::new_unchecked(
+            list.iter()
+                .map(|r| (r.start * size as u32)..(r.end * size as u32))
+                .collect::<Vec<_>>(),
+            )
+        }
     });
 
     let values = storage.read_native::<u8>(pos + 1, value_ranges.as_ref())
