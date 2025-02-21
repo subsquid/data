@@ -113,3 +113,9 @@ impl AsSlice for FixedSizeBinaryBuilder {
         )
     }
 }
+
+impl Default for FixedSizeBinaryBuilder {
+    fn default() -> Self {
+        Self::new(64, 0)
+    }
+}

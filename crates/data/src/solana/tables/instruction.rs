@@ -1,6 +1,6 @@
 use crate::solana::model::Instruction;
-use crate::solana::tables::common::{AccountListBuilder, Base58Builder, BloomFilterBuilder, BytesBuilder, InstructionAddressListBuilder};
-use sqd_array::builder::{BooleanBuilder, StringBuilder, UInt32Builder, UInt64Builder};
+use crate::solana::tables::common::{AccountListBuilder, Base58Builder, BytesBuilder, InstructionAddressListBuilder};
+use sqd_array::builder::{BooleanBuilder, FixedSizeBinaryBuilder, StringBuilder, UInt32Builder, UInt64Builder};
 use sqd_bloom_filter::BloomFilter;
 use sqd_data_core::table_builder;
 use sqd_primitives::BlockNumber;
@@ -35,7 +35,7 @@ table_builder! {
         a14: Base58Builder,
         a15: Base58Builder,
         rest_accounts: AccountListBuilder,
-        accounts_bloom: BloomFilterBuilder,
+        accounts_bloom: FixedSizeBinaryBuilder,
 
         compute_units_consumed: UInt64Builder,
         error: StringBuilder,
