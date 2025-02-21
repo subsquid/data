@@ -80,15 +80,19 @@ impl <R: Reader, T: ChunkedArrayReader> ChunkedArrayReader for ChunkedFixedSizeL
         ranges: impl Iterator<Item=ChunkRange> + Clone
     ) -> anyhow::Result<()>
     {
-        let (min_count, _) = ranges.size_hint();
-        let mut value_ranges = Vec::with_capacity(min_count);
         let nullmask_dst = dst.nullmask(0);
-        for r in ranges {
+        let mut ranges_len = 0;
+        for r in ranges.clone() {
             self.nulls[r.chunk_index()].read_slice(
                 nullmask_dst,
                 r.offset_index(),
                 r.len_index()
             )?;
+            ranges_len += 1;
+        }
+
+        let mut value_ranges = Vec::with_capacity(ranges_len);
+        for r in ranges {
             value_ranges.push(ChunkRange {
                 chunk: r.chunk,
                 offset: r.offset * self.size as u32,
