@@ -14,6 +14,14 @@ pub trait RangeList {
             len
         }
     }
+
+    #[inline]
+    fn scale(&mut self, factor: usize) -> impl RangeList {
+        ScaledRangeList {
+            src: self,
+            factor
+        }
+    }
 }
 
 
@@ -50,6 +58,34 @@ impl <'a, S: RangeList + ?Sized> RangeList for ShiftedRangeList<'a, S> {
             src: self.src,
             offset: self.offset + offset,
             len
+        }
+    }
+}
+
+
+struct ScaledRangeList<'a, S: ?Sized> {
+    src: &'a mut S,
+    factor: usize,
+}
+
+impl <'a, S: RangeList + ?Sized> RangeList for ScaledRangeList<'a, S> {
+    fn iter(&self) -> impl Iterator<Item=Range<usize>> + Clone {
+        self.src.iter().map(|r| {
+            let beg = r.start * self.factor;
+            let end = r.end * self.factor;
+            beg..end
+        })
+    }
+
+    #[inline]
+    fn span(&mut self) -> usize {
+        self.src.span() * self.factor
+    }
+
+    fn scale(&mut self, factor: usize) -> impl RangeList {
+        ScaledRangeList {
+            src: self.src,
+            factor: self.factor * factor,
         }
     }
 }

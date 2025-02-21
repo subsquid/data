@@ -1,6 +1,6 @@
 use crate::chunking::ChunkRange;
 use crate::reader::native::{ChunkedNativeArrayReader, NativeArrayReader};
-use crate::reader::{ArrayReader, BinaryReader, BooleanReader, ChunkedArrayReader, ChunkedBinaryReader, ChunkedBooleanReader, ChunkedListReader, ChunkedPrimitiveReader, ChunkedStructReader, ListReader, PrimitiveReader, Reader, ReaderFactory, StructReader};
+use crate::reader::{ArrayReader, BinaryReader, BooleanReader, ChunkedArrayReader, ChunkedBinaryReader, ChunkedBooleanReader, ChunkedFixedSizeBinaryReader, ChunkedFixedSizeListReader, ChunkedListReader, ChunkedPrimitiveReader, ChunkedStructReader, FixedSizeBinaryReader, FixedSizeListReader, ListReader, PrimitiveReader, Reader, ReaderFactory, StructReader};
 use crate::visitor::DataTypeVisitor;
 use crate::writer::ArrayWriter;
 use arrow::array::ArrowPrimitiveType;
@@ -9,13 +9,16 @@ use std::marker::PhantomData;
 
 
 pub type AnyListReader<R> = ListReader<R, AnyReader<R>>;
+pub type AnyFixedSizeListReader<R> = FixedSizeListReader<R, AnyReader<R>>;
 
 
 pub enum AnyReader<R: Reader> {
     Boolean(BooleanReader<R>),
     Primitive(PrimitiveReader<R>),
     Binary(BinaryReader<R>),
+    FixedSizeBinary(FixedSizeBinaryReader<R>),
     List(Box<AnyListReader<R>>),
+    FixedSizeList(Box<AnyFixedSizeListReader<R>>),
     Struct(StructReader<R>)
 }
 
@@ -56,10 +59,26 @@ impl <R: Reader> AnyReader<R> {
     }
 
     #[inline]
+    pub fn as_fixed_size_binary(&mut self) -> &mut FixedSizeBinaryReader<R> {
+        match self {
+            AnyReader::FixedSizeBinary(r) => r,
+            _ => panic!("not a FixedSizeBinaryReader")
+        }
+    }
+
+    #[inline]
     pub fn as_list(&mut self) -> &mut AnyListReader<R> {
         match self {
             AnyReader::List(r) => r,
             _ => panic!("not a AnyListReader")
+        }
+    }
+
+    #[inline]
+    pub fn as_fixed_size_list(&mut self) -> &mut AnyFixedSizeListReader<R> {
+        match self {
+            AnyReader::FixedSizeList(r) => r,
+            _ => panic!("not a AnyFixedSizeListReader")
         }
     }
 
@@ -79,7 +98,9 @@ impl <R: Reader> ArrayReader for AnyReader<R> {
             AnyReader::Boolean(r) => r.num_buffers(),
             AnyReader::Primitive(r) => r.num_buffers(),
             AnyReader::Binary(r) => r.num_buffers(),
+            AnyReader::FixedSizeBinary(r) => r.num_buffers(),
             AnyReader::List(r) => r.num_buffers(),
+            AnyReader::FixedSizeList(r) => r.num_buffers(),
             AnyReader::Struct(r) => r.num_buffers(),
         }
     }
@@ -89,7 +110,9 @@ impl <R: Reader> ArrayReader for AnyReader<R> {
             AnyReader::Boolean(r) => r.len(),
             AnyReader::Primitive(r) => r.len(),
             AnyReader::Binary(r) => r.len(),
+            AnyReader::FixedSizeBinary(r) => r.len(),
             AnyReader::List(r) => r.len(),
+            AnyReader::FixedSizeList(r) => r.len(),
             AnyReader::Struct(r) => r.len(),
         }
     }
@@ -99,7 +122,9 @@ impl <R: Reader> ArrayReader for AnyReader<R> {
             AnyReader::Boolean(r) => r.read_slice(dst, offset, len),
             AnyReader::Primitive(r) => r.read_slice(dst, offset, len),
             AnyReader::Binary(r) => r.read_slice(dst, offset, len),
+            AnyReader::FixedSizeBinary(r) => r.read_slice(dst, offset, len),
             AnyReader::List(r) => r.read_slice(dst, offset, len),
+            AnyReader::FixedSizeList(r) => r.read_slice(dst, offset, len),
             AnyReader::Struct(r) => r.read_slice(dst, offset, len),
         }
     }
@@ -127,9 +152,22 @@ impl <R: Reader> From<BinaryReader<R>> for AnyReader<R> {
 }
 
 
+impl <R: Reader> From<FixedSizeBinaryReader<R>> for AnyReader<R> {
+    fn from(value: FixedSizeBinaryReader<R>) -> Self {
+        AnyReader::FixedSizeBinary(value)
+    }
+}
+
+
 impl <R: Reader> From<AnyListReader<R>> for AnyReader<R> {
     fn from(value: AnyListReader<R>) -> Self {
         AnyReader::List(Box::new(value))
+    }
+}
+
+impl <R: Reader> From<AnyFixedSizeListReader<R>> for AnyReader<R> {
+    fn from(value: AnyFixedSizeListReader<R>) -> Self {
+        AnyReader::FixedSizeList(Box::new(value))
     }
 }
 
@@ -175,6 +213,17 @@ impl <'a, F: ReaderFactory> DataTypeVisitor for AnyReaderFactory<'a, F> {
         Ok(reader.into())
     }
 
+    fn fixed_size_binary(&mut self, size: usize) -> Self::Result {
+        let nulls = self.factory.nullmask()?;
+        let values = self.factory.native::<u8>()?;
+        let reader = FixedSizeBinaryReader::try_new(
+            size,
+            nulls,
+            NativeArrayReader::new(values)
+        )?;
+        Ok(reader.into())
+    }
+
     fn list(&mut self, item: &DataType) -> Self::Result {
         let nulls = self.factory.nullmask()?;
         let offsets = self.factory.offset()?;
@@ -202,13 +251,16 @@ impl <'a, F: ReaderFactory> DataTypeVisitor for AnyReaderFactory<'a, F> {
 
 
 pub type AnyChunkedListReader<R> = ChunkedListReader<R, AnyChunkedReader<R>>;
+pub type AnyChunkedFixedSizeListReader<R> = ChunkedFixedSizeListReader<R, AnyChunkedReader<R>>;
 
 
 pub enum AnyChunkedReader<R: Reader> {
     Boolean(ChunkedBooleanReader<R>),
     Primitive(ChunkedPrimitiveReader<R>),
     Binary(ChunkedBinaryReader<R>),
+    FixedSizeBinary(ChunkedFixedSizeBinaryReader<R>),
     List(Box<AnyChunkedListReader<R>>),
+    FixedSizeList(Box<AnyChunkedFixedSizeListReader<R>>),
     Struct(ChunkedStructReader<R>)
 }
 
@@ -235,7 +287,9 @@ impl<R: Reader> ChunkedArrayReader for AnyChunkedReader<R> {
             AnyChunkedReader::Boolean(r) => r.num_buffers(),
             AnyChunkedReader::Primitive(r) => r.num_buffers(),
             AnyChunkedReader::Binary(r) => r.num_buffers(),
+            AnyChunkedReader::FixedSizeBinary(r) => r.num_buffers(),
             AnyChunkedReader::List(r) => r.num_buffers(),
+            AnyChunkedReader::FixedSizeList(r) => r.num_buffers(),
             AnyChunkedReader::Struct(r) => r.num_buffers(),
         }
     }
@@ -245,7 +299,9 @@ impl<R: Reader> ChunkedArrayReader for AnyChunkedReader<R> {
             (AnyChunkedReader::Boolean(c), AnyReader::Boolean(r)) => c.push(r),
             (AnyChunkedReader::Primitive(c), AnyReader::Primitive(r)) => c.push(r),
             (AnyChunkedReader::Binary(c), AnyReader::Binary(r)) => c.push(r),
+            (AnyChunkedReader::FixedSizeBinary(c), AnyReader::FixedSizeBinary(r)) => c.push(r),
             (AnyChunkedReader::List(c), AnyReader::List(r)) => c.push(*r),
+            (AnyChunkedReader::FixedSizeList(c), AnyReader::FixedSizeList(r)) => c.push(*r),
             (AnyChunkedReader::Struct(c), AnyReader::Struct(r)) => c.push(r),
             _ => panic!("array type mismatch")
         }
@@ -261,7 +317,9 @@ impl<R: Reader> ChunkedArrayReader for AnyChunkedReader<R> {
             AnyChunkedReader::Boolean(r) => r.read_chunked_ranges(dst, ranges),
             AnyChunkedReader::Primitive(r) => r.read_chunked_ranges(dst, ranges),
             AnyChunkedReader::Binary(r) => r.read_chunked_ranges(dst, ranges),
+            AnyChunkedReader::FixedSizeBinary(r) => r.read_chunked_ranges(dst, ranges),
             AnyChunkedReader::List(r) => r.read_chunked_ranges(dst, ranges),
+            AnyChunkedReader::FixedSizeList(r) => r.read_chunked_ranges(dst, ranges),
             AnyChunkedReader::Struct(r) => r.read_chunked_ranges(dst, ranges),
         }
     }
@@ -287,6 +345,14 @@ impl<R: Reader> DataTypeVisitor for AnyChunkedReaderFactory<R> {
 
     fn binary(&mut self) -> Self::Result {
         AnyChunkedReader::Binary(ChunkedBinaryReader::new(
+            self.cap,
+            ChunkedNativeArrayReader::with_capacity(self.cap)
+        ))
+    }
+
+    fn fixed_size_binary(&mut self, size: usize) -> Self::Result {
+        AnyChunkedReader::FixedSizeBinary(ChunkedFixedSizeBinaryReader::new(
+            size,
             self.cap,
             ChunkedNativeArrayReader::with_capacity(self.cap)
         ))

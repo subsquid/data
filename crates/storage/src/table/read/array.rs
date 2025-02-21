@@ -1,5 +1,5 @@
 use anyhow::{anyhow, ensure, Context};
-use arrow::array::{ArrayDataBuilder, ArrayRef, ArrowPrimitiveType, BinaryArray, BooleanArray, ListArray, PrimitiveArray, StringArray, StructArray};
+use arrow::array::{ArrayDataBuilder, ArrayRef, ArrowPrimitiveType, BinaryArray, BooleanArray, FixedSizeBinaryArray, ListArray, PrimitiveArray, StringArray, StructArray};
 use arrow::buffer::{BooleanBuffer, NullBuffer, OffsetBuffer, ScalarBuffer};
 use arrow::datatypes::{ArrowNativeType, DataType, FieldRef, Fields, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 use arrow_buffer::MutableBuffer;
@@ -73,6 +73,7 @@ pub fn read_array(
             DataType::Timestamp(*unit, tz.clone())
         ),
         DataType::Binary => read_binary(storage, pos, ranges),
+        DataType::FixedSizeBinary(size) => read_fixed_size_binary(storage, pos, ranges, *size),
         DataType::Utf8 => read_string(storage, pos, ranges),
         DataType::List(f) => read_list(storage, pos, ranges, f.clone()),
         DataType::Struct(fields) => read_struct(storage, pos, ranges, fields.clone()),
@@ -165,6 +166,36 @@ fn read_binary(
         .context("failed to read values array")?;
 
     let array = BinaryArray::try_new(offsets, values.into_inner(), nulls)?;
+
+    Ok(Arc::new(array))
+}
+
+
+fn read_fixed_size_binary(
+    storage: &impl Storage,
+    pos: usize,
+    ranges: Option<&RangeList<u32>>,
+    size: i32
+) -> anyhow::Result<ArrayRef>
+{
+    let nulls = storage.read_null_mask(pos, ranges)
+        .context("failed to read null mask")?;
+
+    let value_ranges = ranges.map(|list| {
+        unsafe {
+            // SAFETY: monotonicity, non-emptiness and non-overlapping are guaranteed by construction
+            RangeList::new_unchecked(
+            list.iter()
+                .map(|r| (r.start * size as u32)..(r.end * size as u32))
+                .collect::<Vec<_>>(),
+            )
+        }
+    });
+
+    let values = storage.read_native::<u8>(pos + 1, value_ranges.as_ref())
+        .context("failed to read values array")?;
+
+    let array = FixedSizeBinaryArray::try_new(size, values.into_inner(), nulls)?;
 
     Ok(Arc::new(array))
 }

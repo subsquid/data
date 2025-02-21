@@ -2,7 +2,7 @@ use super::{can_have_stats, Stats};
 use arrow::datatypes::DataType;
 use arrow_buffer::{ArrowNativeType, OffsetBuffer};
 use sqd_array::builder::{AnyBuilder, ArrayBuilder};
-use sqd_array::slice::{AnySlice, ListSlice, PrimitiveSlice, Slice};
+use sqd_array::slice::{AnySlice, FixedSizeListSlice, ListSlice, PrimitiveSlice, Slice};
 use sqd_array::writer::ArrayWriter;
 
 
@@ -63,6 +63,8 @@ impl StatsBuilder {
 
             DataType::Binary |
             DataType::Utf8 => self.push_binary(values.as_binary()),
+            DataType::FixedSizeBinary(_) =>
+                self.push_fixed_size_binary(values.as_fixed_size_binary()),
             ty => unreachable!("unexpected arrow type - {}", ty)
         };
     }
@@ -110,7 +112,28 @@ impl StatsBuilder {
             },
             _ => unreachable!()
         };
+    }
 
+    fn push_fixed_size_binary(&mut self, values: FixedSizeListSlice<'_, &'_ [u8]>) {
+        let min_max = values.min().and_then(|min| {
+            let max = values.max().unwrap();
+            Some((min, max))
+        });
 
+        match (&mut self.min, &mut self.max) {
+            (
+                AnyBuilder::FixedSizeBinary(min_builder),
+                AnyBuilder::FixedSizeBinary(max_builder),
+            ) => {
+                if let Some((min, max)) = min_max {
+                    min_builder.append(min);
+                    max_builder.append(max)
+                } else {
+                    min_builder.append_null();
+                    max_builder.append_null()
+                }
+            }
+            _ => unreachable!(),
+        };
     }
 }

@@ -1,5 +1,5 @@
 use crate::access::Access;
-use crate::slice::{AnySlice, ListSlice, Slice, AnyTableSlice};
+use crate::slice::{AnySlice, AnyTableSlice, FixedSizeListSlice, ListSlice, Slice};
 use crate::sort::order::{IgnoreNulls, Order, OrderList, OrderPair};
 
 
@@ -16,6 +16,7 @@ macro_rules! with_order {
             AnySlice::Int32(s) => dispatch_nulls!(s, $order, $cb),
             AnySlice::Int64(s) => dispatch_nulls!(s, $order, $cb),
             AnySlice::Binary(s) => dispatch_nulls!(s, $order, $cb),
+            AnySlice::FixedSizeBinary(s) => dispatch_nulls!(s, $order, $cb),
             AnySlice::List(list) => {
                 match list.values().item() {
                     AnySlice::UInt16(it) if !it.has_nulls() => {
@@ -31,6 +32,23 @@ macro_rules! with_order {
                         dispatch_nulls!(slice, $order, $cb)
                     },
                     _ => panic!("only lists of non-nullable u16, u32 and i32 items are sortable")
+                }
+            },
+            AnySlice::FixedSizeList(list) => {
+                match list.values().item() {
+                    AnySlice::UInt16(it) if !it.has_nulls() => {
+                        let slice = FixedSizeListSlice::new(list.size(), it.values(), list.nulls().bitmask());
+                        dispatch_nulls!(slice, $order, $cb)
+                    },
+                    AnySlice::UInt32(it) if !it.has_nulls() => {
+                        let slice = FixedSizeListSlice::new(list.size(), it.values(), list.nulls().bitmask());
+                        dispatch_nulls!(slice, $order, $cb)
+                    },
+                    AnySlice::Int32(it) if !it.has_nulls() => {
+                        let slice = FixedSizeListSlice::new(list.size(), it.values(), list.nulls().bitmask());
+                        dispatch_nulls!(slice, $order, $cb)
+                    },
+                    _ => panic!("only fixed size lists of non-nullable u16, u32 and i32 items are sortable")
                 }
             },
             AnySlice::Struct(_) => panic!("sorting on structs is not supported"),

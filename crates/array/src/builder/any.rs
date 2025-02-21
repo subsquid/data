@@ -1,6 +1,6 @@
 use crate::builder::memory_writer::MemoryWriter;
 use crate::builder::r#struct::AnyStructBuilder;
-use crate::builder::{ArrayBuilder, BinaryBuilder, BooleanBuilder, ListBuilder, PrimitiveBuilder, StringBuilder};
+use crate::builder::{ArrayBuilder, BinaryBuilder, BooleanBuilder, ListBuilder, PrimitiveBuilder, StringBuilder, FixedSizeBinaryBuilder};
 use crate::slice::{AnySlice, AsSlice};
 use crate::writer::{ArrayWriter, Writer};
 use arrow::array::ArrayRef;
@@ -20,6 +20,7 @@ pub enum AnyBuilder {
     TimestampSecond(PrimitiveBuilder<TimestampSecondType>),
     TimestampMillisecond(PrimitiveBuilder<TimestampMillisecondType>),
     Binary(BinaryBuilder),
+    FixedSizeBinary(FixedSizeBinaryBuilder),
     String(StringBuilder),
     List(Box<ListBuilder<AnyBuilder>>),
     Struct(AnyStructBuilder)
@@ -43,6 +44,7 @@ impl ArrayWriter for AnyBuilder {
             AnyBuilder::TimestampSecond(b) => b.bitmask(buf),
             AnyBuilder::TimestampMillisecond(b) => b.bitmask(buf),
             AnyBuilder::Binary(b) => b.bitmask(buf),
+            AnyBuilder::FixedSizeBinary(b) => b.bitmask(buf),
             AnyBuilder::String(b) => b.bitmask(buf),
             AnyBuilder::List(b) => b.bitmask(buf),
             AnyBuilder::Struct(b) => b.bitmask(buf),
@@ -63,6 +65,7 @@ impl ArrayWriter for AnyBuilder {
             AnyBuilder::TimestampSecond(b) => b.nullmask(buf),
             AnyBuilder::TimestampMillisecond(b) => b.nullmask(buf),
             AnyBuilder::Binary(b) => b.nullmask(buf),
+            AnyBuilder::FixedSizeBinary(b) => b.nullmask(buf),
             AnyBuilder::String(b) => b.nullmask(buf),
             AnyBuilder::List(b) => b.nullmask(buf),
             AnyBuilder::Struct(b) => b.nullmask(buf),
@@ -83,6 +86,7 @@ impl ArrayWriter for AnyBuilder {
             AnyBuilder::TimestampSecond(b) => b.native(buf),
             AnyBuilder::TimestampMillisecond(b) => b.native(buf),
             AnyBuilder::Binary(b) => b.native(buf),
+            AnyBuilder::FixedSizeBinary(b) => b.native(buf),
             AnyBuilder::String(b) => b.native(buf),
             AnyBuilder::List(b) => b.native(buf),
             AnyBuilder::Struct(b) => b.native(buf),
@@ -103,6 +107,7 @@ impl ArrayWriter for AnyBuilder {
             AnyBuilder::TimestampSecond(b) => b.offset(buf),
             AnyBuilder::TimestampMillisecond(b) => b.offset(buf),
             AnyBuilder::Binary(b) => b.offset(buf),
+            AnyBuilder::FixedSizeBinary(b) => b.offset(buf),
             AnyBuilder::String(b) => b.offset(buf),
             AnyBuilder::List(b) => b.offset(buf),
             AnyBuilder::Struct(b) => b.offset(buf),
@@ -128,6 +133,7 @@ impl AsSlice for AnyBuilder {
             AnyBuilder::TimestampSecond(b) => b.as_slice().into(),
             AnyBuilder::TimestampMillisecond(b) => b.as_slice().into(),
             AnyBuilder::Binary(b) => b.as_slice().into(),
+            AnyBuilder::FixedSizeBinary(b) => b.as_slice().into(),
             AnyBuilder::String(b) => b.as_slice().into(),
             AnyBuilder::List(b) => b.as_slice().into(),
             AnyBuilder::Struct(b) => b.as_slice().into(),
@@ -151,6 +157,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::TimestampSecond(b) => b.data_type(),
             AnyBuilder::TimestampMillisecond(b) => b.data_type(),
             AnyBuilder::Binary(b) => b.data_type(),
+            AnyBuilder::FixedSizeBinary(b) => b.data_type(),
             AnyBuilder::String(b) => b.data_type(),
             AnyBuilder::List(b) => b.data_type(),
             AnyBuilder::Struct(b) => b.data_type(),
@@ -171,6 +178,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::TimestampSecond(b) => b.len(),
             AnyBuilder::TimestampMillisecond(b) => b.len(),
             AnyBuilder::Binary(b) => b.len(),
+            AnyBuilder::FixedSizeBinary(b) => b.len(),
             AnyBuilder::String(b) => b.len(),
             AnyBuilder::List(b) => b.len(),
             AnyBuilder::Struct(b) => b.len(),
@@ -191,6 +199,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::TimestampSecond(b) => b.byte_size(),
             AnyBuilder::TimestampMillisecond(b) => b.byte_size(),
             AnyBuilder::Binary(b) => b.byte_size(),
+            AnyBuilder::FixedSizeBinary(b) => b.byte_size(),
             AnyBuilder::String(b) => b.byte_size(),
             AnyBuilder::List(b) => b.byte_size(),
             AnyBuilder::Struct(b) => b.byte_size(),
@@ -211,6 +220,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::TimestampSecond(b) => b.clear(),
             AnyBuilder::TimestampMillisecond(b) => b.clear(),
             AnyBuilder::Binary(b) => b.clear(),
+            AnyBuilder::FixedSizeBinary(b) => b.clear(),
             AnyBuilder::String(b) => b.clear(),
             AnyBuilder::List(b) => b.clear(),
             AnyBuilder::Struct(b) => b.clear(),
@@ -231,6 +241,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::TimestampSecond(b) => ArrayBuilder::finish(b),
             AnyBuilder::TimestampMillisecond(b) => ArrayBuilder::finish(b),
             AnyBuilder::Binary(b) => ArrayBuilder::finish(b),
+            AnyBuilder::FixedSizeBinary(b) => ArrayBuilder::finish(b),
             AnyBuilder::String(b) => ArrayBuilder::finish(b),
             AnyBuilder::List(b) => ArrayBuilder::finish(*b),
             AnyBuilder::Struct(b) => ArrayBuilder::finish(b),
@@ -251,6 +262,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::TimestampSecond(b) => ArrayBuilder::finish_unchecked(b),
             AnyBuilder::TimestampMillisecond(b) => ArrayBuilder::finish_unchecked(b),
             AnyBuilder::Binary(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::FixedSizeBinary(b) => ArrayBuilder::finish_unchecked(b),
             AnyBuilder::String(b) => ArrayBuilder::finish_unchecked(b),
             AnyBuilder::List(b) => ArrayBuilder::finish_unchecked(*b),
             AnyBuilder::Struct(b) => ArrayBuilder::finish_unchecked(b),
@@ -301,6 +313,13 @@ impl From<StringBuilder> for AnyBuilder {
 }
 
 
+impl From<FixedSizeBinaryBuilder> for AnyBuilder {
+    fn from(value: FixedSizeBinaryBuilder) -> Self {
+        AnyBuilder::FixedSizeBinary(value)
+    }
+}
+
+
 impl From<ListBuilder<AnyBuilder>> for AnyBuilder {
     fn from(value: ListBuilder<AnyBuilder>) -> Self {
         AnyBuilder::List(Box::new(value))
@@ -334,6 +353,7 @@ impl AnyBuilder {
                 PrimitiveBuilder::<TimestampMillisecondType>::new(0).into()
             },
             DataType::Binary => BinaryBuilder::new(0, 0).into(),
+            DataType::FixedSizeBinary(size) => FixedSizeBinaryBuilder::new(*size as usize, 0).into(),
             DataType::Utf8 => StringBuilder::new(0, 0).into(),
             DataType::List(f) => {
                 ListBuilder::new(

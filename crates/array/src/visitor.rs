@@ -20,7 +20,9 @@ pub trait DataTypeVisitor {
     }
     
     fn binary(&mut self) -> Self::Result;
-    
+
+    fn fixed_size_binary(&mut self, size: usize) -> Self::Result;
+
     #[inline]
     fn string(&mut self) -> Self::Result {
         self.binary()
@@ -46,6 +48,7 @@ pub trait DataTypeVisitor {
             DataType::Float64 => self.primitive::<Float64Type>(),
             DataType::Timestamp(time_unit, tz) => self.timestamp(time_unit, tz),
             DataType::Binary => self.binary(),
+            DataType::FixedSizeBinary(size) => self.fixed_size_binary(*size as usize),
             DataType::Utf8 => self.string(),
             DataType::List(f) => self.list(f.data_type()),
             DataType::Struct(fields) => self.r#struct(fields),
