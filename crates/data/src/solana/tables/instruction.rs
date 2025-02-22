@@ -35,7 +35,7 @@ table_builder! {
         a14: Base58Builder,
         a15: Base58Builder,
         rest_accounts: AccountListBuilder,
-        accounts_bloom: FixedSizeBinaryBuilder,
+        accounts_bloom: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(64, 0),
 
         compute_units_consumed: UInt64Builder,
         error: StringBuilder,

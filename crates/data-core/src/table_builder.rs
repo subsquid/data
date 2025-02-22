@@ -2,7 +2,7 @@
 macro_rules! table_builder {
     (
         $name:ident {
-            $($field:ident : $builder:ident,)*
+            $($field:ident : $builder:ident $(= $init_expr:expr)?,)*
         }
 
         description($desc:ident) $desc_cb:expr
@@ -19,11 +19,15 @@ macro_rules! table_builder {
                 use arrow::datatypes::{Schema, Field, FieldRef};
                 use std::sync::Arc;
                 use sqd_array::builder::ArrayBuilder;
-                
+
                 $(
-                let $field = $builder::default();
+                    let $field = if let Some(init_expr) = sqd_data_core::_optionize!($($init_expr)?) {
+                        init_expr
+                    } else {
+                        $builder::default()
+                    };
                 )*
-                
+
                 let schema_fields: Vec<FieldRef> = vec![
                     $(
                         Arc::new(
@@ -131,6 +135,13 @@ macro_rules! _table_builder_len_impl {
         )*
         len
     }};
+}
+
+
+#[macro_export]
+macro_rules! _optionize {
+    ($x:expr) => { Some($x) };
+    () => { None };
 }
 
 // 
