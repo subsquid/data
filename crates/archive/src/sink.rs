@@ -53,7 +53,7 @@ impl Sink {
     }
 
     pub async fn r#loop(&mut self) -> anyhow::Result<()> {
-        let mut chunk_first_block = None;
+        let mut chunk_first_block = self.chunk_writer.next_block();
         let mut next_block = self.chunk_writer.next_block();
         let mut last_report = Instant::now();
 
@@ -92,9 +92,7 @@ impl Sink {
 
                 self.processor.push(line.as_bytes())?;
 
-                if chunk_first_block.is_none() {
-                    chunk_first_block = Some(self.processor.last_block());
-
+                if chunk_first_block == next_block {
                     if let Some(prev_chunk_hash) = self.chunk_writer.prev_chunk_hash() {
                         let parent_hash = self.processor.last_parent_block_hash();
                         anyhow::ensure!(prev_chunk_hash == short_hash(parent_hash));
@@ -104,8 +102,8 @@ impl Sink {
                 if self.processor.buffered_bytes() > self.chunk_size * 1024 * 1024
                     || self.processor.max_num_rows() >= self.max_num_rows
                 {
-                    self.submit_chunk(chunk_first_block.unwrap()).await?;
-                    chunk_first_block = None;
+                    self.submit_chunk(chunk_first_block).await?;
+                    chunk_first_block = self.processor.last_block() + 1;
                 }
 
                 self.progress.set_current_value(self.processor.last_block());
@@ -122,7 +120,7 @@ impl Sink {
         }
 
         if self.processor.max_num_rows() > 0 {
-            self.submit_chunk(chunk_first_block.unwrap()).await?;
+            self.submit_chunk(chunk_first_block).await?;
         }
 
         if self.progress.has_news() {
