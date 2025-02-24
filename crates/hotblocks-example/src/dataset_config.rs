@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqd_node::{DatasetKind, RetentionStrategy};
+use sqd_hotblocks::{DatasetKind, RetentionStrategy};
 use sqd_storage::db::DatasetId;
 use std::collections::BTreeMap;
 use url::Url;

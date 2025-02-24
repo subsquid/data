@@ -1,5 +1,5 @@
 [package]
-name = "sqd-node"
+name = "sqd-hotblocks"
 version = "0.1.0"
 edition = "2021"
 
