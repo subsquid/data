@@ -1,8 +1,8 @@
-use crate::solana::model::Balance;
+use crate::solana::model::{Balance, Block};
 use crate::solana::tables::common::Base58Builder;
 use sqd_array::builder::{UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
-use sqd_primitives::BlockNumber;
+
 
 table_builder! {
     BalanceBuilder {
@@ -26,11 +26,12 @@ table_builder! {
 
 
 impl BalanceBuilder {
-    pub fn push(&mut self, block_number: BlockNumber, row: &Balance) {
-        self.block_number.append(block_number);
+    pub fn push(&mut self, block: &Block, row: &Balance) -> anyhow::Result<()> {
+        self.block_number.append(block.header.number);
         self.transaction_index.append(row.transaction_index);
-        self.account.append(&row.account);
+        self.account.append(block.get_account(row.account)?);
         self.pre.append(row.pre);
         self.post.append(row.post);
+        Ok(())
     }
 }

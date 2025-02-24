@@ -1,8 +1,7 @@
-use crate::solana::model::TokenBalance;
+use crate::solana::model::{Block, TokenBalance};
 use crate::solana::tables::common::Base58Builder;
 use sqd_array::builder::{UInt16Builder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
-use sqd_primitives::BlockNumber;
 
 table_builder! {
     TokenBalanceBuilder {
@@ -52,19 +51,20 @@ table_builder! {
 
 
 impl TokenBalanceBuilder {
-    pub fn push(&mut self, block_number: BlockNumber, row: &TokenBalance) {
-        self.block_number.append(block_number);
+    pub fn push(&mut self, block: &Block, row: &TokenBalance) -> anyhow::Result<()> {
+        self.block_number.append(block.header.number);
         self.transaction_index.append(row.transaction_index);
-        self.account.append(&row.account);
-        self.pre_mint.append_option(row.pre_mint.as_deref());
-        self.post_mint.append_option(row.post_mint.as_deref());
+        self.account.append(block.get_account(row.account)?);
+        self.pre_mint.append_option(row.pre_mint.map(|i| block.get_account(i)).transpose()?);
+        self.post_mint.append_option(row.post_mint.map(|i| block.get_account(i)).transpose()?);
         self.pre_decimals.append_option(row.pre_decimals);
         self.post_decimals.append_option(row.post_decimals);
-        self.pre_program_id.append_option(row.pre_program_id.as_deref());
-        self.post_program_id.append_option(row.post_program_id.as_deref());
-        self.pre_owner.append_option(row.pre_owner.as_deref());
-        self.post_owner.append_option(row.post_owner.as_deref());
+        self.pre_program_id.append_option(row.pre_program_id.map(|i| block.get_account(i)).transpose()?);
+        self.post_program_id.append_option(row.post_program_id.map(|i| block.get_account(i)).transpose()?);
+        self.pre_owner.append_option(row.pre_owner.map(|i| block.get_account(i)).transpose()?);
+        self.post_owner.append_option(row.post_owner.map(|i| block.get_account(i)).transpose()?);
         self.pre_amount.append_option(row.pre_amount);
         self.post_amount.append_option(row.post_amount);
+        Ok(())
     }
 }

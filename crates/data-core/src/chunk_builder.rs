@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 pub trait BlockChunkBuilder: ChunkBuilder {
     type Block;
 
-    fn push(&mut self, block: &Self::Block);
+    fn push(&mut self, block: &Self::Block) -> anyhow::Result<()>;
 }
 
 

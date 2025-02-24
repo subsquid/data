@@ -87,7 +87,7 @@ impl<CB: BlockChunkBuilder> DataBuilder<CB> {
         }
     }
 
-    pub fn push_block(&mut self, block: &CB::Block) {
+    pub fn push_block(&mut self, block: &CB::Block) -> anyhow::Result<()> {
         self.builder.push(block)
     }
 
@@ -216,7 +216,7 @@ where
     }
 
     fn push_block(&mut self, block: CB::Block, is_final: bool) -> anyhow::Result<()> {
-        self.builder.as_mut().unwrap().push_block(&block);
+        self.builder.as_mut().unwrap().push_block(&block)?;
         if self.buffered_blocks == 0 {
             self.parent_block_hash.clear();
             self.parent_block_hash.push_str(block.parent_hash());
