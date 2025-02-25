@@ -220,12 +220,19 @@ impl DataClient for ReqwestDataClient {
                 if reqwest_error.is_timeout() {
                    return true
                 }
+                if reqwest_error.is_request() && 
+                    reqwest_error.to_string() == "connection closed before message completed" {
+                    return true
+                }
             }
 
             if let Some(io_error) = cause.downcast_ref::<std::io::Error>() {
                 match io_error.kind() {
-                    ErrorKind::ConnectionReset => return true,
                     ErrorKind::ConnectionAborted => return true,
+                    ErrorKind::ConnectionRefused => return true,
+                    ErrorKind::ConnectionReset => return true,
+                    ErrorKind::HostUnreachable => return true,
+                    ErrorKind::NetworkUnreachable => return true,
                     ErrorKind::TimedOut => return true,
                     _ => {}
                 }
