@@ -103,10 +103,10 @@ impl ReqwestDataClient {
                         "failed to receive a list of previous blocks after base-block hash mismatch"
                     )?;
                 ensure!(
-                    !conflict.last_blocks.is_empty(),
+                    !conflict.previous_blocks.is_empty(),
                     "got an empty list of prev blocks"
                 );
-                Ok(BlockStreamResponse::Fork(conflict.last_blocks))
+                Ok(BlockStreamResponse::Fork(conflict.previous_blocks))
             },
             _ => {
                 let status = res.status();
@@ -268,5 +268,5 @@ impl std::error::Error for UnexpectedHttpStatus {}
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BaseBlockConflict {
-    last_blocks: Vec<BlockRef>
+    previous_blocks: Vec<BlockRef>
 }
