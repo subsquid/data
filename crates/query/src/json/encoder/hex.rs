@@ -1,6 +1,6 @@
+use crate::json::encoder::Encoder;
 use arrow::buffer::ScalarBuffer;
 use arrow::datatypes::ArrowNativeType;
-use crate::json::encoder::Encoder;
 use std::io::Write;
 
 
@@ -28,8 +28,7 @@ macro_rules! hex_encode {
                 }
 
                 fn encode(self, buf: &mut Self::Buffer) -> &[u8] {
-                    let mut buf = buf.as_mut();
-                    write_hex(&mut buf, &self.to_be_bytes());
+                    write_hex(buf.as_mut(), &self.to_be_bytes());
                     buf
                 }
             }
@@ -66,7 +65,9 @@ impl <N: HexEncode> HexEncoder<N> {
 
 impl<N: HexEncode> Encoder for HexEncoder<N> {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {
+        out.push(b'"');
         out.extend_from_slice(self.values[idx].encode(&mut self.buffer));
+        out.push(b'"');
     }
 }
 
@@ -75,14 +76,13 @@ impl<N: HexEncode> Encoder for HexEncoder<N> {
 mod tests {
     use super::HexEncode;
 
+
     #[test]
     fn test_hex_write() {
         let mut buf = u16::init_buffer();
-        1600u16.encode(&mut buf);
-        assert_eq!(&buf, b"0x0640");
+        assert_eq!(1600u16.encode(&mut buf), b"0x0640");
 
         let mut buf = u64::init_buffer();
-        1600u64.encode(&mut buf);
-        assert_eq!(&buf, b"0x0000000000000640");
+        assert_eq!(1600u64.encode(&mut buf), b"0x0000000000000640");
     }
 }
