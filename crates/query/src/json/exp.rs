@@ -1,10 +1,10 @@
 use std::ops::Deref;
 
-use arrow::array::{Array, AsArray, StringArray, StructArray};
+use arrow::array::{Array, AsArray, PrimitiveArray, StringArray, StructArray};
 use arrow::buffer::NullBuffer;
 use arrow::datatypes::{DataType, TimestampMillisecondType, TimestampSecondType, TimeUnit};
 
-use crate::json::encoder::{Encoder, EncoderObject, JsonEncoder, ListSpreadEncoder, NullableEncoder, PrimitiveEncoder, SafeStringEncoder, StructEncoder, StructField, TimestampEncoder};
+use crate::json::encoder::{Encoder, EncoderObject, HexEncode, HexEncoder, JsonEncoder, ListSpreadEncoder, NullableEncoder, PrimitiveEncoder, SafeStringEncoder, StructEncoder, StructField, TimestampEncoder};
 use crate::json::encoder::factory::{extract_nulls, make_encoder, make_nullable_encoder};
 use crate::json::encoder::util::json_close;
 use crate::primitives::{Name, schema_error, SchemaError};
@@ -15,6 +15,7 @@ pub enum Exp {
     Value,
     Json,
     BigNum,
+    HexNum,
     TimestampSecond,
     TimestampMillisecond,
     Object(Vec<(Name, Exp)>),
@@ -53,6 +54,7 @@ impl Exp {
             Exp::Value |
             Exp::Json |
             Exp::BigNum |
+            Exp::HexNum |
             Exp::TimestampSecond |
             Exp::TimestampMillisecond => {},
         }
@@ -63,6 +65,7 @@ impl Exp {
             Exp::Value => make_encoder(array),
             Exp::Json => eval_json(array),
             Exp::BigNum => eval_bignum(array),
+            Exp::HexNum => eval_hex(array),
             Exp::TimestampSecond => eval_timestamp(array, TimeUnit::Second),
             Exp::TimestampMillisecond => eval_timestamp(array, TimeUnit::Millisecond),
             Exp::Object(props) => eval_object(array, props),
@@ -129,6 +132,34 @@ fn eval_bignum(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
         DataType::Decimal128(_, 0) => make!(Decimal128Type),
         ty => Err(schema_error!(
             "Expected numeric primitive value, but got - {}", ty
+        ))
+    }
+}
+
+
+fn eval_hex(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
+    use arrow::datatypes::*;
+
+    fn make_encoder<T>(
+        array: &PrimitiveArray<T>,
+    ) -> Result<EncoderObject, SchemaError>
+    where
+        T: ArrowPrimitiveType,
+        T::Native: HexEncode,
+    {
+        let (_, buffer, nulls) = array.clone().into_parts();
+        let encoder = HexEncoder::new(buffer);
+        Ok(make_nullable_encoder(encoder, nulls))
+    }
+
+    match array.data_type() {
+        DataType::UInt8 => make_encoder(array.as_primitive::<UInt8Type>()),
+        DataType::UInt16 => make_encoder(array.as_primitive::<UInt16Type>()),
+        DataType::UInt32 => make_encoder(array.as_primitive::<UInt32Type>()),
+        DataType::UInt64 => make_encoder(array.as_primitive::<UInt64Type>()),
+        DataType::Decimal128(_, 0) => make_encoder(array.as_primitive::<Decimal128Type>()),
+        ty => Err(schema_error!(
+            "Expected unsigned numeric primitive value, but got - {}", ty
         ))
     }
 }
