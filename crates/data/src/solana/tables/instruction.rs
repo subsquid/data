@@ -6,7 +6,7 @@ use sqd_bloom_filter::BloomFilter;
 use sqd_data_core::table_builder;
 
 
-pub const BITS: usize = 64;
+pub const BYTES: usize = 64;
 pub const NUM_HASHES: usize = 7;
 
 
@@ -163,7 +163,7 @@ impl InstructionBuilder {
 
     fn append_accounts_bloom(&mut self, block: &Block, accounts: &[AccountIndex]) -> anyhow::Result<()> {
         if accounts.len() > 0 {
-            let mut bloom = BloomFilter::<BITS>::new(NUM_HASHES);
+            let mut bloom = BloomFilter::<BYTES>::new(NUM_HASHES);
             for account in accounts {
                 bloom.insert(&block.get_account(*account)?);
             }

@@ -70,7 +70,22 @@ pub fn col_between<T: IntoArrow>(name: Name, low: T, high: T) -> RowPredicateRef
 
 
 pub fn bloom_filter<T: Hash>(name: Name, values: Vec<T>) -> RowPredicateRef {
-    make_column_predicate!(name, array_predicate::BloomFilter::new(values))
+    match values.len() {
+        1 => make_column_predicate!(
+            name,
+            array_predicate::BloomFilter::new(values.into_iter().next().unwrap())
+        ),
+        0 | 2.. => {
+            make_column_predicate!(
+                name,
+                array_predicate::Or::new(
+                    values.into_iter().map(|v| {
+                        Arc::new(array_predicate::BloomFilter::new(v)) as ArrayPredicateRef
+                    }).collect()
+                )
+            )
+        }
+    }
 }
 
 

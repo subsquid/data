@@ -413,7 +413,7 @@ impl ArrayPredicate for InList {
 }
 
 
-fn bitwise_and<const N: usize>(value: [u8; N], other: [u8; N]) -> [u8; N] {
+fn bitwise_and<const N: usize>(value: &[u8; N], other: &[u8; N]) -> [u8; N] {
     let mut arr = [0; N];
     for i in 0..N {
         arr[i] = value[i] & other[i];
@@ -423,25 +423,23 @@ fn bitwise_and<const N: usize>(value: [u8; N], other: [u8; N]) -> [u8; N] {
 
 
 pub struct BloomFilter {
-    bit_array: [u8; 64]
+    byte_array: [u8; 64]
 }
 
 
 impl BloomFilter {
-    pub fn new<T: Hash>(values: Vec<T>) -> Self {
+    pub fn new<T: Hash>(value: T) -> Self {
         let mut bloom = sqd_bloom_filter::BloomFilter::<64>::new(7);
-        for value in values {
-            bloom.insert(&value);
-        }
-        let bit_array = bloom.to_byte_array();
-        Self { bit_array }
+        bloom.insert(&value);
+        let byte_array = bloom.to_byte_array();
+        Self { byte_array }
     }
 
     pub fn bloom_contains(&self, opt: Option<&[u8]>) -> anyhow::Result<bool> {
         if let Some(val) = opt {
             let value: [u8; 64] = val.try_into()?;
-            let arr = bitwise_and(self.bit_array, value);
-            Ok(arr == self.bit_array)
+            let arr = bitwise_and(&self.byte_array, &value);
+            Ok(arr == self.byte_array)
         } else {
             Ok(false)
         }
