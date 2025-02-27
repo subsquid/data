@@ -156,7 +156,7 @@ impl InstructionBuilder {
             for account in accounts {
                 bloom.insert(account);
             }
-            let bit_array = bloom.to_bit_array();
+            let bit_array = bloom.to_byte_array();
             self.accounts_bloom.append(&bit_array);
         } else {
             self.accounts_bloom.append_null();

@@ -4544,6 +4544,7 @@ dependencies = [
 name = "sqd-bloom-filter"
 version = "0.1.0"
 dependencies = [
+ "arrow-buffer",
  "criterion",
  "serde_json",
  "xxhash-rust",

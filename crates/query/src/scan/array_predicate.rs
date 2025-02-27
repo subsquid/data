@@ -433,7 +433,7 @@ impl BloomFilter {
         for value in values {
             bloom.insert(&value);
         }
-        let bit_array = bloom.to_bit_array();
+        let bit_array = bloom.to_byte_array();
         Self { bit_array }
     }
 

@@ -1,9 +1,10 @@
+use arrow_buffer::bit_util;
 use std::hash::{Hash, Hasher};
 use xxhash_rust::xxh3::Xxh3Builder;
 
 
 pub struct BloomFilter<const N: usize> {
-    bit_array: [u8; N],
+    byte_array: [u8; N],
     num_hashes: usize,
 }
 
@@ -11,13 +12,13 @@ pub struct BloomFilter<const N: usize> {
 impl<const N: usize> BloomFilter<N> {
     pub fn new(num_hashes: usize) -> Self {
         BloomFilter {
-            bit_array: [0; N],
+            byte_array: [0; N],
             num_hashes,
         }
     }
 
-    pub fn to_bit_array(self) -> [u8; N] {
-        self.bit_array
+    pub fn to_byte_array(self) -> [u8; N] {
+        self.byte_array
     }
 
     pub fn insert<T: Hash>(&mut self, item: &T) {
@@ -25,7 +26,10 @@ impl<const N: usize> BloomFilter<N> {
             let hash = self.hash(item, i as u64);
             let byte_index = hash / 8;
             let bit_index = hash % 8;
-            self.bit_array[byte_index] |= 1 << bit_index;
+            unsafe {
+                let byte = self.byte_array.get_unchecked_mut(byte_index);
+                bit_util::set_bit_raw(byte, bit_index);
+            }
         }
     }
 
@@ -34,8 +38,11 @@ impl<const N: usize> BloomFilter<N> {
             let hash = self.hash(item, i as u64);
             let byte_index = hash / 8;
             let bit_index = hash % 8;
-            if self.bit_array[byte_index] & (1 << bit_index) == 0 {
-                return false;
+            unsafe {
+                let byte = self.byte_array.get_unchecked(byte_index);
+                if !bit_util::get_bit_raw(byte, bit_index) {
+                    return false;
+                }
             }
         }
         true
@@ -44,7 +51,7 @@ impl<const N: usize> BloomFilter<N> {
     fn hash<T: Hash>(&self, item: &T, seed: u64) -> usize {
         let mut hasher = Xxh3Builder::new().with_seed(seed).build();
         item.hash(&mut hasher);
-        (hasher.finish() % (self.bit_array.len() as u64 * 8)) as usize
+        hasher.finish() as usize % (N * 8)
     }
 }
 
