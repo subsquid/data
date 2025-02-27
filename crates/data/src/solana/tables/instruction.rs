@@ -75,7 +75,6 @@ table_builder! {
         d.options.use_dictionary("a14");
         d.options.use_dictionary("a15");
         d.options.use_dictionary("rest_accounts.list.element");
-        d.options.use_dictionary("d1");
         d.options.row_group_size = 20_000;
     }
 }
