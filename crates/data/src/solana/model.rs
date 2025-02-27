@@ -1,6 +1,10 @@
 use crate::types::{Base58Bytes, JsonValue};
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use sqd_primitives::{BlockNumber, ItemIndex};
+
+
+pub type AccountIndex = u32;
 
 
 #[derive(Deserialize)]
@@ -18,7 +22,7 @@ pub struct BlockHeader {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddressTableLookup {
-    pub account_key: Base58Bytes,
+    pub account_key: AccountIndex,
     pub readonly_indexes: Vec<u8>,
     pub writable_indexes: Vec<u8>,
 }
@@ -26,8 +30,8 @@ pub struct AddressTableLookup {
 
 #[derive(Deserialize)]
 pub struct LoadedAddresses {
-    pub readonly: Vec<Base58Bytes>,
-    pub writable: Vec<Base58Bytes>,
+    pub readonly: Vec<AccountIndex>,
+    pub writable: Vec<AccountIndex>,
 }
 
 
@@ -45,7 +49,7 @@ pub enum TransactionVersion {
 pub struct Transaction {
     pub transaction_index: ItemIndex,
     pub version: TransactionVersion,
-    pub account_keys: Vec<Base58Bytes>,
+    pub account_keys: Vec<AccountIndex>,
     pub address_table_lookups: Vec<AddressTableLookup>,
     pub num_readonly_signed_accounts: u8,
     pub num_readonly_unsigned_accounts: u8,
@@ -67,8 +71,8 @@ pub struct Transaction {
 pub struct Instruction {
     pub transaction_index: ItemIndex,
     pub instruction_address: Vec<ItemIndex>,
-    pub program_id: Base58Bytes,
-    pub accounts: Vec<Base58Bytes>,
+    pub program_id: AccountIndex,
+    pub accounts: Vec<AccountIndex>,
     pub data: Base58Bytes,
     #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
     pub compute_units_consumed: Option<u64>,
@@ -105,7 +109,7 @@ pub struct LogMessage {
     pub transaction_index: ItemIndex,
     pub log_index: ItemIndex,
     pub instruction_address: Vec<ItemIndex>,
-    pub program_id: Base58Bytes,
+    pub program_id: AccountIndex,
     pub kind: LogMessageKind,
     pub message: String,
 }
@@ -115,7 +119,7 @@ pub struct LogMessage {
 #[serde(rename_all = "camelCase")]
 pub struct Balance {
     pub transaction_index: ItemIndex,
-    pub account: Base58Bytes,
+    pub account: AccountIndex,
     #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
     pub pre: u64,
     #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
@@ -127,23 +131,23 @@ pub struct Balance {
 #[serde(rename_all = "camelCase")]
 pub struct TokenBalance {
     pub transaction_index: ItemIndex,
-    pub account: Base58Bytes,
+    pub account: AccountIndex,
     #[serde(default)]
-    pub pre_mint: Option<Base58Bytes>,
+    pub pre_mint: Option<AccountIndex>,
     #[serde(default)]
-    pub post_mint: Option<Base58Bytes>,
+    pub post_mint: Option<AccountIndex>,
     #[serde(default)]
     pub pre_decimals: Option<u16>,
     #[serde(default)]
     pub post_decimals: Option<u16>,
     #[serde(default)]
-    pub pre_program_id: Option<Base58Bytes>,
+    pub pre_program_id: Option<AccountIndex>,
     #[serde(default)]
-    pub post_program_id: Option<Base58Bytes>,
+    pub post_program_id: Option<AccountIndex>,
     #[serde(default)]
-    pub pre_owner: Option<Base58Bytes>,
+    pub pre_owner: Option<AccountIndex>,
     #[serde(default)]
-    pub post_owner: Option<Base58Bytes>,
+    pub post_owner: Option<AccountIndex>,
     #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
     pub pre_amount: Option<u64>,
     #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
@@ -154,7 +158,7 @@ pub struct TokenBalance {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reward {
-    pub pubkey: Base58Bytes,
+    pub pubkey: AccountIndex,
     #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
     pub lamports: i64,
     #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
@@ -176,6 +180,21 @@ pub struct Block {
     pub balances: Vec<Balance>,
     pub token_balances: Vec<TokenBalance>,
     pub rewards: Vec<Reward>,
+    pub accounts: Vec<Base58Bytes>
+}
+
+
+impl Block {
+    pub fn get_account(&self, idx: AccountIndex) -> anyhow::Result<&str> {
+        self.accounts.get(idx as usize).map(|s| s.as_str()).ok_or_else(|| {
+            anyhow!(
+                "invalid account reference {} in block {}#{}", 
+                idx, 
+                self.header.number, 
+                self.header.hash
+            )
+        })
+    }
 }
 
 

@@ -103,10 +103,10 @@ impl ReqwestDataClient {
                         "failed to receive a list of previous blocks after base-block hash mismatch"
                     )?;
                 ensure!(
-                    !conflict.last_blocks.is_empty(),
+                    !conflict.previous_blocks.is_empty(),
                     "got an empty list of prev blocks"
                 );
-                Ok(BlockStreamResponse::Fork(conflict.last_blocks))
+                Ok(BlockStreamResponse::Fork(conflict.previous_blocks))
             },
             _ => {
                 let status = res.status();
@@ -220,12 +220,19 @@ impl DataClient for ReqwestDataClient {
                 if reqwest_error.is_timeout() {
                    return true
                 }
+                if reqwest_error.is_request() && 
+                    reqwest_error.to_string() == "connection closed before message completed" {
+                    return true
+                }
             }
 
             if let Some(io_error) = cause.downcast_ref::<std::io::Error>() {
                 match io_error.kind() {
-                    ErrorKind::ConnectionReset => return true,
                     ErrorKind::ConnectionAborted => return true,
+                    ErrorKind::ConnectionRefused => return true,
+                    ErrorKind::ConnectionReset => return true,
+                    ErrorKind::HostUnreachable => return true,
+                    ErrorKind::NetworkUnreachable => return true,
                     ErrorKind::TimedOut => return true,
                     _ => {}
                 }
@@ -261,5 +268,5 @@ impl std::error::Error for UnexpectedHttpStatus {}
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BaseBlockConflict {
-    last_blocks: Vec<BlockRef>
+    previous_blocks: Vec<BlockRef>
 }

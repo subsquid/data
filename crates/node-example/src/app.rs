@@ -82,7 +82,7 @@ fn error_to_response(err: anyhow::Error) -> Response {
         return (
             StatusCode::CONFLICT, 
             Json(BaseBlockConflict {
-                last_blocks: &fork.prev_blocks
+                previous_blocks: &fork.prev_blocks
             })
         ).into_response()
     }
@@ -112,7 +112,7 @@ fn error_to_response(err: anyhow::Error) -> Response {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BaseBlockConflict<'a> {
-    last_blocks: &'a [BlockRef]
+    previous_blocks: &'a [BlockRef]
 }
 
 

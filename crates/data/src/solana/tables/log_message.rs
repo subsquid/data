@@ -1,8 +1,7 @@
-use crate::solana::model::LogMessage;
+use crate::solana::model::{Block, LogMessage};
 use crate::solana::tables::common::{Base58Builder, InstructionAddressListBuilder};
 use sqd_array::builder::{StringBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
-use sqd_primitives::BlockNumber;
 
 table_builder! {
     LogMessageBuilder {
@@ -30,8 +29,8 @@ table_builder! {
 
 
 impl LogMessageBuilder {
-    pub fn push(&mut self, block_number: BlockNumber, row: &LogMessage) {
-        self.block_number.append(block_number);
+    pub fn push(&mut self, block: &Block, row: &LogMessage) -> anyhow::Result<()> {
+        self.block_number.append(block.header.number);
         self.transaction_index.append(row.transaction_index);
         self.log_index.append(row.log_index);
 
@@ -40,9 +39,10 @@ impl LogMessageBuilder {
         }
         self.instruction_address.append();
 
-        self.program_id.append(&row.program_id);
+        self.program_id.append(block.get_account(row.program_id)?);
         self.kind.append(row.kind.to_str());
         self.message.append(&row.message);
         self.message_size.append(row.message.len() as u64);
+        Ok(())
     }
 }

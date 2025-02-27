@@ -36,33 +36,33 @@ chunk_builder! {
 impl sqd_data_core::BlockChunkBuilder for SolanaChunkBuilder {
     type Block = Block;
 
-    fn push(&mut self, block: &Self::Block) {
-        let block_number = block.header.number;
-
+    fn push(&mut self, block: &Self::Block) -> anyhow::Result<()> {
         self.blocks.push(&block.header);
 
         for row in block.transactions.iter() {
-            self.transactions.push(block_number, row)
+            self.transactions.push(block, row)?
         }
 
         for row in block.instructions.iter() {
-            self.instructions.push(block_number, row)
+            self.instructions.push(block, row)?
         }
 
         for row in block.logs.iter() {
-            self.logs.push(block_number, row)
+            self.logs.push(block, row)?
         }
 
         for row in block.balances.iter() {
-            self.balances.push(block_number, row)
+            self.balances.push(block, row)?
         }
 
         for row in block.token_balances.iter() {
-            self.token_balances.push(block_number, row)
+            self.token_balances.push(block, row)?
         }
 
         for row in block.rewards.iter() {
-            self.rewards.push(block_number, row)
+            self.rewards.push(block, row)?
         }
+        
+        Ok(())
     }
 }

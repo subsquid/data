@@ -1,6 +1,7 @@
 
 pub use nullable::*;
 pub use primitive::*;
+pub use hex::*;
 pub use boolean::*;
 pub use string::*;
 pub use list::*;
@@ -9,6 +10,7 @@ pub use json::*;
 
 mod nullable;
 mod primitive;
+mod hex;
 mod boolean;
 mod string;
 mod list;

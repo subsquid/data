@@ -65,7 +65,7 @@ where
                 "chain continuity was violated"
             );
         }
-        self.chunk_builder.push(&block);
+        self.chunk_builder.push(&block)?;
         self.last_block_number = block.number();
         self.last_block_hash.clear();
         self.last_block_hash.insert_str(0, block.hash());

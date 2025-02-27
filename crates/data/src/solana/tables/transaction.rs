@@ -1,8 +1,7 @@
-use crate::solana::model::{Transaction, TransactionVersion};
+use crate::solana::model::{Block, Transaction, TransactionVersion};
 use crate::solana::tables::common::{AccountIndexList, AccountListBuilder, AddressListBuilder, Base58Builder, JsonBuilder, SignatureListBuilder};
 use sqd_array::builder::{BooleanBuilder, Int16Builder, ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder};
 use sqd_data_core::{struct_builder, table_builder};
-use sqd_primitives::BlockNumber;
 
 
 type AddressTableLookupListBuilder = ListBuilder<AddressTableLookupBuilder>;
@@ -64,8 +63,8 @@ table_builder! {
 
 
 impl TransactionBuilder {
-    pub fn push(&mut self, block_number: BlockNumber, row: &Transaction) {
-        self.block_number.append(block_number);
+    pub fn push(&mut self, block: &Block, row: &Transaction) -> anyhow::Result<()> {
+        self.block_number.append(block.header.number);
         self.transaction_index.append(row.transaction_index);
 
         self.version.append(match row.version {
@@ -73,14 +72,16 @@ impl TransactionBuilder {
             TransactionVersion::Other(v) => v as i16
         });
 
-        for account in row.account_keys.iter() {
-            self.account_keys.values().append(account)
+        for account in row.account_keys.iter().copied() {
+            self.account_keys.values().append(
+                block.get_account(account)?
+            )
         }
         self.account_keys.append();
 
         for lookup in row.address_table_lookups.iter() {
             let item = self.address_table_lookups.values();
-            item.account_key.append(&lookup.account_key);
+            item.account_key.append(block.get_account(lookup.account_key)?);
             for account_index in lookup.readonly_indexes.iter() {
                 item.readonly_indexes.values().append(*account_index);
             }
@@ -112,32 +113,38 @@ impl TransactionBuilder {
         self.fee.append(row.fee);
 
         for address in &row.loaded_addresses.readonly {
-            self.loaded_addresses.readonly.values().append(address);
+            self.loaded_addresses.readonly.values().append(
+                block.get_account(*address)?
+            );
         }
         self.loaded_addresses.readonly.append();
         for address in &row.loaded_addresses.writable {
-            self.loaded_addresses.writable.values().append(address);
+            self.loaded_addresses.writable.values().append(
+                block.get_account(*address)?
+            );
         }
         self.loaded_addresses.writable.append();
         self.loaded_addresses.append(true);
 
         self.has_dropped_log_messages.append(row.has_dropped_log_messages);
-        self.fee_payer.append(&row.account_keys[0]);
+        self.fee_payer.append(block.get_account(row.account_keys[0])?);
 
-        let account_keys_size = row.account_keys.iter().map(|val| val.len() as u64).sum();
-        self.account_keys_size.append(account_keys_size);
+        let account_keys_size = row.account_keys.len() * 44;
+        self.account_keys_size.append(account_keys_size as u64);
 
-        let address_table_lookups_size = row.address_table_lookups.iter()
-            .map(|l| l.account_key.len() as u64 + l.readonly_indexes.len() as u64 + l.writable_indexes.len() as u64)
-            .sum();
-        self.address_table_lookups_size.append(address_table_lookups_size);
+        let address_table_lookups_size = 44usize * row.address_table_lookups.iter()
+            .map(|l| 1 + l.readonly_indexes.len() + l.writable_indexes.len())
+            .sum::<usize>();
+        self.address_table_lookups_size.append(address_table_lookups_size as u64);
 
         let signatures_size = row.signatures.iter().map(|val| val.len() as u64).sum();
         self.signatures_size.append(signatures_size);
 
-        let readonly_size: u64 = row.loaded_addresses.readonly.iter().map(|val| val.len() as u64).sum();
-        let writable_size: u64 = row.loaded_addresses.writable.iter().map(|val| val.len() as u64).sum();
+        let readonly_size = row.loaded_addresses.readonly.len() * 44;
+        let writable_size = row.loaded_addresses.writable.len() * 44;
         let loaded_addresses_size = readonly_size + writable_size;
-        self.loaded_addresses_size.append(loaded_addresses_size);
+        self.loaded_addresses_size.append(loaded_addresses_size as u64);
+
+        Ok(())
     }
 }

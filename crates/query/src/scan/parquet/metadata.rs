@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow::array::{ArrayBuilder, ArrayRef, BinaryArray, BinaryBuilder, BooleanArray, BooleanBuilder, Int32Array, Int32Builder, Int64Array, Int64Builder, UInt32Array};
+use arrow::array::{Array, ArrayBuilder, ArrayRef, AsArray, BinaryArray, BinaryBuilder, BooleanArray, BooleanBuilder, Int32Array, Int32Builder, Int64Array, Int64Builder, UInt32Array};
 use arrow::buffer::OffsetBuffer;
+use arrow::datatypes::{DataType, Int32Type, Int64Type, UInt32Type, UInt64Type};
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::file::page_index::index::Index;
 use parquet::file::statistics::Statistics;
@@ -76,7 +77,8 @@ impl RowStats for RowGroupStats {
 
 impl RowGroupStats {
     fn build_column_stats(&self, column_name: Name) -> Option<ColumnStats> {
-        let col_idx = find_primitive_column(&self.metadata, column_name)?;
+        let arrow_column_index = self.metadata.schema().index_of(column_name).ok()?;
+        let parquet_col_idx = find_primitive_column(&self.metadata, column_name)?;
 
         let num_row_groups = self.metadata.metadata().num_row_groups();
         let mut offsets = UInt32Array::builder(num_row_groups + 1);
@@ -89,7 +91,10 @@ impl RowGroupStats {
         offsets.append_value(0);
 
         for rg in self.metadata.metadata().row_groups().iter() {
-            let statistics = rg.column(col_idx).statistics()?;
+            let statistics = rg.column(parquet_col_idx).statistics()?;
+            if column_name == "d4" {
+                println!("{:?}", statistics);
+            }
             match statistics {
                 Statistics::Boolean(s) => {
                     let min_max = boolean.get_or_insert_with(|| (
@@ -189,13 +194,32 @@ impl RowGroupStats {
             complete_min_max!(int64, num_row_groups)
         }).or_else(|| {
             complete_min_max!(boolean, num_row_groups)
-        }).map(|min_max| {
-            ColumnStats {
+        }).and_then(|min_max| {
+            let data_type = self.metadata.schema().field(arrow_column_index).data_type();
+            let min = cast_stat_array(min_max.0, data_type)?;
+            let max = cast_stat_array(min_max.1, data_type)?;
+            Some(ColumnStats {
                 offsets: OffsetBuffer::new(offsets.finish().into_parts().1),
-                min: min_max.0,
-                max: min_max.1
-            }
+                min,
+                max
+            })
         })
+    }
+}
+
+
+fn cast_stat_array(array: ArrayRef, target_type: &DataType) -> Option<ArrayRef> {
+    if array.data_type() == target_type {
+        return Some(array)
+    }
+    match (array.data_type(), target_type) {
+        (DataType::Int32, DataType::UInt32) => Some(Arc::new(
+            arrow::compute::unary::<_, _, UInt32Type>(array.as_primitive::<Int32Type>(), |x| x as u32))
+        ),
+        (DataType::Int64, DataType::UInt64) => Some(Arc::new(
+            arrow::compute::unary::<_, _, UInt64Type>(array.as_primitive::<Int64Type>(), |x| x as u64))
+        ),
+        _ => arrow::compute::cast(&array, target_type).ok()
     }
 }
 
@@ -234,13 +258,14 @@ impl RowStats for PageStats {
 
 impl PageStats {
     fn build_column_stats(&self, column_name: Name) -> Option<ColumnStats> {
-        let col_idx = find_primitive_column(&self.metadata, column_name)?;
+        let arrow_col_idx = self.metadata.schema().index_of(column_name).ok()?;
+        let parquet_col_idx = find_primitive_column(&self.metadata, column_name)?;
 
         let offsets = self.metadata
             .metadata()
             .offset_index()
             .map(|offset_index| {
-                let pages = &offset_index[self.row_group_idx][col_idx].page_locations();
+                let pages = &offset_index[self.row_group_idx][parquet_col_idx].page_locations();
                 let mut offsets = UInt32Array::builder(pages.len() + 1);
 
                 for page in pages.iter() {
@@ -256,7 +281,7 @@ impl PageStats {
             .metadata()
             .column_index()
             .map(|ci| {
-                &ci[self.row_group_idx][col_idx]
+                &ci[self.row_group_idx][parquet_col_idx]
             })?;
 
         let (min, max): (ArrayRef, ArrayRef) = match page_index {
@@ -288,6 +313,9 @@ impl PageStats {
             _ => return None
         };
 
+        let data_type = self.metadata.schema().field(arrow_col_idx).data_type();
+        let min = cast_stat_array(min, data_type)?;
+        let max = cast_stat_array(max, data_type)?;
         Some(ColumnStats {
             offsets,
             min,
