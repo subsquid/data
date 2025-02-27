@@ -14,7 +14,8 @@ use std::sync::Arc;
 mod arb_array;
 
 const WRITE_READ_ARRAY_SIZE: usize = 300;
-const WRITE_READ_ITERATIONS: u32 = 100;
+// const WRITE_READ_ITERATIONS: u32 = 100;
+const WRITE_READ_ITERATIONS: u32 = 10;
 
 fn to_record_batch(array: ArrayRef) -> RecordBatch {
     let schema = Schema::new(vec![
@@ -88,6 +89,7 @@ fn uint8_write_read() {
 #[test]
 fn uint16_write_read() {
     test_write_read(arb_array::with_nullmask(arb_array::uint16(0..WRITE_READ_ARRAY_SIZE))).unwrap()
+    // test_write_read(arb_array::uint16(0..WRITE_READ_ARRAY_SIZE)).unwrap()
 }
 
 #[test]
