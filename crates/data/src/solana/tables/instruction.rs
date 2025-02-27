@@ -1,9 +1,8 @@
 use crate::solana::model::{Block, Instruction};
-use crate::solana::tables::common::{AccountListBuilder, Base58Builder, BytesBuilder, InstructionAddressListBuilder};
+use crate::solana::tables::common::{AccountListBuilder, Base58Builder, InstructionAddressListBuilder};
 use anyhow::Context;
-use sqd_array::builder::{BooleanBuilder, StringBuilder, UInt32Builder, UInt64Builder};
+use sqd_array::builder::{BooleanBuilder, StringBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder};
 use sqd_data_core::table_builder;
-use std::fmt::Write;
 
 table_builder! {
     InstructionBuilder {
@@ -35,10 +34,10 @@ table_builder! {
         is_committed: BooleanBuilder,
         has_dropped_log_messages: BooleanBuilder,
 
-        d1: BytesBuilder,
-        d2: BytesBuilder,
-        d4: BytesBuilder,
-        d8: BytesBuilder,
+        d1: UInt8Builder,
+        d2: UInt16Builder,
+        d4: UInt32Builder,
+        d8: UInt64Builder,
 
         accounts_size: UInt64Builder,
         data_size: UInt64Builder,
@@ -135,20 +134,23 @@ impl InstructionBuilder {
 
         // discriminators
         let data = bs58::decode(&row.data).into_vec().context("failed to decode instruction data")?;
-        write_hex(&mut self.d1, data.get(..1).unwrap_or_default());
-        write_hex(&mut self.d2, data.get(..2).unwrap_or_default());
-        write_hex(&mut self.d4, data.get(..4).unwrap_or_default());
-        write_hex(&mut self.d8, data.get(..8).unwrap_or_default());
+        self.d1.append_option(
+            data.get(..1)
+                .map(|slice| u8::from_be_bytes(slice.try_into().unwrap()))
+        );
+        self.d2.append_option(
+            data.get(..2)
+                .map(|slice| u16::from_be_bytes(slice.try_into().unwrap()))
+        );
+        self.d4.append_option(
+            data.get(..4)
+                .map(|slice| u32::from_be_bytes(slice.try_into().unwrap()))
+        );
+        self.d8.append_option(
+            data.get(..8)
+                .map(|slice| u64::from_be_bytes(slice.try_into().unwrap()))
+        );
         
         Ok(())
     }
-}
-
-
-fn write_hex(builder: &mut BytesBuilder, bytes: &[u8]) {
-    write!(builder, "0x").unwrap();
-    for b in bytes {
-        write!(builder, "{:02x}", b).unwrap();
-    }
-    builder.append("")
 }

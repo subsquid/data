@@ -1,4 +1,4 @@
-use super::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
+use super::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, convert_from_hex_lossy, item_field_selection, request, PredicateBuilder};
 use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
@@ -151,8 +151,8 @@ item_field_selection! {
 
 item_field_selection! {
     InstructionFieldSelection {
-        transaction_index,     
-        instruction_address,   
+        transaction_index,
+        instruction_address,
         program_id,
         accounts,
         data,
@@ -199,10 +199,10 @@ item_field_selection! {
         },
         {
             this.data,
-            this.d1,
-            this.d2,
-            this.d4,
-            this.d8,
+            [this.d1]: HexNum,
+            [this.d2]: HexNum,
+            [this.d4]: HexNum,
+            [this.d8]: HexNum,
             [this.error]: Value,
             [this.compute_units_consumed]: BigNum,
             [this.is_committed]: Value,
@@ -341,10 +341,10 @@ request! {
 impl InstructionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_in_list("program_id", self.program_id.clone());
-        p.col_in_list("d1", self.d1.clone());
-        p.col_in_list("d2", self.d2.clone());
-        p.col_in_list("d4", self.d4.clone());
-        p.col_in_list("d8", self.d8.clone());
+        p.col_in_list("d1", self.d1.as_ref().map(convert_from_hex_lossy::<u8>));
+        p.col_in_list("d2", self.d2.as_ref().map(convert_from_hex_lossy::<u16>));
+        p.col_in_list("d4", self.d4.as_ref().map(convert_from_hex_lossy::<u32>));
+        p.col_in_list("d8", self.d8.as_ref().map(convert_from_hex_lossy::<u64>));
         p.col_in_list("a0", self.a0.clone());
         p.col_in_list("a1", self.a1.clone());
         p.col_in_list("a2", self.a2.clone());
