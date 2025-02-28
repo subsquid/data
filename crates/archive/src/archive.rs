@@ -62,6 +62,7 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
         processor,
         chunk_writer,
         args.chunk_size,
+        args.max_num_rows,
         args.src.clone(),
         block_stream_interval,
         args.last_block,
