@@ -92,9 +92,6 @@ impl RowGroupStats {
 
         for rg in self.metadata.metadata().row_groups().iter() {
             let statistics = rg.column(parquet_col_idx).statistics()?;
-            if column_name == "d4" {
-                println!("{:?}", statistics);
-            }
             match statistics {
                 Statistics::Boolean(s) => {
                     let min_max = boolean.get_or_insert_with(|| (
