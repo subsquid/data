@@ -1,13 +1,11 @@
-use std::ops::Deref;
-
-use arrow::array::{Array, AsArray, PrimitiveArray, StringArray, StructArray};
-use arrow::buffer::NullBuffer;
-use arrow::datatypes::{DataType, TimestampMillisecondType, TimestampSecondType, TimeUnit};
-
-use crate::json::encoder::{Encoder, EncoderObject, HexEncode, HexEncoder, JsonEncoder, ListSpreadEncoder, NullableEncoder, PrimitiveEncoder, SafeStringEncoder, StructEncoder, StructField, TimestampEncoder};
 use crate::json::encoder::factory::{extract_nulls, make_encoder, make_nullable_encoder};
 use crate::json::encoder::util::json_close;
-use crate::primitives::{Name, schema_error, SchemaError};
+use crate::json::encoder::{Encoder, EncoderObject, HexEncode, HexEncoder, JsonEncoder, ListSpreadEncoder, NullableEncoder, PrimitiveEncoder, SafeStringEncoder, StructEncoder, StructField, TimestampEncoder};
+use crate::primitives::{schema_error, Name, SchemaError};
+use arrow::array::{Array, AsArray, PrimitiveArray, StringArray, StructArray};
+use arrow::buffer::NullBuffer;
+use arrow::datatypes::{DataType, TimeUnit, TimestampMillisecondType, TimestampSecondType};
+use std::ops::Deref;
 
 
 #[derive(Debug, Clone)]
@@ -233,13 +231,33 @@ fn eval_roll(array: &dyn Array, columns: &Vec<Name>, exp: &Exp) -> Result<Encode
 
     let mut non_nullable = Vec::with_capacity(columns.len());
     let mut nullable = Vec::with_capacity(columns.len());
+    let mut spread: Option<ListSpreadEncoder<EncoderObject>> = None;
 
-    for (idx, name) in columns.iter().cloned().enumerate() {
+    for (idx, name) in columns.iter().copied().enumerate() {
         let item_array = struct_array.column_by_name(name).ok_or_else(|| {
             schema_error!("column `{}` is not found", name)
         })?;
 
         extract_nulls!(item_array, item_array, item_nulls);
+
+        if let Some(list) = item_array.as_list_opt() {
+            if idx + 1 != columns.len() {
+                return Err(schema_error!(
+                    "column {} is a list item of a roll, but it does not come last",
+                    name
+                ))
+            }
+            if list.null_count() > 0 {
+                return Err(
+                    SchemaError::new("list item of a roll is not supposed to be nullable")
+                        .at("item")
+                        .at(name)
+                )
+            }
+            let encoder = exp.eval(list.values()).map_err(|err| err.at("item").at(name))?;
+            spread = Some(ListSpreadEncoder::new(encoder, list.offsets().clone()));
+            break
+        }
 
         if item_nulls.is_none() && nullable.len() > 0 {
             return Err(
@@ -251,20 +269,8 @@ fn eval_roll(array: &dyn Array, columns: &Vec<Name>, exp: &Exp) -> Result<Encode
             )
         }
 
-        let encoder = if let Some(list) = item_array.as_list_opt() {
-            if list.null_count() > 0 {
-                return Err(
-                    SchemaError::new("list item of a roll is not supposed to be nullable")
-                        .at("item")
-                        .at(name)
-                )
-            }
-            let encoder = exp.eval(list.values()).map_err(|err| err.at("item").at(name))?;
-            Box::new(ListSpreadEncoder::new(encoder, list.offsets().clone()))
-        } else {
-            exp.eval(item_array).map_err(|err| err.at(name))?
-        };
-
+        let encoder = exp.eval(item_array).map_err(|err| err.at(name))?;
+        
         if let Some(nulls) = item_nulls {
             nullable.push((nulls, encoder))
         } else {
@@ -274,7 +280,8 @@ fn eval_roll(array: &dyn Array, columns: &Vec<Name>, exp: &Exp) -> Result<Encode
 
     let roll_encoder = ListRollEncoder {
         non_nullable,
-        nullable
+        nullable,
+        spread
     };
 
     Ok(make_nullable_encoder(roll_encoder, array_nulls))
@@ -283,7 +290,8 @@ fn eval_roll(array: &dyn Array, columns: &Vec<Name>, exp: &Exp) -> Result<Encode
 
 struct ListRollEncoder {
     non_nullable: Vec<EncoderObject>,
-    nullable: Vec<(NullBuffer, EncoderObject)>
+    nullable: Vec<(NullBuffer, EncoderObject)>,
+    spread: Option<ListSpreadEncoder<EncoderObject>>
 }
 
 
@@ -296,10 +304,14 @@ impl Encoder for ListRollEncoder {
         }
         for (nulls, item) in self.nullable.iter_mut() {
             if nulls.is_null(idx) {
-                break
+                json_close(b']', out);
+                return
             }
             item.encode(idx, out);
             out.push(b',')
+        }
+        if let Some(spread) = self.spread.as_mut() {
+            spread.encode(idx, out)
         }
         json_close(b']', out)
     }
