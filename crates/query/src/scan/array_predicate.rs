@@ -1,7 +1,8 @@
+use std::hash::Hash;
 use std::sync::Arc;
 
 use crate::scan::arrow::IntoArrow;
-use anyhow::bail;
+use anyhow::{anyhow, bail, ensure};
 use arrow::array::{Array, ArrayRef, AsArray, BooleanArray, Datum, PrimitiveArray, Scalar};
 use arrow::buffer::BooleanBuffer;
 use arrow::compute::{cast_with_options, CastOptions};
@@ -408,5 +409,79 @@ impl ArrayPredicate for InList {
         let polars_mask = sqd_polars::prelude::is_in(&series, &self.list)?;
         let mask = sqd_polars::arrow::polars_boolean_to_arrow_boolean(&polars_mask);
         Ok(mask)
+    }
+}
+
+
+fn bitwise_and<const N: usize>(value: &[u8; N], other: &[u8; N]) -> [u8; N] {
+    let mut arr = [0; N];
+    for i in 0..N {
+        arr[i] = value[i] & other[i];
+    }
+    arr
+}
+
+
+pub struct BloomFilter {
+    byte_array: [u8; 64]
+}
+
+
+impl BloomFilter {
+    pub fn new<T: Hash>(value: T) -> Self {
+        let mut bloom = sqd_bloom_filter::BloomFilter::<64>::new(7);
+        bloom.insert(&value);
+        let byte_array = bloom.to_byte_array();
+        Self { byte_array }
+    }
+
+    fn bloom_contains(&self, val: &[u8]) -> bool {
+        let val: [u8; 64] = val.try_into().unwrap();
+        bitwise_and(&self.byte_array, &val) == self.byte_array
+    }
+}
+
+
+impl ArrayPredicate for BloomFilter {
+    fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
+        let arr = arr.as_fixed_size_binary_opt().ok_or_else(|| {
+            anyhow!("expected fixed sized binary array, but got {}", arr.data_type())
+        })?;
+        
+        ensure!(
+            arr.value_length() as usize == self.byte_array.len(),
+            "this bloom filter is {} bytes, but array item is {} bytes",
+            self.byte_array.len(),
+            arr.value_length()
+        );
+        
+        let mask = BooleanBuffer::collect_bool(arr.len(), |i| unsafe {
+            let val = arr.value_unchecked(i);
+            self.bloom_contains(val)
+        });
+        
+        Ok(BooleanArray::new(mask, arr.nulls().cloned()))
+    }
+}
+
+
+#[cfg(feature = "_bench")]
+mod bench {
+    use crate::scan::array_predicate::{ArrayPredicate, BloomFilter};
+    use arrow::array::FixedSizeBinaryArray;
+    use arrow::buffer::MutableBuffer;
+
+
+    #[divan::bench]
+    fn bloom_filter(bench: divan::Bencher) {
+        let pred = BloomFilter::new(10);
+        let array = FixedSizeBinaryArray::new(
+            64,
+            MutableBuffer::from_len_zeroed(64 * 200_000).into(),
+            None
+        );
+        bench.bench(|| {
+            divan::black_box(pred.evaluate(&array).unwrap())
+        })
     }
 }

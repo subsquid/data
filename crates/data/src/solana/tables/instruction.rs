@@ -1,8 +1,14 @@
-use crate::solana::model::{Block, Instruction};
+use crate::solana::model::{AccountIndex, Block, Instruction};
 use crate::solana::tables::common::{AccountListBuilder, Base58Builder, InstructionAddressListBuilder};
 use anyhow::Context;
-use sqd_array::builder::{BooleanBuilder, StringBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder};
+use sqd_array::builder::{BooleanBuilder, FixedSizeBinaryBuilder, StringBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder};
+use sqd_bloom_filter::BloomFilter;
 use sqd_data_core::table_builder;
+
+
+pub const BYTES: usize = 64;
+pub const NUM_HASHES: usize = 7;
+
 
 table_builder! {
     InstructionBuilder {
@@ -28,6 +34,7 @@ table_builder! {
         a14: Base58Builder,
         a15: Base58Builder,
         rest_accounts: AccountListBuilder,
+        accounts_bloom: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(64, 0),
 
         compute_units_consumed: UInt64Builder,
         error: StringBuilder,
@@ -120,6 +127,7 @@ impl InstructionBuilder {
         }
 
         self.accounts_size.append(row.accounts.len() as u64 * 44);
+        self.append_accounts_bloom(block, &row.accounts)?;
 
         // meta
         self.compute_units_consumed.append_option(row.compute_units_consumed);
@@ -150,6 +158,21 @@ impl InstructionBuilder {
                 .map(|slice| u64::from_be_bytes(slice.try_into().unwrap()))
         );
         
+        Ok(())
+    }
+
+    fn append_accounts_bloom(&mut self, block: &Block, accounts: &[AccountIndex]) -> anyhow::Result<()> {
+        if accounts.len() > 0 {
+            let mut bloom = BloomFilter::<BYTES>::new(NUM_HASHES);
+            for account in accounts {
+                bloom.insert(&block.get_account(*account)?);
+            }
+            let byte_array = bloom.to_byte_array();
+            self.accounts_bloom.append(&byte_array);
+        } else {
+            self.accounts_bloom.append_null();
+        }
+
         Ok(())
     }
 }
