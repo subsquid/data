@@ -2,7 +2,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use crate::scan::arrow::IntoArrow;
-use anyhow::bail;
+use anyhow::{anyhow, bail, ensure};
 use arrow::array::{Array, ArrayRef, AsArray, BooleanArray, Datum, PrimitiveArray, Scalar};
 use arrow::buffer::BooleanBuffer;
 use arrow::compute::{cast_with_options, CastOptions};
@@ -435,26 +435,32 @@ impl BloomFilter {
         Self { byte_array }
     }
 
-    pub fn bloom_contains(&self, opt: Option<&[u8]>) -> anyhow::Result<bool> {
-        if let Some(val) = opt {
-            let value: [u8; 64] = val.try_into()?;
-            let arr = bitwise_and(&self.byte_array, &value);
-            Ok(arr == self.byte_array)
-        } else {
-            Ok(false)
-        }
+    fn bloom_contains(&self, val: &[u8]) -> bool {
+        let val: [u8; 64] = val.try_into().unwrap();
+        bitwise_and(&self.byte_array, &val) == self.byte_array
     }
 }
 
 
 impl ArrayPredicate for BloomFilter {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
-        let mut result_mask = Vec::with_capacity(arr.len());
-        let series = sqd_polars::arrow::array_series("values", arr)?;
-        for value in series.binary()? {
-            result_mask.push(self.bloom_contains(value)?);
-        }
-        Ok(BooleanArray::from(result_mask))
+        let arr = arr.as_fixed_size_binary_opt().ok_or_else(|| {
+            anyhow!("expected fixed sized binary array, but got {}", arr.data_type())
+        })?;
+        
+        ensure!(
+            arr.value_length() as usize == self.byte_array.len(),
+            "this bloom filter is {} bytes, but array item is {} bytes",
+            self.byte_array.len(),
+            arr.value_length()
+        );
+        
+        let mask = BooleanBuffer::collect_bool(arr.len(), |i| unsafe {
+            let val = arr.value_unchecked(i);
+            self.bloom_contains(val)
+        });
+        
+        Ok(BooleanArray::new(mask, arr.nulls().cloned()))
     }
 }
 
@@ -470,8 +476,8 @@ mod bench {
     fn bloom_filter(bench: divan::Bencher) {
         let pred = BloomFilter::new(10);
         let array = FixedSizeBinaryArray::new(
-            64, 
-            MutableBuffer::from_len_zeroed(64 * 200_000).into(), 
+            64,
+            MutableBuffer::from_len_zeroed(64 * 200_000).into(),
             None
         );
         bench.bench(|| {
