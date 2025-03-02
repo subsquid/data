@@ -2,6 +2,7 @@
 name = "sqd-query"
 version = "0.1.0"
 edition = "2021"
+autobenches = false
 
 [dependencies]
 anyhow = { workspace = true }
@@ -9,6 +10,7 @@ arrow = { workspace = true, features = ["prettyprint"] }
 bytes = "1.6.0"
 convert_case = "0.6.0"
 dashmap = "6.0.1"
+divan = { version = "0.1.17", optional = true }
 identconv = "0.2.0"
 lexical-core = "1.0.2"
 memmap2 = { version = "0.9.4", optional = true }
@@ -23,7 +25,6 @@ sqd-primitives = { path = "../primitives", features = ["range"] }
 sqd-storage = { path = "../storage", optional = true }
 
 [dev-dependencies]
-criterion = "0.5.1"
 glob = "0.3.1"
 rstest = "0.21.0"
 tempfile = { workspace = true }
@@ -31,8 +32,8 @@ parquet = { workspace = true }
 sqd-data = { path = "../data" }
 sqd-data-core = { path = "../data-core" }
 sqd-dataset = { path = "../dataset" }
-mimalloc = "0.1.43"
-#tikv-jemallocator = "0.6"
+#mimalloc = "0.1.43"
+tikv-jemallocator = "0.6"
 
 [features]
 parquet = [
@@ -42,8 +43,15 @@ parquet = [
 storage = [
     "dep:sqd-storage"
 ]
+_bench = [
+    "dep:divan"
+]
+_bench_query = [
+    "dep:divan",
+    "parquet",
+    "storage"
+]
 
 [[bench]]
 name = "main"
 harness = false
-required-features = ["parquet", "storage"]

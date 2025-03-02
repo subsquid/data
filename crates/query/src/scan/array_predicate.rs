@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use crate::scan::arrow::IntoArrow;
 use anyhow::bail;
@@ -455,5 +455,27 @@ impl ArrayPredicate for BloomFilter {
             result_mask.push(self.bloom_contains(value)?);
         }
         Ok(BooleanArray::from(result_mask))
+    }
+}
+
+
+#[cfg(feature = "_bench")]
+mod bench {
+    use crate::scan::array_predicate::{ArrayPredicate, BloomFilter};
+    use arrow::array::FixedSizeBinaryArray;
+    use arrow::buffer::MutableBuffer;
+
+
+    #[divan::bench]
+    fn bloom_filter(bench: divan::Bencher) {
+        let pred = BloomFilter::new(10);
+        let array = FixedSizeBinaryArray::new(
+            64, 
+            MutableBuffer::from_len_zeroed(64 * 200_000).into(), 
+            None
+        );
+        bench.bench(|| {
+            divan::black_box(pred.evaluate(&array).unwrap())
+        })
     }
 }
