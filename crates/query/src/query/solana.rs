@@ -5,6 +5,7 @@ use crate::plan::{Plan, ScanBuilder, TableSet};
 use crate::primitives::BlockNumber;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
+use anyhow::ensure;
 
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
@@ -582,6 +583,24 @@ impl SolanaQuery {
     pub fn validate(&self) -> anyhow::Result<()> {
         ensure_block_range!(self);
         ensure_item_count!(self, transactions, instructions, logs, balances, token_balances, rewards);
+        for (i, tx) in self.transactions.iter().enumerate() {
+            let len = tx.mentions_account.as_ref().map_or(0, |list| list.len());
+            ensure!(
+                len <= 10,
+                ".transactions[{}].mentionsAccount filter has {} cases, but maximum is 10",
+                i,
+                len
+            )
+        }
+        for (i, ins) in self.instructions.iter().enumerate() {
+            let len = ins.mentions_account.as_ref().map_or(0, |list| list.len());
+            ensure!(
+                len <= 10,
+                ".instructions[{}].mentionsAccount filter has {} cases, but maximum is 10",
+                i,
+                len
+            )
+        }
         Ok(())
     }
 
