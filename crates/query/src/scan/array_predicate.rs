@@ -449,12 +449,11 @@ impl BloomFilter {
         BooleanBuffer::collect_bool(len, |i| unsafe {
             let val_ptr = values.as_ptr().offset((i * N) as isize) as *const [T; N];
             let val = &*val_ptr;
+            let mut and: [T; N] = [T::default(); N];
             for i in 0..N {
-                if bloom[i] & val[i] != val[i] {
-                    return false
-                }
+                and[i] = bloom[i] & val[i];
             }
-            true
+            &and == val
         })
     }
 
