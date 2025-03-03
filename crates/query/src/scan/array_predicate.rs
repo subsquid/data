@@ -1,11 +1,13 @@
+use std::hash::Hash;
+use std::ops::BitAnd;
 use std::sync::Arc;
 
 use crate::scan::arrow::IntoArrow;
-use anyhow::bail;
+use anyhow::{anyhow, bail, ensure};
 use arrow::array::{Array, ArrayRef, AsArray, BooleanArray, Datum, PrimitiveArray, Scalar};
-use arrow::buffer::BooleanBuffer;
+use arrow::buffer::{BooleanBuffer, Buffer};
 use arrow::compute::{cast_with_options, CastOptions};
-use arrow::datatypes::{ArrowNativeTypeOp, ArrowPrimitiveType, DataType, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
+use arrow::datatypes::{ArrowNativeType, ArrowNativeTypeOp, ArrowPrimitiveType, DataType, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 
 
 pub type ArrayPredicateRef = Arc<dyn ArrayPredicate>;
@@ -408,5 +410,134 @@ impl ArrayPredicate for InList {
         let polars_mask = sqd_polars::prelude::is_in(&series, &self.list)?;
         let mask = sqd_polars::arrow::polars_boolean_to_arrow_boolean(&polars_mask);
         Ok(mask)
+    }
+}
+
+
+fn bitwise_and<const N: usize>(value: &[u8; N], other: &[u8; N]) -> [u8; N] {
+    let mut arr = [0; N];
+    for i in 0..N {
+        arr[i] = value[i] & other[i];
+    }
+    arr
+}
+
+
+pub struct BloomFilter {
+    value: Buffer
+}
+
+
+impl BloomFilter {
+    pub fn new<T: Hash>(byte_size: usize, num_hashes: usize, value: T) -> Self {
+        let mut bloom = sqd_bloom_filter::BloomFilter::new(byte_size, num_hashes);
+        bloom.insert(&value);
+        Self {
+            value: Buffer::from(bloom.bytes())
+        }
+    }
+
+    #[inline(never)]
+    fn eval_static<T, const N: usize>(&self, blooms: &[u8]) -> BooleanBuffer
+    where
+        T: ArrowNativeType + BitAnd<Output=T>
+    {
+        let value = to_typed_fixed_slice::<T, N>(&self.value);
+        let blooms = to_typed_slice::<T>(blooms);
+        assert_eq!(blooms.len() % N, 0);
+        let len = blooms.len() / N;
+        BooleanBuffer::collect_bool(len, |i| unsafe {
+            let bloom_ptr = blooms.as_ptr().add(i * N) as *const [T; N];
+            let bloom = &*bloom_ptr;
+            let mut and: [T; N] = [T::default(); N];
+            for i in 0..N {
+                and[i] = value[i] & bloom[i];
+            }
+            &and == value
+        })
+    }
+
+    #[inline(never)]
+    fn eval_dynamic<T>(&self, blooms: &[u8]) -> BooleanBuffer
+    where
+        T: ArrowNativeType + BitAnd<Output=T>
+    {
+        let value = to_typed_slice::<T>(&self.value);
+        let blooms = to_typed_slice::<T>(blooms);
+        assert_eq!(blooms.len() % value.len(), 0);
+        let len = blooms.len() / value.len();
+        BooleanBuffer::collect_bool(len, |i| unsafe {
+            let bloom = blooms.get_unchecked(i..i + value.len());
+            value.into_iter().zip(bloom.into_iter()).all(|(&v, &b)| v & b == v)
+        })
+    }
+}
+
+
+fn to_typed_slice<T: ArrowNativeType>(value: &[u8]) -> &[T] {
+    let (prefix, offsets, suffix) = unsafe { value.align_to::<T>() };
+    assert!(prefix.is_empty() && suffix.is_empty());
+    offsets
+}
+
+
+fn to_typed_fixed_slice<T: ArrowNativeType, const N: usize>(value: &[u8]) -> &[T; N] {
+    let slice = to_typed_slice::<T>(value);
+    slice.try_into().unwrap()
+}
+
+
+impl ArrayPredicate for BloomFilter {
+    fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
+        let arr = arr.as_fixed_size_binary_opt().ok_or_else(|| {
+            anyhow!("expected fixed sized binary array, but got {}", arr.data_type())
+        })?;
+
+        let size = self.value.len();
+
+        ensure!(
+            arr.value_length() as usize == size,
+            "this bloom filter is {} bytes, but array item is {} bytes",
+            size,
+            arr.value_length()
+        );
+
+        let value_range = arr.value_offset(0) as usize..arr.value_offset(arr.len()) as usize;
+        let values = &arr.value_data()[value_range];
+
+        let mask = match size {
+            64 => self.eval_static::<u128, 4>(values),
+            _ => if size % 16 == 0 {
+                self.eval_dynamic::<u128>(values)
+            } else if size % 8 == 0 {
+                self.eval_dynamic::<u64>(values)
+            } else {
+                self.eval_dynamic::<u8>(values)
+            }
+        };
+
+        Ok(BooleanArray::new(mask, arr.nulls().cloned()))
+    }
+}
+
+
+#[cfg(feature = "_bench")]
+mod bench {
+    use crate::scan::array_predicate::{ArrayPredicate, BloomFilter};
+    use arrow::array::FixedSizeBinaryArray;
+    use arrow::buffer::MutableBuffer;
+
+
+    #[divan::bench]
+    fn bloom_filter(bench: divan::Bencher) {
+        let pred = BloomFilter::new(64, 7, "hello");
+        let array = FixedSizeBinaryArray::new(
+            64,
+            MutableBuffer::from_len_zeroed(64 * 200_000).into(),
+            None
+        );
+        bench.bench(|| {
+            pred.evaluate(&array).unwrap()
+        })
     }
 }

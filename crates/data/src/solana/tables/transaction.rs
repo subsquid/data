@@ -1,6 +1,7 @@
 use crate::solana::model::{Block, Transaction, TransactionVersion};
 use crate::solana::tables::common::{AccountIndexList, AccountListBuilder, AddressListBuilder, Base58Builder, JsonBuilder, SignatureListBuilder};
-use sqd_array::builder::{BooleanBuilder, Int16Builder, ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder};
+use sqd_array::builder::{BooleanBuilder, FixedSizeBinaryBuilder, Int16Builder, ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder};
+use sqd_bloom_filter::BloomFilter;
 use sqd_data_core::{struct_builder, table_builder};
 
 
@@ -20,6 +21,10 @@ struct_builder! {
         writable: AddressListBuilder,
     }
 }
+
+
+const ACCOUNT_BLOOM_BYTES: usize = 64;
+const ACCOUNT_BLOOM_NUM_HASHES: usize = 7;
 
 
 table_builder! {
@@ -44,6 +49,7 @@ table_builder! {
         address_table_lookups_size: UInt64Builder,
         signatures_size: UInt64Builder,
         loaded_addresses_size: UInt64Builder,
+        accounts_bloom: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(ACCOUNT_BLOOM_BYTES, 0),
     }
 
     description(d) {
@@ -145,6 +151,21 @@ impl TransactionBuilder {
         let loaded_addresses_size = readonly_size + writable_size;
         self.loaded_addresses_size.append(loaded_addresses_size as u64);
 
+        self.append_accounts_bloom(block, row)
+    }
+
+    fn append_accounts_bloom(&mut self, block: &Block, row: &Transaction) -> anyhow::Result<()> {
+        let mut bloom = BloomFilter::new(ACCOUNT_BLOOM_BYTES, ACCOUNT_BLOOM_NUM_HASHES);
+        for i in row.account_keys.iter() {
+            bloom.insert(block.get_account(*i)?);
+        }
+        for i in row.loaded_addresses.readonly.iter() {
+            bloom.insert(block.get_account(*i)?);
+        }
+        for i in row.loaded_addresses.writable.iter() {
+            bloom.insert(block.get_account(*i)?);
+        }
+        self.accounts_bloom.append(bloom.bytes());
         Ok(())
     }
 }

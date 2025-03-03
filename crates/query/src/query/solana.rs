@@ -1,4 +1,4 @@
-use super::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, convert_from_hex_lossy, item_field_selection, request, PredicateBuilder};
+use super::util::{compile_plan, convert_from_hex_lossy, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
 use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
@@ -71,7 +71,8 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
 
     tables.add_table("rewards", vec![
         "block_number",
-        "pubkey"
+        "pubkey",
+        "reward_type"
     ]);
 
     tables
@@ -313,6 +314,7 @@ request! {
         pub d2: Option<Vec<Bytes>>,
         pub d4: Option<Vec<Bytes>>,
         pub d8: Option<Vec<Bytes>>,
+        pub mentions_account: Option<Vec<Bytes>>,
         pub a0: Option<Vec<Bytes>>,
         pub a1: Option<Vec<Bytes>>,
         pub a2: Option<Vec<Bytes>>,
@@ -345,6 +347,7 @@ impl InstructionRequest {
         p.col_in_list("d2", self.d2.as_ref().map(convert_from_hex_lossy::<u16>));
         p.col_in_list("d4", self.d4.as_ref().map(convert_from_hex_lossy::<u32>));
         p.col_in_list("d8", self.d8.as_ref().map(convert_from_hex_lossy::<u64>));
+        p.bloom_filter("accounts_bloom", 64, 7, self.mentions_account.clone());
         p.col_in_list("a0", self.a0.clone());
         p.col_in_list("a1", self.a1.clone());
         p.col_in_list("a2", self.a2.clone());
@@ -396,6 +399,7 @@ impl InstructionRequest {
 request! {
     pub struct TransactionRequest {
         pub fee_payer: Option<Vec<Bytes>>,
+        pub mentions_account: Option<Vec<Bytes>>,
         pub instructions: bool,
         pub logs: bool,
     }
@@ -405,6 +409,7 @@ request! {
 impl TransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_in_list("fee_payer", self.fee_payer.clone());
+        p.bloom_filter("accounts_bloom", 64, 7, self.mentions_account.clone());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {

@@ -1,0 +1,38 @@
+{
+  "type": "solana",
+  "fromBlock": 0,
+  "fields": {
+    "block": {
+      "parentHash": true,
+      "timestamp": true,
+      "hash": true,
+      "height": true,
+      "number": true,
+      "parentNumber": true
+    },
+    "instruction": {
+      "programId": true,
+      "accounts": true,
+      "data": true,
+      "error": true,
+      "hasDroppedLogMessages": true,
+      "transactionIndex": true,
+      "instructionAddress": true
+    },
+    "transaction": {
+      "signatures": true,
+      "feePayer": true,
+      "err": true,
+      "transactionIndex": true
+    }
+  },
+  "instructions": [
+    {
+      "mentionsAccount": [
+        "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+        "7LCAYvoG8KynRMD1r8tuytbJGCGPweuQGCRWZrGsQd4k"
+      ],
+      "transaction": true
+    }
+  ]
+}

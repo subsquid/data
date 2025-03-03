@@ -1,10 +1,11 @@
+use std::hash::Hash;
 use std::sync::Arc;
 
+use crate::primitives::Name;
 use crate::scan::array_predicate;
 use crate::scan::array_predicate::ArrayPredicateRef;
-use crate::scan::row_predicate::{AndPredicate, ColumnPredicate, OrPredicate, RowPredicateRef};
 use crate::scan::arrow::IntoArrow;
-use crate::primitives::Name;
+use crate::scan::row_predicate::{AndPredicate, ColumnPredicate, OrPredicate, RowPredicateRef};
 
 
 macro_rules! make_column_predicate {
@@ -65,6 +66,40 @@ pub fn col_between<T: IntoArrow>(name: Name, low: T, high: T) -> RowPredicateRef
         Arc::new(array_predicate::LtEq::new(low)),
         Arc::new(array_predicate::GtEq::new(high))
     ]))
+}
+
+
+pub fn bloom_filter<T: Hash>(
+    name: Name, 
+    bytes_size: usize, 
+    num_hashes: usize, 
+    values: Vec<T>
+) -> RowPredicateRef 
+{
+    match values.len() {
+        1 => make_column_predicate!(
+            name,
+            array_predicate::BloomFilter::new(
+                bytes_size, 
+                num_hashes,
+                values.into_iter().next().unwrap()
+            )
+        ),
+        0 | 2.. => {
+            make_column_predicate!(
+                name,
+                array_predicate::Or::new(
+                    values.into_iter().map(|v| {
+                        Arc::new(array_predicate::BloomFilter::new(
+                            bytes_size, 
+                            num_hashes, 
+                            v
+                        )) as ArrayPredicateRef
+                    }).collect()
+                )
+            )
+        }
+    }
 }
 
 
