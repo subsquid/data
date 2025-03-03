@@ -27,14 +27,14 @@ impl BloomFilter {
         }
     }
 
-    pub fn insert<T: Hash>(&mut self, item: &T) {
+    pub fn insert<T: Hash + ?Sized>(&mut self, item: &T) {
         for i in 0..self.num_hashes {
             let bit = self.hash_bit(i, item);
             set_bit(&mut self.bytes, bit)
         }
     }
 
-    pub fn contains<T: Hash>(&self, item: &T) -> bool {
+    pub fn contains<T: Hash + ?Sized>(&self, item: &T) -> bool {
         for i in 0..self.num_hashes {
             let bit = self.hash_bit(i, item);
             if !get_bit(&self.bytes, bit) {
@@ -44,7 +44,7 @@ impl BloomFilter {
         true
     }
 
-    fn hash_bit<T: Hash>(&self, n: usize, item: &T) -> usize {
+    fn hash_bit<T: Hash + ?Sized>(&self, n: usize, item: &T) -> usize {
         let mut hasher = Xxh3Builder::new().with_seed(n as u64).build();
         item.hash(&mut hasher);
         let bit = hasher.finish() % (self.bytes.len() * 8) as u64;

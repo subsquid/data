@@ -399,6 +399,7 @@ impl InstructionRequest {
 request! {
     pub struct TransactionRequest {
         pub fee_payer: Option<Vec<Bytes>>,
+        pub mentions_account: Option<Vec<Bytes>>,
         pub instructions: bool,
         pub logs: bool,
     }
@@ -408,6 +409,7 @@ request! {
 impl TransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_in_list("fee_payer", self.fee_payer.clone());
+        p.bloom_filter("accounts_bloom", 64, 7, self.mentions_account.clone());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {

@@ -164,7 +164,7 @@ impl InstructionBuilder {
     fn append_accounts_bloom(&mut self, block: &Block, accounts: &[AccountIndex]) -> anyhow::Result<()> {
         let mut bloom = BloomFilter::new(ACCOUNT_BLOOM_BYTES, ACCOUNT_BLOOM_NUM_HASHES);
         for account in accounts {
-            bloom.insert(&block.get_account(*account)?);
+            bloom.insert(block.get_account(*account)?);
         }
         self.accounts_bloom.append(bloom.bytes());
         Ok(())

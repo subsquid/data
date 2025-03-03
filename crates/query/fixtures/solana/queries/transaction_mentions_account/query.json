@@ -1,0 +1,24 @@
+{
+  "type": "solana",
+  "fromBlock": 0,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "transaction": {
+      "transactionIndex": true,
+      "signatures": true,
+      "accountKeys": true,
+      "loadedAddresses": true
+    }
+  },
+  "transactions": [
+    {
+      "mentionsAccount": [
+        "qeQC4u5vpo5QMC17V5UMkQfK67vu3DHtBYVT1hFSGCK",
+        "7LCAYvoG8KynRMD1r8tuytbJGCGPweuQGCRWZrGsQd4k"
+      ]
+    }
+  ]
+}
