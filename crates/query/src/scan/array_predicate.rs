@@ -424,7 +424,7 @@ fn bitwise_and<const N: usize>(value: &[u8; N], other: &[u8; N]) -> [u8; N] {
 
 
 pub struct BloomFilter {
-    bloom: Buffer
+    value: Buffer
 }
 
 
@@ -433,42 +433,42 @@ impl BloomFilter {
         let mut bloom = sqd_bloom_filter::BloomFilter::new(byte_size, num_hashes);
         bloom.insert(&value);
         Self {
-            bloom: Buffer::from(bloom.bytes())
+            value: Buffer::from(bloom.bytes())
         }
     }
 
     #[inline(never)]
-    fn eval_static<T, const N: usize>(&self, values: &[u8]) -> BooleanBuffer
+    fn eval_static<T, const N: usize>(&self, blooms: &[u8]) -> BooleanBuffer
     where
         T: ArrowNativeType + BitAnd<Output=T>
     {
-        let bloom = to_typed_fixed_slice::<T, N>(&self.bloom);
-        let values = to_typed_slice::<T>(values);
-        assert_eq!(values.len() % N, 0);
-        let len = values.len() / N;
+        let value = to_typed_fixed_slice::<T, N>(&self.value);
+        let blooms = to_typed_slice::<T>(blooms);
+        assert_eq!(blooms.len() % N, 0);
+        let len = blooms.len() / N;
         BooleanBuffer::collect_bool(len, |i| unsafe {
-            let val_ptr = values.as_ptr().offset((i * N) as isize) as *const [T; N];
-            let val = &*val_ptr;
+            let bloom_ptr = blooms.as_ptr().add(i * N) as *const [T; N];
+            let bloom = &*bloom_ptr;
             let mut and: [T; N] = [T::default(); N];
             for i in 0..N {
-                and[i] = bloom[i] & val[i];
+                and[i] = value[i] & bloom[i];
             }
-            &and == val
+            &and == value
         })
     }
 
     #[inline(never)]
-    fn eval_dynamic<T>(&self, values: &[u8]) -> BooleanBuffer
+    fn eval_dynamic<T>(&self, blooms: &[u8]) -> BooleanBuffer
     where
         T: ArrowNativeType + BitAnd<Output=T>
     {
-        let bloom = to_typed_slice::<T>(&self.bloom);
-        let values = to_typed_slice::<T>(values);
-        assert_eq!(values.len() % bloom.len(), 0);
-        let len = values.len() / bloom.len();
+        let value = to_typed_slice::<T>(&self.value);
+        let blooms = to_typed_slice::<T>(blooms);
+        assert_eq!(blooms.len() % value.len(), 0);
+        let len = blooms.len() / value.len();
         BooleanBuffer::collect_bool(len, |i| unsafe {
-            let val = values.get_unchecked(i..i + bloom.len());
-            bloom.into_iter().zip(val.into_iter()).all(|(&b, &v)| b & v == v)
+            let bloom = blooms.get_unchecked(i..i + value.len());
+            value.into_iter().zip(bloom.into_iter()).all(|(&v, &b)| v & b == v)
         })
     }
 }
@@ -493,7 +493,7 @@ impl ArrayPredicate for BloomFilter {
             anyhow!("expected fixed sized binary array, but got {}", arr.data_type())
         })?;
 
-        let size = self.bloom.len();
+        let size = self.value.len();
 
         ensure!(
             arr.value_length() as usize == size,
@@ -502,7 +502,8 @@ impl ArrayPredicate for BloomFilter {
             arr.value_length()
         );
 
-        let values = &arr.value_data()[arr.value_offset(0) as usize..arr.value_offset(arr.len()) as usize];
+        let value_range = arr.value_offset(0) as usize..arr.value_offset(arr.len()) as usize;
+        let values = &arr.value_data()[value_range];
 
         let mask = match size {
             64 => self.eval_static::<u128, 4>(values),
