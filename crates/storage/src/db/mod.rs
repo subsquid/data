@@ -1,6 +1,6 @@
 mod data;
 mod db;
-mod ops;
+pub mod ops;
 mod read;
 mod rocks;
 mod table_id;
