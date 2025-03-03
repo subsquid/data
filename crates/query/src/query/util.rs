@@ -1,5 +1,5 @@
 use crate::primitives::Name;
-use crate::scan::{and, col_eq, col_gt_eq, col_in_list, col_lt_eq, bloom_filter, IntoArrow, RowPredicateRef};
+use crate::scan::{and, bloom_filter, col_eq, col_gt_eq, col_in_list, col_lt_eq, IntoArrow, RowPredicateRef};
 use std::hash::Hash;
 
 macro_rules! item_field_selection {
@@ -150,7 +150,13 @@ impl PredicateBuilder {
         self
     }
 
-    pub fn bloom_filter<L>(&mut self, name: Name, maybe_list: Option<L>) -> &mut Self
+    pub fn bloom_filter<L>(
+        &mut self, 
+        name: Name,
+        byte_size: usize,
+        num_hashes: usize,
+        maybe_list: Option<L>
+    ) -> &mut Self
         where L: IntoIterator,
               L::Item: Hash
     {
@@ -159,7 +165,7 @@ impl PredicateBuilder {
             if list.len() == 0 {
                 self.is_never = true
             }
-            let predicate = bloom_filter(name, list);
+            let predicate = bloom_filter(name, byte_size, num_hashes, list);
             self.conditions.push(predicate)
         }
         self

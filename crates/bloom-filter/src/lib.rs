@@ -1,58 +1,65 @@
-use arrow_buffer::bit_util;
 use std::hash::{Hash, Hasher};
 use xxhash_rust::xxh3::Xxh3Builder;
 
 
-pub struct BloomFilter<const N: usize> {
-    byte_array: [u8; N],
+pub struct BloomFilter {
+    bytes: Box<[u8]>,
     num_hashes: usize,
 }
 
 
-impl<const N: usize> BloomFilter<N> {
-    pub fn new(num_hashes: usize) -> Self {
+impl BloomFilter {
+    pub fn new(byte_size: usize, num_hashes: usize) -> Self {
         BloomFilter {
-            byte_array: [0; N],
+            bytes: vec![0; byte_size].into_boxed_slice(),
             num_hashes,
         }
     }
 
-    pub fn to_byte_array(self) -> [u8; N] {
-        self.byte_array
+    #[inline]
+    pub fn bytes(&self) -> &[u8] {
+        self.bytes.as_ref()
+    }
+    
+    pub fn clear(&mut self) {
+        for i in &mut self.bytes {
+            *i = 0;
+        }
     }
 
     pub fn insert<T: Hash>(&mut self, item: &T) {
         for i in 0..self.num_hashes {
-            let hash = self.hash(item, i as u64);
-            let byte_index = hash / 8;
-            let bit_index = hash % 8;
-            unsafe {
-                let byte = self.byte_array.get_unchecked_mut(byte_index);
-                bit_util::set_bit_raw(byte, bit_index);
-            }
+            let bit = self.hash_bit(i, item);
+            set_bit(&mut self.bytes, bit)
         }
     }
 
     pub fn contains<T: Hash>(&self, item: &T) -> bool {
         for i in 0..self.num_hashes {
-            let hash = self.hash(item, i as u64);
-            let byte_index = hash / 8;
-            let bit_index = hash % 8;
-            unsafe {
-                let byte = self.byte_array.get_unchecked(byte_index);
-                if !bit_util::get_bit_raw(byte, bit_index) {
-                    return false;
-                }
+            let bit = self.hash_bit(i, item);
+            if !get_bit(&self.bytes, bit) {
+                return false;
             }
         }
         true
     }
 
-    fn hash<T: Hash>(&self, item: &T, seed: u64) -> usize {
-        let mut hasher = Xxh3Builder::new().with_seed(seed).build();
+    fn hash_bit<T: Hash>(&self, n: usize, item: &T) -> usize {
+        let mut hasher = Xxh3Builder::new().with_seed(n as u64).build();
         item.hash(&mut hasher);
-        hasher.finish() as usize % (N * 8)
+        let bit = hasher.finish() % (self.bytes.len() * 8) as u64;
+        bit as usize
     }
+}
+
+
+fn get_bit(data: &[u8], i: usize) -> bool {
+    data[i / 8] & (1 << (i % 8)) != 0
+}
+
+
+fn set_bit(data: &mut [u8], i: usize) {
+    data[i / 8] |= 1 << (i % 8);
 }
 
 
@@ -63,7 +70,7 @@ mod test {
 
     #[test]
     fn basic_test() {
-        let mut bloom_filter = BloomFilter::<64>::new(7);
+        let mut bloom_filter = BloomFilter::new(64, 7);
 
         bloom_filter.insert(&"3NgFNFJBp7GAZDgm9vinbowrEvj7f4wepKVzKeqhcDFN");
         bloom_filter.insert(&"BRwHsJGf5Z2VLB2Gi57YMr4oRZ6FkfNbyUX9dtJW2hhY");

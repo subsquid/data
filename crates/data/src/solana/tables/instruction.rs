@@ -6,8 +6,8 @@ use sqd_bloom_filter::BloomFilter;
 use sqd_data_core::table_builder;
 
 
-pub const BYTES: usize = 64;
-pub const NUM_HASHES: usize = 7;
+const ACCOUNT_BLOOM_BYTES: usize = 64;
+const ACCOUNT_BLOOM_NUM_HASHES: usize = 7;
 
 
 table_builder! {
@@ -34,7 +34,7 @@ table_builder! {
         a14: Base58Builder,
         a15: Base58Builder,
         rest_accounts: AccountListBuilder,
-        accounts_bloom: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(64, 0),
+        accounts_bloom: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(ACCOUNT_BLOOM_BYTES, 0),
 
         compute_units_consumed: UInt64Builder,
         error: StringBuilder,
@@ -162,17 +162,11 @@ impl InstructionBuilder {
     }
 
     fn append_accounts_bloom(&mut self, block: &Block, accounts: &[AccountIndex]) -> anyhow::Result<()> {
-        if accounts.len() > 0 {
-            let mut bloom = BloomFilter::<BYTES>::new(NUM_HASHES);
-            for account in accounts {
-                bloom.insert(&block.get_account(*account)?);
-            }
-            let byte_array = bloom.to_byte_array();
-            self.accounts_bloom.append(&byte_array);
-        } else {
-            self.accounts_bloom.append_null();
+        let mut bloom = BloomFilter::new(ACCOUNT_BLOOM_BYTES, ACCOUNT_BLOOM_NUM_HASHES);
+        for account in accounts {
+            bloom.insert(&block.get_account(*account)?);
         }
-
+        self.accounts_bloom.append(bloom.bytes());
         Ok(())
     }
 }
