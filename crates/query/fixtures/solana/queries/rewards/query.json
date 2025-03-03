@@ -12,25 +12,6 @@
       "lamports": true,
       "rewardType": true,
       "pubkey": true
-    },
-    "transaction": {
-      "transactionIndex": true
-    },
-    "instruction": {
-      "transactionIndex": true,
-      "instructionAddress": true
-    },
-    "log": {
-      "transactionIndex": true,
-      "logIndex": true
-    },
-    "balance": {
-      "transactionIndex": true,
-      "account": true
-    },
-    "tokenBalance": {
-      "transactionIndex": true,
-      "account": true
     }
   },
   "rewards": [
