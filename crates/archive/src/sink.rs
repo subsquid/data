@@ -155,5 +155,5 @@ impl Sink {
 }
 
 fn short_hash(value: &str) -> &str {
-    &value[value.len().saturating_sub(5)..]
+    &value[value.len().saturating_sub(8)..]
 }
