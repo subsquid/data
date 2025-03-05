@@ -39,7 +39,7 @@ impl S3Fs {
 
         for seg in path.split('/') {
             match seg {
-                "." => {},
+                "." | "" => {},
                 ".." => {
                     result.pop();
                 },
