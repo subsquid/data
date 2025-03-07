@@ -22,3 +22,13 @@ RUN mkdir -p /etc/sqd/node && echo "{}" > /etc/sqd/node/datasets.json
 VOLUME /var/sqd/node
 ENTRYPOINT ["/app/sqd-node-example", "--db", "/var/sqd/node/db", "--datasets", "/etc/sqd/node/datasets.json"]
 EXPOSE 3000
+
+
+FROM builder as archive-builder
+RUN cargo build -p sqd-archive --release
+
+
+FROM rust AS sqd-archive
+WORKDIR /app
+COPY --from=archive-builder /app/target/release/sqd-archive .
+ENTRYPOINT ["/app/sqd-archive"]
