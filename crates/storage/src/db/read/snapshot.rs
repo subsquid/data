@@ -8,7 +8,7 @@ use crate::table::read::TableReader;
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use rocksdb::{ColumnFamily, ReadOptions};
-use sqd_primitives::{BlockNumber, Name};
+use sqd_primitives::{BlockNumber, BlockRef, Name};
 use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -80,6 +80,16 @@ impl <'a> ReadSnapshot<'a> {
 
     pub fn get_last_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<Chunk>> {
         self.list_chunks(dataset_id, 0, None).into_reversed().next().transpose()
+    }
+
+    pub fn get_parent_from(
+        &self,
+        dataset_id: DatasetId,
+        from: BlockNumber
+    ) -> anyhow::Result<Option<BlockRef>>
+    {
+        // self.list_chunks(dataset_id, from, None)
+        todo!()
     }
 
     fn new_options(&self) -> ReadOptions {

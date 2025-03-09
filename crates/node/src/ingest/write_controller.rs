@@ -2,7 +2,7 @@ use crate::types::{DBRef, DatasetKind};
 use anyhow::{anyhow, bail, ensure};
 use either::Either;
 use sqd_primitives::{BlockNumber, BlockRef, DisplayBlockRefOption};
-use sqd_storage::db::{Chunk as StorageChunk, Chunk, DatasetId};
+use sqd_storage::db::{Chunk as StorageChunk, Chunk, DatasetId, DatasetUpdate};
 use std::fmt::{Display, Formatter};
 use tracing::{info, instrument, warn, Level};
 
@@ -21,6 +21,7 @@ pub struct WriteController {
     dataset_id: DatasetId,
     dataset_kind: DatasetKind,
     first_block: BlockNumber,
+    parent_block_hash: Option<String>,
     head: Option<BlockRef>,
     finalized_head: Option<BlockRef>
 }
@@ -29,34 +30,25 @@ pub struct WriteController {
 impl WriteController {
     pub fn new(
         db: DBRef,
-        dataset_kind: DatasetKind,
         dataset_id: DatasetId,
-        first_block: BlockNumber
+        dataset_kind: DatasetKind,
+        first_block: BlockNumber,
+        parent_block_hash: Option<String>
     ) -> anyhow::Result<Self>
     {
         db.create_dataset_if_not_exists(dataset_id, dataset_kind.storage_kind())?;
-        
-        let snapshot = db.snapshot();
-        
-        let label = snapshot.get_label(dataset_id)?.ok_or_else(|| {
-            anyhow!("dataset got deleted")
-        })?;
-        
-        let head = snapshot.get_last_chunk(dataset_id)?.map(|c| BlockRef {
-            number: c.last_block(),
-            hash: c.last_block_hash().to_string()
-        });
         
         let mut controller = Self {
             db: db.clone(),
             dataset_id,
             dataset_kind,
             first_block: 0,
-            head,
-            finalized_head: label.finalized_head().cloned()
+            parent_block_hash: None,
+            head: None,
+            finalized_head: None
         };
 
-        controller.retain_head(first_block)?;
+        controller._retain(first_block, parent_block_hash, false)?;
         
         Ok(controller)
     }
@@ -70,7 +62,9 @@ impl WriteController {
     }
 
     pub fn head_hash(&self) -> Option<&str> {
-        self.head.as_ref().map(|h| h.hash.as_ref())
+        self.head.as_ref()
+            .map(|h| h.hash.as_str())
+            .or_else(|| self.parent_block_hash.as_ref().map(String::as_str))
     }
 
     pub fn next_block(&self) -> BlockNumber {
@@ -86,6 +80,7 @@ impl WriteController {
     }
     
     pub fn compute_rollback(&self, mut prev: &[BlockRef]) -> anyhow::Result<Rollback> {
+        // FIXME: self.first_block rollback limit
         ensure!(!prev.is_empty(), "no previous blocks where provided");
         ensure!(
             prev.windows(2).all(|s| s[0].number < s[1].number),
@@ -152,38 +147,129 @@ impl WriteController {
         })
     }
 
-    #[instrument(skip(self), fields(dataset_id =? self.dataset_id()))]
-    pub fn retain_head(&mut self, from_block: BlockNumber) -> anyhow::Result<()> {
-        let bottom_chunk = self.db.update_dataset(self.dataset_id, |tx| {
+    #[instrument(
+        name = "retain",
+        fields(dataset_id =? self.dataset_id()),
+        skip(self, delete_mismatch)
+    )]
+    fn _retain(
+        &mut self,
+        from_block: BlockNumber,
+        parent_block_hash: Option<String>,
+        delete_mismatch: bool
+    ) -> anyhow::Result<()>
+    {
+        #[derive(Eq, PartialEq)]
+        enum Status {
+            Range {
+                bottom: Chunk,
+                head: Chunk,
+                finalized_head: Option<BlockRef>
+            },
+            HashMismatch,
+            Gap(BlockNumber),
+            Clear
+        }
+
+        let status = self.db.update_dataset(self.dataset_id, |tx| {
+            let mut status = Status::Clear;
             for chunk_result in tx.list_chunks(0, None) {
                 let chunk = chunk_result?;
                 if chunk.last_block() < from_block {
                     tx.delete_chunk(&chunk)?;
+                } else if from_block < chunk.first_block() {
+                    if delete_mismatch {
+                        tx.delete_chunk(&chunk)?;
+                    } else {
+                        bail!(
+                            "there is a gap between first requested block {} and already existing chunk {}, \
+                            that could not be filled",
+                            from_block,
+                            chunk
+                        );
+                    }
+                    if status == Status::Clear {
+                        status = Status::Gap(chunk.first_block());
+                    }
                 } else {
-                    return Ok(Some(chunk))
+                    let hash_mismatch = parent_block_hash.as_ref().map_or(false, |parent_hash| {
+                        false  // FIXME
+                    });
+                    if hash_mismatch {
+                        if delete_mismatch {
+                            tx.delete_chunk(&chunk)?;
+                            status = Status::HashMismatch;
+                        } else {
+                            bail!("hash mismatch")
+                        }
+                    } else {
+                        let head = tx.list_chunks(0, None)
+                            .into_reversed()
+                            .next()
+                            .expect("bottom chunk can't exist without head chunk")?;
+
+                        let finalized_head = tx.label()
+                            .finalized_head()
+                            .filter(|h| chunk.first_block() <= h.number)
+                            .cloned();
+
+                        if finalized_head.is_none() {
+                            tx.set_finalized_head(None)
+                        }
+
+                        return Ok(Status::Range {
+                            bottom: chunk,
+                            head,
+                            finalized_head
+                        })
+                    }
                 }
             }
-            Ok(None)
+            tx.set_finalized_head(None);
+            Ok(status)
         })?;
 
-        self.first_block = from_block;
+        match status {
+            Status::Range {
+                bottom,
+                head,
+                finalized_head
+            } => {
+                self.head = Some(BlockRef {
+                    number: head.last_block(),
+                    hash: head.last_block_hash().to_string()
+                });
 
-        if let Some(chunk) = bottom_chunk.as_ref() {
-            info!("the bottom chunk is now {}", chunk);
-            if chunk.first_block() > from_block {
-                warn!(
-                    "there is a gap between requested trim horizon {} \
-                    and bottom chunk {} that will not be filled",
-                    from_block,
-                    chunk
+                self.finalized_head = finalized_head;
+
+                info!(
+                    "current block range is from {} to {}",
+                    bottom.first_block(),
+                    head.last_block()
                 );
+            },
+            Status::HashMismatch => {
+                warn!("cleared dataset due to parent block hash mismatch")
             }
-        } else {
-            self.head = None;
-            info!("the dataset is now empty")
+            Status::Gap(existed) => {
+                warn!(
+                    "cleared dataset, because there was a gap between first requested block {} and already existed {}",
+                    from_block,
+                    existed
+                )
+            }
+            Status::Clear => {
+                info!("dataset is empty")
+            }
         }
-
+        
+        self.first_block = from_block;
+        self.parent_block_hash = parent_block_hash;
         Ok(())
+    }
+
+    pub fn retain(&mut self, from_block: BlockNumber, parent_block_hash: Option<String>) -> anyhow::Result<()> {
+        self._retain(from_block, parent_block_hash, true)
     }
 
     #[instrument(skip_all, fields(
@@ -191,12 +277,16 @@ impl WriteController {
         new_finalized_head = %new_finalized_head
     ))]
     pub fn finalize(&mut self, new_finalized_head: &BlockRef) -> anyhow::Result<()> {
-        let head = match self.head.as_ref() {
-            None => return Ok(()),
-            Some(head) => head
+        let Some(head) = self.head.as_ref() else {
+            return Ok(())
         };
         
         let update = self.db.update_dataset(self.dataset_id, |tx| {
+            ensure!(
+                tx.label().finalized_head() == self.finalized_head.as_ref(),
+                "seems like the dataset is controlled by multiple processes"
+            );
+
             if let Some(current) = tx.label().finalized_head() {
                 if current.number > new_finalized_head.number {
                     return Ok(None)
@@ -213,13 +303,9 @@ impl WriteController {
                 .transpose()?;
 
             let head_chunk = match maybe_head_chunk {
-                Some(c) => c,
-                None => return Ok(None)
+                Some(c) if c.last_block_hash() == head.hash => c,
+                _ => bail!("seems like the dataset is controlled by multiple processes")
             };
-
-            if head_chunk.last_block_hash() != head.hash {
-                return Ok(None)
-            }
 
             let new_finalized_head = if new_finalized_head.number > head_chunk.last_block() {
                 BlockRef {
@@ -237,13 +323,12 @@ impl WriteController {
             
             Ok(Some(new_finalized_head))
         })?;
-        
-        match update {
-            Some(new_head) if Some(&new_head) != self.finalized_head.as_ref() => {
-                info!(committed_finalized_head = %new_head, "committed");
-                self.finalized_head = Some(new_head);
-            },
-            _ => info!("ignored")
+
+        if let Some(new_head) = update {
+            info!(committed_finalized_head = %new_head, "committed");
+            self.finalized_head = Some(new_head);
+        } else {
+            info!("ignored")
         }
         
         Ok(())
@@ -251,8 +336,8 @@ impl WriteController {
 
     #[instrument(skip_all, fields(
         dataset_id = %self.dataset_id(),
-        finalized_head = %DisplayBlockRefOption(finalized_head),
-        chunk = %chunk
+        chunk = %chunk,
+        finalized_head = %DisplayBlockRefOption(finalized_head)
     ))]
     pub fn new_chunk(
         &mut self,
@@ -260,6 +345,7 @@ impl WriteController {
         chunk: &StorageChunk
     ) -> anyhow::Result<()>
     {
+        // FIXME: accept self.first_block rollback limit
         let finalized_head = self.db.update_dataset(self.dataset_id, |tx| {
             let new_finalized_head = match (finalized_head, tx.label().finalized_head()) {
                 (Some(new), None) => {
@@ -299,9 +385,7 @@ impl WriteController {
             "commited"
         );
 
-        if self.finalized_head != finalized_head {
-            self.finalized_head = finalized_head;
-        }
+        self.finalized_head = finalized_head;
 
         self.head = Some(BlockRef {
             number: chunk.last_block(),

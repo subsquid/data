@@ -51,7 +51,7 @@ impl<'a> DatasetUpdate<'a> {
         &self, 
         from_block: BlockNumber, 
         to_block: Option<BlockNumber>
-    ) -> ChunkIterator<RocksTransactionIterator<'_>> 
+    ) -> ChunkIterator<RocksTransactionIterator<'a>> 
     {
         self.tx.list_chunks(self.dataset_id, from_block, to_block)    
     }

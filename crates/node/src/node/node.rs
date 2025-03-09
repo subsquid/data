@@ -121,11 +121,7 @@ impl Node {
     }
     
     pub fn retain(&self, dataset_id: DatasetId, retention_strategy: RetentionStrategy) {
-        let first_block = match retention_strategy {
-            RetentionStrategy::FromBlock(first_block) => first_block,
-            RetentionStrategy::Head(_) => unimplemented!("head retention strategy is not implemented")
-        };
-        self.get_dataset(dataset_id).unwrap().retain(first_block)
+        self.get_dataset(dataset_id).unwrap().retain(retention_strategy)
     }
 
     fn get_dataset(&self, dataset_id: DatasetId) -> Result<&DatasetController, UnknownDataset> {

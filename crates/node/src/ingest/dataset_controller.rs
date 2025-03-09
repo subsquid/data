@@ -2,7 +2,10 @@ use crate::ingest::ingest::{ingest, DataSource};
 use crate::ingest::ingest_generic::{IngestMessage, NewChunk};
 use crate::ingest::write_controller::WriteController;
 use crate::types::{DBRef, DatasetKind};
+use crate::RetentionStrategy;
 use anyhow::{bail, Context};
+use sqd_data_client::reqwest::ReqwestDataClient;
+use sqd_polars::prelude::len;
 use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_storage::db::{Chunk, Database, DatasetId};
 use std::collections::BTreeMap;
@@ -19,26 +22,25 @@ pub struct DatasetController {
     dataset_id: DatasetId,
     dataset_kind: DatasetKind,
     data_sources: Vec<DataSource>,
-    first_block_sender: tokio::sync::watch::Sender<BlockNumber>,
-    first_block_receiver: tokio::sync::watch::Receiver<BlockNumber>,
+    retention_sender: tokio::sync::watch::Sender<RetentionStrategy>,
+    retention_receiver: tokio::sync::watch::Receiver<RetentionStrategy>,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
     head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
     finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
-    finalized_head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
-    is_running: AtomicBool
+    finalized_head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>
 }
 
 
 impl DatasetController {
     pub fn new(
         db: DBRef,
-        dataset_kind: DatasetKind,
         dataset_id: DatasetId,
-        first_block: BlockNumber,
+        dataset_kind: DatasetKind,
+        retention: RetentionStrategy,
         data_sources: Vec<DataSource>
     ) -> Self
     {
-        let (first_block_sender, first_block_receiver) = tokio::sync::watch::channel(first_block);
+        let (retention_sender, retention_receiver) = tokio::sync::watch::channel(retention);
         let (head_sender, head_receiver) = tokio::sync::watch::channel(None);
         let (finalized_head_sender, finalized_head_receiver) = tokio::sync::watch::channel(None);
         Self {
@@ -46,13 +48,12 @@ impl DatasetController {
             dataset_id,
             dataset_kind,
             data_sources,
-            first_block_sender,
-            first_block_receiver,
+            retention_sender,
+            retention_receiver,
             head_sender,
             head_receiver,
             finalized_head_sender,
-            finalized_head_receiver,
-            is_running: AtomicBool::new(false)
+            finalized_head_receiver
         }
     }
 
@@ -76,8 +77,8 @@ impl DatasetController {
         self.head_receiver.borrow().as_ref().map(|h| h.number)
     }
 
-    pub fn retain(&self, block_number: BlockNumber) {
-        self.first_block_sender.send(block_number).unwrap()
+    pub fn retain(&self, strategy: RetentionStrategy) {
+        self.retention_sender.send(strategy).unwrap()
     }
 
     pub async fn wait_for_block(&self, block_number: BlockNumber) -> BlockNumber {
@@ -92,18 +93,40 @@ impl DatasetController {
         }
     }
 
-    pub async fn run(&self) -> anyhow::Result<()> {
-        if self.is_running.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
-            bail!("this dataset is already controlled by another task")
-        }
+    fn init(&self) -> anyhow::Result<()> {
+        let (first_block, parent_block_hash) = match self.retention_receiver.borrow().clone() {
+            RetentionStrategy::FromBlock { number, parent_hash } => {
+                (number, parent_hash)
+            }
+            RetentionStrategy::Head(n) => {
+                let snapshot = self.db.snapshot();
 
-        scopeguard::defer! {
-            self.is_running.store(false, Ordering::SeqCst)
+                let first_block = snapshot
+                    .get_first_chunk(self.dataset_id)?
+                    .map_or(0, |c| c.first_block());
+
+                let last_block = snapshot
+                    .get_last_chunk(self.dataset_id)?
+                    .map_or(0, |c| c.last_block());
+
+                let first_block = last_block.saturating_sub(n).max(first_block);
+
+                (first_block, None)
+            }
         };
 
-        loop {
-            self.run_epoch().await?
-        }
+        let write = WriteController::new(
+            self.db.clone(),
+            self.dataset_id,
+            self.dataset_kind,
+            first_block,
+            parent_block_hash
+        )?;
+
+        self.head_sender.send(write.head().cloned());
+        self.finalized_head_sender.send(write.finalized_head().cloned());
+
+        Ok(())
     }
 
     async fn run_epoch(&self) -> anyhow::Result<()> {
@@ -171,11 +194,18 @@ impl DatasetController {
 }
 
 
+async fn ingest_epoch(
+    
+) -> anyhow::Result<()> {
+    Ok(())
+}
+
+
 async fn write_loop(
     db: DBRef,
     mut write: WriteController,
     mut ingest_message_recv: tokio::sync::mpsc::Receiver<IngestMessage>,
-    mut retain_recv: tokio::sync::watch::Receiver<BlockNumber>,
+    mut retain_recv: tokio::sync::watch::Receiver<(BlockNumber, Option<String>)>,
     mut head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
     mut finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>
 ) -> anyhow::Result<()>
@@ -246,20 +276,22 @@ async fn write_loop(
                     return Ok(())
                 }
 
-                let block_number = retain_recv.borrow_and_update().clone();
+                let (number, parent_hash) = retain_recv.borrow_and_update().clone();
 
-                if write.next_block() < block_number {
-                    bail!(BehindFirstBlock(block_number))
-                }
+                let behind = (write.next_block() < number).then(|| {
+                    BehindFirstBlock(number, parent_hash.clone())
+                });
 
                 blocking! {
-                    write.retain_head(block_number).with_context(|| {
-                        format!("failed to retain dataset from block {}", block_number)
-                    })
+                    write.retain(number, parent_hash)
                 }?;
 
                 notify_head!();
                 notify_finalized_head!();
+
+                if let Some(behind) = behind {
+                    bail!(behind)
+                }
             }
         }
     }
@@ -307,7 +339,7 @@ fn write_new_chunk(
 
 
 #[derive(Debug)]
-struct BehindFirstBlock(BlockNumber);
+struct BehindFirstBlock(BlockNumber, Option<String>);
 
 
 impl Display for BehindFirstBlock {
