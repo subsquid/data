@@ -24,11 +24,12 @@ ENTRYPOINT ["/app/sqd-node-example", "--db", "/var/sqd/node/db", "--datasets", "
 EXPOSE 3000
 
 
-FROM builder as archive-builder
+FROM builder AS archive-builder
 RUN cargo build -p sqd-archive --release
 
 
-FROM rust AS sqd-archive
+FROM debian:bookworm-slim AS sqd-archive
+RUN apt-get update && apt-get install ca-certificates -y
 WORKDIR /app
 COPY --from=archive-builder /app/target/release/sqd-archive .
 ENTRYPOINT ["/app/sqd-archive"]
