@@ -76,6 +76,10 @@ impl DatasetController {
         self.head_receiver.borrow().as_ref().map(|h| h.number)
     }
 
+    pub fn get_first_block_number(&self) -> BlockNumber {
+        self.first_block_receiver.borrow().clone()
+    }
+
     pub fn retain(&self, block_number: BlockNumber) {
         self.first_block_sender.send(block_number).unwrap()
     }

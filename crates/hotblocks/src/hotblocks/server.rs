@@ -8,9 +8,9 @@ use anyhow::{bail, ensure};
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
 use reqwest::Url;
-use sqd_primitives::BlockRef;
+use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_query::Query;
-use sqd_storage::db::DatasetId;
+use sqd_storage::db::{DatabaseMetrics, DatasetId};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -119,6 +119,10 @@ impl HotblocksServer {
     pub fn get_head(&self, dataset_id: DatasetId) -> Result<Option<BlockRef>, UnknownDataset> {
         self.get_dataset(dataset_id).map(|d| d.get_head())
     }
+
+    pub fn get_first_block(&self, dataset_id: DatasetId) -> Result<BlockNumber, UnknownDataset> {
+        self.get_dataset(dataset_id).map(|d| d.get_first_block_number())
+    }
     
     pub fn retain(&self, dataset_id: DatasetId, retention_strategy: RetentionStrategy) {
         let first_block = match retention_strategy {
@@ -126,6 +130,18 @@ impl HotblocksServer {
             RetentionStrategy::Head(_) => unimplemented!("head retention strategy is not implemented")
         };
         self.get_dataset(dataset_id).unwrap().retain(first_block)
+    }
+
+    pub fn get_db_statistics(&self) -> Option<String> {
+        self.db.get_statistics()
+    }
+
+    pub fn get_db_metrics(&self) -> anyhow::Result<DatabaseMetrics> {
+        self.db.get_metrics()
+    }
+
+    pub fn get_all_datasets(&self) -> Vec<DatasetId> {
+        self.datasets.keys().copied().collect()
     }
 
     fn get_dataset(&self, dataset_id: DatasetId) -> Result<&DatasetController, UnknownDataset> {
