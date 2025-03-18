@@ -18,21 +18,25 @@ pub const MAX_WA: f64 = 3.0;
 pub enum CompactionStatus {
     Ok,
     Canceled,
-    NotingToCompact
+    NotingToCompact,
 }
 
-
-pub fn perform_dataset_compaction(db: &RocksDB, dataset_id: DatasetId, min_chunk_size: Option<usize>, max_write_amplification: Option<f64>) -> anyhow::Result<CompactionStatus> {
+pub fn perform_dataset_compaction(
+    db: &RocksDB,
+    dataset_id: DatasetId,
+    min_chunk_size: Option<usize>,
+    max_write_amplification: Option<f64>,
+) -> anyhow::Result<CompactionStatus> {
     DatasetCompaction {
         db,
         snapshot: &ReadSnapshot::new(db),
         dataset_id,
         merge: Vec::new(),
         min_chunk_size: min_chunk_size.unwrap_or(MIN_CHUNK_SIZE),
-        max_write_amplification: max_write_amplification.unwrap_or(MAX_WA)
-    }.execute()
+        max_write_amplification: max_write_amplification.unwrap_or(MAX_WA),
+    }
+    .execute()
 }
-
 
 struct DatasetCompaction<'a> {
     db: &'a RocksDB,
@@ -40,9 +44,8 @@ struct DatasetCompaction<'a> {
     dataset_id: DatasetId,
     merge: Vec<ChunkReader<'a>>,
     min_chunk_size: usize,
-    max_write_amplification: f64
+    max_write_amplification: f64,
 }
-
 
 impl<'a> DatasetCompaction<'a> {
     fn execute(mut self) -> anyhow::Result<CompactionStatus> {
@@ -61,11 +64,11 @@ impl<'a> DatasetCompaction<'a> {
         let status = Tx::new(self.db).run(|tx| {
             let mut label = match tx.find_label_for_update(self.dataset_id)? {
                 Some(label) => label,
-                None => return Ok(CompactionStatus::Canceled)
+                None => return Ok(CompactionStatus::Canceled),
             };
 
             if self.data_was_changed(tx)? {
-                return Ok(CompactionStatus::Canceled)
+                return Ok(CompactionStatus::Canceled);
             }
 
             self.delete_merged_chunks(tx)?;
@@ -75,7 +78,7 @@ impl<'a> DatasetCompaction<'a> {
             tx.write_label(self.dataset_id, &label)?;
             Ok(CompactionStatus::Ok)
         })?;
-        
+
         Ok(status)
     }
 
@@ -83,14 +86,14 @@ impl<'a> DatasetCompaction<'a> {
         let current_chunks = tx.list_chunks(
             self.dataset_id,
             self.merge[0].first_block(),
-            Some(self.merge.last().unwrap().last_block())
+            Some(self.merge.last().unwrap().last_block()),
         );
 
         let mut compared = 0;
         for (current, merged) in current_chunks.zip(self.merge.iter()) {
             let current = current?;
             if &current != merged.chunk() {
-                return Ok(true)
+                return Ok(true);
             }
             compared += 1;
         }
@@ -113,7 +116,7 @@ impl<'a> DatasetCompaction<'a> {
             last_block: last_chunk.last_block(),
             last_block_hash: last_chunk.last_block_hash().to_string(),
             parent_block_hash: first_chunk.base_block_hash().to_string(),
-            tables
+            tables,
         }
     }
 
@@ -124,8 +127,14 @@ impl<'a> DatasetCompaction<'a> {
         Ok(())
     }
 
-    fn merge_table(&self, name: &str, tables: &mut BTreeMap<String, TableId>) -> anyhow::Result<()> {
-        let chunks = self.merge.iter()
+    fn merge_table(
+        &self,
+        name: &str,
+        tables: &mut BTreeMap<String, TableId>,
+    ) -> anyhow::Result<()> {
+        let chunks = self
+            .merge
+            .iter()
             .map(|ch| ch.get_table_reader(name))
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -134,7 +143,7 @@ impl<'a> DatasetCompaction<'a> {
         table_builder.set_stats(src.columns_with_stats().iter().copied())?;
         src.write(&mut table_builder)?;
         let table_id = table_builder.finish()?;
-        
+
         tables.insert(name.to_string(), table_id);
         Ok(())
     }
@@ -154,7 +163,13 @@ impl<'a> DatasetCompaction<'a> {
         full_size
     }
 
-    fn find_range(chunk_sizes: &[usize], start: usize, end: usize, chunk_size_threshold: usize, wa_threshold: f64) -> Option<(usize, usize, usize)> {
+    fn find_range(
+        chunk_sizes: &[usize],
+        start: usize,
+        end: usize,
+        chunk_size_threshold: usize,
+        wa_threshold: f64,
+    ) -> Option<(usize, usize, usize)> {
         if start + 1 >= end {
             return None;
         }
@@ -176,17 +191,23 @@ impl<'a> DatasetCompaction<'a> {
             break;
         }
         let max_el = chunk_sizes[left..right].iter().max().unwrap();
-        let max_idx = chunk_sizes[left..right].iter().position(|element| element == max_el).unwrap();
-        let left_range = Self::find_range(chunk_sizes, start, start + max_idx, *max_el, wa_threshold);
+        let max_idx = chunk_sizes[left..right]
+            .iter()
+            .position(|element| element == max_el)
+            .unwrap();
+        let left_range =
+            Self::find_range(chunk_sizes, start, start + max_idx, *max_el, wa_threshold);
         if left_range.is_some() {
             return left_range;
         }
-        let right_range = Self::find_range(chunk_sizes, start + max_idx + 1, end, *max_el, wa_threshold);
-        right_range
+        Self::find_range(chunk_sizes, start + max_idx + 1, end, *max_el, wa_threshold)
     }
 
     fn prepare_merge_plan(&mut self) -> anyhow::Result<()> {
-        let mut reversed_chunk_iterator = self.snapshot.list_chunks(self.dataset_id, 0, None).into_reversed();
+        let mut reversed_chunk_iterator = self
+            .snapshot
+            .list_chunks(self.dataset_id, 0, None)
+            .into_reversed();
         let mut first_applicable_block = u64::MAX;
         let mut chunk_data_sizes: Vec<Vec<usize>> = Default::default();
         let mut last_schema_map: BTreeMap<String, SchemaRef> = Default::default();
@@ -195,7 +216,7 @@ impl<'a> DatasetCompaction<'a> {
             let tables = el.tables();
             let mut total_rows = 0;
             let mut schema_compatible = true;
-            for (key,v) in tables {
+            for (key, v) in tables {
                 let reader = self.snapshot.create_table_reader(*v)?;
                 total_rows += reader.num_rows();
                 let this_schema = reader.schema();
@@ -216,7 +237,7 @@ impl<'a> DatasetCompaction<'a> {
                 chunk_data_sizes.push(vec![total_rows; 1]);
             }
             first_applicable_block = el.first_block();
-        };
+        }
         chunk_data_sizes.iter_mut().for_each(|v| v.reverse());
         chunk_data_sizes.reverse();
 
@@ -230,7 +251,7 @@ impl<'a> DatasetCompaction<'a> {
                 continue;
             }
             if idx < chunk_data_sizes.len() - 1 {
-                // there will be no more chunks in this run, we can just merge disregarding write amplification as each chunk would be merged at most once 
+                // there will be no more chunks in this run, we can just merge disregarding write amplification as each chunk would be merged at most once
                 let left = 0;
                 let mut right = 1;
                 while Self::score_merge(&continous_run[left..right], None) < self.min_chunk_size {
@@ -245,7 +266,13 @@ impl<'a> DatasetCompaction<'a> {
                 break;
             }
             // we should find appropriate range to merge respecting write amplification
-            let range_option = Self::find_range(continous_run, 0, continous_run.len(), self.min_chunk_size, self.max_write_amplification);
+            let range_option = Self::find_range(
+                continous_run,
+                0,
+                continous_run.len(),
+                self.min_chunk_size,
+                self.max_write_amplification,
+            );
             if let Some((left, right, score)) = range_option {
                 skip_chunks += left;
                 take_chunks = right - left;
@@ -254,7 +281,9 @@ impl<'a> DatasetCompaction<'a> {
             skip_chunks += continous_run.len();
         }
 
-        let mut chunk_iterator = self.snapshot.list_chunks(self.dataset_id, first_applicable_block, None);
+        let mut chunk_iterator =
+            self.snapshot
+                .list_chunks(self.dataset_id, first_applicable_block, None);
         let mut new_chunk_size: u64 = 0;
         let mut expected_first_block = first_applicable_block;
 
