@@ -1,16 +1,18 @@
-use std::sync::Arc;
 use rand::seq::SliceRandom;
+use std::sync::Arc;
 
 mod utils;
 use arrow::datatypes::{DataType, Schema};
 use rand::rng;
-use sqd_storage::db::{ops::CompactionStatus, Chunk};
-use utils::{chunkify_data, make_block, make_irregular_block, make_schema, read_chunk, setup_db, validate_chunks};
 use sqd_storage::db::ops::schema_merge::can_merge_schemas;
+use sqd_storage::db::{ops::CompactionStatus, Chunk};
+use utils::{
+    chunkify_data, make_block, make_irregular_block, make_schema, read_chunk, setup_db,
+    validate_chunks,
+};
 
 use proptest::prelude::{prop, ProptestConfig};
 use proptest::proptest;
-
 
 #[test]
 fn small_chunks_test() {
@@ -55,7 +57,9 @@ fn small_chunks_test() {
         dataset_id,
         [&chunk1, &chunk2, &chunk3, &chunk4].to_vec(),
     );
-    assert!(db.perform_dataset_compaction(dataset_id, None, None).is_ok());
+    assert!(db
+        .perform_dataset_compaction(dataset_id, None, None)
+        .is_ok());
     let compacted = Chunk::V0 {
         first_block: 0,
         last_block: 3,
@@ -85,8 +89,12 @@ fn compaction_wo_tables_test() {
         chunks.push(chunk);
     }
     validate_chunks(&db, dataset_id, chunks.iter().collect());
-    assert!(db.perform_dataset_compaction(dataset_id, None, None).is_ok());
-    assert!(db.perform_dataset_compaction(dataset_id, None, None).is_ok());
+    assert!(db
+        .perform_dataset_compaction(dataset_id, None, None)
+        .is_ok());
+    assert!(db
+        .perform_dataset_compaction(dataset_id, None, None)
+        .is_ok());
 
     let chungus1 = Chunk::V0 {
         first_block: 0,
@@ -105,8 +113,14 @@ fn compaction_wo_tables_test() {
     validate_chunks(&db, dataset_id, [&chungus1, &chungus2].to_vec());
 }
 
-
-fn universal_compaction_test(static_data: &Vec<Vec<u16>>, type_a: DataType, type_b: DataType, do_sort: bool, n_blocks: usize, n_compactions: usize) {
+fn universal_compaction_test(
+    static_data: &Vec<Vec<u16>>,
+    type_a: DataType,
+    type_b: DataType,
+    do_sort: bool,
+    n_blocks: usize,
+    n_compactions: usize,
+) {
     let (db, dataset_id) = setup_db();
     let mut chunks = Vec::default();
     let schema_a = make_schema(type_a.clone(), type_b.clone(), do_sort);
@@ -128,9 +142,15 @@ fn universal_compaction_test(static_data: &Vec<Vec<u16>>, type_a: DataType, type
     let chunk_data = chunkify_data(global_data, do_sort);
     validate_chunks(&db, dataset_id, chunks.iter().collect());
     for _ in 0..n_compactions {
-        assert!(matches!(db.perform_dataset_compaction(dataset_id, None, None), Ok(CompactionStatus::Ok)));
+        assert!(matches!(
+            db.perform_dataset_compaction(dataset_id, None, None),
+            Ok(CompactionStatus::Ok)
+        ));
     }
-    assert!(matches!(db.perform_dataset_compaction(dataset_id, None, None), Ok(CompactionStatus::NotingToCompact)));
+    assert!(matches!(
+        db.perform_dataset_compaction(dataset_id, None, None),
+        Ok(CompactionStatus::NotingToCompact)
+    ));
 
     let snapshot = db.snapshot();
     let chunks = snapshot.list_chunks(dataset_id, 0, None);
@@ -182,7 +202,6 @@ fn compaction_fuzzy_tables_test() {
 
 #[test]
 fn compaction_plan_test() {
-
     let data_strategy = prop::collection::vec(prop::collection::vec(1..20usize, 10..40), 1..5);
     proptest!(ProptestConfig::with_cases(200), |(block_sizes in data_strategy)| {
         compaction_plan_test_execution(&block_sizes, 100, 3.0);
@@ -191,14 +210,24 @@ fn compaction_plan_test() {
     });
 }
 
-fn compaction_plan_test_execution(block_sizes: &Vec<Vec<usize>>, min_chunk_size: usize, max_wa: f64) {
+fn compaction_plan_test_execution(
+    block_sizes: &Vec<Vec<usize>>,
+    min_chunk_size: usize,
+    max_wa: f64,
+) {
     let type_a = DataType::UInt32;
     let type_b = DataType::Int32;
     let do_sort = false;
 
-    let total_blocks = block_sizes.iter().map(|v| v.iter().sum::<usize>()).sum::<usize>();
-    let static_data = vec![(0..total_blocks as u16).collect::<Vec<u16>>(), (0..total_blocks as u16).collect::<Vec<u16>>()];
-    
+    let total_blocks = block_sizes
+        .iter()
+        .map(|v| v.iter().sum::<usize>())
+        .sum::<usize>();
+    let static_data = vec![
+        (0..total_blocks as u16).collect::<Vec<u16>>(),
+        (0..total_blocks as u16).collect::<Vec<u16>>(),
+    ];
+
     let (db, dataset_id) = setup_db();
     let mut chunks = Vec::default();
     let schema_a = make_schema(type_a.clone(), type_b.clone(), do_sort);
@@ -209,12 +238,18 @@ fn compaction_plan_test_execution(block_sizes: &Vec<Vec<usize>>, min_chunk_size:
 
     for (i, sizes) in block_sizes.iter().enumerate() {
         for size in sizes {
-            let local_schema =  if i % 2 == 0 {
+            let local_schema = if i % 2 == 0 {
                 Arc::clone(&schema_a)
             } else {
                 Arc::clone(&schema_b)
             };
-            let (chunk, data) = make_irregular_block(&static_data, total_offset, total_offset + *size, local_schema, &db);
+            let (chunk, data) = make_irregular_block(
+                &static_data,
+                total_offset,
+                total_offset + *size,
+                local_schema,
+                &db,
+            );
             assert!(db.insert_chunk(dataset_id, &chunk).is_ok());
             chunks.push(chunk);
             global_data.extend(data);
@@ -223,7 +258,10 @@ fn compaction_plan_test_execution(block_sizes: &Vec<Vec<usize>>, min_chunk_size:
     }
 
     validate_chunks(&db, dataset_id, chunks.iter().collect());
-    while matches!(db.perform_dataset_compaction(dataset_id, Some(min_chunk_size), Some(max_wa)), Ok(CompactionStatus::Ok)) {};
+    while matches!(
+        db.perform_dataset_compaction(dataset_id, Some(min_chunk_size), Some(max_wa)),
+        Ok(CompactionStatus::Ok)
+    ) {}
 
     let snapshot = db.snapshot();
     let mut chunks = snapshot.list_chunks(dataset_id, 0, None);
@@ -241,8 +279,8 @@ fn compaction_plan_test_execution(block_sizes: &Vec<Vec<usize>>, min_chunk_size:
         match last_schema_option {
             Some(last_schema) => {
                 schema_compatible = can_merge_schemas(&this_schema, &last_schema);
-            },
-            None => {},      
+            }
+            None => {}
         }
         last_schema_option = Some(this_schema);
 
@@ -251,7 +289,7 @@ fn compaction_plan_test_execution(block_sizes: &Vec<Vec<usize>>, min_chunk_size:
         } else {
             chunk_data_sizes.push(vec![total_rows; 1]);
         }
-    };
+    }
 
     for (run_idx, run) in chunk_data_sizes.iter().enumerate() {
         if run_idx + 1 < chunk_data_sizes.len() {
@@ -277,10 +315,9 @@ fn compaction_plan_test_execution(block_sizes: &Vec<Vec<usize>>, min_chunk_size:
                 Some(&longest_chunk) => {
                     let leftovers_len = iter.sum::<usize>() - longest_chunk;
                     assert!(longest_chunk as f64 > max_wa * leftovers_len as f64);
-                },
-                None => {},
+                }
+                None => {}
             }
         }
     }
-
 }
