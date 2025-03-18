@@ -1,12 +1,19 @@
+use arrow::datatypes::SchemaRef;
+use rocksdb::properties::NUM_RUNNING_FLUSHES;
+use sqd_primitives::range;
+
 use crate::db::db::RocksDB;
+use crate::db::ops::schema_merge::can_merge_schemas;
 use crate::db::ops::table_merge::TableMerge;
 use crate::db::table_id::TableId;
 use crate::db::write::tx::Tx;
 use crate::db::{Chunk, ChunkReader, DatasetId, ReadSnapshot, TableBuilder};
 use core::u64;
 use std::collections::BTreeMap;
+use std::default;
 
-pub const MIN_CHUNK_SIZE: u64 = 100;
+pub const MIN_CHUNK_SIZE: usize = 100;
+pub const MAX_WA: f64 = 3.0;
 
 pub enum CompactionStatus {
     Ok,
@@ -15,12 +22,14 @@ pub enum CompactionStatus {
 }
 
 
-pub fn perform_dataset_compaction(db: &RocksDB, dataset_id: DatasetId) -> anyhow::Result<CompactionStatus> {
+pub fn perform_dataset_compaction(db: &RocksDB, dataset_id: DatasetId, min_chunk_size: Option<usize>, max_write_amplification: Option<f64>) -> anyhow::Result<CompactionStatus> {
     DatasetCompaction {
         db,
         snapshot: &ReadSnapshot::new(db),
         dataset_id,
-        merge: Vec::new()
+        merge: Vec::new(),
+        min_chunk_size: min_chunk_size.unwrap_or(MIN_CHUNK_SIZE),
+        max_write_amplification: max_write_amplification.unwrap_or(MAX_WA)
     }.execute()
 }
 
@@ -29,7 +38,9 @@ struct DatasetCompaction<'a> {
     db: &'a RocksDB,
     snapshot: &'a ReadSnapshot<'a>,
     dataset_id: DatasetId,
-    merge: Vec<ChunkReader<'a>>
+    merge: Vec<ChunkReader<'a>>,
+    min_chunk_size: usize,
+    max_write_amplification: f64
 }
 
 
@@ -128,33 +139,131 @@ impl<'a> DatasetCompaction<'a> {
         Ok(())
     }
 
+    fn score_merge(chunk_sizes: &[usize], max_wa: Option<f64>) -> usize {
+        let max_size = chunk_sizes.iter().max().unwrap_or(&0).clone() as f64;
+        let full_size = chunk_sizes.iter().sum();
+        if max_size == 0.0 {
+            return 1;
+        }
+        let wa = max_size / (full_size as f64 - max_size);
+        if let Some(wa_limit) = max_wa {
+            if wa > wa_limit {
+                return 0;
+            }
+        }
+        full_size
+    }
+
+    fn find_range(chunk_sizes: &[usize], start: usize, end: usize, chunk_size_threshold: usize, wa_threshold: f64) -> Option<(usize, usize, usize)> {
+        if start + 1 >= end {
+            return None;
+        }
+        let left = start;
+        let mut right = left + 1;
+        loop {
+            let score = Self::score_merge(&chunk_sizes[left..right], Some(wa_threshold));
+            if score >= chunk_size_threshold {
+                // println!("{left} {right} {score}");
+                return Some((left, right, score));
+            }
+            if right < end {
+                right += 1;
+                continue;
+            }
+            if score > 0 {
+                return Some((left, right, score));
+            }
+            break;
+        }
+        let max_el = chunk_sizes[left..right].iter().max().unwrap();
+        let max_idx = chunk_sizes[left..right].iter().position(|element| element == max_el).unwrap();
+        let left_range = Self::find_range(chunk_sizes, start, start + max_idx, *max_el, wa_threshold);
+        if left_range.is_some() {
+            return left_range;
+        }
+        let right_range = Self::find_range(chunk_sizes, start + max_idx + 1, end, *max_el, wa_threshold);
+        right_range
+    }
+
     fn prepare_merge_plan(&mut self) -> anyhow::Result<()> {
         let mut reversed_chunk_iterator = self.snapshot.list_chunks(self.dataset_id, 0, None).into_reversed();
-        let mut step_back = false;
         let mut first_applicable_block = u64::MAX;
+        let mut chunk_data_sizes: Vec<Vec<usize>> = Default::default();
+        let mut last_schema_map: BTreeMap<String, SchemaRef> = Default::default();
+        chunk_data_sizes.push(Default::default());
         while let Some(Ok(el)) = reversed_chunk_iterator.next() {
-            if el.blocks_count() >= MIN_CHUNK_SIZE as u64 {
-                step_back = true;
+            let tables = el.tables();
+            let mut total_rows = 0;
+            let mut schema_compatible = true;
+            for (key,v) in tables {
+                let reader = self.snapshot.create_table_reader(*v)?;
+                total_rows += reader.num_rows();
+                let this_schema = reader.schema();
+                if let Some(last_schema) = last_schema_map.get(key) {
+                    schema_compatible &= can_merge_schemas(&this_schema, last_schema);
+                }
+                last_schema_map.insert(key.to_string(), this_schema);
+            }
+            if total_rows == 0 {
+                total_rows = el.blocks_count() as usize;
+            }
+            if total_rows >= self.min_chunk_size {
                 break;
+            }
+            if schema_compatible {
+                chunk_data_sizes.last_mut().unwrap().push(total_rows);
+            } else {
+                chunk_data_sizes.push(vec![total_rows; 1]);
             }
             first_applicable_block = el.first_block();
         };
+        chunk_data_sizes.iter_mut().for_each(|v| v.reverse());
+        chunk_data_sizes.reverse();
+
+        let mut skip_chunks = 0;
+        let mut take_chunks = 0;
+
+        for (idx, continous_run) in chunk_data_sizes.iter().enumerate() {
+            if continous_run.len() < 2 {
+                // skip unmergable run
+                skip_chunks += continous_run.len();
+                continue;
+            }
+            if idx < chunk_data_sizes.len() - 1 {
+                // there will be no more chunks in this run, we can just merge disregarding write amplification as each chunk would be merged at most once 
+                let left = 0;
+                let mut right = 1;
+                while Self::score_merge(&continous_run[left..right], None) < self.min_chunk_size {
+                    if right < continous_run.len() {
+                        right += 1;
+                    } else {
+                        break;
+                    }
+                }
+                skip_chunks += left;
+                take_chunks = right - left;
+                break;
+            }
+            // we should find appropriate range to merge respecting write amplification
+            let range_option = Self::find_range(continous_run, 0, continous_run.len(), self.min_chunk_size, self.max_write_amplification);
+            if let Some((left, right, score)) = range_option {
+                skip_chunks += left;
+                take_chunks = right - left;
+                break;
+            }
+            skip_chunks += continous_run.len();
+        }
+
         let mut chunk_iterator = self.snapshot.list_chunks(self.dataset_id, first_applicable_block, None);
         let mut new_chunk_size: u64 = 0;
         let mut expected_first_block = first_applicable_block;
-        while let Some(Ok(chunk)) = chunk_iterator.next() {
-            if chunk.first_block() != expected_first_block {
-                break;
-            }
-            expected_first_block = chunk.next_block();
-            new_chunk_size += chunk.blocks_count();
-            let reader = self.snapshot.create_chunk_reader(chunk);
-            self.merge.push(reader);
-            if new_chunk_size >= MIN_CHUNK_SIZE {
-                break;
-            }
-        };
 
+        for chunk_option in chunk_iterator.skip(skip_chunks).take(take_chunks) {
+            if let Ok(chunk) = chunk_option {
+                let reader = self.snapshot.create_chunk_reader(chunk);
+                self.merge.push(reader);
+            }
+        }
         Ok(())
     }
 }

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::collections::BTreeMap;
 use arrow::datatypes::{DataType, Field, Schema, UInt32Type};
-use arrow::array::{ArrayRef, AsArray, RecordBatch, UInt16Array, UInt32Array};
+use arrow::array::{ArrayRef, AsArray, Float32Array, Int32Array, RecordBatch, UInt16Array, UInt32Array};
 use sqd_array::schema_metadata::set_sort_key;
 use sqd_storage::db::ops::MIN_CHUNK_SIZE;
 use sqd_storage::db::{Chunk, Database, DatabaseSettings, DatasetId, DatasetKind, ReadSnapshot};
@@ -59,8 +59,12 @@ pub fn read_chunk(snapshot: &ReadSnapshot, chunk: Chunk) -> Vec<(u32, u32)> {
 }
 
 pub fn make_block(static_data: &Vec<Vec<u16>>, idx: usize, local_schema: Arc<Schema>, db: &Database) -> (Chunk, Vec<(u32, u32)>) {
-    let base_hash = format!("last_{}", idx);
-    let last_hash = format!("last_{}", idx + 1);
+    make_irregular_block(static_data, idx * 10, (idx + 1) * 10, local_schema, db)
+}
+
+pub fn make_irregular_block(static_data: &Vec<Vec<u16>>, start: usize, end: usize, local_schema: Arc<Schema>, db: &Database) -> (Chunk, Vec<(u32, u32)>) {
+    let base_hash = format!("last_{}", start);
+    let last_hash = format!("last_{}", end);
 
     let mut builder = db.new_table_builder(local_schema.clone());
 
@@ -69,8 +73,8 @@ pub fn make_block(static_data: &Vec<Vec<u16>>, idx: usize, local_schema: Arc<Sch
     //     .collect::<Vec<u16>>();
     // vec_1[0] = idx as u16;
     // let vec_2 = vec_1.iter().map(|v| 310 - v).collect::<Vec<u16>>();
-    let vec_1 = static_data[0][idx * 10 .. (idx + 1) * 10].to_vec();
-    let vec_2 = static_data[1][idx * 10 .. (idx + 1) * 10].to_vec();
+    let vec_1 = static_data[0][start .. end].to_vec();
+    let vec_2 = static_data[1][start .. end].to_vec();
 
     let type_1 = local_schema.fields()[0].data_type();
     let type_2 = local_schema.fields()[1].data_type();
@@ -79,8 +83,14 @@ pub fn make_block(static_data: &Vec<Vec<u16>>, idx: usize, local_schema: Arc<Sch
         DataType::UInt32 => {
             Arc::new(UInt32Array::from(vec_1.clone().into_iter().map(Into::into).collect::<Vec<u32>>())) as ArrayRef
         }
+        DataType::Int32 => {
+            Arc::new(Int32Array::from(vec_1.clone().into_iter().map(Into::into).collect::<Vec<i32>>())) as ArrayRef
+        }
         DataType::UInt16 => {
             Arc::new(UInt16Array::from(vec_1.clone())) as ArrayRef
+        }
+        DataType::Float32 => {
+            Arc::new(Float32Array::from(vec_1.clone().into_iter().map(Into::into).collect::<Vec<f32>>())) as ArrayRef
         }
         _ => todo!()
     };
@@ -88,8 +98,14 @@ pub fn make_block(static_data: &Vec<Vec<u16>>, idx: usize, local_schema: Arc<Sch
         DataType::UInt32 => {
             Arc::new(UInt32Array::from(vec_2.clone().into_iter().map(Into::into).collect::<Vec<u32>>())) as ArrayRef
         }
+        DataType::Int32 => {
+            Arc::new(Int32Array::from(vec_2.clone().into_iter().map(Into::into).collect::<Vec<i32>>())) as ArrayRef
+        }
         DataType::UInt16 => {
             Arc::new(UInt16Array::from(vec_2.clone())) as ArrayRef
+        }
+        DataType::Float32 => {
+            Arc::new(Float32Array::from(vec_2.clone().into_iter().map(Into::into).collect::<Vec<f32>>())) as ArrayRef
         }
         _ => todo!()
     };
@@ -100,8 +116,8 @@ pub fn make_block(static_data: &Vec<Vec<u16>>, idx: usize, local_schema: Arc<Sch
     tables.insert("block".to_owned(), builder.finish().unwrap());
 
     let chunk = Chunk::V0 {
-        first_block: idx as u64 * 10,
-        last_block: (idx as u64 + 1) * 10 - 1,
+        first_block: start as u64,
+        last_block: (end - 1) as u64,
         last_block_hash: last_hash,
         parent_block_hash: base_hash,
         tables,
