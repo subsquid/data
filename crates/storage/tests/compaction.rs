@@ -204,9 +204,12 @@ fn compaction_fuzzy_tables_test() {
 fn compaction_plan_test() {
     let data_strategy = prop::collection::vec(prop::collection::vec(1..20usize, 10..40), 1..5);
     proptest!(ProptestConfig::with_cases(200), |(block_sizes in data_strategy)| {
-        compaction_plan_test_execution(&block_sizes, 100, 3.0);
-        compaction_plan_test_execution(&block_sizes, 150, 3.0);
-        compaction_plan_test_execution(&block_sizes, 100, 2.0);
+        compaction_plan_test_execution(&block_sizes, 100, 3.0, false);
+        compaction_plan_test_execution(&block_sizes, 150, 3.0, false);
+        compaction_plan_test_execution(&block_sizes, 100, 2.0, false);
+        compaction_plan_test_execution(&block_sizes, 100, 3.0, true);
+        compaction_plan_test_execution(&block_sizes, 150, 3.0, true);
+        compaction_plan_test_execution(&block_sizes, 100, 2.0, true);
     });
 }
 
@@ -214,6 +217,7 @@ fn compaction_plan_test_execution(
     block_sizes: &Vec<Vec<usize>>,
     min_chunk_size: usize,
     max_wa: f64,
+    compact_on_each_insert: bool
 ) {
     let type_a = DataType::UInt32;
     let type_b = DataType::Int32;
@@ -251,13 +255,19 @@ fn compaction_plan_test_execution(
                 &db,
             );
             assert!(db.insert_chunk(dataset_id, &chunk).is_ok());
+            if compact_on_each_insert {
+                let _ = db.perform_dataset_compaction(dataset_id, Some(min_chunk_size), Some(max_wa));
+            }
             chunks.push(chunk);
             global_data.extend(data);
             total_offset += *size;
         }
     }
 
-    validate_chunks(&db, dataset_id, chunks.iter().collect());
+    if !compact_on_each_insert {
+        validate_chunks(&db, dataset_id, chunks.iter().collect());
+    }
+
     while matches!(
         db.perform_dataset_compaction(dataset_id, Some(min_chunk_size), Some(max_wa)),
         Ok(CompactionStatus::Ok)
