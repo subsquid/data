@@ -1,10 +1,11 @@
 use crate::json::encoder::factory::{extract_nulls, make_encoder, make_nullable_encoder};
 use crate::json::encoder::util::json_close;
-use crate::json::encoder::{Encoder, EncoderObject, HexEncode, HexEncoder, JsonEncoder, ListSpreadEncoder, NullableEncoder, PrimitiveEncoder, SafeStringEncoder, StructEncoder, StructField, TimestampEncoder};
+use crate::json::encoder::{Encoder, EncoderObject, HexEncode, HexEncoder, JsonEncoder, ListSpreadEncoder, NullableEncoder, PrimitiveEncoder, PrimitiveEncode, SafeStringEncoder, StructEncoder, StructField, TimestampEncoder};
 use crate::primitives::{schema_error, Name, SchemaError};
 use arrow::array::{Array, AsArray, PrimitiveArray, StringArray, StructArray};
-use arrow::buffer::NullBuffer;
+use arrow::buffer::{NullBuffer, ScalarBuffer};
 use arrow::datatypes::{DataType, TimeUnit, TimestampMillisecondType, TimestampSecondType};
+use lexical_core::FormattedSize;
 use std::ops::Deref;
 
 
@@ -14,6 +15,7 @@ pub enum Exp {
     Json,
     BigNum,
     HexNum,
+    SolanaTransactionVersion,
     TimestampSecond,
     TimestampMillisecond,
     Object(Vec<(Name, Exp)>),
@@ -53,6 +55,7 @@ impl Exp {
             Exp::Json |
             Exp::BigNum |
             Exp::HexNum |
+            Exp::SolanaTransactionVersion |
             Exp::TimestampSecond |
             Exp::TimestampMillisecond => {},
         }
@@ -64,6 +67,7 @@ impl Exp {
             Exp::Json => eval_json(array),
             Exp::BigNum => eval_bignum(array),
             Exp::HexNum => eval_hex(array),
+            Exp::SolanaTransactionVersion => eval_solana_transaction_version(array),
             Exp::TimestampSecond => eval_timestamp(array, TimeUnit::Second),
             Exp::TimestampMillisecond => eval_timestamp(array, TimeUnit::Millisecond),
             Exp::Object(props) => eval_object(array, props),
@@ -160,6 +164,18 @@ fn eval_hex(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
             "Expected unsigned numeric primitive value, but got - {}", ty
         ))
     }
+}
+
+
+fn eval_solana_transaction_version(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
+    use arrow::datatypes::Int16Type;
+
+    let (_, buffer, nulls) = match array.data_type() {
+        DataType::Int16 => array.as_primitive::<Int16Type>().clone().into_parts(),
+        ty => return Err(schema_error!("expected Int16 value, but got - {}", ty))
+    };
+    let encoder = SolanaTransactionVersionEncoder::new(buffer);
+    Ok(make_nullable_encoder(encoder, nulls))
 }
 
 
@@ -375,5 +391,33 @@ impl Encoder for EnumEncoder {
             }
         }
         out.extend_from_slice(b"null")
+    }
+}
+
+
+struct SolanaTransactionVersionEncoder {
+    values: ScalarBuffer<i16>,
+    buffer: [u8; i16::FORMATTED_SIZE]
+}
+
+
+impl SolanaTransactionVersionEncoder {
+    fn new(values: ScalarBuffer<i16>) -> Self {
+        Self {
+            values,
+            buffer: i16::init_buffer(),
+        }
+    }
+}
+
+
+impl Encoder for SolanaTransactionVersionEncoder {
+    fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {
+        let value = self.values[idx];
+        if value == -1 {
+            out.extend_from_slice(b"\"legacy\"");
+        } else {
+            out.extend_from_slice(value.encode(&mut self.buffer));
+        }
     }
 }

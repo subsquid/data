@@ -115,7 +115,6 @@ item_field_selection! {
 item_field_selection! {
     TransactionFieldSelection {
         transaction_index,
-        version,
         account_keys,
         address_table_lookups,
         num_readonly_signed_accounts,
@@ -123,6 +122,7 @@ item_field_selection! {
         num_required_signatures,
         recent_blockhash,
         signatures,
+        version,
         err,
         fee,
         compute_units_consumed,
@@ -133,7 +133,6 @@ item_field_selection! {
 
     project(this) json_object! {{
         this.transaction_index,
-        this.version,
         this.account_keys,
         this.address_table_lookups,
         this.num_readonly_signed_accounts,
@@ -141,6 +140,7 @@ item_field_selection! {
         this.num_required_signatures,
         this.recent_blockhash,
         this.signatures,
+        [this.version]: SolanaTransactionVersion,
         [this.err]: Json,
         [this.fee]: BigNum,
         [this.compute_units_consumed]: BigNum,

@@ -1,0 +1,29 @@
+{
+  "type": "solana",
+  "fromBlock": 0,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "log": {
+      "instructionAddress": true,
+      "kind": true,
+      "message": true,
+      "transactionIndex": true,
+      "logIndex": true,
+      "programId": true
+    },
+    "transaction": {
+      "transactionIndex": true,
+      "signatures": true
+    }
+  },
+  "logs": [
+    {
+      "programId": ["ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD"],
+      "kind": ["data"],
+      "transaction": true
+    }
+  ]
+}
