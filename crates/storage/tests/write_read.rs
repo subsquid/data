@@ -25,14 +25,18 @@ fn to_record_batch(array: ArrayRef) -> RecordBatch {
     RecordBatch::try_new(Arc::new(schema), vec![array]).unwrap()
 }
 
-fn check_write_read(db: &Database, batches: Vec<RecordBatch>) -> anyhow::Result<()> {
+fn check_write_read(db: &Database, batches: Vec<RecordBatch>, stats_type: bool) -> anyhow::Result<()> {
     let schema = batches[0].schema();
 
     let mut builder = db.new_table_builder(schema.clone());
     for batch in batches.iter() {
         builder.write_record_batch(batch)?;
     }
-    let have_stats = builder.set_stats([0]).is_ok();
+    let have_stats = if stats_type {
+        builder.set_stats([0]).is_ok()
+    } else {
+        builder.add_stat_by_name("c0").is_ok()
+    };
     let table_id = builder.finish()?;
 
     let snapshot = db.snapshot();
@@ -74,8 +78,8 @@ fn test_write_read(array: impl Strategy<Value=ArrayRef>) -> anyhow::Result<()> {
 
     let tables_strategy = prop::collection::vec(array.prop_map(to_record_batch), 1..=2);
 
-    proptest!(ProptestConfig::with_cases(WRITE_READ_ITERATIONS), |(tables in tables_strategy)| {
-        check_write_read(&db, tables).unwrap()
+    proptest!(ProptestConfig::with_cases(WRITE_READ_ITERATIONS), |(tables in tables_strategy, stats_type in prop::bool::ANY)| {
+        check_write_read(&db, tables, stats_type).unwrap()
     });
 
     Ok(())
