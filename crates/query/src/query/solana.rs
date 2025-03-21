@@ -115,6 +115,7 @@ item_field_selection! {
 item_field_selection! {
     TransactionFieldSelection {
         transaction_index,
+        version,
         account_keys,
         address_table_lookups,
         num_readonly_signed_accounts,
@@ -122,7 +123,6 @@ item_field_selection! {
         num_required_signatures,
         recent_blockhash,
         signatures,
-        version,
         err,
         fee,
         compute_units_consumed,
@@ -131,23 +131,29 @@ item_field_selection! {
         has_dropped_log_messages,
     }
 
-    project(this) json_object! {{
-        this.transaction_index,
-        this.account_keys,
-        this.address_table_lookups,
-        this.num_readonly_signed_accounts,
-        this.num_readonly_unsigned_accounts,
-        this.num_required_signatures,
-        this.recent_blockhash,
-        this.signatures,
-        [this.version]: SolanaTransactionVersion,
-        [this.err]: Json,
-        [this.fee]: BigNum,
-        [this.compute_units_consumed]: BigNum,
-        [this.loaded_addresses]: Value,
-        [this.fee_payer]: Value,
-        [this.has_dropped_log_messages]: Value,
-    }}
+    project(this) json_object! {
+        {
+            this.transaction_index,
+        },
+        {
+            [this.version]: SolanaTransactionVersion,
+        },
+        {
+            this.account_keys,
+            this.address_table_lookups,
+            this.num_readonly_signed_accounts,
+            this.num_readonly_unsigned_accounts,
+            this.num_required_signatures,
+            this.recent_blockhash,
+            this.signatures,
+            [this.err]: Json,
+            [this.fee]: BigNum,
+            [this.compute_units_consumed]: BigNum,
+            [this.loaded_addresses]: Value,
+            [this.fee_payer]: Value,
+            [this.has_dropped_log_messages]: Value,
+        }
+    }
 }
 
 
