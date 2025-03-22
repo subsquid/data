@@ -53,5 +53,6 @@ pub enum RetentionStrategy {
         number: BlockNumber,
         parent_hash: Option<String>
     },
-    Head(u64)
+    Head(u64),
+    None
 }

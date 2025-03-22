@@ -31,24 +31,28 @@ impl WriteController {
     pub fn new(
         db: DBRef,
         dataset_id: DatasetId,
-        dataset_kind: DatasetKind,
-        first_block: BlockNumber,
-        parent_block_hash: Option<String>
+        dataset_kind: DatasetKind
     ) -> anyhow::Result<Self>
     {
         db.create_dataset_if_not_exists(dataset_id, dataset_kind.storage_kind())?;
+
+        let snapshot = db.snapshot();
+        let label = snapshot.get_label(dataset_id)?;
+        let first_chunk = snapshot.get_first_chunk(dataset_id)?;
+        let last_chunk = snapshot.get_last_chunk(dataset_id)?;
         
         let mut controller = Self {
             db: db.clone(),
             dataset_id,
             dataset_kind,
-            first_block: 0,
-            parent_block_hash: None,
-            head: None,
-            finalized_head: None
+            first_block: first_chunk.as_ref().map_or(0, |c| c.first_block()),
+            parent_block_hash: first_chunk.map(|c| c.last_block_hash().to_string()),
+            head: last_chunk.map(|c| BlockRef {
+                number: c.last_block(),
+                hash: c.last_block_hash().to_string()
+            }),
+            finalized_head: label.and_then(|l| l.finalized_head().cloned())
         };
-
-        controller._retain(first_block, parent_block_hash, false)?;
         
         Ok(controller)
     }
@@ -60,15 +64,19 @@ impl WriteController {
     pub fn dataset_kind(&self) -> DatasetKind {
         self.dataset_kind
     }
+    
+    pub fn start_block(&self) -> BlockNumber {
+        self.first_block
+    }
+
+    pub fn next_block(&self) -> BlockNumber {
+        self.head.as_ref().map_or(self.first_block, |h| h.number + 1)
+    }
 
     pub fn head_hash(&self) -> Option<&str> {
         self.head.as_ref()
             .map(|h| h.hash.as_str())
             .or_else(|| self.parent_block_hash.as_ref().map(String::as_str))
-    }
-
-    pub fn next_block(&self) -> BlockNumber {
-        self.head.as_ref().map_or(self.first_block, |h| h.number + 1)
     }
 
     pub fn head(&self) -> Option<&BlockRef> {
@@ -270,6 +278,10 @@ impl WriteController {
 
     pub fn retain(&mut self, from_block: BlockNumber, parent_block_hash: Option<String>) -> anyhow::Result<()> {
         self._retain(from_block, parent_block_hash, true)
+    }
+
+    pub fn init_retention(&mut self, from_block: BlockNumber, parent_block_hash: Option<String>) -> anyhow::Result<()> {
+        self._retain(from_block, parent_block_hash, false)
     }
 
     #[instrument(skip_all, fields(

@@ -142,6 +142,48 @@ impl ReqwestDataClient {
 
         Ok(head)
     }
+    
+    pub fn is_retryable(&self, err: &anyhow::Error) -> bool {
+        for cause in err.chain() {
+            if let Some(unexpected_status) = cause.downcast_ref::<UnexpectedHttpStatus>() {
+                return match unexpected_status.status.as_u16() {
+                    429 | 502 | 503 | 504 | 524 => true,
+                    _ => false
+                }
+            }
+
+            if let Some(reqwest_error) = cause.downcast_ref::<reqwest::Error>() {
+                match reqwest_error.status().unwrap_or_default().as_u16() {
+                    429 | 502 | 503 | 504 | 524 => return true,
+                    _ => {}
+                }
+                if reqwest_error.is_timeout() {
+                    return true
+                }
+                if reqwest_error.is_request() &&
+                    reqwest_error.to_string() == "connection closed before message completed" {
+                    return true
+                }
+            }
+
+            if let Some(io_error) = cause.downcast_ref::<std::io::Error>() {
+                match io_error.kind() {
+                    ErrorKind::ConnectionAborted => return true,
+                    ErrorKind::ConnectionRefused => return true,
+                    ErrorKind::ConnectionReset => return true,
+                    ErrorKind::HostUnreachable => return true,
+                    ErrorKind::NetworkUnreachable => return true,
+                    ErrorKind::TimedOut => return true,
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+    
+    pub fn url(&self) -> &Url {
+        self.url.as_ref()
+    }
 }
 
 
@@ -204,41 +246,7 @@ impl DataClient for ReqwestDataClient {
     }
 
     fn is_retryable(&self, err: &anyhow::Error) -> bool {
-        for cause in err.chain() {
-            if let Some(unexpected_status) = cause.downcast_ref::<UnexpectedHttpStatus>() {
-                return match unexpected_status.status.as_u16() {
-                    429 | 502 | 503 | 504 | 524 => true,
-                    _ => false
-                }
-            }
-
-            if let Some(reqwest_error) = cause.downcast_ref::<reqwest::Error>() {
-                match reqwest_error.status().unwrap_or_default().as_u16() {
-                    429 | 502 | 503 | 504 | 524 => return true,
-                    _ => {}
-                }
-                if reqwest_error.is_timeout() {
-                   return true
-                }
-                if reqwest_error.is_request() && 
-                    reqwest_error.to_string() == "connection closed before message completed" {
-                    return true
-                }
-            }
-
-            if let Some(io_error) = cause.downcast_ref::<std::io::Error>() {
-                match io_error.kind() {
-                    ErrorKind::ConnectionAborted => return true,
-                    ErrorKind::ConnectionRefused => return true,
-                    ErrorKind::ConnectionReset => return true,
-                    ErrorKind::HostUnreachable => return true,
-                    ErrorKind::NetworkUnreachable => return true,
-                    ErrorKind::TimedOut => return true,
-                    _ => {}
-                }
-            }
-        }
-        false
+        self.is_retryable(err)
     }
 }
 
