@@ -1,5 +1,5 @@
 use crate::json::encoder::{Encoder, EncoderObject};
-use crate::json::encoder::util::{encode_string, json_close};
+use crate::json::encoder::util::{json_close, make_object_prop};
 
 
 pub struct StructField {
@@ -10,9 +10,7 @@ pub struct StructField {
 
 impl StructField {
     pub fn new(name: &str, value: EncoderObject) -> Self {
-        let mut prop = Vec::with_capacity(name.len() + 3);
-        encode_string(name, &mut prop);
-        prop.push(b':');
+        let prop = make_object_prop(name);
         Self {
             prop,
             value

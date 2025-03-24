@@ -1,0 +1,32 @@
+{
+  "type": "solana",
+  "fromBlock": 0,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "transaction": {
+      "transactionIndex": true,
+      "version": true,
+      "signatures": true,
+      "addressTableLookups": true,
+      "numReadonlySignedAccounts": true,
+      "numReadonlyUnsignedAccounts": true,
+      "numRequiredSignatures": true,
+      "recentBlockhash": true,
+      "err": true,
+      "fee": true,
+      "computeUnitsConsumed": true,
+      "feePayer": true,
+      "hasDroppedLogMessages": true,
+      "accountKeys": true,
+      "loadedAddresses": true
+    }
+  },
+  "transactions": [
+    {
+      "feePayer": ["BVhqPeMZYar4xjpqmmyknhsA6xRvKvMLcSocx7rR5hCd"]
+    }
+  ]
+}
