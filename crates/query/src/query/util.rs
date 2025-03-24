@@ -249,3 +249,7 @@ fn parse_hex<T: TryFrom<u64>>(s: &str) -> Option<T> {
 pub fn convert_from_hex_lossy<T: TryFrom<u64>>(v: &Vec<String>) -> impl Iterator<Item = T> + '_ {
     v.into_iter().filter_map(|s| parse_hex::<T>(s))
 }
+
+pub fn to_lowercase_iter(list: &Option<Vec<String>>) -> Option<impl Iterator<Item = String> + '_> {
+    list.as_ref().map(|v| v.iter().map(|s| s.to_ascii_lowercase()))
+}
