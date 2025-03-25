@@ -69,6 +69,10 @@ impl WriteController {
         self.first_block
     }
 
+    pub fn start_block_parent_hash(&self) -> Option<&str> {
+        self.parent_block_hash.as_ref().map(String::as_str)
+    }
+
     pub fn next_block(&self) -> BlockNumber {
         self.head.as_ref().map_or(self.first_block, |h| h.number + 1)
     }
@@ -76,7 +80,7 @@ impl WriteController {
     pub fn head_hash(&self) -> Option<&str> {
         self.head.as_ref()
             .map(|h| h.hash.as_str())
-            .or_else(|| self.parent_block_hash.as_ref().map(String::as_str))
+            .or_else(|| self.start_block_parent_hash())
     }
 
     pub fn head(&self) -> Option<&BlockRef> {
@@ -251,7 +255,7 @@ impl WriteController {
                 self.finalized_head = finalized_head;
 
                 info!(
-                    "current block range is from {} to {}",
+                    "retained blocks from {} to {}",
                     bottom.first_block(),
                     head.last_block()
                 );
@@ -267,7 +271,7 @@ impl WriteController {
                 )
             }
             Status::Clear => {
-                info!("dataset is empty")
+                info!("dataset was cleared")
             }
         }
         
