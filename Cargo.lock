@@ -4722,6 +4722,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqd-query-example"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "flate2",
+ "sqd-polars",
+ "sqd-query",
+]
+
+[[package]]
 name = "sqd-storage"
 version = "0.1.0"
 dependencies = [

@@ -12,6 +12,7 @@ members = [
     "crates/polars",
     "crates/primitives",
     "crates/query",
+    "crates/query-example",
     "crates/storage"
 ]
 resolver = "2"
