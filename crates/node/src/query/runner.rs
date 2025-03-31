@@ -105,7 +105,7 @@ impl QueryRunner {
             finalized_head,
             buf: GzEncoder::new(
                 BytesMut::new().writer(),
-                Compression::default()
+                Compression::fast()
             )
         })
     }
