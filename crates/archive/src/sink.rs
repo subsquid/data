@@ -104,7 +104,7 @@ impl Sink {
                     || self.processor.max_num_rows() >= self.max_num_rows
                 {
                     self.submit_chunk(chunk_first_block).await?;
-                    chunk_first_block = self.processor.last_block() + 1;
+                    chunk_first_block = self.processor.last_parent_block_number() + 1;
                 }
 
                 self.progress.set_current_value(self.processor.last_block());

@@ -1,6 +1,7 @@
 use crate::chain_builder::{AnyChainBuilder, ChainBuilderBox};
 use sqd_data_core::{ChunkProcessor, PreparedChunk};
 use sqd_dataset::DatasetDescriptionRef;
+use sqd_primitives::BlockNumber;
 
 
 struct State {
@@ -44,12 +45,16 @@ impl LineProcessor {
         Ok(())
     }
 
-    pub fn last_block(&self) -> u64 {
+    pub fn last_block(&self) -> BlockNumber {
         self.state.builder.last_block_number()
     }
 
     pub fn last_block_hash(&self) -> &str {
         self.state.builder.last_block_hash()
+    }
+
+    pub fn last_parent_block_number(&self) -> BlockNumber {
+        self.state.builder.last_parent_block_number()
     }
 
     pub fn last_parent_block_hash(&self) -> &str {
