@@ -262,14 +262,14 @@ impl WriteController {
             },
             Status::HashMismatch => {
                 warn!("cleared dataset due to parent block hash mismatch")
-            }
+            },
             Status::Gap(existed) => {
                 warn!(
                     "cleared dataset, because there was a gap between first requested block {} and already existed {}",
                     from_block,
                     existed
                 )
-            }
+            },
             Status::Clear => {
                 info!("dataset was cleared")
             }

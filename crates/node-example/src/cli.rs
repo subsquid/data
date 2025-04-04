@@ -1,6 +1,7 @@
 use crate::dataset_config::DatasetConfig;
 use anyhow::Context;
 use clap::Parser;
+use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_node::{DBRef, Node, NodeBuilder};
 use sqd_storage::db::DatabaseSettings;
 use std::sync::Arc;
@@ -27,7 +28,7 @@ pub struct CLI {
 
 
 impl CLI {
-    pub fn build_node(&self) -> anyhow::Result<(Arc<Node>, DBRef)> {
+    pub async fn build_node(&self) -> anyhow::Result<(Arc<Node>, DBRef)> {
         let datasets = DatasetConfig::read_config_file(&self.datasets)
             .context("failed to read datasets config")?;
 
@@ -39,13 +40,23 @@ impl CLI {
         
         let mut builder = NodeBuilder::new(db.clone());
         
+        let http_client = sqd_data_client::reqwest::default_http_client();
+        
         for (id, cfg) in datasets {
-            let ds = builder.add_dataset(cfg.kind, id, cfg.retention);
-            for url in cfg.data_sources {
-                ds.add_data_source(url);
-            }
+            let data_sources = cfg.data_sources.into_iter()
+                .map(|url| ReqwestDataClient::new(http_client.clone(), url))
+                .collect();
+            
+            builder.add_dataset(
+                cfg.kind, 
+                id,
+                data_sources,
+                cfg.retention
+            );
         }
         
-        Ok((Arc::new(builder.build()), db))
+        let node = builder.build().await.map(Arc::new)?;
+        
+        Ok((node, db))
     }
 }

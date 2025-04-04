@@ -3,14 +3,10 @@ use crate::types::DatasetKind;
 use bytes::Bytes;
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use reqwest::Url;
 use serde::de::DeserializeOwned;
 use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_data_source::StandardDataSource;
 use sqd_primitives::BlockNumber;
-
-
-pub type DataSource = (reqwest::Client, Url);
 
 
 pub fn ingest<'a, 'b>(

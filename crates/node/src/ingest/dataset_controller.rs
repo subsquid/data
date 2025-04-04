@@ -1,4 +1,4 @@
-use crate::ingest::ingest::{ingest, DataSource};
+use crate::ingest::ingest::ingest;
 use crate::ingest::ingest_generic::{IngestMessage, NewChunk};
 use crate::ingest::write_controller::WriteController;
 use crate::types::{DBRef, DatasetKind};
@@ -502,44 +502,44 @@ async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
 
     loop {
         select! {
-                biased;
-                result = calls.next() => {
-                    match result {
-                        None => return last_seen,
-                        Some((Ok((bn)), _)) => {
-                            last_seen = last_seen.max(bn);
-                            completed += 1;
-                            if completed > clients.len() / 2 {
-                                return last_seen
-                            }
-                            if completed == 1 {
-                                deadline = Instant::now().add(Duration::from_secs(5))
-                            }
-                        },
-                        Some((Err(err), ci)) => {
-                            if clients[ci].is_retryable(&err) {
-                                warn!(
-                                    reason =? err,
-                                    data_source =% clients[ci].url(),
-                                    "head probe failed"
-                                )
-                            } else {
-                                error!(
-                                    reason =? err,
-                                    data_source =% clients[ci].url(),
-                                    "head probe failed"
-                                )
-                            };
-                            calls.push(
-                                call_client(&clients, ci, true)
-                            );
+            biased;
+            result = calls.next() => {
+                match result {
+                    None => return last_seen,
+                    Some((Ok((bn)), _)) => {
+                        last_seen = last_seen.max(bn);
+                        completed += 1;
+                        if completed > clients.len() / 2 {
+                            return last_seen
                         }
+                        if completed == 1 {
+                            deadline = Instant::now().add(Duration::from_secs(5))
+                        }
+                    },
+                    Some((Err(err), ci)) => {
+                        if clients[ci].is_retryable(&err) {
+                            warn!(
+                                reason =? err,
+                                data_source =% clients[ci].url(),
+                                "head probe failed"
+                            )
+                        } else {
+                            error!(
+                                reason =? err,
+                                data_source =% clients[ci].url(),
+                                "head probe failed"
+                            )
+                        };
+                        calls.push(
+                            call_client(&clients, ci, true)
+                        );
                     }
                 }
-                _ = tokio::time::sleep_until(deadline), if completed > 0 => {
-                    return last_seen
-                }
             }
+            _ = tokio::time::sleep_until(deadline), if completed > 0 => {
+                return last_seen
+            }
+        }
     }
 
     async fn call_client(
