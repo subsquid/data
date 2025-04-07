@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::default;
 
 pub const MIN_CHUNK_SIZE: usize = 100;
-pub const MAX_WA: f64 = 3.0;
+pub const WA_LIMIT: f64 = 1.25;
 
 pub enum CompactionStatus {
     Ok,
@@ -26,7 +26,7 @@ pub fn perform_dataset_compaction(
     db: &RocksDB,
     dataset_id: DatasetId,
     min_chunk_size: Option<usize>,
-    max_write_amplification: Option<f64>,
+    write_amplification_limit: Option<f64>,
 ) -> anyhow::Result<CompactionStatus> {
     DatasetCompaction {
         db,
@@ -34,7 +34,7 @@ pub fn perform_dataset_compaction(
         dataset_id,
         merge: Vec::new(),
         min_chunk_size: min_chunk_size.unwrap_or(MIN_CHUNK_SIZE),
-        max_write_amplification: max_write_amplification.unwrap_or(MAX_WA),
+        write_amplification_limit: write_amplification_limit.unwrap_or(WA_LIMIT),
     }
     .execute()
 }
@@ -45,7 +45,7 @@ struct DatasetCompaction<'a> {
     dataset_id: DatasetId,
     merge: Vec<ChunkReader<'a>>,
     min_chunk_size: usize,
-    max_write_amplification: f64,
+    write_amplification_limit: f64,
 }
 
 impl<'a> DatasetCompaction<'a> {
@@ -155,9 +155,9 @@ impl<'a> DatasetCompaction<'a> {
         if max_size == 0.0 {
             return 1;
         }
-        let wa = max_size / (full_size as f64 - max_size);
         if let Some(wa_limit) = max_wa {
-            if wa > wa_limit {
+            let wa = full_size as f64 / max_size;
+            if wa < wa_limit {
                 return 0;
             }
         }
@@ -278,7 +278,7 @@ impl<'a> DatasetCompaction<'a> {
                 0,
                 continous_run.len(),
                 self.min_chunk_size,
-                self.max_write_amplification,
+                self.write_amplification_limit,
             );
             if let Some((left, right, score)) = range_option {
                 skip_chunks += left;

@@ -204,19 +204,19 @@ fn compaction_fuzzy_tables_test() {
 fn compaction_plan_test() {
     let data_strategy = prop::collection::vec(prop::collection::vec(1..20usize, 10..40), 1..5);
     proptest!(ProptestConfig::with_cases(200), |(block_sizes in data_strategy)| {
-        compaction_plan_test_execution(&block_sizes, 100, 3.0, false);
-        compaction_plan_test_execution(&block_sizes, 150, 3.0, false);
-        compaction_plan_test_execution(&block_sizes, 100, 2.0, false);
-        compaction_plan_test_execution(&block_sizes, 100, 3.0, true);
-        compaction_plan_test_execution(&block_sizes, 150, 3.0, true);
-        compaction_plan_test_execution(&block_sizes, 100, 2.0, true);
+        compaction_plan_test_execution(&block_sizes, 100, 1.25, false);
+        compaction_plan_test_execution(&block_sizes, 150, 1.25, false);
+        compaction_plan_test_execution(&block_sizes, 100, 1.50, false);
+        compaction_plan_test_execution(&block_sizes, 100, 1.25, true);
+        compaction_plan_test_execution(&block_sizes, 150, 1.25, true);
+        compaction_plan_test_execution(&block_sizes, 100, 1.50, true);
     });
 }
 
 fn compaction_plan_test_execution(
     block_sizes: &Vec<Vec<usize>>,
     min_chunk_size: usize,
-    max_wa: f64,
+    wa_limit: f64,
     compact_on_each_insert: bool
 ) {
     let type_a = DataType::UInt32;
@@ -256,7 +256,7 @@ fn compaction_plan_test_execution(
             );
             assert!(db.insert_chunk(dataset_id, &chunk).is_ok());
             if compact_on_each_insert {
-                let _ = db.perform_dataset_compaction(dataset_id, Some(min_chunk_size), Some(max_wa));
+                let _ = db.perform_dataset_compaction(dataset_id, Some(min_chunk_size), Some(wa_limit));
             }
             chunks.push(chunk);
             global_data.extend(data);
@@ -269,7 +269,7 @@ fn compaction_plan_test_execution(
     }
 
     while matches!(
-        db.perform_dataset_compaction(dataset_id, Some(min_chunk_size), Some(max_wa)),
+        db.perform_dataset_compaction(dataset_id, Some(min_chunk_size), Some(wa_limit)),
         Ok(CompactionStatus::Ok)
     ) {}
 
@@ -312,7 +312,7 @@ fn compaction_plan_test_execution(
         } else {
             // in the last run, chunks should be split in two continous groups:
             // - chunks in the first group all should be not shorter than MIN_CHUNK_SIZE
-            // - chunks in the second (maybe empty) group are all shorter than MIN_CHUNK_SIZE and longest of them should be at least MAX_WA times longer than others combined
+            // - chunks in the second (maybe empty) group are all shorter than MIN_CHUNK_SIZE and longest of them should dominate (break wa formula)
             let mut iter = run.iter().peekable();
             while let Some(&&chunk_size) = iter.peek() {
                 if chunk_size < min_chunk_size {
@@ -323,8 +323,8 @@ fn compaction_plan_test_execution(
             let longest_chunk_option = iter.clone().max();
             match longest_chunk_option {
                 Some(&longest_chunk) => {
-                    let leftovers_len = iter.sum::<usize>() - longest_chunk;
-                    assert!(longest_chunk as f64 > max_wa * leftovers_len as f64);
+                    let total_len = iter.sum::<usize>();
+                    assert!(wa_limit * longest_chunk as f64 >= total_len as f64);
                 }
                 None => {}
             }
