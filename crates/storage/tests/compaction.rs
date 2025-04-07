@@ -215,7 +215,7 @@ fn compaction_plan_test() {
 
 fn compaction_plan_test_execution(
     block_sizes: &Vec<Vec<usize>>,
-    min_chunk_size: usize,
+    max_mergeable_chunk_size: usize,
     wa_limit: f64,
     compact_on_each_insert: bool
 ) {
@@ -256,7 +256,7 @@ fn compaction_plan_test_execution(
             );
             assert!(db.insert_chunk(dataset_id, &chunk).is_ok());
             if compact_on_each_insert {
-                let _ = db.perform_dataset_compaction(dataset_id, Some(min_chunk_size), Some(wa_limit));
+                let _ = db.perform_dataset_compaction(dataset_id, Some(max_mergeable_chunk_size), Some(wa_limit));
             }
             chunks.push(chunk);
             global_data.extend(data);
@@ -269,7 +269,7 @@ fn compaction_plan_test_execution(
     }
 
     while matches!(
-        db.perform_dataset_compaction(dataset_id, Some(min_chunk_size), Some(wa_limit)),
+        db.perform_dataset_compaction(dataset_id, Some(max_mergeable_chunk_size), Some(wa_limit)),
         Ok(CompactionStatus::Ok)
     ) {}
 
@@ -303,19 +303,19 @@ fn compaction_plan_test_execution(
 
     for (run_idx, run) in chunk_data_sizes.iter().enumerate() {
         if run_idx + 1 < chunk_data_sizes.len() {
-            // all chunks (except last) in non-final run should be not sorter than MIN_CHUNK_SIZE, last chunk may be whatever
+            // all chunks (except last) in non-final run should be not sorter than MAX_MERGEABLE_CHUNK_SIZE, last chunk may be whatever
             for (chunk_idx, &chunk_size) in run.iter().enumerate() {
                 if chunk_idx + 1 < run.len() {
-                    assert!(chunk_size >= min_chunk_size);
+                    assert!(chunk_size >= max_mergeable_chunk_size);
                 }
             }
         } else {
             // in the last run, chunks should be split in two continous groups:
-            // - chunks in the first group all should be not shorter than MIN_CHUNK_SIZE
-            // - chunks in the second (maybe empty) group are all shorter than MIN_CHUNK_SIZE and longest of them should dominate (break wa formula)
+            // - chunks in the first group all should be not shorter than MAX_MERGEABLE_CHUNK_SIZE
+            // - chunks in the second (maybe empty) group are all shorter than MAX_MERGEABLE_CHUNK_SIZE and longest of them should dominate (break wa formula)
             let mut iter = run.iter().peekable();
             while let Some(&&chunk_size) = iter.peek() {
-                if chunk_size < min_chunk_size {
+                if chunk_size < max_mergeable_chunk_size {
                     break;
                 }
                 iter.next();

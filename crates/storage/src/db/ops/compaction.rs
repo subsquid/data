@@ -13,7 +13,7 @@ use std::cmp::max;
 use std::collections::BTreeMap;
 use std::default;
 
-pub const MIN_CHUNK_SIZE: usize = 100;
+pub const MAX_MERGEABLE_CHUNK_SIZE: usize = 100;
 pub const WA_LIMIT: f64 = 1.25;
 
 pub enum CompactionStatus {
@@ -25,7 +25,7 @@ pub enum CompactionStatus {
 pub fn perform_dataset_compaction(
     db: &RocksDB,
     dataset_id: DatasetId,
-    min_chunk_size: Option<usize>,
+    max_mergeable_chunk_size: Option<usize>,
     write_amplification_limit: Option<f64>,
 ) -> anyhow::Result<CompactionStatus> {
     DatasetCompaction {
@@ -33,7 +33,7 @@ pub fn perform_dataset_compaction(
         snapshot: &ReadSnapshot::new(db),
         dataset_id,
         merge: Vec::new(),
-        min_chunk_size: min_chunk_size.unwrap_or(MIN_CHUNK_SIZE),
+        max_mergeable_chunk_size: max_mergeable_chunk_size.unwrap_or(MAX_MERGEABLE_CHUNK_SIZE),
         write_amplification_limit: write_amplification_limit.unwrap_or(WA_LIMIT),
     }
     .execute()
@@ -44,7 +44,7 @@ struct DatasetCompaction<'a> {
     snapshot: &'a ReadSnapshot<'a>,
     dataset_id: DatasetId,
     merge: Vec<ChunkReader<'a>>,
-    min_chunk_size: usize,
+    max_mergeable_chunk_size: usize,
     write_amplification_limit: f64,
 }
 
@@ -235,7 +235,7 @@ impl<'a> DatasetCompaction<'a> {
             if max_rows == 0 {
                 max_rows = el.blocks_count() as usize;
             }
-            if max_rows >= self.min_chunk_size {
+            if max_rows >= self.max_mergeable_chunk_size {
                 break;
             }
             if schema_compatible && data_continous {
@@ -261,7 +261,7 @@ impl<'a> DatasetCompaction<'a> {
                 // there will be no more chunks in this run, we can just merge disregarding write amplification as each chunk would be merged at most once
                 let left = 0;
                 let mut right = 1;
-                while Self::score_merge(&continous_run[left..right], None) < self.min_chunk_size {
+                while Self::score_merge(&continous_run[left..right], None) < self.max_mergeable_chunk_size {
                     if right < continous_run.len() {
                         right += 1;
                     } else {
@@ -277,7 +277,7 @@ impl<'a> DatasetCompaction<'a> {
                 continous_run,
                 0,
                 continous_run.len(),
-                self.min_chunk_size,
+                self.max_mergeable_chunk_size,
                 self.write_amplification_limit,
             );
             if let Some((left, right, score)) = range_option {

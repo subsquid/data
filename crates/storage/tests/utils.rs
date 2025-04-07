@@ -3,7 +3,7 @@ use arrow::array::{
 };
 use arrow::datatypes::{DataType, Field, Schema, UInt32Type};
 use sqd_array::schema_metadata::set_sort_key;
-use sqd_storage::db::ops::MIN_CHUNK_SIZE;
+use sqd_storage::db::ops::MAX_MERGEABLE_CHUNK_SIZE;
 use sqd_storage::db::{Chunk, Database, DatabaseSettings, DatasetId, DatasetKind, ReadSnapshot};
 use sqd_storage::table::write::use_small_buffers;
 use std::collections::BTreeMap;
@@ -178,7 +178,7 @@ pub fn make_schema(type_1: DataType, type_2: DataType, is_sorted: bool) -> Arc<S
 }
 
 pub fn chunkify_data(data: Vec<(u32, u32)>, do_sort: bool) -> Vec<Vec<(u32, u32)>> {
-    data.chunks(MIN_CHUNK_SIZE as usize)
+    data.chunks(MAX_MERGEABLE_CHUNK_SIZE as usize)
         .map(|sl| {
             let mut vec = sl.to_vec();
             if do_sort {
