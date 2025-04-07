@@ -212,11 +212,17 @@ impl<'a> DatasetCompaction<'a> {
         let mut first_applicable_block = u64::MAX;
         let mut chunk_data_sizes: Vec<Vec<usize>> = Default::default();
         let mut last_schema_map: BTreeMap<String, SchemaRef> = Default::default();
+        let mut first_block: Option<u64> = None;
         chunk_data_sizes.push(Default::default());
         while let Some(Ok(el)) = reversed_chunk_iterator.next() {
             let tables = el.tables();
             let mut max_rows = 0;
             let mut schema_compatible = true;
+            let mut data_continous = true;
+            if let Some(first_block) = first_block {
+                data_continous = (el.last_block() + 1 == first_block);
+            }
+            first_block = Some(el.first_block());
             for (key, v) in tables {
                 let reader = self.snapshot.create_table_reader(*v)?;
                 max_rows = max(reader.num_rows(), max_rows);
@@ -232,7 +238,7 @@ impl<'a> DatasetCompaction<'a> {
             if max_rows >= self.min_chunk_size {
                 break;
             }
-            if schema_compatible {
+            if schema_compatible && data_continous {
                 chunk_data_sizes.last_mut().unwrap().push(max_rows);
             } else {
                 chunk_data_sizes.push(vec![max_rows; 1]);
