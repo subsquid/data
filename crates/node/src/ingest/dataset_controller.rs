@@ -75,7 +75,7 @@ impl DatasetController {
             finalized_head_sender
         };
 
-        let task = tokio::spawn(ctl.run());
+        let task = tokio::spawn(ctl.run(write));
 
         Ok(Self {
             dataset_id,
@@ -293,9 +293,10 @@ macro_rules! blocking_write {
 
 
 impl Ctl {
-    async fn run(mut self) {
+    async fn run(mut self, write: WriteController) {
+        let mut maybe_write = Some(write);
         loop {
-            match self.write_epoch().await {
+            match self.write_epoch(std::mem::take(&mut maybe_write)).await {
                 Ok(_) => return,
                 Err(err) => {
                     error!(reason =? err, "dataset update task failed, will restart it in 1 minute");
@@ -305,8 +306,8 @@ impl Ctl {
         }
     }
 
-    async fn write_epoch(&mut self) -> anyhow::Result<()> {
-        let mut write = self.new_write_ctx().await?;
+    async fn write_epoch(&mut self, maybe_write: Option<WriteController>) -> anyhow::Result<()> {
+        let mut write = self.new_write_ctx(maybe_write).await?;
 
         macro_rules! blocking {
             ($body:expr) => { blocking_write!(write, $body) }
@@ -472,14 +473,18 @@ impl Ctl {
         }
     }
 
-    async fn new_write_ctx(&self) -> anyhow::Result<WriteCtx> {
+    async fn new_write_ctx(&self, maybe_write: Option<WriteController>) -> anyhow::Result<WriteCtx> {
         let db = self.db.clone();
         let dataset_id = self.dataset_id;
         let dataset_kind = self.dataset_kind;
 
-        let write = tokio::task::spawn_blocking(move || {
-            WriteController::new(db, dataset_id, dataset_kind)
-        }).await.context("write init task panicked")??;
+        let write = if let Some(write) = maybe_write {
+            write 
+        } else {
+            tokio::task::spawn_blocking(move || {
+                WriteController::new(db, dataset_id, dataset_kind)
+            }).await.context("write init task panicked")??
+        };
 
         Ok(WriteCtx {
             db: self.db.clone(),

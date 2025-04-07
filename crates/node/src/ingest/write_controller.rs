@@ -204,15 +204,22 @@ impl WriteController {
                         status = Status::Gap(chunk.first_block());
                     }
                 } else {
-                    let hash_mismatch = parent_block_hash.as_ref().map_or(false, |parent_hash| {
-                        false  // FIXME
-                    });
-                    if hash_mismatch {
+                    let hash_check = if let Some(parent_block_hash) = parent_block_hash.as_ref() {
+                        tx.validate_parent_block_hash(&chunk, from_block, parent_block_hash)?
+                    } else {
+                        Ok(())
+                    };
+                    if let Some(actual_hash) = hash_check.err() {
                         if delete_mismatch {
                             tx.delete_chunk(&chunk)?;
                             status = Status::HashMismatch;
                         } else {
-                            bail!("hash mismatch")
+                            bail!(
+                                "hash mismatch: expected the parent of {} to have hash {}, but got {}",
+                                from_block,
+                                parent_block_hash.as_ref().unwrap(),
+                                actual_hash
+                            );
                         }
                     } else {
                         let head = tx.list_chunks(0, None)

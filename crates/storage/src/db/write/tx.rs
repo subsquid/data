@@ -1,12 +1,13 @@
 use crate::db::data::ChunkId;
-use crate::db::db::{RocksDB, RocksTransaction, RocksTransactionIterator, RocksTransactionOptions, CF_CHUNKS, CF_DATASETS, CF_DELETED_TABLES, CF_DIRTY_TABLES};
+use crate::db::db::{RocksDB, RocksIterator, RocksTransaction, RocksTransactionOptions, CF_CHUNKS, CF_DATASETS, CF_DELETED_TABLES, CF_DIRTY_TABLES};
 use crate::db::read::chunk::ChunkIterator;
 use crate::db::table_id::TableId;
-use crate::db::{Chunk, DatasetId, DatasetLabel};
+use crate::db::{Chunk, DatasetId, DatasetLabel, ReadSnapshot};
 use anyhow::{anyhow, bail, ensure, Context};
 use rocksdb::ColumnFamily;
 use sqd_primitives::BlockNumber;
 use std::cmp::{max, min};
+use crate::db::read::blocks_table::get_parent_block_hash;
 
 
 pub struct Tx<'a> {
@@ -200,12 +201,58 @@ impl <'a> Tx<'a> {
         Ok(())
     }
 
+    pub fn validate_parent_block_hash(
+        &self,
+        chunk: &Chunk,
+        block_number: BlockNumber,
+        expected_parent_hash: &str
+    ) -> anyhow::Result<Result<(), String>>
+    {
+        if chunk.first_block() == block_number {
+            return if chunk.parent_block_hash() == expected_parent_hash {
+                Ok(Ok(()))
+            } else {
+                Ok(Err(chunk.parent_block_hash().to_string()))
+            }
+        }
+
+        if chunk.last_block() + 1 == block_number {
+            return if chunk.last_block_hash() == expected_parent_hash {
+                Ok(Ok(())) 
+            } else {
+                Ok(Err(chunk.last_block_hash().to_string()))
+            }
+        }
+
+        ensure!(
+            chunk.first_block() < block_number && block_number <= chunk.last_block(),
+            "chunk {} does not have information about parent hash of block {}",
+            chunk,
+            block_number
+        );
+
+        let blocks_table_id = chunk.tables().get("blocks").copied().ok_or_else(|| {
+            anyhow!("'blocks' table does not exist in chunk {}", chunk)
+        })?;
+
+        let parent_hash = get_parent_block_hash(
+            &ReadSnapshot::new(self.db).create_table_reader(blocks_table_id)?,
+            block_number
+        )?;
+
+        if parent_hash == expected_parent_hash {
+            Ok(Ok(()))
+        } else {
+            Ok(Err(parent_hash))    
+        }
+    }
+
     pub fn list_chunks(
         &self,
         dataset_id: DatasetId,
         from_block: BlockNumber,
         to_block: Option<BlockNumber>
-    ) -> ChunkIterator<RocksTransactionIterator<'_>>
+    ) -> ChunkIterator<RocksIterator<'_, RocksTransaction<'_>>>
     {
         let mut read_opts = rocksdb::ReadOptions::default();
         read_opts.set_snapshot(&self.transaction.snapshot());
