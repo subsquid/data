@@ -22,6 +22,7 @@ pub struct WriteController {
     dataset_kind: DatasetKind,
     first_block: BlockNumber,
     parent_block_hash: Option<String>,
+    first_chunk_head: Option<BlockRef>,
     head: Option<BlockRef>,
     finalized_head: Option<BlockRef>
 }
@@ -46,11 +47,9 @@ impl WriteController {
             dataset_id,
             dataset_kind,
             first_block: first_chunk.as_ref().map_or(0, |c| c.first_block()),
-            parent_block_hash: first_chunk.map(|c| c.last_block_hash().to_string()),
-            head: last_chunk.map(|c| BlockRef {
-                number: c.last_block(),
-                hash: c.last_block_hash().to_string()
-            }),
+            parent_block_hash: first_chunk.as_ref().map(|c| c.last_block_hash().to_string()),
+            first_chunk_head: first_chunk.as_ref().map(get_chunk_head),
+            head: last_chunk.as_ref().map(get_chunk_head),
             finalized_head: label.and_then(|l| l.finalized_head().cloned())
         };
         
@@ -89,6 +88,10 @@ impl WriteController {
     
     pub fn finalized_head(&self) -> Option<&BlockRef> {
         self.finalized_head.as_ref()
+    }
+
+    pub fn first_chunk_head(&self) -> Option<&BlockRef> {
+        self.first_chunk_head.as_ref()
     }
     
     pub fn compute_rollback(&self, mut prev: &[BlockRef]) -> anyhow::Result<Rollback> {
@@ -174,7 +177,7 @@ impl WriteController {
         #[derive(Eq, PartialEq)]
         enum Status {
             Range {
-                bottom: Chunk,
+                first_chunk: Chunk,
                 head: Chunk,
                 finalized_head: Option<BlockRef>
             },
@@ -237,7 +240,7 @@ impl WriteController {
                         }
 
                         return Ok(Status::Range {
-                            bottom: chunk,
+                            first_chunk: chunk,
                             head,
                             finalized_head
                         })
@@ -250,27 +253,25 @@ impl WriteController {
 
         match status {
             Status::Range {
-                bottom,
+                first_chunk,
                 head,
                 finalized_head
             } => {
-                self.head = Some(BlockRef {
-                    number: head.last_block(),
-                    hash: head.last_block_hash().to_string()
-                });
-
+                self.head = Some(get_chunk_head(&head));
                 self.finalized_head = finalized_head;
-
+                self.first_chunk_head = Some(get_chunk_head(&first_chunk));
                 info!(
                     "retained blocks from {} to {}",
-                    bottom.first_block(),
+                    first_chunk.first_block(),
                     head.last_block()
                 );
             },
             Status::HashMismatch => {
+                self.clear_heads();
                 warn!("cleared dataset due to parent block hash mismatch")
             },
             Status::Gap(existed) => {
+                self.clear_heads();
                 warn!(
                     "cleared dataset, because there was a gap between first requested block {} and already existed {}",
                     from_block,
@@ -278,6 +279,7 @@ impl WriteController {
                 )
             },
             Status::Clear => {
+                self.clear_heads();
                 info!("dataset was cleared")
             }
         }
@@ -285,6 +287,12 @@ impl WriteController {
         self.first_block = from_block;
         self.parent_block_hash = parent_block_hash;
         Ok(())
+    }
+
+    fn clear_heads(&mut self) {
+        self.head = None;
+        self.finalized_head = None;
+        self.first_chunk_head = None;
     }
 
     pub fn retain(&mut self, from_block: BlockNumber, parent_block_hash: Option<String>) -> anyhow::Result<()> {
@@ -331,10 +339,7 @@ impl WriteController {
             };
 
             let new_finalized_head = if new_finalized_head.number > head_chunk.last_block() {
-                BlockRef {
-                    number: head_chunk.last_block(),
-                    hash: head_chunk.last_block_hash().to_string()
-                }
+                get_chunk_head(&head_chunk)
             } else if new_finalized_head.number == head_chunk.last_block() {
                 ensure!(new_finalized_head.hash == head_chunk.last_block_hash());
                 new_finalized_head.clone()
@@ -391,10 +396,7 @@ impl WriteController {
                 if head.number < chunk.last_block() {
                     head.clone()
                 } else {
-                    BlockRef {
-                        number: chunk.last_block(),
-                        hash: chunk.last_block_hash().to_string()
-                    }
+                    get_chunk_head(&chunk)
                 }
             });
 
@@ -409,12 +411,19 @@ impl WriteController {
         );
 
         self.finalized_head = finalized_head;
-
-        self.head = Some(BlockRef {
-            number: chunk.last_block(),
-            hash: chunk.last_block_hash().to_string()
-        });
+        self.head = Some(get_chunk_head(&chunk));
+        if self.first_chunk_head.as_ref().map_or(true, |h| chunk.first_block() <= h.number) {
+            self.first_chunk_head = self.head.clone();
+        }
         
         Ok(())
+    }
+}
+
+
+fn get_chunk_head(chunk: &Chunk) -> BlockRef {
+    BlockRef {
+        number: chunk.last_block(),
+        hash: chunk.last_block_hash().to_string()
     }
 }

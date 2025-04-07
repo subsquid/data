@@ -151,7 +151,7 @@ impl WriteCtx {
                 self.notify_head();
                 self.notify_finalized_head();
                 if let Some(n) = head {
-                    if self.write.next_block() - self.write.start_block() > n {
+                    if self.write.first_chunk_head().map_or(false, |h| self.write.next_block() - h.number >= n) {
                         self.retain(self.write.next_block() - n, None)?;
                     }
                 }

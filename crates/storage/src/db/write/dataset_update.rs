@@ -44,9 +44,9 @@ impl<'a> DatasetUpdate<'a> {
         chunk: &Chunk,
         block_number: BlockNumber,
         expected_parent_hash: &str
-    ) -> anyhow::Result<Result<(), String>> 
+    ) -> anyhow::Result<Result<(), String>>
     {
-        self.tx.validate_parent_block_hash(chunk, block_number, expected_parent_hash)    
+        self.tx.validate_parent_block_hash(chunk, block_number, expected_parent_hash)
     }
     
     pub fn delete_chunk(&self, chunk: &Chunk) -> anyhow::Result<()> {
@@ -61,7 +61,7 @@ impl<'a> DatasetUpdate<'a> {
         &self, 
         from_block: BlockNumber, 
         to_block: Option<BlockNumber>
-    ) -> ChunkIterator<RocksIterator<'a, RocksTransaction<'a>>> 
+    ) -> ChunkIterator<RocksIterator<'a, RocksTransaction<'a>>>
     {
         self.tx.list_chunks(self.dataset_id, from_block, to_block)    
     }
