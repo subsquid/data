@@ -9,6 +9,7 @@ use crate::db::table_id::TableId;
 use crate::db::write::tx::Tx;
 use crate::db::{Chunk, ChunkReader, DatasetId, ReadSnapshot, TableBuilder};
 use core::u64;
+use std::cmp::max;
 use std::collections::BTreeMap;
 use std::default;
 
@@ -214,27 +215,27 @@ impl<'a> DatasetCompaction<'a> {
         chunk_data_sizes.push(Default::default());
         while let Some(Ok(el)) = reversed_chunk_iterator.next() {
             let tables = el.tables();
-            let mut total_rows = 0;
+            let mut max_rows = 0;
             let mut schema_compatible = true;
             for (key, v) in tables {
                 let reader = self.snapshot.create_table_reader(*v)?;
-                total_rows += reader.num_rows();
+                max_rows = max(reader.num_rows(), max_rows);
                 let this_schema = reader.schema();
                 if let Some(last_schema) = last_schema_map.get(key) {
                     schema_compatible &= can_merge_schemas(&this_schema, last_schema);
                 }
                 last_schema_map.insert(key.to_string(), this_schema);
             }
-            if total_rows == 0 {
-                total_rows = el.blocks_count() as usize;
+            if max_rows == 0 {
+                max_rows = el.blocks_count() as usize;
             }
-            if total_rows >= self.min_chunk_size {
+            if max_rows >= self.min_chunk_size {
                 break;
             }
             if schema_compatible {
-                chunk_data_sizes.last_mut().unwrap().push(total_rows);
+                chunk_data_sizes.last_mut().unwrap().push(max_rows);
             } else {
-                chunk_data_sizes.push(vec![total_rows; 1]);
+                chunk_data_sizes.push(vec![max_rows; 1]);
             }
             first_applicable_block = el.first_block();
         }
