@@ -15,6 +15,7 @@ use std::default;
 
 pub const MAX_MERGEABLE_CHUNK_SIZE: usize = 100;
 pub const WA_LIMIT: f64 = 1.25;
+pub const LOOKBACK_CHUNKS: usize = 500;
 
 pub enum CompactionStatus {
     Ok,
@@ -214,7 +215,13 @@ impl<'a> DatasetCompaction<'a> {
         let mut last_schema_map: BTreeMap<String, SchemaRef> = Default::default();
         let mut first_block: Option<u64> = None;
         chunk_data_sizes.push(Default::default());
+        let mut chunk_ctr = 0;
         while let Some(Ok(el)) = reversed_chunk_iterator.next() {
+            if chunk_ctr < LOOKBACK_CHUNKS {
+                chunk_ctr += 1;
+            } else {
+                break;
+            }
             let tables = el.tables();
             let mut max_rows = 0;
             let mut schema_compatible = true;
@@ -235,13 +242,13 @@ impl<'a> DatasetCompaction<'a> {
             if max_rows == 0 {
                 max_rows = el.blocks_count() as usize;
             }
-            if max_rows >= self.max_mergeable_chunk_size {
-                break;
-            }
-            if schema_compatible && data_continous {
+            if schema_compatible && data_continous && max_rows < self.max_mergeable_chunk_size {
                 chunk_data_sizes.last_mut().unwrap().push(max_rows);
             } else {
                 chunk_data_sizes.push(vec![max_rows; 1]);
+            }
+            if max_rows >= self.max_mergeable_chunk_size {
+                chunk_data_sizes.push(Default::default());
             }
             first_applicable_block = el.first_block();
         }
