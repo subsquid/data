@@ -141,6 +141,14 @@ impl Chunk {
     pub fn tables(&self) -> &BTreeMap<String, TableId> {
         match self { Chunk::V0 { tables, .. } => tables }
     }
+
+    pub fn blocks_count(&self) -> u64 {
+        match self { Chunk::V0 { first_block, last_block, .. } => *last_block - *first_block + 1 }
+    }
+
+    pub fn next_block(&self) -> BlockNumber {
+        match self { Chunk::V0 { last_block, .. } => *last_block + 1 }
+    }
 }
 
 

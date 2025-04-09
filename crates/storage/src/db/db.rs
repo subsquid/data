@@ -199,8 +199,8 @@ impl Database {
         list_all_datasets(cursor).collect()
     }
 
-    pub fn perform_dataset_compaction(&self, dataset_id: DatasetId) -> anyhow::Result<CompactionStatus> {
-        perform_dataset_compaction(&self.db, dataset_id)
+    pub fn perform_dataset_compaction(&self, dataset_id: DatasetId, max_mergeable_chunk_size: Option<usize>, write_amplification_limit: Option<f64>) -> anyhow::Result<CompactionStatus> {
+        perform_dataset_compaction(&self.db, dataset_id, max_mergeable_chunk_size, write_amplification_limit)
     }
 
     pub fn cleanup(&self) -> anyhow::Result<()> {
