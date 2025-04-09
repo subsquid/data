@@ -37,7 +37,7 @@ table_builder! {
         num_readonly_signed_accounts: UInt8Builder,
         num_readonly_unsigned_accounts: UInt8Builder,
         num_required_signatures: UInt8Builder,
-        recent_block_hash: Base58Builder,
+        recent_blockhash: Base58Builder,
         signatures: SignatureListBuilder,
         err: JsonBuilder,
         compute_units_consumed: UInt64Builder,
@@ -103,7 +103,7 @@ impl TransactionBuilder {
         self.num_readonly_signed_accounts.append(row.num_readonly_signed_accounts);
         self.num_readonly_unsigned_accounts.append(row.num_readonly_unsigned_accounts);
         self.num_required_signatures.append(row.num_required_signatures);
-        self.recent_block_hash.append(&row.recent_blockhash);
+        self.recent_blockhash.append(&row.recent_blockhash);
 
         for signature in &row.signatures {
             self.signatures.values().append(signature);

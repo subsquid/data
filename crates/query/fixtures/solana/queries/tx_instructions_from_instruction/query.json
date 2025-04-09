@@ -1,0 +1,28 @@
+{
+  "type": "solana",
+  "fromBlock": 0,
+  "fields": {
+    "block": {
+      "hash": true,
+      "height": true,
+      "number": true
+    },
+    "transaction": {
+      "signatures": true
+    },
+    "instruction": {
+      "programId": true,
+      "accounts": true,
+      "data": true
+    }
+  },
+  "instructions": [
+    {
+      "programId": ["whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"],
+      "d8": ["0xf8c69e91e17587c8"],
+      "transaction": true,
+      "transactionInstructions": true,
+      "isCommitted": true
+    }
+  ]
+}

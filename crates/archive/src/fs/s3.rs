@@ -39,7 +39,7 @@ impl S3Fs {
 
         for seg in path.split('/') {
             match seg {
-                "." => {},
+                "." | "" => {},
                 ".." => {
                     result.pop();
                 },
@@ -89,7 +89,11 @@ impl S3Fs {
             if path.is_dir() {
                 Box::pin(self.upload_directory(&path, &dest_path)).await?;
             } else {
-                let byte_stream = ByteStream::from_path(&path).await?;
+                let mut file = tokio::fs::File::open(&path).await?;
+                let mut buffer = Vec::new();
+                tokio::io::copy(&mut file, &mut buffer).await?;
+                let byte_stream = ByteStream::from(buffer);
+
                 self.client
                     .put_object()
                     .bucket(&self.bucket)
@@ -170,7 +174,11 @@ impl Fs for S3Fs {
             self.upload_directory(local_src, &dest_key).await?;
             tokio::fs::remove_dir_all(local_src).await?;
         } else {
-            let byte_stream = ByteStream::from_path(local_src).await?;
+            let mut file = tokio::fs::File::open(local_src).await?;
+            let mut buffer = Vec::new();
+            tokio::io::copy(&mut file, &mut buffer).await?;
+            let byte_stream = ByteStream::from(buffer);
+
             self.client
                 .put_object()
                 .bucket(&self.bucket)

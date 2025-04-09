@@ -1,0 +1,10 @@
+[package]
+name = "sqd-query-example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+flate2 = { workspace = true }
+sqd-query = { path = "../query", features = ["parquet"] }
+sqd-polars = { path = "../polars" }

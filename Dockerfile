@@ -22,3 +22,14 @@ RUN mkdir -p /etc/sqd/node && echo "{}" > /etc/sqd/node/datasets.json
 VOLUME /var/sqd/node
 ENTRYPOINT ["/app/sqd-node-example", "--db", "/var/sqd/node/db", "--datasets", "/etc/sqd/node/datasets.json"]
 EXPOSE 3000
+
+
+FROM builder AS archive-builder
+RUN cargo build -p sqd-archive --release
+
+
+FROM debian:bookworm-slim AS sqd-archive
+RUN apt-get update && apt-get install ca-certificates -y
+WORKDIR /app
+COPY --from=archive-builder /app/target/release/sqd-archive .
+ENTRYPOINT ["/app/sqd-archive"]

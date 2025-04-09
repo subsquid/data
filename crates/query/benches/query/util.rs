@@ -13,7 +13,7 @@ pub(crate) use query;
 
 
 pub fn bench_solana_parquet_query(bench: divan::Bencher, query: &Query) {
-    bench_parquet_query(bench, "fixtures/solana/chunk", query)
+    bench_parquet_query(bench, "benches/data/solana/200", query)
 }
 
 
@@ -22,7 +22,7 @@ pub fn bench_solana_storage_query(bench: divan::Bencher, query: &Query) {
 }
 
 
-fn bench_parquet_query(bench: divan::Bencher, chunk_path: &str, query: &Query) {
+pub fn bench_parquet_query(bench: divan::Bencher, chunk_path: &str, query: &Query) {
     let chunk = sqd_query::ParquetChunk::new(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(chunk_path)
@@ -106,7 +106,7 @@ mod storage {
         let mut tables = BTreeMap::new();
 
         let parquet_chunk_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("fixtures/solana/chunk");
+            .join("benches/data/solana/200");
 
         for item_result in std::fs::read_dir(&parquet_chunk_path)? {
             let item = item_result?.file_name();
