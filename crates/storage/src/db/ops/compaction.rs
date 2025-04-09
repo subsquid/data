@@ -5,17 +5,25 @@ use crate::db::table_id::TableId;
 use crate::db::write::tx::Tx;
 use crate::db::{Chunk, ChunkReader, DatasetId, ReadSnapshot, TableBuilder};
 use arrow::datatypes::SchemaRef;
+use sqd_primitives::BlockNumber;
 use std::cmp::max;
 use std::collections::BTreeMap;
+
 
 pub const MAX_CHUNK_SIZE: usize = 200_000;
 pub const WA_LIMIT: f64 = 2.0;
 pub const MERGE_HORIZON: usize = 500;
 
 pub enum CompactionStatus {
-    Ok,
+    Ok(Vec<MergedChunk>),
     Canceled,
     NotingToCompact,
+}
+
+pub struct MergedChunk {
+    pub first_block: BlockNumber,
+    pub last_block: BlockNumber,
+    pub size: usize
 }
 
 pub fn perform_dataset_compaction(
@@ -59,7 +67,7 @@ impl<'a> DatasetCompaction<'a> {
             self.make_chunk(tables)
         };
 
-        let status = Tx::new(self.db).run(|tx| {
+        Tx::new(self.db).run(|tx| {
             let mut label = match tx.find_label_for_update(self.dataset_id)? {
                 Some(label) => label,
                 None => return Ok(CompactionStatus::Canceled),
@@ -74,10 +82,25 @@ impl<'a> DatasetCompaction<'a> {
 
             label.bump_version();
             tx.write_label(self.dataset_id, &label)?;
-            Ok(CompactionStatus::Ok)
-        })?;
 
-        Ok(status)
+            let merged_chunks = self.merge.iter().map(|c| {
+                let size = c.tables()
+                    .keys()
+                    .map(|name| c.get_table_reader(name).map(|r| r.num_rows()))
+                    .fold(Ok::<_, anyhow::Error>(0), |acc, size| {
+                        let acc = acc?;
+                        let size = size?;
+                        Ok(max(acc, size))
+                    })?;
+                Ok(MergedChunk {
+                    first_block: c.first_block(),
+                    last_block: c.last_block(),
+                    size
+                })
+            }).collect::<anyhow::Result<_>>()?;
+
+            Ok(CompactionStatus::Ok(merged_chunks))
+        })
     }
 
     fn data_was_changed(&self, tx: &Tx) -> anyhow::Result<bool> {
@@ -290,9 +313,7 @@ impl<'a> DatasetCompaction<'a> {
             skip_chunks += continous_run.len();
         }
 
-        let mut chunk_iterator =
-            self.snapshot
-                .list_chunks(self.dataset_id, first_applicable_block, None);
+        let mut chunk_iterator = self.snapshot.list_chunks(self.dataset_id, first_applicable_block, None);
         let mut new_chunk_size: u64 = 0;
         let mut expected_first_block = first_applicable_block;
 

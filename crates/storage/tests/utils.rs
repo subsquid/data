@@ -3,11 +3,10 @@ use arrow::array::{
 };
 use arrow::datatypes::{DataType, Field, Schema, UInt32Type};
 use sqd_array::schema_metadata::set_sort_key;
-use sqd_storage::db::ops::MAX_CHUNK_SIZE;
 use sqd_storage::db::{Chunk, Database, DatabaseSettings, DatasetId, DatasetKind, ReadSnapshot};
-use sqd_storage::table::write::use_small_buffers;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
 
 pub fn setup_db() -> (Database, DatasetId) {
     let db_dir = tempfile::tempdir().unwrap();

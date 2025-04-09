@@ -149,7 +149,7 @@ fn universal_compaction_test(
     for _ in 0..n_compactions {
         assert!(matches!(
             compact(&db, dataset_id).unwrap(),
-            CompactionStatus::Ok
+            CompactionStatus::Ok(_)
         ));
     }
     assert!(matches!(
@@ -275,7 +275,7 @@ fn compaction_plan_test_execution(
 
     while matches!(
         db.perform_dataset_compaction(dataset_id, Some(max_chunk_size), Some(wa_limit)),
-        Ok(CompactionStatus::Ok)
+        Ok(CompactionStatus::Ok(_))
     ) {}
 
     let snapshot = db.snapshot();
