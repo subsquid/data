@@ -33,43 +33,26 @@ impl ChunkRange {
         self.len as usize
     }
     
-    pub fn build_tag_list(
+    pub fn build_abs_order_list(
         chunk_offsets: &[usize],
         order: &[usize]
     ) -> Vec<Self> 
     {
-        let mut chunks = Vec::new();
-
-        let mut last = ChunkRange {
-            chunk: chunk_offsets.len() as u32 - 1, // never existing chunk
-            offset: 0,
-            len: 0,
-        };
-
-        for i in order.iter().copied() {
-            let chunk = get_offset_position(chunk_offsets, i, last.chunk as usize);
-            if chunk == last.chunk_index() && last.offset + last.len == i as u32 {
-                last.len += 1;
-            } else {
-                if last.len > 0 {
-                    chunks.push(std::mem::take(&mut last))
-                }
-                last.chunk = chunk as u32;
-                last.offset = i as u32;
-                last.len = 1;
-            }
-        }
-
-        if last.len > 0 {
-            chunks.push(std::mem::take(&mut last))
-        }
-        
-        chunks
+        Self::build_order_list(chunk_offsets, order, true)
     }
 
-    pub fn build_rel_tag_list(
+    pub fn build_rel_order_list(
         chunk_offsets: &[usize],
         order: &[usize]
+    ) -> Vec<Self>
+    {
+        Self::build_order_list(chunk_offsets, order, false)
+    }
+
+    fn build_order_list(
+        chunk_offsets: &[usize],
+        order: &[usize],
+        is_abs: bool
     ) -> Vec<Self>
     {
         let mut chunks = Vec::new();
@@ -80,18 +63,20 @@ impl ChunkRange {
             len: 0,
         };
 
+        let mut prev = 0;
         for i in order.iter().copied() {
             let chunk = get_offset_position(chunk_offsets, i, last.chunk as usize);
-            if chunk == last.chunk_index() && chunk_offsets[chunk] as u32 + last.offset + last.len == i as u32 {
+            if chunk == last.chunk_index() && prev + 1 == i {
                 last.len += 1;
             } else {
                 if last.len > 0 {
                     chunks.push(std::mem::take(&mut last))
                 }
                 last.chunk = chunk as u32;
-                last.offset = (i - chunk_offsets[chunk]) as u32;
+                last.offset = if is_abs { i } else { i - chunk_offsets[chunk] } as u32;
                 last.len = 1;
             }
+            prev = i;
         }
 
         if last.len > 0 {
@@ -105,13 +90,12 @@ impl ChunkRange {
 
 #[cfg(test)]
 mod test {
-    use proptest::prelude::*;
     use crate::chunking::ChunkRange;
     use crate::util::build_offsets;
-
+    use proptest::prelude::*;
 
     #[test]
-    fn test_tag_list_building() {
+    fn test_abs_order_list_building() {
         let arb = prop::collection::vec(1..20usize, 100).prop_flat_map(|lengths| {
             let offsets = build_offsets(0, lengths.iter().copied());
             let len = offsets.last().copied().unwrap();
@@ -120,7 +104,7 @@ mod test {
         });
 
         proptest!(|((offsets, order) in arb)| {
-            let chunks = ChunkRange::build_tag_list(&offsets, &order);
+            let chunks = ChunkRange::build_abs_order_list(&offsets, &order);
             let mut resulting_order = Vec::with_capacity(order.len());
             for c in chunks.iter() {
                 assert!(c.len_index() > 0);
@@ -137,7 +121,7 @@ mod test {
     }
 
     #[test]
-    fn test_tag_rel_list_building() {
+    fn test_rel_order_list_building() {
         let arb = prop::collection::vec(1..20usize, 100).prop_flat_map(|lengths| {
             let offsets = build_offsets(0, lengths.iter().copied());
             let len = offsets.last().copied().unwrap();
@@ -146,7 +130,7 @@ mod test {
         });
 
         proptest!(|((offsets, order) in arb)| {
-            let chunks = ChunkRange::build_rel_tag_list(&offsets, &order);
+            let chunks = ChunkRange::build_rel_order_list(&offsets, &order);
             let mut resulting_order = Vec::with_capacity(order.len());
             for c in chunks.iter() {
                 assert!(c.len_index() > 0);

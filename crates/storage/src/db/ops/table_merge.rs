@@ -98,7 +98,7 @@ impl<'a> TableMerge<'a> {
             return Ok(())
         }
 
-        let chunks = ChunkRange::build_rel_tag_list(
+        let chunks = ChunkRange::build_rel_order_list(
             &build_offsets(0, self.chunks.iter().map(|t| t.num_rows())),
             &order
         );

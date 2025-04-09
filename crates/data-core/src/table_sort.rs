@@ -191,7 +191,7 @@ struct ChunkTracker {
 
 impl ChunkTracker {
     fn new(batch_offsets: &[usize], order: &[usize]) -> Self {
-        let chunks = ChunkRange::build_tag_list(batch_offsets, order);
+        let chunks = ChunkRange::build_abs_order_list(batch_offsets, order);
         let offsets = build_offsets(0, chunks.iter().map(|c| c.len));
         Self {
             chunks,
