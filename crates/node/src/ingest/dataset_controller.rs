@@ -479,7 +479,7 @@ impl Ctl {
         let dataset_kind = self.dataset_kind;
 
         let write = if let Some(write) = maybe_write {
-            write 
+            write
         } else {
             tokio::task::spawn_blocking(move || {
                 WriteController::new(db, dataset_id, dataset_kind)
