@@ -1,18 +1,25 @@
-use rand::seq::SliceRandom;
-use std::sync::Arc;
-
-mod utils;
 use arrow::datatypes::{DataType, Schema};
+use proptest::prelude::{prop, ProptestConfig};
+use proptest::proptest;
 use rand::rng;
+use rand::seq::SliceRandom;
 use sqd_storage::db::ops::schema_merge::can_merge_schemas;
-use sqd_storage::db::{ops::CompactionStatus, Chunk};
+use sqd_storage::db::{ops::CompactionStatus, Chunk, Database, DatasetId};
+use sqd_storage::table::write::use_small_buffers;
+use std::sync::Arc;
 use utils::{
     chunkify_data, make_block, make_irregular_block, make_schema, read_chunk, setup_db,
     validate_chunks,
 };
 
-use proptest::prelude::{prop, ProptestConfig};
-use proptest::proptest;
+
+mod utils;
+
+
+fn compact(db: &Database, dataset_id: DatasetId) -> anyhow::Result<CompactionStatus> {
+    db.perform_dataset_compaction(dataset_id, Some(100), Some(1.25))
+}
+
 
 #[test]
 fn small_chunks_test() {
@@ -57,9 +64,9 @@ fn small_chunks_test() {
         dataset_id,
         [&chunk1, &chunk2, &chunk3, &chunk4].to_vec(),
     );
-    assert!(db
-        .perform_dataset_compaction(dataset_id, None, None)
-        .is_ok());
+
+    compact(&db, dataset_id).unwrap();
+
     let compacted = Chunk::V0 {
         first_block: 0,
         last_block: 3,
@@ -89,12 +96,9 @@ fn compaction_wo_tables_test() {
         chunks.push(chunk);
     }
     validate_chunks(&db, dataset_id, chunks.iter().collect());
-    assert!(db
-        .perform_dataset_compaction(dataset_id, None, None)
-        .is_ok());
-    assert!(db
-        .perform_dataset_compaction(dataset_id, None, None)
-        .is_ok());
+    
+    compact(&db, dataset_id).unwrap();
+    compact(&db, dataset_id).unwrap();
 
     let chungus1 = Chunk::V0 {
         first_block: 0,
@@ -122,6 +126,7 @@ fn universal_compaction_test(
     n_compactions: usize,
 ) {
     let (db, dataset_id) = setup_db();
+    let _sb = use_small_buffers();
     let mut chunks = Vec::default();
     let schema_a = make_schema(type_a.clone(), type_b.clone(), do_sort);
     let schema_b = make_schema(type_b, type_a, do_sort);
@@ -143,13 +148,13 @@ fn universal_compaction_test(
     validate_chunks(&db, dataset_id, chunks.iter().collect());
     for _ in 0..n_compactions {
         assert!(matches!(
-            db.perform_dataset_compaction(dataset_id, None, None),
-            Ok(CompactionStatus::Ok)
+            compact(&db, dataset_id).unwrap(),
+            CompactionStatus::Ok
         ));
     }
     assert!(matches!(
-        db.perform_dataset_compaction(dataset_id, None, None),
-        Ok(CompactionStatus::NotingToCompact)
+        compact(&db, dataset_id).unwrap(),
+        CompactionStatus::NotingToCompact
     ));
 
     let snapshot = db.snapshot();
@@ -215,7 +220,7 @@ fn compaction_plan_test() {
 
 fn compaction_plan_test_execution(
     block_sizes: &Vec<Vec<usize>>,
-    max_mergeable_chunk_size: usize,
+    max_chunk_size: usize,
     wa_limit: f64,
     compact_on_each_insert: bool
 ) {
@@ -256,7 +261,7 @@ fn compaction_plan_test_execution(
             );
             assert!(db.insert_chunk(dataset_id, &chunk).is_ok());
             if compact_on_each_insert {
-                let _ = db.perform_dataset_compaction(dataset_id, Some(max_mergeable_chunk_size), Some(wa_limit));
+                db.perform_dataset_compaction(dataset_id, Some(max_chunk_size), Some(wa_limit)).unwrap();
             }
             chunks.push(chunk);
             global_data.extend(data);
@@ -269,7 +274,7 @@ fn compaction_plan_test_execution(
     }
 
     while matches!(
-        db.perform_dataset_compaction(dataset_id, Some(max_mergeable_chunk_size), Some(wa_limit)),
+        db.perform_dataset_compaction(dataset_id, Some(max_chunk_size), Some(wa_limit)),
         Ok(CompactionStatus::Ok)
     ) {}
 
@@ -278,7 +283,7 @@ fn compaction_plan_test_execution(
     let mut last_schema_option: Option<Arc<Schema>> = None;
     let mut chunk_data_sizes: Vec<Vec<usize>> = Default::default();
     chunk_data_sizes.push(Default::default());
-    while let Some(Ok(el)) = chunks.next() {
+    while let Some(el) = chunks.next().transpose().unwrap() {
         let tables = el.tables();
         assert_eq!(tables.len(), 1);
         let mut schema_compatible = true;
@@ -306,7 +311,7 @@ fn compaction_plan_test_execution(
             // all chunks (except last) in non-final run should be not sorter than MAX_MERGEABLE_CHUNK_SIZE, last chunk may be whatever
             for (chunk_idx, &chunk_size) in run.iter().enumerate() {
                 if chunk_idx + 1 < run.len() {
-                    assert!(chunk_size >= max_mergeable_chunk_size);
+                    assert!(chunk_size >= max_chunk_size);
                 }
             }
         } else {
@@ -315,7 +320,7 @@ fn compaction_plan_test_execution(
             // - chunks in the second (maybe empty) group are all shorter than MAX_MERGEABLE_CHUNK_SIZE and longest of them should dominate (break wa formula)
             let mut iter = run.iter().peekable();
             while let Some(&&chunk_size) = iter.peek() {
-                if chunk_size < max_mergeable_chunk_size {
+                if chunk_size < max_chunk_size {
                     break;
                 }
                 iter.next();

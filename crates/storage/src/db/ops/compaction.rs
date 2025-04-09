@@ -1,21 +1,16 @@
-use arrow::datatypes::SchemaRef;
-use rocksdb::properties::NUM_RUNNING_FLUSHES;
-use sqd_primitives::range;
-
 use crate::db::db::RocksDB;
 use crate::db::ops::schema_merge::can_merge_schemas;
 use crate::db::ops::table_merge::TableMerge;
 use crate::db::table_id::TableId;
 use crate::db::write::tx::Tx;
 use crate::db::{Chunk, ChunkReader, DatasetId, ReadSnapshot, TableBuilder};
-use core::u64;
+use arrow::datatypes::SchemaRef;
 use std::cmp::max;
 use std::collections::BTreeMap;
-use std::default;
 
-pub const MAX_MERGEABLE_CHUNK_SIZE: usize = 100;
-pub const WA_LIMIT: f64 = 1.25;
-pub const LOOKBACK_CHUNKS: usize = 500;
+pub const MAX_CHUNK_SIZE: usize = 200_000;
+pub const WA_LIMIT: f64 = 2.0;
+pub const MERGE_HORIZON: usize = 500;
 
 pub enum CompactionStatus {
     Ok,
@@ -26,15 +21,16 @@ pub enum CompactionStatus {
 pub fn perform_dataset_compaction(
     db: &RocksDB,
     dataset_id: DatasetId,
-    max_mergeable_chunk_size: Option<usize>,
+    max_chunk_size: Option<usize>,
     write_amplification_limit: Option<f64>,
-) -> anyhow::Result<CompactionStatus> {
+) -> anyhow::Result<CompactionStatus>
+{
     DatasetCompaction {
         db,
         snapshot: &ReadSnapshot::new(db),
         dataset_id,
         merge: Vec::new(),
-        max_mergeable_chunk_size: max_mergeable_chunk_size.unwrap_or(MAX_MERGEABLE_CHUNK_SIZE),
+        max_chunk_size: max_chunk_size.unwrap_or(MAX_CHUNK_SIZE),
         write_amplification_limit: write_amplification_limit.unwrap_or(WA_LIMIT),
     }
     .execute()
@@ -45,7 +41,7 @@ struct DatasetCompaction<'a> {
     snapshot: &'a ReadSnapshot<'a>,
     dataset_id: DatasetId,
     merge: Vec<ChunkReader<'a>>,
-    max_mergeable_chunk_size: usize,
+    max_chunk_size: usize,
     write_amplification_limit: f64,
 }
 
@@ -180,7 +176,6 @@ impl<'a> DatasetCompaction<'a> {
         loop {
             let score = Self::score_merge(&chunk_sizes[left..right], Some(wa_threshold));
             if score >= chunk_size_threshold {
-                // println!("{left} {right} {score}");
                 return Some((left, right, score));
             }
             if right < end {
@@ -216,8 +211,8 @@ impl<'a> DatasetCompaction<'a> {
         let mut first_block: Option<u64> = None;
         chunk_data_sizes.push(Default::default());
         let mut chunk_ctr = 0;
-        while let Some(Ok(el)) = reversed_chunk_iterator.next() {
-            if chunk_ctr < LOOKBACK_CHUNKS {
+        while let Some(el) = reversed_chunk_iterator.next().transpose()? {
+            if chunk_ctr < MERGE_HORIZON {
                 chunk_ctr += 1;
             } else {
                 break;
@@ -225,9 +220,9 @@ impl<'a> DatasetCompaction<'a> {
             let tables = el.tables();
             let mut max_rows = 0;
             let mut schema_compatible = true;
-            let mut data_continous = true;
+            let mut data_continuous = true;
             if let Some(first_block) = first_block {
-                data_continous = (el.last_block() + 1 == first_block);
+                data_continuous = (el.last_block() + 1 == first_block);
             }
             first_block = Some(el.first_block());
             for (key, v) in tables {
@@ -242,12 +237,12 @@ impl<'a> DatasetCompaction<'a> {
             if max_rows == 0 {
                 max_rows = el.blocks_count() as usize;
             }
-            if schema_compatible && data_continous && max_rows < self.max_mergeable_chunk_size {
+            if schema_compatible && data_continuous && max_rows < self.max_chunk_size {
                 chunk_data_sizes.last_mut().unwrap().push(max_rows);
             } else {
                 chunk_data_sizes.push(vec![max_rows; 1]);
             }
-            if max_rows >= self.max_mergeable_chunk_size {
+            if max_rows >= self.max_chunk_size {
                 chunk_data_sizes.push(Default::default());
             }
             first_applicable_block = el.first_block();
@@ -268,7 +263,7 @@ impl<'a> DatasetCompaction<'a> {
                 // there will be no more chunks in this run, we can just merge disregarding write amplification as each chunk would be merged at most once
                 let left = 0;
                 let mut right = 1;
-                while Self::score_merge(&continous_run[left..right], None) < self.max_mergeable_chunk_size {
+                while Self::score_merge(&continous_run[left..right], None) < self.max_chunk_size {
                     if right < continous_run.len() {
                         right += 1;
                     } else {
@@ -284,7 +279,7 @@ impl<'a> DatasetCompaction<'a> {
                 continous_run,
                 0,
                 continous_run.len(),
-                self.max_mergeable_chunk_size,
+                self.max_chunk_size,
                 self.write_amplification_limit,
             );
             if let Some((left, right, score)) = range_option {
@@ -301,11 +296,10 @@ impl<'a> DatasetCompaction<'a> {
         let mut new_chunk_size: u64 = 0;
         let mut expected_first_block = first_applicable_block;
 
-        for chunk_option in chunk_iterator.skip(skip_chunks).take(take_chunks) {
-            if let Ok(chunk) = chunk_option {
-                let reader = self.snapshot.create_chunk_reader(chunk);
-                self.merge.push(reader);
-            }
+        for chunk_result in chunk_iterator.skip(skip_chunks).take(take_chunks) {
+            let chunk = chunk_result?;
+            let reader = self.snapshot.create_chunk_reader(chunk);
+            self.merge.push(reader);
         }
         Ok(())
     }
