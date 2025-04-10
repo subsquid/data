@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .build()?
         .block_on(async {
-            let (node, db) = args.build_node()?;
+            let (node, db) = args.build_node().await?;
 
             tokio::spawn(db_cleanup_task(db));
 

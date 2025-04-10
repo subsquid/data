@@ -1,4 +1,4 @@
-use crate::db::db::RocksTransactionIterator;
+use crate::db::db::{RocksIterator, RocksTransaction};
 use crate::db::read::chunk::ChunkIterator;
 use crate::db::write::tx::Tx;
 use crate::db::{Chunk, DatasetId, DatasetLabel};
@@ -39,6 +39,16 @@ impl<'a> DatasetUpdate<'a> {
         self.tx.insert_fork(self.dataset_id, chunk)
     }
     
+    pub fn validate_parent_block_hash(
+        &self,
+        chunk: &Chunk,
+        block_number: BlockNumber,
+        expected_parent_hash: &str
+    ) -> anyhow::Result<Result<(), String>>
+    {
+        self.tx.validate_parent_block_hash(chunk, block_number, expected_parent_hash)
+    }
+    
     pub fn delete_chunk(&self, chunk: &Chunk) -> anyhow::Result<()> {
         self.tx.delete_chunk(self.dataset_id, chunk)
     }
@@ -51,7 +61,7 @@ impl<'a> DatasetUpdate<'a> {
         &self, 
         from_block: BlockNumber, 
         to_block: Option<BlockNumber>
-    ) -> ChunkIterator<RocksTransactionIterator<'_>> 
+    ) -> ChunkIterator<RocksIterator<'a, RocksTransaction<'a>>>
     {
         self.tx.list_chunks(self.dataset_id, from_block, to_block)    
     }

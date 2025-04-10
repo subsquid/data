@@ -49,6 +49,10 @@ impl DatasetKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RetentionStrategy {
-    FromBlock(BlockNumber),
-    Head(BlockNumber)
+    FromBlock {
+        number: BlockNumber,
+        parent_hash: Option<String>
+    },
+    Head(u64),
+    None
 }

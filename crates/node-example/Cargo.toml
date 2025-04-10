@@ -11,6 +11,7 @@ clap =  { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sqd-data-client = { path = "../data-client" }
 sqd-node = { path = "../node" }
 sqd-polars = { path = "../polars" }
 sqd-primitives = { path = "../primitives", features = ["serde"] }

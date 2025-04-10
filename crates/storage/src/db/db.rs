@@ -22,11 +22,10 @@ pub(super) const CF_DELETED_TABLES: Name = "DELETED_TABLES";
 
 pub(super) type RocksDB = rocksdb::OptimisticTransactionDB;
 pub(super) type RocksTransaction<'a> = rocksdb::Transaction<'a, RocksDB>;
-pub(super) type RocksTransactionIterator<'a> = rocksdb::DBRawIteratorWithThreadMode<'a, RocksTransaction<'a>>;
 pub(super) type RocksTransactionOptions = rocksdb::OptimisticTransactionOptions;
-pub(super) type RocksSnapshot<'a> = rocksdb::SnapshotWithThreadMode<'a, RocksDB>;
-pub(super) type RocksSnapshotIterator<'a> = rocksdb::DBRawIteratorWithThreadMode<'a, RocksDB>;
 pub(super) type RocksWriteBatch = rocksdb::WriteBatchWithTransaction<true>;
+pub(super) type RocksIterator<'a, DB> = rocksdb::DBRawIteratorWithThreadMode<'a, DB>;
+pub(super) type RocksSnapshot<'a, DB> = rocksdb::SnapshotWithThreadMode<'a, DB>;
 
 
 pub struct DatabaseSettings {

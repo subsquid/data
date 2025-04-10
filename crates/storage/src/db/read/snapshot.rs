@@ -1,5 +1,5 @@
 use crate::db::data::{Chunk, DatasetId};
-use crate::db::db::{RocksDB, RocksSnapshot, RocksSnapshotIterator, CF_CHUNKS, CF_DATASETS, CF_TABLES};
+use crate::db::db::{RocksDB, RocksIterator, RocksSnapshot, CF_CHUNKS, CF_DATASETS, CF_TABLES};
 use crate::db::read::chunk::ChunkIterator;
 use crate::db::table_id::TableId;
 use crate::db::DatasetLabel;
@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 pub struct ReadSnapshot<'a> {
     db: &'a RocksDB,
-    snapshot: RocksSnapshot<'a>
+    snapshot: RocksSnapshot<'a, RocksDB>
 }
 
 
@@ -94,7 +94,7 @@ impl <'a> ReadSnapshot<'a> {
 }
 
 
-pub type ReadSnapshotChunkIterator<'a> = ChunkIterator<RocksSnapshotIterator<'a>>;
+pub type ReadSnapshotChunkIterator<'a> = ChunkIterator<RocksIterator<'a, RocksDB>>;
 
 
 pub struct ChunkReader<'a> {
@@ -178,7 +178,7 @@ pub struct CFSnapshot<'a> {
 
 
 impl <'a> KvRead for CFSnapshot<'a> {
-    type Cursor = RocksSnapshotIterator<'a>;
+    type Cursor = RocksIterator<'a, RocksDB>;
     
     fn get(&self, key: &[u8]) -> anyhow::Result<Option<impl Deref<Target=[u8]>>> {
         Ok(self.snapshot.db.get_pinned_cf_opt(

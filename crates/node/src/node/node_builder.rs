@@ -1,7 +1,6 @@
-use crate::ingest::DataSource;
 use crate::node::node::Node;
 use crate::types::{DBRef, DatasetKind, RetentionStrategy};
-use reqwest::IntoUrl;
+use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_storage::db::DatasetId;
 
 
@@ -9,20 +8,15 @@ use sqd_storage::db::DatasetId;
 pub struct DatasetConfig {
     pub(super) dataset_id: DatasetId,
     pub(super) dataset_kind: DatasetKind,
+    pub(super) data_sources: Vec<ReqwestDataClient>,
     pub(super) retention: RetentionStrategy,
-    pub(super) data_sources: Vec<DataSource>,
-    pub(super) default_http_client: reqwest::Client
+    pub(super) enable_compaction: bool
 }
 
 
 impl DatasetConfig {
-    pub fn add_data_source(&mut self, url: impl IntoUrl) -> &mut Self
-    {
-        self.data_sources.push((
-            self.default_http_client.clone(),
-            url.into_url().unwrap()
-        ));
-        self
+    pub fn enable_compaction(&mut self, yes: bool) {
+        self.enable_compaction = yes;
     }
 }
 
@@ -30,7 +24,6 @@ impl DatasetConfig {
 pub struct NodeBuilder {
     pub(super) db: DBRef,
     pub(super) datasets: Vec<DatasetConfig>,
-    pub(super) default_http_client: reqwest::Client,
     pub(super) max_pending_query_tasks: usize 
 }
 
@@ -40,32 +33,33 @@ impl NodeBuilder {
         Self {
             db,
             datasets: vec![],
-            default_http_client: sqd_data_client::reqwest::default_http_client(),
             max_pending_query_tasks: sqd_polars::POOL.current_num_threads() * 50
         }
     }
     
-    pub fn set_default_http_client(&mut self, http_client: reqwest::Client) {
-        self.default_http_client = http_client;
-    }
-    
     pub fn add_dataset(
         &mut self,
-        dataset_kind: DatasetKind,
         dataset_id: DatasetId,
+        dataset_kind: DatasetKind,
+        data_sources: Vec<ReqwestDataClient>,
         retention: RetentionStrategy
-    ) -> &mut DatasetConfig {
+    ) -> &mut DatasetConfig 
+    {
         self.datasets.push(DatasetConfig {
             dataset_id,
             dataset_kind,
             retention,
-            data_sources: vec![],
-            default_http_client: self.default_http_client.clone()
+            data_sources,
+            enable_compaction: false
         });
         self.datasets.last_mut().unwrap()
     }
     
-    pub fn build(self) -> Node {
-        Node::new(self)
+    pub fn set_max_pending_query_tasks(&mut self, n: usize) {
+        self.max_pending_query_tasks = n
+    }
+    
+    pub async fn build(self) -> anyhow::Result<Node> {
+        Node::new(self).await
     }
 }

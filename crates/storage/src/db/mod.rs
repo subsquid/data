@@ -16,7 +16,8 @@ pub use data::{
     DatasetVersion
 };
 pub use db::*;
+pub use ops::{CompactionStatus, MergedChunk};
 pub use read::snapshot::*;
+pub use table_id::TableId;
 pub use write::dataset_update::*;
 pub use write::table_builder::*;
-pub use table_id::TableId;
