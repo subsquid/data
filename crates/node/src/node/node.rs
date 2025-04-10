@@ -37,7 +37,10 @@ impl Node {
                         cfg.dataset_kind,
                         cfg.retention,
                         cfg.data_sources
-                    ).map(Arc::new)
+                    ).map(|c| {
+                        c.enable_compaction(cfg.enable_compaction);
+                        Arc::new(c)
+                    })
                 }).map(move |res| {
                     res.with_context(|| {
                         anyhow!("failed to initialize dataset {}", dataset_id)

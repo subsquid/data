@@ -47,12 +47,13 @@ impl CLI {
                 .map(|url| ReqwestDataClient::new(http_client.clone(), url))
                 .collect();
             
-            builder.add_dataset(
-                cfg.kind, 
+            let ds = builder.add_dataset(
                 id,
+                cfg.kind,
                 data_sources,
                 cfg.retention
             );
+            ds.enable_compaction(cfg.enable_compaction);
         }
         
         let node = builder.build().await.map(Arc::new)?;

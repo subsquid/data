@@ -3,7 +3,7 @@ use crate::ingest::ingest_generic::{IngestMessage, NewChunk};
 use crate::ingest::write_controller::WriteController;
 use crate::types::{DBRef, DatasetKind};
 use crate::RetentionStrategy;
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
@@ -12,7 +12,7 @@ use scopeguard::ScopeGuard;
 use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_polars::prelude::len;
 use sqd_primitives::{BlockNumber, BlockRef};
-use sqd_storage::db::{Chunk, Database, DatasetId};
+use sqd_storage::db::{Chunk, CompactionStatus, Database, DatasetId};
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use std::future::pending;
@@ -23,7 +23,7 @@ use std::time::Duration;
 use tokio::select;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 
 pub struct DatasetController {
@@ -32,13 +32,16 @@ pub struct DatasetController {
     retention_sender: tokio::sync::watch::Sender<RetentionStrategy>,
     head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
     finalized_head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
-    task: JoinHandle<()>
+    compaction_enabled_sender: tokio::sync::watch::Sender<bool>,
+    task: JoinHandle<()>,
+    compaction_task: JoinHandle<()>
 }
 
 
 impl Drop for DatasetController {
     fn drop(&mut self) {
-        self.task.abort()
+        self.task.abort();
+        self.compaction_task.abort();
     }
 }
 
@@ -61,12 +64,13 @@ impl DatasetController {
         let (retention_sender, retention_recv) = tokio::sync::watch::channel(retention);
         let (head_sender, head_receiver) = tokio::sync::watch::channel(None);
         let (finalized_head_sender, finalized_head_receiver) = tokio::sync::watch::channel(None);
+        let (compaction_enabled_sender, compaction_enabled_receiver) = tokio::sync::watch::channel(false);
 
         head_sender.send(write.head().cloned());
         finalized_head_sender.send(write.finalized_head().cloned());
 
         let ctl = Ctl {
-            db,
+            db: db.clone(),
             dataset_id,
             dataset_kind,
             data_sources,
@@ -77,13 +81,21 @@ impl DatasetController {
 
         let task = tokio::spawn(ctl.run(write));
 
+        let compaction_task = tokio::spawn(compaction_loop(
+            db,
+            dataset_id,
+            compaction_enabled_receiver
+        ));
+
         Ok(Self {
             dataset_id,
             dataset_kind,
             retention_sender,
             head_receiver,
             finalized_head_receiver,
-            task
+            compaction_enabled_sender,
+            task,
+            compaction_task
         })
     }
 
@@ -105,6 +117,10 @@ impl DatasetController {
 
     pub fn get_head_block_number(&self) -> Option<BlockNumber> {
         self.head_receiver.borrow().as_ref().map(|h| h.number)
+    }
+
+    pub fn enable_compaction(&self, yes: bool) {
+        let _ = self.compaction_enabled_sender.send(yes);
     }
 
     pub fn retain(&self, strategy: RetentionStrategy) {
@@ -560,5 +576,66 @@ async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
             let res = res.map(|maybe_head| maybe_head.map_or(0, |h| h.number));
             (res, idx)
         }).await
+    }
+}
+
+
+#[instrument(name = "compaction", skip(db, enabled))]
+async fn compaction_loop(
+    db: DBRef,
+    dataset_id: DatasetId,
+    mut enabled: tokio::sync::watch::Receiver<bool>
+) {
+    let mut skips = 0;
+    let skip_pause = [1, 2, 5, 10, 20];
+    loop {
+        if enabled.borrow_and_update().clone() {
+            let db = db.clone();
+            let span = tracing::Span::current();
+            let result = match tokio::task::spawn_blocking(move || {
+                let _s = span.enter();
+                info!("compaction started");
+                db.perform_dataset_compaction(dataset_id, None, None)
+            }).await {
+                Ok(res) => res,
+                Err(err) => Err(anyhow!("failed to await compaction task - {}", err))
+            };
+
+            match result {
+                Ok(CompactionStatus::Ok(merged_chunks)) => {
+                    let first_block = merged_chunks[0].first_block;
+                    let last_block = merged_chunks.last().unwrap().last_block;
+                    info!(
+                        chunks =? merged_chunks,
+                        "merged {} chunks with block range {}-{}", 
+                        merged_chunks.len(),
+                        first_block,
+                        last_block
+                    );
+                    skips = 0;
+                },
+                Ok(CompactionStatus::NotingToCompact) => {
+                    info!("nothing to compact");
+                    let pause = skip_pause[std::cmp::max(skips, skip_pause.len() - 1)];
+                    tokio::time::sleep(Duration::from_secs(pause)).await;
+                },
+                Ok(CompactionStatus::Canceled) => {
+                    skips = 0;
+                    info!("data changed during compaction");
+                },
+                Err(err) => {
+                    skips = 0;
+                    error!(
+                        reason =? err,
+                        "compaction failed, will try again in 5 minutes"
+                    );
+                    tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+                }
+            }
+        } else {
+            if enabled.changed().await.is_err() {
+                return
+            }
+        }
     }
 }

@@ -9,7 +9,15 @@ pub struct DatasetConfig {
     pub(super) dataset_id: DatasetId,
     pub(super) dataset_kind: DatasetKind,
     pub(super) data_sources: Vec<ReqwestDataClient>,
-    pub(super) retention: RetentionStrategy
+    pub(super) retention: RetentionStrategy,
+    pub(super) enable_compaction: bool
+}
+
+
+impl DatasetConfig {
+    pub fn enable_compaction(&mut self, yes: bool) {
+        self.enable_compaction = yes;
+    }
 }
 
 
@@ -31,17 +39,20 @@ impl NodeBuilder {
     
     pub fn add_dataset(
         &mut self,
-        dataset_kind: DatasetKind,
         dataset_id: DatasetId,
+        dataset_kind: DatasetKind,
         data_sources: Vec<ReqwestDataClient>,
         retention: RetentionStrategy
-    ) {
+    ) -> &mut DatasetConfig 
+    {
         self.datasets.push(DatasetConfig {
             dataset_id,
             dataset_kind,
             retention,
-            data_sources
-        })
+            data_sources,
+            enable_compaction: false
+        });
+        self.datasets.last_mut().unwrap()
     }
     
     pub fn set_max_pending_query_tasks(&mut self, n: usize) {

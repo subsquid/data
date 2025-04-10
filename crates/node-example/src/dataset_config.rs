@@ -10,6 +10,8 @@ use url::Url;
 pub struct DatasetConfig {
     pub kind: DatasetKind,
     pub retention: RetentionStrategy,
+    #[serde(default)]
+    pub enable_compaction: bool,
     pub data_sources: Vec<Url>
 }
 

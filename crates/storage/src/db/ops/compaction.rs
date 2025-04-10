@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 
 pub const MAX_CHUNK_SIZE: usize = 200_000;
-pub const WA_LIMIT: f64 = 2.0;
+pub const WA_LIMIT: f64 = 3.0;
 pub const MERGE_HORIZON: usize = 500;
 
 pub enum CompactionStatus {
@@ -20,6 +20,7 @@ pub enum CompactionStatus {
     NotingToCompact,
 }
 
+#[derive(Debug)]
 pub struct MergedChunk {
     pub first_block: BlockNumber,
     pub last_block: BlockNumber,
