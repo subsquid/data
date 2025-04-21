@@ -2,58 +2,73 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 
-pub type QueryExecutorRef = Arc<QueryExecutor>;
+pub struct QuerySlot {
+    in_flight: Arc<AtomicUsize>,
+    urgency: usize
+}
 
 
+impl Drop for QuerySlot {
+    fn drop(&mut self) {
+        self.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+
+impl QuerySlot {
+    pub fn hurry_time(&self) -> usize {
+        let in_flight = self.in_flight.load(Ordering::SeqCst);
+        if in_flight == 0 {
+            return 100
+        }
+        let time = self.urgency * sqd_polars::POOL.current_num_threads() / in_flight;
+        time.min(100)
+    }
+    
+    pub async fn run<R, F>(self, task: F) -> R
+    where
+        F: FnOnce(&Self) -> R + Send + 'static,
+        R: Send + 'static
+    {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        sqd_polars::POOL.spawn(move || {
+            let slot = self;
+            let result = task(&slot);
+            let _ = tx.send(result);
+        });
+        
+        rx.await.expect("task panicked")
+    }
+}
+
+
+#[derive(Clone)]
 pub struct QueryExecutor {
     in_flight: Arc<AtomicUsize>,
-    max_pending_tasks: usize
+    max_pending_tasks: usize,
+    urgency: usize
 }
 
 
 impl QueryExecutor {
-    pub fn new(max_pending_tasks: usize) -> Self {
+    pub fn new(max_pending_tasks: usize, urgency: usize) -> Self {
         Self {
             in_flight: Arc::new(AtomicUsize::new(0)),
-            max_pending_tasks
+            max_pending_tasks,
+            urgency
         }
     }
 
-    pub async fn run<R, F>(&self, task: F) -> Option<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static
-    {
-        self.run_with_ctx((), move |_| task()).await.ok()
-    }
-
-    pub async fn run_with_ctx<C, R, F>(&self, ctx: C, task: F) -> Result<R, C>
-    where
-        F: FnOnce(C) -> R + Send + 'static,
-        R: Send + 'static,
-        C: Send + 'static
-    {
-        let in_flight = self.in_flight.clone();
-        let pending = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
-        
-        let pending_guard = scopeguard::guard((), move |_| {
-            in_flight.fetch_sub(1, Ordering::SeqCst);
-        });
-        
+    pub fn get_slot(&self) -> Option<QuerySlot> {
+        let pending = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         if pending > self.max_pending_tasks {
-            return Err(ctx)
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
+            return None
         }
-
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
-        sqd_polars::POOL.spawn(move || {
-            let _pending_guard = pending_guard;
-            let result = task(ctx);
-            let _ = tx.send(result);
-        });
-
-        Ok(
-            rx.await.expect("task panicked")
-        )
+        Some(QuerySlot {
+            in_flight: self.in_flight.clone(),
+            urgency: self.urgency
+        })
     }
 }

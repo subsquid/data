@@ -10,7 +10,6 @@ use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_query::{JsonLinesWriter, Plan, Query};
 use sqd_storage::db::{Chunk as StorageChunk, DatasetId};
 use std::io::Write;
-use std::time::Instant;
 
 
 struct LeftOver {
@@ -110,38 +109,16 @@ impl QueryRunner {
         })
     }
 
-    pub fn finalized_head(&self) -> Option<&BlockRef> {
-        self.finalized_head.as_ref()
+    pub fn take_finalized_head(&mut self) -> Option<BlockRef> {
+        self.finalized_head.take()
     }
 
-    pub fn has_next_pack(&self) -> bool {
-        self.next_chunk.is_some() || self.left_over.is_some()
+    pub fn buffered_bytes(&self) -> usize {
+        self.buf.get_ref().get_ref().len()
     }
 
-    pub fn next_pack(&mut self) -> anyhow::Result<Bytes> {
-        ensure!(self.has_next_pack());
-
-        let start = Instant::now();
-        let mut processed = 0;
-        
-        loop {
-            processed += self.write_next_chunk()?;
-
-            if !self.has_next_pack() {
-                let dummy_buf = GzEncoder::new(BytesMut::new().writer(), Compression::default());
-                let bytes = std::mem::replace(&mut self.buf, dummy_buf)
-                    .finish()
-                    .expect("IO errors are not possible")
-                    .into_inner()
-                    .freeze();
-                return Ok(bytes)
-            }
-
-            if self.buf.get_ref().get_ref().len() > 256 * 1024 || self.worked_long_enough(start, processed) {
-                let bytes = self.buf.get_mut().get_mut().split().freeze();
-                return Ok(bytes)
-            }
-        }
+    pub fn take_buffered_bytes(&mut self) -> Bytes {
+        self.buf.get_mut().get_mut().split().freeze()
     }
 
     pub fn finish(self) -> Bytes {
@@ -151,8 +128,12 @@ impl QueryRunner {
             .into_inner()
             .freeze()
     }
+    
+    pub fn has_next_chunk(&self) -> bool {
+        self.next_chunk.is_some() || self.left_over.is_some()
+    }
 
-    fn write_next_chunk(&mut self) -> anyhow::Result<usize> {
+    pub fn write_next_chunk(&mut self) -> anyhow::Result<()> {
         let chunk = if let Some(left_over) = self.left_over.take() {
             self.plan.set_first_block(left_over.next_block);
             left_over.chunk
@@ -173,37 +154,38 @@ impl QueryRunner {
         // no matter what, we are moving to the next chunk
         self.plan.set_first_block(None);
         self.plan.set_parent_block_hash(None);
+        
+        let Some(mut block_writer) = query_result? else {
+            return Ok(())
+        };
 
-        if let Some(mut block_writer) = query_result? {
-            if chunk.last_block() > block_writer.last_block()
-                && self.last_block.map_or(true, |end| end > block_writer.last_block())
-            {
-                self.left_over = Some(LeftOver {
-                    chunk,
-                    next_block: block_writer.last_block() + 1
-                })
-            }
-
-            let mut json_lines_writer = JsonLinesWriter::new(&mut self.buf);
-
-            json_lines_writer
-                .write_blocks(&mut block_writer)
-                .expect("IO errors are not possible");
-
-            json_lines_writer
-                .finish()
-                .expect("IO errors are not possible");
-
-            self.buf.flush().expect("IO errors are not possible");
-            
-            let processed = block_writer.last_block() - block_writer.first_block() + 1;
-            Ok(processed as usize)
-        } else {
-            Ok(0)
+        if chunk.last_block() > block_writer.last_block()
+            && self.last_block.map_or(true, |end| end > block_writer.last_block())
+        {
+            self.left_over = Some(LeftOver {
+                chunk,
+                next_block: block_writer.last_block() + 1
+            })
         }
+
+        let mut json_lines_writer = JsonLinesWriter::new(&mut self.buf);
+
+        json_lines_writer
+            .write_blocks(&mut block_writer)
+            .expect("IO errors are not possible");
+
+        json_lines_writer
+            .finish()
+            .expect("IO errors are not possible");
+
+        self.buf.flush().expect("IO errors are not possible");
+        
+        Ok(())
     }
 
     fn next_chunk(&mut self) -> anyhow::Result<StorageChunk> {
+        ensure!(self.next_chunk.is_some(), "no more chunks left");
+        
         let chunk = self.next_chunk.take().expect("no more chunks left");
 
         self.next_chunk = self.chunk_iterator.next()
@@ -219,27 +201,12 @@ impl QueryRunner {
 
         Ok(chunk)
     }
-    
-    fn worked_long_enough(&self, start: Instant, processed: usize) -> bool {
-        if processed == 0 { 
-            // such call is technically impossible, but let's not assert that here
-            return false
-        }
-        
-        let next_chunk_range = self.left_over.as_ref()
-            .map(|lo| lo.chunk.last_block() - lo.next_block + 1)
-            .or_else(|| {
-                self.next_chunk.as_ref().map(|c| {
-                    let last_block = self.last_block.map_or(c.last_block(), |last| {
-                        std::cmp::min(last, c.last_block())
-                    });
-                    last_block - c.first_block() + 1
-                })
-            })
-            .unwrap_or(0);
 
-        let elapsed = start.elapsed().as_millis();
-        let eta = elapsed + elapsed * next_chunk_range as u128 / processed as u128;
-        eta > 100
+    pub fn next_chunk_size(&self) -> usize {
+        self.left_over.as_ref()
+            .map(|lo| lo.chunk.last_block() - lo.chunk.first_block() + 1)
+            .or_else(|| self.next_chunk.as_ref().map(|c| c.last_block() - c.first_block() + 1))
+            .unwrap_or(0)
+            as usize
     }
 }

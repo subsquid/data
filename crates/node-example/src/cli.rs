@@ -23,7 +23,13 @@ pub struct CLI {
     
     /// Max number of threads to use for query execution
     #[arg(long)]
-    pub query_threads: Option<usize>
+    pub query_threads: Option<usize>,
+
+    #[arg(long, hide = true)]
+    pub query_queue_size: Option<usize>,
+
+    #[arg(long, hide = true)]
+    pub query_urgency: Option<usize>
 }
 
 
@@ -39,6 +45,14 @@ impl CLI {
             .context("failed to open rocksdb database")?;
         
         let mut builder = NodeBuilder::new(db.clone());
+
+        if let Some(size) = self.query_queue_size {
+            builder.set_query_queue_size(size);
+        }
+
+        if let Some(n) = self.query_urgency {
+            builder.set_query_urgency(n);
+        }
         
         let http_client = sqd_data_client::reqwest::default_http_client();
         

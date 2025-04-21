@@ -24,7 +24,8 @@ impl DatasetConfig {
 pub struct NodeBuilder {
     pub(super) db: DBRef,
     pub(super) datasets: Vec<DatasetConfig>,
-    pub(super) max_pending_query_tasks: usize 
+    pub(super) query_queue: usize,
+    pub(super) query_urgency: usize
 }
 
 
@@ -33,7 +34,8 @@ impl NodeBuilder {
         Self {
             db,
             datasets: vec![],
-            max_pending_query_tasks: sqd_polars::POOL.current_num_threads() * 50
+            query_queue: sqd_polars::POOL.current_num_threads() * 200,
+            query_urgency: 500
         }
     }
     
@@ -55,8 +57,12 @@ impl NodeBuilder {
         self.datasets.last_mut().unwrap()
     }
     
-    pub fn set_max_pending_query_tasks(&mut self, n: usize) {
-        self.max_pending_query_tasks = n
+    pub fn set_query_queue_size(&mut self, n: usize) {
+        self.query_queue = n
+    }
+    
+    pub fn set_query_urgency(&mut self, n: usize) {
+        self.query_urgency = n
     }
     
     pub async fn build(self) -> anyhow::Result<Node> {

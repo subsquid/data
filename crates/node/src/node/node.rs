@@ -1,7 +1,7 @@
 use crate::error::{QueryIsAboveTheHead, QueryKindMismatch, UnknownDataset};
 use crate::ingest::DatasetController;
 use crate::node::node_builder::NodeBuilder;
-use crate::node::query_executor::{QueryExecutor, QueryExecutorRef};
+use crate::node::query_executor::QueryExecutor;
 use crate::node::query_response::QueryResponse;
 use crate::types::{DBRef, DatasetKind, RetentionStrategy};
 use anyhow::{anyhow, bail, ensure, Context};
@@ -17,7 +17,7 @@ use std::time::Duration;
 pub struct Node {
     db: DBRef,
     datasets: HashMap<DatasetId, Arc<DatasetController>>,
-    executor: QueryExecutorRef
+    executor: QueryExecutor
 }
 
 
@@ -54,7 +54,7 @@ impl Node {
         }
 
         Ok(Self {
-            executor: Arc::new(QueryExecutor::new(builder.max_pending_query_tasks)),
+            executor: QueryExecutor::new(builder.query_queue, builder.query_urgency),
             db: builder.db,
             datasets,
         })
