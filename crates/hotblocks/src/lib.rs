@@ -7,5 +7,5 @@ mod types;
 
 
 pub use hotblocks::*;
-pub use types::{DBRef, DatasetKind, RetentionStrategy};
+pub use types::{DBRef, DatasetKind, RetentionStrategy, DatabaseSettings};
 pub use sqd_query::Query;
