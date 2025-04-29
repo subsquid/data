@@ -3,6 +3,7 @@ mod dataset_config;
 mod app;
 
 
+use std::io::IsTerminal;
 use crate::app::build_app;
 use crate::cli::CLI;
 use clap::Parser;
@@ -31,10 +32,18 @@ fn main() -> anyhow::Result<()> {
             .unwrap_or("info".to_string()),
     );
 
-    tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .compact()
-        .init();
+    if std::io::stdout().is_terminal() {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .compact()
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .json()
+            .with_current_span(false)
+            .init();
+    }
     
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
