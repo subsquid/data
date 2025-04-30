@@ -23,7 +23,7 @@ impl sqd_data_core::BlockChunkBuilder for HyperliquidChunkBuilder {
         self.blocks.push(&block.header);
 
         for row in block.transactions.iter() {
-            self.transactions.push(block, row);
+            self.transactions.push(block, row)?;
         }
 
         Ok(())
