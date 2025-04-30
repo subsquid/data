@@ -39,7 +39,7 @@ impl TransactionBuilder {
         self.transaction_index.append(transaction.transaction_index);
         self.user.append(&transaction.user);
 
-        let actions = serde_json::to_string(&transaction.actions).unwrap();
+        let actions = serde_json::to_string(&transaction.actions)?;
         self.actions.append(&actions);
         self.actions_size.append(actions.len() as u64);
 
