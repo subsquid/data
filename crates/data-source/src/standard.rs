@@ -244,40 +244,28 @@ fn set_head(head: &mut Option<BlockRef>, number: BlockNumber, hash: &str) {
 
 impl<C: DataClient> Endpoint<C> {
     fn on_error(&mut self, error: anyhow::Error) {
-        let pause = if self.client.is_retryable(&error) {
-            let backoff = [0, 100, 200, 500, 1000, 2000, 5000, 10000];
-            let pause = backoff[std::cmp::min(self.error_counter, backoff.len() - 1)];
-            if pause > 0 {
-                warn!(
-                    error =? error,
-                    data_source =? self.client,
-                    "data ingestion error, will disable the data source for {} ms",
-                    pause
-                );
-            } else {
-                warn!(
-                    error =? error,
-                    data_source =? self.client,
-                    "data ingestion error",
-                );
-            }
-            pause
-        } else {
-            error!(
+        let backoff = [0, 100, 200, 500, 1000, 2000, 5000, 10000];
+        let pause = backoff[std::cmp::min(self.error_counter, backoff.len() - 1)];
+        if pause > 0 {
+            warn!(
                 error =? error,
                 data_source =? self.client,
-                "data ingestion failure, will disable the data source for 5 minutes"
-            );
-            5 * 60 * 1000 // 5 minutes
-        };
-
+                "data ingestion error, will disable the data source for {} ms",
+                pause
+            )
+        } else {
+            warn!(
+                error =? error,
+                data_source =? self.client,
+                "data ingestion error",
+            )
+        }
         self.state = if pause > 0 {
             let sleep = tokio::time::sleep(Duration::from_millis(pause));
             EndpointState::Backoff(Box::pin(sleep))
         } else {
             EndpointState::Ready
         };
-
         self.error_counter += 1;
     }
 }
