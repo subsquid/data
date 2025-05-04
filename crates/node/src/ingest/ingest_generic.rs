@@ -1,5 +1,6 @@
 use crate::ingest::write_controller::Rollback;
 use anyhow::ensure;
+use chrono::{DateTime, Utc};
 use futures::{SinkExt, StreamExt};
 use parking_lot::Mutex;
 use sqd_data_client::DataClient;
@@ -9,6 +10,8 @@ use sqd_primitives::{Block, BlockNumber, BlockRef, DisplayBlockRefOption, Name};
 use std::fmt::{Display, Formatter};
 use std::ops::DerefMut;
 use std::sync::{Arc, Weak};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::info;
 
 
 pub enum IngestMessage {
@@ -139,7 +142,8 @@ pub struct IngestGeneric<DC, CB> {
     parent_block_hash: String,
     first_block: BlockNumber,
     last_block: BlockNumber,
-    last_block_hash: String
+    last_block_hash: String,
+    last_block_time: Option<SystemTime>
 }
 
 
@@ -166,7 +170,8 @@ where
             parent_block_hash: String::new(),
             first_block,
             last_block: 0,
-            last_block_hash: String::new()
+            last_block_hash: String::new(),
+            last_block_time: None
         }
     }
 
@@ -232,6 +237,7 @@ where
         self.last_block = block.number();
         self.last_block_hash.clear();
         self.last_block_hash.push_str(block.hash());
+        self.last_block_time = block.timestamp();
         if is_final {
             self.set_finalized_head(block.number(), block.hash());
         }
@@ -253,12 +259,23 @@ where
             return Ok(())
         }
 
-        let tables = self.with_blocking_builder(|b| b.finish()).await?;
-
         let parent_block_hash = self.parent_block_hash.clone();
         let first_block = self.first_block;
         let last_block = self.last_block;
         let last_block_hash = self.last_block_hash.clone();
+
+        let last_block_time: DateTime<Utc> = self.last_block_time.unwrap_or(UNIX_EPOCH).into();
+
+        info!(
+            first_block = first_block,
+            last_block = last_block,
+            last_block_hash = %last_block_hash,
+            last_block_time = %last_block_time.format("%Y-%m-%dT%H:%M:%S%.3fZ"),
+            finalized_head = %DisplayBlockRefOption(self.finalized_head.as_ref()),
+            "received new chunk"
+        );
+
+        let tables = self.with_blocking_builder(|b| b.finish()).await?;
 
         self.buffered_blocks = 0;
         self.first_block = last_block + 1;

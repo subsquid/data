@@ -162,11 +162,7 @@ impl WriteController {
         })
     }
 
-    #[instrument(
-        name = "retain",
-        fields(dataset_id =? self.dataset_id()),
-        skip(self, delete_mismatch)
-    )]
+    #[instrument(name = "retain", skip(self, delete_mismatch))]
     fn _retain(
         &mut self,
         from_block: BlockNumber,
@@ -304,8 +300,8 @@ impl WriteController {
     }
 
     #[instrument(skip_all, fields(
-        dataset_id = %self.dataset_id(),
-        new_finalized_head = %new_finalized_head
+        block_number = new_finalized_head.number,
+        block_hash = %new_finalized_head.hash
     ))]
     pub fn finalize(&mut self, new_finalized_head: &BlockRef) -> anyhow::Result<()> {
         let Some(head) = self.head.as_ref() else {
@@ -363,9 +359,10 @@ impl WriteController {
     }
 
     #[instrument(skip_all, fields(
-        dataset_id = %self.dataset_id(),
-        chunk = %chunk,
-        finalized_head = %DisplayBlockRefOption(finalized_head)
+        first_block = chunk.first_block(),
+        last_block = chunk.last_block(),
+        last_block_hash = %chunk.last_block_hash(),
+        finalized_head = %DisplayBlockRefOption(finalized_head),
     ))]
     pub fn new_chunk(
         &mut self,
@@ -406,7 +403,7 @@ impl WriteController {
         })?;
 
         info!(
-            committed_finalized_head = %DisplayBlockRefOption(finalized_head.as_ref()),
+            finalized_head =% DisplayBlockRefOption(finalized_head.as_ref()),
             "commited"
         );
 

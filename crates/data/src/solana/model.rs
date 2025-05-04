@@ -2,6 +2,7 @@ use crate::types::{Base58Bytes, JsonValue};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use sqd_primitives::{BlockNumber, ItemIndex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 
 pub type AccountIndex = u32;
@@ -213,5 +214,14 @@ impl sqd_primitives::Block for Block {
 
     fn parent_hash(&self) -> &str {
         &self.header.parent_hash
+    }
+
+    fn timestamp(&self) -> Option<SystemTime> {
+        let ts = self.header.timestamp;
+        if ts < 0 {
+            UNIX_EPOCH.checked_sub(Duration::from_secs(ts.abs() as u64))
+        } else {
+            UNIX_EPOCH.checked_add(Duration::from_secs(ts as u64))
+        }
     }
 }

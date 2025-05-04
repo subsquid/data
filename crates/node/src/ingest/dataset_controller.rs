@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 use scopeguard::ScopeGuard;
 use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_polars::prelude::len;
-use sqd_primitives::{BlockNumber, BlockRef};
+use sqd_primitives::{BlockNumber, BlockRef, DisplayBlockRefOption};
 use sqd_storage::db::{Chunk, CompactionStatus, Database, DatasetId};
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -23,7 +23,7 @@ use std::time::Duration;
 use tokio::select;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use tracing::{error, info, instrument, warn};
+use tracing::{error, info, info_span, instrument, warn, Instrument};
 
 
 pub struct DatasetController {
@@ -47,6 +47,7 @@ impl Drop for DatasetController {
 
 
 impl DatasetController {
+    #[instrument(name = "dataset", skip_all, fields(dataset_id = %dataset_id))]
     pub fn new(
         db: DBRef,
         dataset_id: DatasetId,
@@ -79,13 +80,13 @@ impl DatasetController {
             finalized_head_sender
         };
 
-        let task = tokio::spawn(ctl.run(write));
+        let task = tokio::spawn(ctl.run(write).in_current_span());
 
         let compaction_task = tokio::spawn(compaction_loop(
             db,
             dataset_id,
             compaction_enabled_receiver
-        ));
+        ).in_current_span());
 
         Ok(Self {
             dataset_id,
@@ -157,11 +158,6 @@ impl WriteCtx {
                 self.notify_finalized_head();
             },
             IngestMessage::NewChunk(new_chunk) => {
-                info!(
-                    dataset_id = %self.write.dataset_id(),
-                    "received new chunk {}",
-                    new_chunk
-                );
                 let ctx = format!("failed to write new chunk {}", new_chunk);
                 self.write_new_chunk(new_chunk).context(ctx)?;
                 self.notify_head();
@@ -298,7 +294,9 @@ struct Ctl {
 
 macro_rules! blocking_write {
     ($write:ident, $body:expr) => {{
+        let span = tracing::Span::current();
         let res = tokio::task::spawn_blocking(move || {
+            let _enter = span.enter();
             let result = $body;
             (result, $write)
         }).await.context("write panicked")?;
@@ -411,6 +409,7 @@ impl Ctl {
                                         error!("ingest task panicked or got canceled")
                                     }
                                 }
+                                error!("will restart data ingestion in 1 minute");
                                 state = State::IngestPause {
                                     until: Instant::now().add(Duration::from_secs(60)),
                                     head: *head
@@ -475,13 +474,17 @@ impl Ctl {
     fn spawn_ingest(&self, write: &WriteCtx) -> IngestHandle {
         let (msg_sender, msg_recv) = tokio::sync::mpsc::channel(1);
 
-        let task = tokio::spawn(ingest(
-            msg_sender,
-            self.data_sources.clone(),
-            self.dataset_kind,
-            write.write.next_block(),
-            write.write.head_hash()
-        ));
+        let ingest_span = info_span!("ingest");
+
+        let task = tokio::spawn(
+            ingest(
+                msg_sender,
+                self.data_sources.clone(),
+                self.dataset_kind,
+                write.write.next_block(),
+                write.write.head_hash()
+            ).instrument(ingest_span)
+        );
 
         IngestHandle {
             msg_recv,
@@ -497,7 +500,9 @@ impl Ctl {
         let write = if let Some(write) = maybe_write {
             write
         } else {
+            let span = tracing::Span::current();
             tokio::task::spawn_blocking(move || {
+                let _entered = span.enter();
                 WriteController::new(db, dataset_id, dataset_kind)
             }).await.context("write init task panicked")??
         };
@@ -580,7 +585,7 @@ async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
 }
 
 
-#[instrument(name = "compaction", skip(db, enabled))]
+#[instrument(name = "compaction", skip_all)]
 async fn compaction_loop(
     db: DBRef,
     dataset_id: DatasetId,
@@ -607,7 +612,7 @@ async fn compaction_loop(
                     let last_block = merged_chunks.last().unwrap().last_block;
                     info!(
                         chunks =? merged_chunks,
-                        "merged {} chunks with block range {}-{}", 
+                        "merged {} chunks from block range {}-{}",
                         merged_chunks.len(),
                         first_block,
                         last_block

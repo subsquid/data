@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::time::SystemTime;
 
 
 pub type Name = &'static str;
@@ -44,4 +45,8 @@ pub trait Block {
     fn parent_number(&self) -> BlockNumber;
 
     fn parent_hash(&self) -> &str;
+
+    fn timestamp(&self) -> Option<SystemTime> {
+        None
+    }
 }

@@ -10,7 +10,7 @@ use std::pin::Pin;
 use std::task::Poll;
 use std::time::Duration;
 use tokio::time::Sleep;
-use tracing::{error, warn};
+use tracing::warn;
 
 
 struct Endpoint<C: DataClient> {

@@ -36,6 +36,7 @@ fn main() -> anyhow::Result<()> {
         tracing_subscriber::fmt()
             .with_env_filter(env_filter)
             .compact()
+            .with_target(false)
             .init();
     } else {
         tracing_subscriber::fmt()
