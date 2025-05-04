@@ -142,7 +142,9 @@ impl<S: KvRead + Sync> TableReader<S> {
             self.column_positions[index],
             ranges,
             self.schema.field(index).data_type(),
-        )
+        ).with_context(|| {
+            format!("failed to read column '{}'", self.schema.field(index).name())
+        })
     }
 
     pub fn create_column_reader(
@@ -281,7 +283,7 @@ impl<S: KvRead + Sync> TableReader<S> {
                 for i in 0..n {
                     let page_idx = pagination.page_index(i);
                     let page_key = key.page(buffer, page_idx);
-                    if prev_page_idx + 1 == page_idx {
+                    if i > 0 && prev_page_idx + 1 == page_idx {
                         cursor.next()?;
                     } else {
                         cursor.seek(page_key)?;
