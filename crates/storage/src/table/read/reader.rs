@@ -5,9 +5,9 @@ use crate::kv::{KvRead, KvReadCursor};
 use crate::table::key::TableKeyFactory;
 use crate::table::stats::{can_have_stats, deserialize_stats, Stats, StatsBuilder};
 use anyhow::{anyhow, ensure, Context};
-use arrow::array::{ArrayRef, BooleanBufferBuilder, RecordBatch};
+use arrow::array::{ArrayRef, BooleanBufferBuilder, RecordBatch, RecordBatchOptions};
 use arrow::buffer::{BooleanBuffer, MutableBuffer, OffsetBuffer, ScalarBuffer};
-use arrow::datatypes::{ArrowNativeType, SchemaRef};
+use arrow::datatypes::{ArrowNativeType, Schema, SchemaRef};
 use arrow::util::bit_util;
 use arrow_buffer::NullBuffer;
 use parking_lot::Mutex;
@@ -122,18 +122,33 @@ impl<S: KvRead + Sync> TableReader<S> {
             (0..self.schema.fields().len()).collect()
         };
 
-        let columns = column_indexes.par_iter().map(|i| {
-            self.read_column(*i, row_ranges)
-        }).collect::<anyhow::Result<Vec<_>>>()?;
-
-        let schema = if column_indexes.len() == self.schema.fields().len() {
-            self.schema.clone()
+        Ok(if column_indexes.is_empty() {
+            if let Some(ranges) = row_ranges {
+                ensure!(
+                    ranges.end() as usize <= self.num_rows,
+                    "range list is out of bounds: {} < {}",
+                    self.num_rows,
+                    ranges.end()
+                );
+            }
+            RecordBatch::try_new_with_options(
+                Schema::empty().into(), 
+                vec![],
+                &RecordBatchOptions::new().with_row_count(self.num_rows.into())
+            )?
         } else {
-            self.schema.project(&column_indexes)?.into()
-        };
+            let columns = column_indexes.par_iter().map(|i| {
+                self.read_column(*i, row_ranges)
+            }).collect::<anyhow::Result<Vec<_>>>()?;
 
-        let record_batch = RecordBatch::try_new(schema, columns)?;
-        Ok(record_batch)
+            let schema = if column_indexes.len() == self.schema.fields().len() {
+                self.schema.clone()
+            } else {
+                self.schema.project(&column_indexes)?.into()
+            };
+
+            RecordBatch::try_new(schema, columns)?
+        })
     }
 
     pub fn read_column(&self, index: usize, ranges: Option<&RangeList<u32>>) -> anyhow::Result<ArrayRef> {
@@ -405,7 +420,7 @@ impl<S: KvRead + Sync> TableReader<S> {
     ) -> anyhow::Result<MutableBuffer>
     {
         let page_offsets = self.get_buffer_pages(buffer)?;
-        let pagination = Pagination::new(&page_offsets, ranges);
+        let pagination = Pagination::new(&page_offsets, ranges)?;
         let mut buf = MutableBuffer::from_len_zeroed(pagination.num_items() * item_size);
 
         self.read_native_par(
@@ -553,7 +568,7 @@ impl<S: KvRead + Sync> TableReader<S> {
         ranges: Option<&RangeList<u32>>
     ) -> anyhow::Result<BooleanBuffer>
     {
-        let pagination = Pagination::new(&page_offsets, ranges);
+        let pagination = Pagination::new(&page_offsets, ranges)?;
         let mut buf = BooleanBufferBuilder::new(pagination.num_items());
         self.for_each_page(buffer, &pagination, |i, data| {
             let expected_bit_len = pagination.page_range(i).len();

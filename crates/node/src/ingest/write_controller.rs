@@ -404,7 +404,7 @@ impl WriteController {
 
         info!(
             finalized_head =% DisplayBlockRefOption(finalized_head.as_ref()),
-            "commited"
+            "committed"
         );
 
         self.finalized_head = finalized_head;

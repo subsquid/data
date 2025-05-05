@@ -1,3 +1,4 @@
+use anyhow::ensure;
 use sqd_primitives::range::RangeList;
 use std::ops::Range;
 
@@ -23,10 +24,10 @@ pub enum Pagination<'a> {
 
 
 impl <'a> Pagination<'a> {
-    pub fn new(page_offsets: &'a [u32], ranges: Option<&'a RangeList<u32>>) -> Self {
-        if let Some(ranges) = ranges {
+    pub fn new(page_offsets: &'a [u32], ranges: Option<&'a RangeList<u32>>) -> anyhow::Result<Self> {
+        Ok(if let Some(ranges) = ranges {
             Pagination::Ranged {
-                pages: build_page_reads(page_offsets, ranges),
+                pages: build_page_reads(page_offsets, ranges)?,
                 ranges,
                 page_offsets
             }
@@ -35,7 +36,7 @@ impl <'a> Pagination<'a> {
                 page_offsets,
                 ranges: [page_offsets[0]..page_offsets.last().unwrap().clone()]
             }
-        }
+        })
     }
 
     pub fn num_pages(&self) -> usize {
@@ -114,8 +115,8 @@ impl <'a> Pagination<'a> {
 }
 
 
-fn build_page_reads(page_offsets: &[u32], ranges: &RangeList<u32>) -> Vec<PageRead> {
-    assert!(
+fn build_page_reads(page_offsets: &[u32], ranges: &RangeList<u32>) -> anyhow::Result<Vec<PageRead>> {
+    ensure!(
         page_offsets.last().cloned().unwrap() >= ranges.end(),
         "range list is out of bounds: {} < {}",
         page_offsets.last().cloned().unwrap(),
@@ -167,5 +168,5 @@ fn build_page_reads(page_offsets: &[u32], ranges: &RangeList<u32>) -> Vec<PageRe
 
     assert!(ranges.peek().is_none());
 
-    reads
+    Ok(reads)
 }
