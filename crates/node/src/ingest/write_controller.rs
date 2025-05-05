@@ -99,7 +99,7 @@ impl WriteController {
         ensure!(!prev.is_empty(), "no previous blocks where provided");
         ensure!(
             prev.windows(2).all(|s| s[0].number < s[1].number),
-            "list of previous blocks is not ordered"
+            "list of previous blocks does not have ascending order"
         );
 
         let snapshot = self.db.snapshot();
@@ -157,7 +157,7 @@ impl WriteController {
 
         Ok(Rollback {
             first_block: self.first_block,
-            parent_block_hash: None,
+            parent_block_hash: self.parent_block_hash.clone(),
             finalized_head: None
         })
     }
