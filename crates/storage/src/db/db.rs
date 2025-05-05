@@ -29,6 +29,7 @@ pub(super) type RocksSnapshot<'a, DB> = rocksdb::SnapshotWithThreadMode<'a, DB>;
 
 
 pub struct DatabaseSettings {
+    chunk_cache_size: usize,
     data_cache_size: usize,
     with_rocksdb_stats: bool
 }
@@ -37,7 +38,8 @@ pub struct DatabaseSettings {
 impl Default for DatabaseSettings {
     fn default() -> Self {
         Self {
-            data_cache_size: 32,
+            chunk_cache_size: 64,
+            data_cache_size: 256,
             with_rocksdb_stats: false
         }
     }
@@ -45,18 +47,19 @@ impl Default for DatabaseSettings {
 
 
 impl DatabaseSettings {
-    pub fn set_data_cache_size(self, mb: usize) -> Self {
-        Self {
-            data_cache_size: mb,
-            ..self
-        }
+    pub fn with_chunk_cache_size(mut self, mb: usize) -> Self {
+        self.chunk_cache_size = mb;
+        self
     }
     
-    pub fn with_rocksdb_stats(self, on: bool) -> Self {
-        Self {
-            with_rocksdb_stats: on,
-            ..self
-        }
+    pub fn with_data_cache_size(mut self, mb: usize) -> Self {
+        self.data_cache_size = mb;
+        self
+    }
+
+    pub fn with_rocksdb_stats(mut self, on: bool) -> Self {
+        self.with_rocksdb_stats = on;
+        self
     }
     
     fn db_options(&self) -> RocksOptions {
@@ -69,20 +72,35 @@ impl DatabaseSettings {
         }
         options
     }
-    
-    fn tables_cf_options(&self) -> RocksOptions {
-        let mut options = RocksOptions::default();
-        options.set_compression_type(rocksdb::DBCompressionType::Lz4);
 
+    fn chunks_cf_options(&self) -> RocksOptions {
         let mut block_based_table_factory = rocksdb::BlockBasedOptions::default();
+
+        if self.chunk_cache_size > 0 {
+            let cache = rocksdb::Cache::new_lru_cache(self.chunk_cache_size * 1024 * 1024);
+            block_based_table_factory.set_block_cache(&cache);
+        } else {
+            block_based_table_factory.disable_cache();
+        }
+
+        let mut options = RocksOptions::default();
+        options.set_block_based_table_factory(&block_based_table_factory);
+        options
+    }
+
+    fn tables_cf_options(&self) -> RocksOptions {
+        let mut block_based_table_factory = rocksdb::BlockBasedOptions::default();
+
         if self.data_cache_size > 0 {
             let cache = rocksdb::Cache::new_lru_cache(self.data_cache_size * 1024 * 1024);
             block_based_table_factory.set_block_cache(&cache);
         } else {
             block_based_table_factory.disable_cache();
         }
+
+        let mut options = RocksOptions::default();
         options.set_block_based_table_factory(&block_based_table_factory);
-        
+        options.set_compression_type(rocksdb::DBCompressionType::Lz4);
         options
     }
     
@@ -91,7 +109,7 @@ impl DatabaseSettings {
         
         let db = RocksDB::open_cf_descriptors(&options, path, [
             ColumnFamilyDescriptor::new(CF_DATASETS, RocksOptions::default()),
-            ColumnFamilyDescriptor::new(CF_CHUNKS, RocksOptions::default()),
+            ColumnFamilyDescriptor::new(CF_CHUNKS, self.chunks_cf_options()),
             ColumnFamilyDescriptor::new(CF_TABLES, self.tables_cf_options()),
             ColumnFamilyDescriptor::new(CF_DIRTY_TABLES, RocksOptions::default()),
             ColumnFamilyDescriptor::new(CF_DELETED_TABLES, RocksOptions::default())

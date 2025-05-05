@@ -39,7 +39,7 @@ impl CLI {
             .context("failed to read datasets config")?;
 
         let db = DatabaseSettings::default()
-            .set_data_cache_size(self.data_cache_size)
+            .with_data_cache_size(self.data_cache_size)
             .open(&self.database_dir)
             .map(Arc::new)
             .context("failed to open rocksdb database")?;

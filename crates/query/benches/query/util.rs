@@ -70,7 +70,7 @@ mod storage {
 
     pub fn bench_solana_query(bench: divan::Bencher, query: &Query) {
         let db = DatabaseSettings::default()
-            .set_data_cache_size(2048)
+            .with_data_cache_size(2048)
             .open(DB_DIR.path())
             .unwrap();
 
