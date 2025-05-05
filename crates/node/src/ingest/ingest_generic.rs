@@ -202,6 +202,8 @@ where
     }
 
     async fn handle_fork(&mut self, prev_blocks: Vec<BlockRef>) -> anyhow::Result<()> {
+        info!(upstream_blocks =? prev_blocks, "fork received");
+
         let (rollback_sender, rollback_recv) = tokio::sync::oneshot::channel();
 
         self.message_sender.send(IngestMessage::Fork {
@@ -211,6 +213,12 @@ where
 
         self.with_blocking_builder(|b| b.clear()).await?;
         let rollback = rollback_recv.await?;
+        
+        info!(
+            block_number = rollback.first_block,
+            parent_block_hash =? rollback.parent_block_hash,
+            "resetting ingest position"
+        );
 
         self.buffered_blocks = 0;
         self.finalized_head = None;
