@@ -592,7 +592,7 @@ async fn compaction_loop(
     mut enabled: tokio::sync::watch::Receiver<bool>
 ) {
     let mut skips = 0;
-    let skip_pause = [1, 2, 5, 10, 20];
+    let skip_pause = [1, 2, 3, 4, 5, 10, 20];
     loop {
         if enabled.borrow_and_update().clone() {
             let db = db.clone();
@@ -608,14 +608,13 @@ async fn compaction_loop(
 
             match result {
                 Ok(CompactionStatus::Ok(merged_chunks)) => {
-                    let first_block = merged_chunks[0].first_block;
-                    let last_block = merged_chunks.last().unwrap().last_block;
                     info!(
-                        chunks =? merged_chunks,
-                        "merged {} chunks from block range {}-{}",
+                        first_block = merged_chunks[0].first_block,
+                        last_block = merged_chunks.last().unwrap().last_block,
+                        size = merged_chunks.iter().map(|c| c.size).sum::<usize>(),
+                        max_merged_size = merged_chunks.iter().map(|c| c.size).max().unwrap(),
+                        "merged {} chunks",
                         merged_chunks.len(),
-                        first_block,
-                        last_block
                     );
                     skips = 0;
                 },

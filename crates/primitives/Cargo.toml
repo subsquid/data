@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 borsh = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
+valuable = { workspace = true, optional = true, features = ["derive"] }
 
 [features]
 range = []

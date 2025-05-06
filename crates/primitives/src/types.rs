@@ -7,9 +7,10 @@ pub type BlockNumber = u64;
 pub type ItemIndex = u32;
 
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "borsh", derive(borsh::BorshSerialize, borsh::BorshDeserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "valuable", derive(valuable::Valuable))]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BlockRef {
     pub number: BlockNumber,
     pub hash: String

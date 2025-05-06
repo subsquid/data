@@ -11,6 +11,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::DerefMut;
 use std::sync::{Arc, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::field::valuable;
 use tracing::info;
 
 
@@ -202,7 +203,7 @@ where
     }
 
     async fn handle_fork(&mut self, prev_blocks: Vec<BlockRef>) -> anyhow::Result<()> {
-        info!(upstream_blocks =? prev_blocks, "fork received");
+        info!(upstream_blocks = valuable(&prev_blocks), "fork received");
 
         let (rollback_sender, rollback_recv) = tokio::sync::oneshot::channel();
 
@@ -279,7 +280,7 @@ where
             last_block = last_block,
             last_block_hash = %last_block_hash,
             last_block_time = %last_block_time.format("%Y-%m-%dT%H:%M:%S%.3fZ"),
-            finalized_head = %DisplayBlockRefOption(self.finalized_head.as_ref()),
+            finalized_head = valuable(&self.finalized_head),
             "received new chunk"
         );
 
