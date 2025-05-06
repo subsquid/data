@@ -6,6 +6,7 @@ RUN apt-get update && apt-get -y --no-install-recommends install \
     clang \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+ADD .cargo .
 ADD Cargo.toml .
 ADD Cargo.lock .
 ADD crates crates
