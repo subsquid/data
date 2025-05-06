@@ -1,13 +1,39 @@
 use crate::db::data::ChunkId;
 use crate::db::db::{RocksDB, RocksIterator, RocksTransaction, RocksTransactionOptions, CF_CHUNKS, CF_DATASETS, CF_DELETED_TABLES, CF_DIRTY_TABLES};
+use crate::db::read::blocks_table::get_parent_block_hash;
 use crate::db::read::chunk::ChunkIterator;
 use crate::db::table_id::TableId;
 use crate::db::{Chunk, DatasetId, DatasetLabel, ReadSnapshot};
 use anyhow::{anyhow, bail, ensure, Context};
 use rocksdb::ColumnFamily;
 use sqd_primitives::BlockNumber;
+use std::cell::RefCell;
 use std::cmp::{max, min};
-use crate::db::read::blocks_table::get_parent_block_hash;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+
+static GLOBAL_RESTARTS: AtomicU64 = AtomicU64::new(0);
+
+
+thread_local! {
+    static LOCAL_RESTARTS: RefCell<u64> = RefCell::new(0);
+}
+
+
+pub fn get_global_tx_restarts() -> u64 {
+    GLOBAL_RESTARTS.load(Ordering::Relaxed)
+}
+
+
+pub fn get_local_tx_restarts() -> u64 {
+    LOCAL_RESTARTS.with_borrow(|val| *val)
+}
+
+
+fn record_restart() {
+    GLOBAL_RESTARTS.fetch_add(1, Ordering::SeqCst);
+    LOCAL_RESTARTS.with_borrow_mut(|val| *val = val.wrapping_add(1))
+}
 
 
 pub struct Tx<'a> {
@@ -42,7 +68,8 @@ impl <'a> Tx<'a> {
             let result = cb(&tx)?;
             match tx.commit() {
                 Ok(_) => return Ok(result),
-                Err(err) if err.kind() == rocksdb::ErrorKind::TryAgain => {
+                Err(err) if err.kind() == rocksdb::ErrorKind::TryAgain || err.kind() == rocksdb::ErrorKind::Busy => {
+                    record_restart();
                     tx = Self::new(db)
                 },
                 Err(err) => return Err(err.into())

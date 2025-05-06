@@ -292,12 +292,26 @@ struct Ctl {
 }
 
 
+macro_rules! warn_on_tx_restart {
+    ($body:expr) => {{
+        let before = sqd_storage::db::get_local_tx_restarts();
+        let result = $body;
+        let after = sqd_storage::db::get_local_tx_restarts();
+        let restarts = after.saturating_sub(before);
+        if restarts > 1 {
+            warn!("storage transaction restarted {} times", restarts);
+        }
+        result
+    }};
+}
+
+
 macro_rules! blocking_write {
     ($write:ident, $body:expr) => {{
         let span = tracing::Span::current();
         let res = tokio::task::spawn_blocking(move || {
             let _enter = span.enter();
-            let result = $body;
+            let result = warn_on_tx_restart!($body);
             (result, $write)
         }).await.context("write panicked")?;
         $write = res.1;
@@ -600,7 +614,9 @@ async fn compaction_loop(
             let result = match tokio::task::spawn_blocking(move || {
                 let _s = span.enter();
                 info!("compaction started");
-                db.perform_dataset_compaction(dataset_id, None, None)
+                warn_on_tx_restart! {
+                    db.perform_dataset_compaction(dataset_id, None, None)
+                }
             }).await {
                 Ok(res) => res,
                 Err(err) => Err(anyhow!("failed to await compaction task - {}", err))

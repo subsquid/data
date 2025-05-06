@@ -21,3 +21,4 @@ pub use read::snapshot::*;
 pub use table_id::TableId;
 pub use write::dataset_update::*;
 pub use write::table_builder::*;
+pub use write::tx::{get_global_tx_restarts, get_local_tx_restarts};
