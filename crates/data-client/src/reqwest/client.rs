@@ -65,7 +65,7 @@ impl ReqwestDataClient {
 
         if req.parent_block_hash.is_some() {
             body.as_object_mut().unwrap().insert(
-                "prevBlockHash".into(),
+                "parentBlockHash".into(),
                 req.parent_block_hash.clone().into()
             );
         }
