@@ -31,7 +31,7 @@ pub struct NewChunk {
     pub first_block: BlockNumber,
     pub last_block: BlockNumber,
     pub last_block_hash: String,
-    pub tables: PreparedTables
+    pub tables: PreparedChunk
 }
 
 
@@ -39,7 +39,7 @@ impl Display for NewChunk {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f, 
-            "{}-{}-{} with finalized_head = {}", 
+            "{}-{}-{} with finalized_head = {}",
             self.first_block, 
             self.last_block, 
             &self.last_block_hash,
@@ -49,45 +49,17 @@ impl Display for NewChunk {
 }
 
 
-pub struct PreparedTables {
-    inner: PreparedChunk,
-    spare_cell: Weak<Mutex<Option<ChunkProcessor>>>
-}
-
-
-impl PreparedTables {
-    pub fn iter_tables_mut(&mut self) -> impl Iterator<Item = (Name, &mut PreparedTable)> {
-        self.inner.tables.iter_mut().map(|(name, table)| (*name, table))
-    }
-}
-
-
-impl Drop for PreparedTables {
-    fn drop(&mut self) {
-        if let Some(cell) = self.spare_cell.upgrade() {
-            let mut lock = cell.lock();
-            if lock.is_some() {
-                return
-            }
-            *lock = std::mem::take(&mut self.inner).into_processor().ok()
-        }
-    }
-}
-
-
 struct DataBuilder<CB> {
     builder: CB,
-    processor: ChunkProcessor,
-    spare_processor: Arc<Mutex<Option<ChunkProcessor>>>,
+    processor: Option<ChunkProcessor>
 }
 
 
 impl<CB: BlockChunkBuilder> DataBuilder<CB> {
     pub fn new(builder: CB) -> Self {
         Self {
-            processor: builder.new_chunk_processor(),
             builder,
-            spare_processor: Arc::new(Mutex::new(None))
+            processor: None
         }
     }
 
@@ -96,7 +68,7 @@ impl<CB: BlockChunkBuilder> DataBuilder<CB> {
     }
 
     pub fn num_rows(&self) -> usize {
-        self.builder.max_num_rows() + self.processor.max_num_rows()
+        self.builder.max_num_rows() + self.processor.as_ref().map_or(0, |p| p.max_num_rows())
     }
 
     pub fn in_memory_buffered_bytes(&self) -> usize {
@@ -104,32 +76,25 @@ impl<CB: BlockChunkBuilder> DataBuilder<CB> {
     }
 
     pub fn flush_to_processor(&mut self) -> anyhow::Result<()> {
-        self.builder.submit_to_processor(&mut self.processor)?;
-        self.builder.clear();
-        Ok(())
-    }
-
-    pub fn finish(&mut self) -> anyhow::Result<PreparedTables> {
-        self.flush_to_processor()?;
-
-        let spare_processor = std::mem::take(self.spare_processor.lock().deref_mut())
-            .unwrap_or_else(|| self.builder.new_chunk_processor());
-
-        let processor = std::mem::replace(&mut self.processor, spare_processor);
-        let prepared_chunk = processor.finish()?;
-
-        Ok(PreparedTables {
-            inner: prepared_chunk,
-            spare_cell: Arc::downgrade(&self.spare_processor)
-        })
-    }
-    
-    pub fn clear(&mut self) -> anyhow::Result<()> {
-        self.builder.clear();
-        if self.processor.max_num_rows() > 0 {
-            let _ = self.finish()?;
+        if self.processor.is_none() {
+            let processor = self.builder.new_chunk_processor()?;
+            self.processor = Some(processor);
         }
+        self.builder.submit_to_processor(self.processor.as_mut().unwrap())?;
+        self.builder.clear();
         Ok(())
+    }
+
+    pub fn finish(&mut self) -> anyhow::Result<PreparedChunk> {
+        self.flush_to_processor()?;
+        std::mem::take(&mut self.processor)
+            .unwrap()
+            .finish()
+    }
+
+    pub fn clear(&mut self) {
+        self.builder.clear();
+        self.processor = None;
     }
 }
 
@@ -212,7 +177,7 @@ where
             rollback_sender
         }).await?;
 
-        self.with_blocking_builder(|b| b.clear()).await?;
+        self.with_blocking_builder(|b| b.clear()).await;
         let rollback = rollback_recv.await?;
         
         info!(

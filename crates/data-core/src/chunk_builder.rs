@@ -21,7 +21,7 @@ pub trait ChunkBuilder {
 
     fn as_slice_map(&self) -> BTreeMap<&'static str, AnyTableSlice<'_>>;
 
-    fn new_chunk_processor(&self) -> ChunkProcessor;
+    fn new_chunk_processor(&self) -> anyhow::Result<ChunkProcessor>;
 
     fn submit_to_processor(&self, processor: &mut ChunkProcessor) -> anyhow::Result<()>;
 }
@@ -79,15 +79,15 @@ macro_rules! chunk_builder {
                 map
             }
 
-            pub fn new_chunk_processor(&self) -> sqd_data_core::ChunkProcessor {
+            pub fn new_chunk_processor(&self) -> anyhow::Result<sqd_data_core::ChunkProcessor> {
                 let mut tables = std::collections::BTreeMap::new();
                 $(
                 tables.insert(
                     stringify!($table),
-                    self.$table.new_table_processor()
+                    self.$table.new_table_processor()?
                 );
                 )*
-                sqd_data_core::ChunkProcessor::new(tables)
+                Ok(sqd_data_core::ChunkProcessor::new(tables))
             }
 
             pub fn submit_to_processor(&self, processor: &mut sqd_data_core::ChunkProcessor) -> anyhow::Result<()> {
@@ -138,7 +138,7 @@ macro_rules! chunk_builder {
                 self.as_slice_map()
             }
 
-            fn new_chunk_processor(&self) -> sqd_data_core::ChunkProcessor {
+            fn new_chunk_processor(&self) -> anyhow::Result<sqd_data_core::ChunkProcessor> {
                 self.new_chunk_processor()
             }
 

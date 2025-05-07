@@ -15,7 +15,7 @@ table_builder! {
 #[test]
 fn test_processor_reuse() -> anyhow::Result<()> {
     let mut table_builder = TableBuilder::new();
-    let mut processor = table_builder.new_table_processor();
+    let mut processor = table_builder.new_table_processor()?;
 
     for i in 0..10 {
         table_builder.col.append_option((i % 2 == 0).then_some(i));

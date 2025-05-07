@@ -184,7 +184,7 @@ impl WriteCtx {
         let desc = self.write.dataset_kind().dataset_description();
         let mut tables = BTreeMap::new();
 
-        for (name, prepared) in new_chunk.tables.iter_tables_mut() {
+        for (name, prepared) in new_chunk.tables.tables.iter_mut() {
             let mut builder = self.db.new_table_builder(prepared.schema());
 
             if let Some(table_desc) = desc.tables.get(name) {

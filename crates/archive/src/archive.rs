@@ -52,7 +52,7 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
         ),
     };
 
-    let processor = LineProcessor::new(chunk_builder);
+    let processor = LineProcessor::new(chunk_builder)?;
 
     let (chunk_sender, chunk_receiver) = tokio::sync::mpsc::channel(5);
 

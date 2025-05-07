@@ -26,14 +26,14 @@ pub struct LineProcessor {
 
 
 impl LineProcessor {
-    pub fn new(chain_builder: ChainBuilderBox) -> LineProcessor {
-        LineProcessor {
+    pub fn new(chain_builder: ChainBuilderBox) -> anyhow::Result<LineProcessor> {
+        Ok(LineProcessor {
             state: State {
-                processor: chain_builder.chunk_builder().new_chunk_processor(),
+                processor: chain_builder.chunk_builder().new_chunk_processor()?,
                 builder: chain_builder
             },
             memory_threshold: 40 * 1024 * 1024,
-        }
+        })
     }
 
     pub fn push(&mut self, block_json: &[u8]) -> anyhow::Result<()> {
@@ -83,7 +83,7 @@ impl LineProcessor {
             state.spill_on_disk()?;
         }
 
-        let new_processor = state.builder.chunk_builder().new_chunk_processor();
+        let new_processor = state.builder.chunk_builder().new_chunk_processor()?;
         let processor = std::mem::replace(&mut state.processor, new_processor);
         let prepared_chunk = processor.finish()?;
 
