@@ -606,7 +606,7 @@ async fn compaction_loop(
     mut enabled: tokio::sync::watch::Receiver<bool>
 ) {
     let mut skips = 0;
-    let skip_pause = [1, 2, 3, 4, 5, 10, 20];
+    let skip_pause = [1, 2, 3, 4, 5, 10, 20, 30, 60];
     loop {
         if enabled.borrow_and_update().clone() {
             let db = db.clone();
@@ -636,7 +636,7 @@ async fn compaction_loop(
                 },
                 Ok(CompactionStatus::NotingToCompact) => {
                     info!("nothing to compact");
-                    let pause = skip_pause[std::cmp::max(skips, skip_pause.len() - 1)];
+                    let pause = skip_pause[std::cmp::min(skips, skip_pause.len() - 1)];
                     tokio::time::sleep(Duration::from_secs(pause)).await;
                 },
                 Ok(CompactionStatus::Canceled) => {
@@ -647,9 +647,9 @@ async fn compaction_loop(
                     skips = 0;
                     error!(
                         reason =? err,
-                        "compaction failed, will try again in 5 minutes"
+                        "compaction failed, will try again in 1 minute"
                     );
-                    tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+                    tokio::time::sleep(Duration::from_secs(60)).await;
                 }
             }
         } else {
