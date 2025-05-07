@@ -64,19 +64,19 @@ where
 {
     fn push(&mut self, line: &[u8]) -> anyhow::Result<()> {
         let block: B::Block = serde_json::from_slice(line)?;
-        // if !self.last_block_hash.is_empty() {
-        //     ensure!(
-        //         &self.last_block_hash == block.parent_hash(),
-        //         "chain continuity was violated"
-        //     );
-        // }
+        if !self.last_block_hash.is_empty() {
+            ensure!(
+                &self.last_block_hash == block.parent_hash(),
+                "chain continuity was violated"
+            );
+        }
         self.chunk_builder.push(&block)?;
         self.last_block_number = block.number();
         self.last_block_hash.clear();
         self.last_block_hash.insert_str(0, block.hash());
-        // self.last_parent_block_number = block.parent_number();
-        // self.last_parent_block_hash.clear();
-        // self.last_parent_block_hash.insert_str(0, block.parent_hash());
+        self.last_parent_block_number = block.parent_number();
+        self.last_parent_block_hash.clear();
+        self.last_parent_block_hash.insert_str(0, block.parent_hash());
         Ok(())
     }
 

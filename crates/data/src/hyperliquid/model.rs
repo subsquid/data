@@ -18,6 +18,7 @@ pub struct Transaction {
 pub struct BlockHeader {
     pub height: BlockNumber,
     pub hash: String,
+    pub parent_hash: String,
     pub proposer: String,
     pub block_time: i64,
 }
@@ -34,16 +35,16 @@ impl sqd_primitives::Block for Block {
     fn number(&self) -> BlockNumber {
         self.header.height
     }
-    
+
     fn hash(&self) -> &str {
         &self.header.hash
     }
 
     fn parent_number(&self) -> BlockNumber {
-        unimplemented!()
+        self.header.height.saturating_sub(1)
     }
 
     fn parent_hash(&self) -> &str {
-        unimplemented!()
+        &self.header.parent_hash
     }
 }

@@ -96,7 +96,7 @@ impl Sink {
                 if chunk_first_block == next_block {
                     if let Some(prev_chunk_hash) = self.chunk_writer.prev_chunk_hash() {
                         let parent_hash = self.processor.last_parent_block_hash();
-                        // anyhow::ensure!(prev_chunk_hash == short_hash(parent_hash));
+                        anyhow::ensure!(prev_chunk_hash == short_hash(parent_hash));
                     }
                 }
 

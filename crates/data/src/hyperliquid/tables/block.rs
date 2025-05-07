@@ -7,6 +7,7 @@ table_builder! {
     BlockBuilder {
         number: UInt64Builder,
         hash: StringBuilder,
+        parent_hash: StringBuilder,
         proposer: StringBuilder,
         block_time: TimestampMillisecondBuilder,
     }
@@ -24,6 +25,7 @@ impl BlockBuilder {
     pub fn push(&mut self, block: &BlockHeader) {
         self.number.append(block.height);
         self.hash.append(&block.hash);
+        self.parent_hash.append(&block.parent_hash);
         self.proposer.append(&block.proposer);
         self.block_time.append(block.block_time);
     }
