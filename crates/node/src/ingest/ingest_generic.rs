@@ -39,7 +39,7 @@ impl Display for NewChunk {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f, 
-            "{}-{}-{} (finalized_head = {})", 
+            "{}-{}-{} with finalized_head = {}", 
             self.first_block, 
             self.last_block, 
             &self.last_block_hash,

@@ -1,9 +1,10 @@
 use crate::types::{DBRef, DatasetKind};
 use anyhow::{anyhow, bail, ensure};
 use either::Either;
-use sqd_primitives::{BlockNumber, BlockRef, DisplayBlockRefOption};
+use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_storage::db::{Chunk as StorageChunk, Chunk, DatasetId, DatasetUpdate};
 use std::fmt::{Display, Formatter};
+use tracing::field::valuable;
 use tracing::{info, instrument, warn, Level};
 
 
@@ -349,12 +350,12 @@ impl WriteController {
         })?;
 
         if let Some(new_head) = update {
-            info!(committed_finalized_head = %new_head, "committed");
+            info!(block_number = new_head.number, block_hash = new_head.hash, "saved new finalized head");
             self.finalized_head = Some(new_head);
         } else {
-            info!("ignored")
+            info!("finalized head was ignored")
         }
-        
+
         Ok(())
     }
 
@@ -362,7 +363,7 @@ impl WriteController {
         first_block = chunk.first_block(),
         last_block = chunk.last_block(),
         last_block_hash = %chunk.last_block_hash(),
-        finalized_head = %DisplayBlockRefOption(finalized_head),
+        finalized_head = valuable(&finalized_head),
     ))]
     pub fn new_chunk(
         &mut self,
@@ -403,8 +404,8 @@ impl WriteController {
         })?;
 
         info!(
-            finalized_head =% DisplayBlockRefOption(finalized_head.as_ref()),
-            "committed"
+            finalized_head = valuable(&finalized_head),
+            "saved new chunk"
         );
 
         self.finalized_head = finalized_head;

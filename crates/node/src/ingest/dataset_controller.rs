@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 use scopeguard::ScopeGuard;
 use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_polars::prelude::len;
-use sqd_primitives::{BlockNumber, BlockRef, DisplayBlockRefOption};
+use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_storage::db::{Chunk, CompactionStatus, Database, DatasetId};
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
@@ -327,7 +327,7 @@ impl Ctl {
             match self.write_epoch(std::mem::take(&mut maybe_write)).await {
                 Ok(_) => return,
                 Err(err) => {
-                    error!(reason =? err, "dataset update task failed, will restart it in 1 minute");
+                    error!(reason = ?err, "dataset update task failed, will restart it in 1 minute");
                     tokio::time::sleep(Duration::from_secs(60)).await
                 }
             }
