@@ -10,6 +10,7 @@ use crate::writer::{Writer, WriterItem};
 use anyhow::{ensure, Context};
 use prometheus_client::registry::Registry;
 use sqd_data::solana::tables::SolanaChunkBuilder;
+use sqd_data::hyperliquid::tables::HyperliquidChunkBuilder;
 use sqd_primitives::BlockNumber;
 use std::time::Duration;
 
@@ -49,6 +50,9 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
     let chunk_builder: ChainBuilderBox = match args.network_kind {
         NetworkKind::Solana => Box::new(
             ChainBuilder::<SolanaChunkBuilder>::default(),
+        ),
+        NetworkKind::Hyperliquid => Box::new(
+            ChainBuilder::<HyperliquidChunkBuilder>::default(),
         ),
     };
 
