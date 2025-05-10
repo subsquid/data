@@ -3,15 +3,15 @@ mod dataset_config;
 mod app;
 
 
-use std::io::IsTerminal;
 use crate::app::build_app;
 use crate::cli::CLI;
 use clap::Parser;
 use sqd_node::DBRef;
+use std::io::IsTerminal;
 use std::time::Duration;
 use tokio::signal;
 use tower_http::timeout::TimeoutLayer;
-use tracing::error;
+use tracing::{error, info, instrument};
 
 
 #[global_allocator]
@@ -94,13 +94,22 @@ async fn shutdown_signal() {
 }
 
 
+#[instrument(name = "db_cleanup", skip_all)]
 async fn db_cleanup_task(db: DBRef) {
+    tokio::time::sleep(Duration::from_secs(10)).await;
     loop {
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        info!("db cleanup started");
         let db = db.clone();
         let result = tokio::task::spawn_blocking(move || db.cleanup()).await;
         match result {
-            Ok(Ok(())) => {},
+            Ok(Ok(deleted)) => {
+                if deleted > 0 {
+                    info!("purged {} tables", deleted)
+                } else {
+                    info!("nothing to purge, pausing cleanup for 10 seconds");
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                }
+            },
             Ok(Err(err)) => error!(error =? err, "database cleanup task failed"),
             Err(_) => error!("database cleanup task panicked")
         }

@@ -226,7 +226,7 @@ impl Database {
         perform_dataset_compaction(&self.db, dataset_id, max_chunk_size, write_amplification_limit)
     }
 
-    pub fn cleanup(&self) -> anyhow::Result<()> {
+    pub fn cleanup(&self) -> anyhow::Result<usize> {
         deleted_deleted_tables(&self.db)
     }
 
