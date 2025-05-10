@@ -17,6 +17,9 @@ members = [
 ]
 resolver = "2"
 
+[profile.release]
+debug = true
+
 [workspace.dependencies]
 anyhow = "1.0.86"
 arrow = { version = "54.1.0", default-features = false }
