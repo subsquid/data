@@ -19,7 +19,7 @@ pub fn ingest<'a, 'b>(
 {
     match dataset_kind {
         DatasetKind::Evm => {
-            let data_source = StandardDataSource::new(data_clients, from_json_bytes);
+            let data_source = StandardDataSource::new(sources, from_json_bytes);
             let builder = sqd_data::evm::tables::EVMChunkBuilder::new();
             let ingest = IngestGeneric::new(
                 data_source,
