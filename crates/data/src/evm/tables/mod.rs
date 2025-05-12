@@ -21,7 +21,7 @@ chunk_builder! {
         transactions: TransactionBuilder,
         logs: LogBuilder,
         traces: TraceBuilder,
-        state_diffs: StateDiffBuilder,
+        statediffs: StateDiffBuilder,
     }
 }
 
@@ -42,7 +42,7 @@ impl sqd_data_core::BlockChunkBuilder for EVMChunkBuilder {
         }
 
         for row in block.state_diffs.iter().flatten() {
-            self.state_diffs.push(block, row);
+            self.statediffs.push(block, row);
         }
 
         for row in block.traces.iter().flatten() {
