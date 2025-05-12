@@ -24,24 +24,24 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     ])
     .add_child("logs", vec!["block_number", "transaction_index"])
     .add_child("traces", vec!["block_number", "transaction_index"])
-    .add_child("statediffs", vec!["block_number", "transaction_index"])
-    .set_weight_column("input", "input_size");
+    .add_child("statediffs", vec!["block_number", "transaction_index"]);
+    //.set_weight_column("input", "input_size");
 
     tables.add_table("logs", vec![
         "block_number",
         "log_index"
-    ])
-    .set_weight_column("data", "data_size");
+    ]);
+    // .set_weight_column("data", "data_size");
 
     tables.add_table("traces", vec![
         "block_number",
         "transaction_index",
         "trace_address"
-    ])
-    .set_weight_column("create_init", "create_init_size")
-    .set_weight_column("create_result_code", "create_result_code_size")
-    .set_weight_column("call_input", "call_input_size")
-    .set_weight_column("call_result_output", "call_result_output_size");
+    ]);
+    // .set_weight_column("create_init", "create_init_size")
+    // .set_weight_column("create_result_code", "create_result_code_size")
+    // .set_weight_column("call_input", "call_input_size")
+    // .set_weight_column("call_result_output", "call_result_output_size");
 
     tables.add_table("statediffs", vec![
         "block_number",
@@ -49,8 +49,8 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
         "address",
         "key"
     ])
-    .set_weight_column("prev", "prev_size")
-    .set_weight_column("next", "next_size")
+    // .set_weight_column("prev", "prev_size")
+    // .set_weight_column("next", "next_size")
     .set_result_item_name("stateDiffs");
 
     tables
@@ -208,16 +208,17 @@ item_field_selection! {
         this.transaction_hash,
         this.address,
         this.data,
-        |obj| {
-            if this.topics {
-                obj.add("topics", roll(Exp::Value, vec![
-                    "topic0",
-                    "topic1",
-                    "topic2",
-                    "topic3"
-                ]));
-            }
-        }
+        this.topics,
+        // |obj| {
+        //     if this.topics {
+        //         obj.add("topics", roll(Exp::Value, vec![
+        //             "topic0",
+        //             "topic1",
+        //             "topic2",
+        //             "topic3"
+        //         ]));
+        //     }
+        // }
     }}
 }
 
