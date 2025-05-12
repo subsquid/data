@@ -1,10 +1,6 @@
-use crate::types::{Base58Bytes, HexBytes, JsonValue};
-use anyhow::anyhow;
-use serde::{Deserialize, Serialize};
-use sqd_primitives::{BlockNumber, ItemIndex};
-
-
-pub type AccountIndex = u32;
+use crate::types::HexBytes;
+use serde::Deserialize;
+use sqd_primitives::BlockNumber;
 
 
 #[derive(Deserialize)]
@@ -34,185 +30,173 @@ pub struct BlockHeader {
     pub l1_block_number: Option<BlockNumber>,
 }
 
+#[derive(Deserialize)]
+pub struct EIP7702Authorization {
+    pub chain_id: u64,
+    pub address: HexBytes,
+    pub nonce: u64,
+    pub y_parity: u8,
+    pub r: HexBytes,
+    pub s: HexBytes,
+}
 
-// #[derive(Deserialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct AddressTableLookup {
-//     pub account_key: AccountIndex,
-//     pub readonly_indexes: Vec<u8>,
-//     pub writable_indexes: Vec<u8>,
-// }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Transaction {
+    pub transaction_index: u64,
+    pub hash: HexBytes,
+    pub nonce: u64,
+    pub from: HexBytes,
+    pub to: Option<HexBytes>,
+    pub input: HexBytes,
+    pub value: HexBytes,
+    #[serde(rename = "type")]
+    pub r#type: Option<u64>,
+    pub gas: HexBytes,
+    pub gas_price: Option<HexBytes>,
+    pub max_fee_per_gas: Option<HexBytes>,
+    pub max_priority_fee_per_gas: Option<HexBytes>,
+    pub v: Option<HexBytes>,
+    pub r: Option<HexBytes>,
+    pub s: Option<HexBytes>,
+    pub y_parity: Option<u8>,
+    pub chain_id: Option<u64>,
+    pub max_fee_per_blob_gas: Option<HexBytes>,
 
+    pub blob_versioned_hashes: Option<Vec<HexBytes>>,
+    // pub authorization_list: Option<Vec<EIP7702Authorization>>,
 
-// #[derive(Deserialize)]
-// pub struct LoadedAddresses {
-//     pub readonly: Vec<AccountIndex>,
-//     pub writable: Vec<AccountIndex>,
-// }
+    pub contract_address: Option<HexBytes>,
+    pub cumulative_gas_used: HexBytes,
+    pub effective_gas_price: HexBytes,
+    pub gas_used: HexBytes,
+    pub sighash: Option<HexBytes>,
+    pub status: Option<u8>,
 
+    pub l1_base_fee_scalar: Option<u64>,
+    pub l1_blob_base_fee: Option<HexBytes>,
+    pub l1_blob_base_fee_scalar: Option<u64>,
+    pub l1_fee: Option<HexBytes>,
+    pub l1_fee_scalar: Option<u64>,
+    pub l1_gas_price: Option<HexBytes>,
+    pub l1_gas_used: Option<HexBytes>,
+}
 
-// #[derive(Deserialize)]
-// #[serde(rename_all = "lowercase")]
-// pub enum TransactionVersion {
-//     Legacy,
-//     #[serde(untagged)]
-//     Other(u8),
-// }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Log {
+    pub log_index: u64,
+    pub transaction_index: u64,
+    pub transaction_hash: HexBytes,
+    pub address: HexBytes,
+    pub data: HexBytes,
+    pub topics: Vec<HexBytes>
+}
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceActionCreate {
+    pub from: HexBytes,
+    pub value: Option<HexBytes>,
+    pub gas: HexBytes,
+    pub init: HexBytes,
+    pub creation_method: Option<String>
+}
 
-// #[derive(Deserialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct Transaction {
-//     pub transaction_index: ItemIndex,
-//     pub version: TransactionVersion,
-//     pub account_keys: Vec<AccountIndex>,
-//     pub address_table_lookups: Vec<AddressTableLookup>,
-//     pub num_readonly_signed_accounts: u8,
-//     pub num_readonly_unsigned_accounts: u8,
-//     pub num_required_signatures: u8,
-//     pub recent_blockhash: Base58Bytes,
-//     pub signatures: Vec<Base58Bytes>,
-//     pub err: Option<JsonValue>,
-//     #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
-//     pub compute_units_consumed: Option<u64>,
-//     #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
-//     pub fee: u64,
-//     pub loaded_addresses: LoadedAddresses,
-//     pub has_dropped_log_messages: bool,
-// }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceActionCall {
+    pub from: HexBytes,
+    pub to: HexBytes,
+    pub value: Option<HexBytes>,
+    pub gas: HexBytes,
+    pub input: HexBytes,
+    pub call_type: String,
+    pub sighash: Option<HexBytes>,
+    pub r#type: String,
+}
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceActionReward {
+    pub author: HexBytes,
+    pub value: u64,
+    pub reward_type: String,
+}
 
-// #[derive(Deserialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct Instruction {
-//     pub transaction_index: ItemIndex,
-//     pub instruction_address: Vec<ItemIndex>,
-//     pub program_id: AccountIndex,
-//     pub accounts: Vec<AccountIndex>,
-//     pub data: Base58Bytes,
-//     #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
-//     pub compute_units_consumed: Option<u64>,
-//     #[serde(default)]
-//     pub error: Option<JsonValue>,
-//     pub is_committed: bool,
-//     pub has_dropped_log_messages: bool,
-// }
-
-
-// #[derive(Serialize, Deserialize)]
-// #[serde(rename_all = "lowercase")]
-// pub enum LogMessageKind {
-//     Log,
-//     Data,
-//     Other,
-// }
-
-
-// impl LogMessageKind {
-//     pub fn to_str(&self) -> &'static str {
-//         match self {
-//             LogMessageKind::Log => "log",
-//             LogMessageKind::Data => "data",
-//             LogMessageKind::Other => "other"
-//         }
-//     }
-// }
-
-
-// #[derive(Deserialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct LogMessage {
-//     pub transaction_index: ItemIndex,
-//     pub log_index: ItemIndex,
-//     pub instruction_address: Vec<ItemIndex>,
-//     pub program_id: AccountIndex,
-//     pub kind: LogMessageKind,
-//     pub message: String,
-// }
-
-
-// #[derive(Deserialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct Balance {
-//     pub transaction_index: ItemIndex,
-//     pub account: AccountIndex,
-//     #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
-//     pub pre: u64,
-//     #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
-//     pub post: u64,
-// }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceActionSelfdestruct {
+    pub address: HexBytes,
+    pub refund_address: HexBytes,
+    pub balance: u64
+}
 
 
-// #[derive(Deserialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct TokenBalance {
-//     pub transaction_index: ItemIndex,
-//     pub account: AccountIndex,
-//     #[serde(default)]
-//     pub pre_mint: Option<AccountIndex>,
-//     #[serde(default)]
-//     pub post_mint: Option<AccountIndex>,
-//     #[serde(default)]
-//     pub pre_decimals: Option<u16>,
-//     #[serde(default)]
-//     pub post_decimals: Option<u16>,
-//     #[serde(default)]
-//     pub pre_program_id: Option<AccountIndex>,
-//     #[serde(default)]
-//     pub post_program_id: Option<AccountIndex>,
-//     #[serde(default)]
-//     pub pre_owner: Option<AccountIndex>,
-//     #[serde(default)]
-//     pub post_owner: Option<AccountIndex>,
-//     #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
-//     pub pre_amount: Option<u64>,
-//     #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
-//     pub post_amount: Option<u64>,
-// }
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum TraceActionType {
+    TraceActionCreate(TraceActionCreate),
+    TraceActionCall(TraceActionCall),
+    TraceActionReward(TraceActionReward),
+    TraceActionSelfdestruct(TraceActionSelfdestruct),
+}
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceResultCreate {
+    pub gas_used: HexBytes,
+    pub code: HexBytes,
+    pub address: HexBytes,
+}
 
-// #[derive(Deserialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct Reward {
-//     pub pubkey: AccountIndex,
-//     #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
-//     pub lamports: i64,
-//     #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
-//     pub post_balance: u64,
-//     #[serde(default)]
-//     pub reward_type: Option<String>,
-//     #[serde(default)]
-//     pub commission: Option<u8>,
-// }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceResultCall {
+    pub gas_used: HexBytes,
+    pub output: Option<HexBytes>
+}
 
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum TraceResultType {
+    TraceResultCreate(TraceResultCreate),
+    TraceResultCall(TraceResultCall),
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Trace {
+    pub transaction_index: u64,
+    pub trace_address: Vec<u64>,
+    pub r#type: String,
+    pub subtraces: u64,
+    pub error: Option<String>,
+    pub revert_reason: Option<String>,
+    pub action: TraceActionType,
+    pub result: Option<TraceResultType>
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StateDiff {
+    pub transaction_index: u64,
+    pub address: HexBytes,
+    pub key: String,
+    pub kind: String,
+    pub prev: Option<HexBytes>,
+    pub next: Option<HexBytes>
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Block {
     pub header: BlockHeader,
-    // pub transactions: Vec<Transaction>,
-    // pub instructions: Vec<Instruction>,
-    // pub logs: Vec<LogMessage>,
-    // pub balances: Vec<Balance>,
-    // pub token_balances: Vec<TokenBalance>,
-    // pub rewards: Vec<Reward>,
-    // pub accounts: Vec<Base58Bytes>
+    pub transactions: Vec<Transaction>,
+    pub logs: Option<Vec<Log>>,
+    pub traces: Option<Vec<Trace>>,
+    pub state_diffs: Option<Vec<StateDiff>>,
 }
-
-
-// impl Block {
-//     pub fn get_account(&self, idx: AccountIndex) -> anyhow::Result<&str> {
-//         self.accounts.get(idx as usize).map(|s| s.as_str()).ok_or_else(|| {
-//             anyhow!(
-//                 "invalid account reference {} in block {}#{}", 
-//                 idx, 
-//                 self.header.number, 
-//                 self.header.hash
-//             )
-//         })
-//     }
-// }
-
 
 impl sqd_primitives::Block for Block {
     fn number(&self) -> BlockNumber {
