@@ -1,0 +1,12 @@
+[package]
+name = "sqd-bds"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+ouroboros = { workspace = true }
+scylla = { workspace = true }
+sqd-primitives = { path = "../primitives" }
+tokio = { workspace = true, features = ["full"] }

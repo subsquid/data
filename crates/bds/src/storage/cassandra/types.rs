@@ -1,0 +1,54 @@
+use crate::storage::cassandra::row_batch::Row;
+use crate::storage::{Block, BlockHeader};
+use anyhow::Context;
+use sqd_primitives::BlockNumber;
+
+
+impl Row for BlockHeader<'static> {
+    type Type<'a> = BlockHeader<'a>;
+    
+    type Tuple<'a> = (
+        i64, // number
+        &'a str, // hash
+        i64, // parent_number
+        &'a str, // parent_hash
+        Option<i64>, // block_timestamp
+        i64, // ingest_timestamp
+    );
+
+    fn convert(row: Self::Tuple<'_>) -> anyhow::Result<Self::Type<'_>> {
+        let number: BlockNumber = row.0.try_into().context("got negative block number")?;
+        let parent_number: BlockNumber = row.2.try_into().context("got negative parent block number")?;
+        Ok(BlockHeader {
+            number,
+            hash: row.1.into(),
+            parent_number,
+            parent_hash: row.3.into(),
+            block_timestamp: row.4,
+            ingest_timestamp: row.5
+        })
+    }
+
+    fn reborrow<'a, 'this>(slice: &'a [Self::Type<'this>]) -> &'a [Self::Type<'a>] {
+        slice
+    }
+}
+
+
+impl Row for Block<'static> {
+    type Type<'a> = Block<'a>;
+    
+    type Tuple<'a> = (<BlockHeader<'static> as Row>::Tuple<'a>, &'a [u8]);
+
+    fn convert(row: Self::Tuple<'_>) -> anyhow::Result<Self::Type<'_>> {
+        let header = BlockHeader::convert(row.0)?;
+        Ok(Block {
+            header,
+            data: row.1.into()
+        })
+    }
+
+    fn reborrow<'a, 'this>(slice: &'a [Self::Type<'this>]) -> &'a [Self::Type<'a>] {
+        slice
+    }
+}
