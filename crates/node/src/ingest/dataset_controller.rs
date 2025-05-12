@@ -636,6 +636,7 @@ async fn compaction_loop(
                 },
                 Ok(CompactionStatus::NotingToCompact) => {
                     info!("nothing to compact");
+                    skips += 1;
                     let pause = skip_pause[std::cmp::min(skips, skip_pause.len() - 1)];
                     tokio::time::sleep(Duration::from_secs(pause)).await;
                 },
