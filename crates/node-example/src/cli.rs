@@ -29,7 +29,10 @@ pub struct CLI {
     pub query_queue_size: Option<usize>,
 
     #[arg(long, hide = true)]
-    pub query_urgency: Option<usize>
+    pub query_urgency: Option<usize>,
+
+    #[arg(long, default_value = "3000")]
+    pub port: u16
 }
 
 
