@@ -6,9 +6,9 @@ use crate::node::query_response::QueryResponse;
 use crate::types::{DBRef, DatasetKind, RetentionStrategy};
 use anyhow::{anyhow, bail, ensure, Context};
 use futures::{FutureExt, StreamExt, TryStreamExt};
-use sqd_primitives::BlockRef;
+use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_query::Query;
-use sqd_storage::db::DatasetId;
+use sqd_storage::db::{DatabaseMetrics, DatasetId};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -125,6 +125,11 @@ impl Node {
     pub fn get_head(&self, dataset_id: DatasetId) -> Result<Option<BlockRef>, UnknownDataset> {
         self.get_dataset(dataset_id).map(|d| d.get_head())
     }
+
+    pub fn get_first_block(&self, dataset_id: DatasetId) -> Result<BlockNumber, UnknownDataset> {
+        self.get_dataset(dataset_id).map(|d| d.get_first_block_number())
+    }
+
     
     pub fn get_timestamp(&self, dataset_id: DatasetId) -> Result<Option<i64>, UnknownDataset> {
         self.get_dataset(dataset_id).map(|d| d.get_timestamp())
@@ -132,6 +137,18 @@ impl Node {
 
     pub fn retain(&self, dataset_id: DatasetId, retention_strategy: RetentionStrategy) {
         self.get_dataset(dataset_id).unwrap().retain(retention_strategy)
+    }
+
+    pub fn get_db_statistics(&self) -> Option<String> {
+        self.db.get_statistics()
+    }
+
+    pub fn get_db_metrics(&self) -> anyhow::Result<DatabaseMetrics> {
+        self.db.get_metrics()
+    }
+
+    pub fn get_all_datasets(&self) -> Vec<DatasetId> {
+        self.datasets.keys().copied().collect()
     }
 
     fn get_dataset(&self, dataset_id: DatasetId) -> Result<&DatasetController, UnknownDataset> {

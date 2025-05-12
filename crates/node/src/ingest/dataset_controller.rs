@@ -133,6 +133,11 @@ impl DatasetController {
         let _ = self.compaction_enabled_sender.send(yes);
     }
 
+    pub fn get_first_block_number(&self) -> BlockNumber {
+        // self.first_block_receiver.borrow().clone()
+        unimplemented!()
+    }
+
     pub fn retain(&self, strategy: RetentionStrategy) {
         self.retention_sender.send(strategy).unwrap()
     }
