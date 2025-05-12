@@ -56,7 +56,7 @@ fn main() -> anyhow::Result<()> {
 
             let app = build_app(node).layer(TimeoutLayer::new(Duration::from_secs(10)));
 
-            let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+            let listener = tokio::net::TcpListener::bind(("0.0.0.0", args.port)).await?;
 
             axum::serve(listener, app)
                 .with_graceful_shutdown(shutdown_signal())
