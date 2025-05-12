@@ -1,20 +1,15 @@
 mod common;
 mod block;
-// mod transaction;
-// mod instruction;
-// mod log_message;
-// mod balance;
-// mod token_balance;
-// mod reward;
+mod transaction;
+mod logs;
+mod state_diff;
+mod trace;
 
-
-// pub use balance::*;
 pub use block::*;
-// pub use instruction::*;
-// pub use log_message::*;
-// pub use reward::*;
-// pub use token_balance::*;
-// pub use transaction::*;
+pub use transaction::*;
+pub use logs::*;
+pub use state_diff::*;
+pub use trace::*;
 
 use super::model::Block;
 use sqd_data_core::chunk_builder;
@@ -23,12 +18,10 @@ use sqd_data_core::chunk_builder;
 chunk_builder! {
     EVMChunkBuilder {
         blocks: BlockBuilder,
-        // transactions: TransactionBuilder,
-        // instructions: InstructionBuilder,
-        // balances: BalanceBuilder,
-        // token_balances: TokenBalanceBuilder,
-        // logs: LogMessageBuilder,
-        // rewards: RewardBuilder,
+        transactions: TransactionBuilder,
+        logs: LogBuilder,
+        traces: TraceBuilder,
+        state_diffs: StateDiffBuilder,
     }
 }
 
@@ -37,32 +30,25 @@ impl sqd_data_core::BlockChunkBuilder for EVMChunkBuilder {
     type Block = Block;
 
     fn push(&mut self, block: &Self::Block) -> anyhow::Result<()> {
+        // println!("START PUSH");
         self.blocks.push(&block.header);
 
-        // for row in block.transactions.iter() {
-        //     self.transactions.push(block, row)?
-        // }
+        for row in block.transactions.iter() {
+            self.transactions.push(block, row);
+        }
 
-        // for row in block.instructions.iter() {
-        //     self.instructions.push(block, row)?
-        // }
+        for row in block.logs.iter().flatten() {
+            self.logs.push(block, row);
+        }
 
-        // for row in block.logs.iter() {
-        //     self.logs.push(block, row)?
-        // }
+        for row in block.state_diffs.iter().flatten() {
+            self.state_diffs.push(block, row);
+        }
 
-        // for row in block.balances.iter() {
-        //     self.balances.push(block, row)?
-        // }
-
-        // for row in block.token_balances.iter() {
-        //     self.token_balances.push(block, row)?
-        // }
-
-        // for row in block.rewards.iter() {
-        //     self.rewards.push(block, row)?
-        // }
-        
+        for row in block.traces.iter().flatten() {
+            self.traces.push(block, row);
+        }
+        // println!("END PUSH");
         Ok(())
     }
 }

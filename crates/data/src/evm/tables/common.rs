@@ -1,10 +1,7 @@
-use sqd_array::builder::{ListBuilder, StringBuilder, UInt32Builder, UInt8Builder};
+use sqd_array::builder::{ListBuilder, StringBuilder, UInt32Builder, UInt64Builder};
 
 
 pub type HexBytesBuilder = StringBuilder;
-// pub type JsonBuilder = StringBuilder;
-// pub type AccountListBuilder = ListBuilder<Base58Builder>;
-// pub type AccountIndexList = ListBuilder<UInt8Builder>;
-// pub type InstructionAddressListBuilder = ListBuilder<UInt32Builder>;
-// pub type SignatureListBuilder = ListBuilder<Base58Builder>;
-// pub type AddressListBuilder = ListBuilder<Base58Builder>;
+pub type BlobHashesListBuilder = ListBuilder<HexBytesBuilder>;
+pub type TopicListBuilder = ListBuilder<HexBytesBuilder>;
+pub type TraceAddressListBuilder = ListBuilder<UInt32Builder>;
