@@ -10,7 +10,7 @@ arrow-buffer = { workspace = true }
 borsh = { workspace = true }
 parking_lot = { workspace = true }
 rayon = { workspace = true }
-rocksdb = "0.22.0"
+rocksdb = { version = "0.23.0", features = ["jemalloc"] }
 uuid = { version = "1.8.0", features = ["v7", "borsh"] }
 sqd-array = { path = "../array" }
 sqd-primitives = { path = "../primitives", features = ["borsh", "sid", "range"] }
