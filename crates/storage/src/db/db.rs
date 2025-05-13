@@ -233,6 +233,14 @@ impl Database {
     pub fn get_statistics(&self) -> Option<String> {
         self.options.get_statistics()
     }
+
+    pub fn get_property(&self, cf: &str, name: &str) -> anyhow::Result<Option<String>> {
+        let Some(cf_handle) = self.db.cf_handle(cf) else {
+            return Ok(None)
+        };
+        let val = self.db.property_value_cf(cf_handle, name)?;
+        Ok(val)
+    }
 }
 
 

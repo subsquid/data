@@ -19,7 +19,8 @@ type NodeRef = Arc<Node>;
 pub fn build_app(node: NodeRef, db: DBRef) -> Router {
     Router::new()
         .route("/", get(|| async { "Welcome to SQD hot block data service!" }))
-        .route("/rocksdb-stats", get(get_rocks_stats))
+        .route("/rocksdb/stats", get(get_rocks_stats))
+        .route("/rocksdb/prop/{cf}/{name}", get(get_rocks_prop))
         .route("/datasets/{id}/stream", post(stream))
         .route("/datasets/{id}/finalized-head", get(get_finalized_head))
         .route("/datasets/{id}/head", get(get_head))
@@ -151,4 +152,17 @@ async fn get_rocks_stats(
     } else {
         (StatusCode::INTERNAL_SERVER_ERROR, "rocksdb stats are not enabled").into_response()
     }    
+}
+
+
+async fn get_rocks_prop(
+    Extension(db): Extension<DBRef>,
+    Path((cf, name)): Path<(String, String)>
+) -> Response
+{
+    match db.get_property(&cf, &name) {
+        Ok(Some(s)) => s.into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "property not found").into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{}", err)).into_response()
+    }
 }
