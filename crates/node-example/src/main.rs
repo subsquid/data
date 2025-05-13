@@ -52,9 +52,9 @@ fn main() -> anyhow::Result<()> {
         .block_on(async {
             let (node, db) = args.build_node().await?;
 
-            tokio::spawn(db_cleanup_task(db));
+            tokio::spawn(db_cleanup_task(db.clone()));
 
-            let app = build_app(node).layer(TimeoutLayer::new(Duration::from_secs(10)));
+            let app = build_app(node, db).layer(TimeoutLayer::new(Duration::from_secs(10)));
 
             let listener = tokio::net::TcpListener::bind(("0.0.0.0", args.port)).await?;
 
