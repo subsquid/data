@@ -67,6 +67,8 @@ impl DatabaseSettings {
         options.create_if_missing(true);
         options.create_missing_column_families(true);
         options.set_wal_compression_type(rocksdb::DBCompressionType::Zstd);
+        options.set_use_direct_reads(true);
+        options.set_use_direct_io_for_flush_and_compaction(true);
         if self.with_rocksdb_stats {
             options.enable_statistics();
         }
