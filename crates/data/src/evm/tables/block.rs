@@ -28,6 +28,8 @@ table_builder! {
         blob_gas_used: HexBytesBuilder,
         excess_blob_gas: HexBytesBuilder,
         l1_block_number: UInt64Builder,
+
+        extra_data_size: UInt64Builder,
     }
 
     description(d) {
@@ -63,5 +65,7 @@ impl BlockBuilder {
         self.blob_gas_used.append_option(row.blob_gas_used.as_deref());
         self.excess_blob_gas.append_option(row.excess_blob_gas.as_deref());
         self.l1_block_number.append_option(row.l1_block_number);
+
+        self.extra_data_size.append(row.extra_data.len() as u64);
     }
 }

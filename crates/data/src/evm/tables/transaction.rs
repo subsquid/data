@@ -55,6 +55,8 @@ table_builder! {
         l1_fee_scalar: UInt64Builder,
         l1_gas_price: HexBytesBuilder,
         l1_gas_used: HexBytesBuilder,
+
+        input_size: UInt64Builder,
     }
 
     description(d) {
@@ -123,6 +125,8 @@ impl TransactionBuilder {
         self.l1_fee_scalar.append_option(row.l1_fee_scalar);
         self.l1_gas_price.append_option(row.l1_gas_price.as_deref());
         self.l1_gas_used.append_option(row.l1_gas_used.as_deref());
+
+        self.input_size.append(row.input.len() as u64);
     }
 
 }

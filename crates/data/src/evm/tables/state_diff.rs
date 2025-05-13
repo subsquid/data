@@ -14,6 +14,9 @@ table_builder! {
         kind: StringBuilder,
         prev: HexBytesBuilder,
         next: HexBytesBuilder,
+
+        prev_size: UInt64Builder,
+        next_size: UInt64Builder,
     }
 
     description(d) {
@@ -35,5 +38,7 @@ impl StateDiffBuilder {
         self.prev.append_option(row.prev.as_deref());
         self.next.append_option(row.next.as_deref());
 
+        self.prev_size.append(row.prev.as_ref().map_or(0, |v| v.len()) as u64);
+        self.next_size.append(row.next.as_ref().map_or(0, |v| v.len()) as u64);
     }
 }

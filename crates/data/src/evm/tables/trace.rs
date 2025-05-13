@@ -40,6 +40,11 @@ table_builder! {
         reward_author: HexBytesBuilder,
         reward_value: UInt64Builder,
         reward_type: StringBuilder,
+
+        create_init_size: UInt64Builder,
+        create_result_code_size: UInt64Builder,
+        call_input_size: UInt64Builder,
+        call_result_output_size: UInt64Builder,
     }
 
     description(d) {
@@ -70,12 +75,14 @@ impl TraceBuilder {
             self.create_from.append(&action.from);
             self.create_value.append_option(action.value.as_deref());
             self.create_gas.append(&action.gas);
-            self.create_init.append(&action.init);       
+            self.create_init.append(&action.init);
+            self.create_init_size.append(action.init.len() as u64);
         } else {
             self.create_from.append_null();
             self.create_value.append_null();
             self.create_gas.append_null();
             self.create_init.append_null();
+            self.create_init_size.append(0);
         }
 
         if let TraceActionType::TraceActionCall(action) = &row.action {
@@ -87,7 +94,7 @@ impl TraceBuilder {
             self.call_sighash.append_option(action.sighash.as_deref());
             self.call_type.append(&action.r#type);
             self.call_call_type.append(&action.call_type);
-
+            self.call_input_size.append(action.input.len() as u64);
         } else {
             self.call_from.append_null();
             self.call_to.append_null();
@@ -97,6 +104,7 @@ impl TraceBuilder {
             self.call_sighash.append_null();
             self.call_type.append_null();
             self.call_call_type.append_null();
+            self.call_input_size.append(0);
         }
 
         if let TraceActionType::TraceActionReward(action) = &row.action {
@@ -123,18 +131,22 @@ impl TraceBuilder {
             self.create_result_gas_used.append(&result.gas_used);
             self.create_result_code.append(&result.code);
             self.create_result_address.append(&result.address);
+            self.create_result_code_size.append(result.code.len() as u64);
         } else {
             self.create_result_gas_used.append_null();
             self.create_result_code.append_null();
             self.create_result_address.append_null();
+            self.create_result_code_size.append(0);
         }
 
         if let Some(TraceResultType::TraceResultCall(result)) = &row.result {
             self.call_result_gas_used.append(&result.gas_used);
             self.call_result_output.append_option(result.output.as_deref());
+            self.call_result_output_size.append(result.output.as_ref().map_or(0, |v| v.len()) as u64);
         } else {
             self.call_result_gas_used.append_null();
             self.call_result_output.append_null();
+            self.call_result_output_size.append(0);
         }
     }
 }

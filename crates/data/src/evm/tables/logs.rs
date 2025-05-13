@@ -15,6 +15,8 @@ table_builder! {
         address: HexBytesBuilder,
         data: HexBytesBuilder,
         topics: TopicListBuilder,
+
+        data_size: UInt64Builder,
     }
 
     description(d) {
@@ -38,5 +40,7 @@ impl LogBuilder {
             self.topics.values().append(topic);
         }
         self.topics.append();
+
+        self.data_size.append(row.data.len() as u64);
     }
 }
