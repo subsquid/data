@@ -34,7 +34,8 @@ pub struct DatasetController {
     finalized_head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
     compaction_enabled_sender: tokio::sync::watch::Sender<bool>,
     task: JoinHandle<()>,
-    compaction_task: JoinHandle<()>
+    compaction_task: JoinHandle<()>,
+    db: DBRef,
 }
 
 
@@ -83,7 +84,7 @@ impl DatasetController {
         let task = tokio::spawn(ctl.run(write).in_current_span());
 
         let compaction_task = tokio::spawn(compaction_loop(
-            db,
+            db.clone(),
             dataset_id,
             compaction_enabled_receiver
         ).in_current_span());
@@ -96,7 +97,8 @@ impl DatasetController {
             finalized_head_receiver,
             compaction_enabled_sender,
             task,
-            compaction_task
+            compaction_task,
+            db,
         })
     }
 
@@ -124,9 +126,11 @@ impl DatasetController {
         let _ = self.compaction_enabled_sender.send(yes);
     }
 
-    pub fn get_first_block_number(&self) -> BlockNumber {
-        // self.first_block_receiver.borrow().clone()
-        unimplemented!()
+    pub fn get_first_block_number(&self) -> anyhow::Result<Option<BlockNumber>> {
+        self.db
+            .snapshot()
+            .get_first_chunk(self.dataset_id)
+            .map(|chunk| chunk.map(|c| c.first_block()))
     }
 
     pub fn retain(&self, strategy: RetentionStrategy) {

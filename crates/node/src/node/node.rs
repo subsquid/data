@@ -126,8 +126,10 @@ impl Node {
         self.get_dataset(dataset_id).map(|d| d.get_head())
     }
 
-    pub fn get_first_block(&self, dataset_id: DatasetId) -> Result<BlockNumber, UnknownDataset> {
-        self.get_dataset(dataset_id).map(|d| d.get_first_block_number())
+    pub fn get_first_block(&self, dataset_id: DatasetId) -> anyhow::Result<Option<BlockNumber>> {
+        self.get_dataset(dataset_id)
+            .map_err(Into::into)
+            .and_then(|d| d.get_first_block_number())
     }
 
     
