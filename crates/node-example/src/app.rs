@@ -7,7 +7,7 @@ use axum::routing::{get, post};
 use axum::{BoxError, Extension, Json, Router};
 use futures::TryStream;
 use serde::Serialize;
-use sqd_node::{Node, Query, QueryResponse};
+use sqd_node::{DBRef, Node, Query, QueryResponse};
 use sqd_primitives::BlockRef;
 use sqd_storage::db::DatasetId;
 use std::sync::Arc;
@@ -16,13 +16,15 @@ use std::sync::Arc;
 type NodeRef = Arc<Node>;
 
 
-pub fn build_app(node: NodeRef) -> Router {
+pub fn build_app(node: NodeRef, db: DBRef) -> Router {
     Router::new()
         .route("/", get(|| async { "Welcome to SQD hot block data service!" }))
+        .route("/rocksdb-stats", get(get_rocks_stats))
         .route("/datasets/{id}/stream", post(stream))
         .route("/datasets/{id}/finalized-head", get(get_finalized_head))
         .route("/datasets/{id}/head", get(get_head))
         .layer(Extension(node))
+        .layer(Extension(db))
 }
 
 
@@ -137,4 +139,16 @@ async fn get_head(
         Ok(head) => (StatusCode::OK, Json(head)).into_response(),
         Err(err) => (StatusCode::NOT_FOUND, format!("{}", err)).into_response()
     }
+}
+
+
+async fn get_rocks_stats(
+    Extension(db): Extension<DBRef>
+) -> Response 
+{
+    if let Some(stats) = db.get_statistics() {
+        stats.into_response()
+    } else {
+        (StatusCode::INTERNAL_SERVER_ERROR, "rocksdb stats are not enabled").into_response()
+    }    
 }
