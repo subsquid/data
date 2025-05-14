@@ -31,7 +31,8 @@ pub(super) type RocksSnapshot<'a, DB> = rocksdb::SnapshotWithThreadMode<'a, DB>;
 pub struct DatabaseSettings {
     chunk_cache_size: usize,
     data_cache_size: usize,
-    with_rocksdb_stats: bool
+    with_rocksdb_stats: bool,
+    direct_io: bool
 }
 
 
@@ -40,7 +41,8 @@ impl Default for DatabaseSettings {
         Self {
             chunk_cache_size: 64,
             data_cache_size: 256,
-            with_rocksdb_stats: false
+            with_rocksdb_stats: false,
+            direct_io: false
         }
     }
 }
@@ -62,6 +64,11 @@ impl DatabaseSettings {
         self
     }
     
+    pub fn with_direct_io(mut self, yes: bool) -> Self {
+        self.direct_io = yes;
+        self
+    }
+
     fn db_options(&self) -> RocksOptions {
         let mut options = RocksOptions::default();
         options.create_if_missing(true);
@@ -69,6 +76,10 @@ impl DatabaseSettings {
         options.set_wal_compression_type(rocksdb::DBCompressionType::Zstd);
         if self.with_rocksdb_stats {
             options.enable_statistics();
+        }
+        if self.direct_io {
+            options.set_use_direct_reads(true);
+            options.set_use_direct_io_for_flush_and_compaction(true);
         }
         options
     }
