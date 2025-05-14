@@ -1,5 +1,4 @@
 use crate::evm::model::{Block, Log};
-use crate::evm::tables::common::*;
 use sqd_array::builder::UInt64Builder;
 use sqd_data_core::table_builder;
 
@@ -14,8 +13,10 @@ table_builder! {
         transaction_hash: HexBytesBuilder,
         address: HexBytesBuilder,
         data: HexBytesBuilder,
-        topics: TopicListBuilder,
-
+        topic0: HexBytesBuilder,
+        topic1: HexBytesBuilder,
+        topic2: HexBytesBuilder,
+        topic3: HexBytesBuilder,
         data_size: UInt64Builder,
     }
 
@@ -36,10 +37,11 @@ impl LogBuilder {
         self.transaction_hash.append(&row.transaction_hash);
         self.address.append(&row.address);
         self.data.append(&row.data);
-        for topic in &row.topics {
-            self.topics.values().append(topic);
-        }
-        self.topics.append();
+
+        self.topic0.append_option(row.topics.first().map(|x| x.as_str()));
+        self.topic1.append_option(row.topics.get(1).map(|x| x.as_str()));
+        self.topic2.append_option(row.topics.get(2).map(|x| x.as_str()));
+        self.topic3.append_option(row.topics.get(3).map(|x| x.as_str()));
 
         self.data_size.append(row.data.len() as u64);
     }

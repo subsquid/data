@@ -208,17 +208,16 @@ item_field_selection! {
         this.transaction_hash,
         this.address,
         this.data,
-        this.topics,
-        // |obj| {
-        //     if this.topics {
-        //         obj.add("topics", roll(Exp::Value, vec![
-        //             "topic0",
-        //             "topic1",
-        //             "topic2",
-        //             "topic3"
-        //         ]));
-        //     }
-        // }
+        |obj| {
+            if this.topics {
+                obj.add("topics", roll(Exp::Value, vec![
+                    "topic0",
+                    "topic1",
+                    "topic2",
+                    "topic3"
+                ]));
+            }
+        }
     }}
 }
 
