@@ -24,7 +24,12 @@ table_builder! {
         d.downcast.item_index = vec!["transaction_index"];
         d.sort_key = vec!["block_number", "transaction_index", "key"];
         d.options.add_stats("block_number");
-        d.options.row_group_size = 5_000;
+        d.options.add_stats("transaction_index");
+        d.options.add_stats("address");
+        d.options.add_stats("key");
+        d.options.use_dictionary("address");
+        d.options.use_dictionary("kind");
+        d.options.row_group_size = 10_000;
     }
 }
 
