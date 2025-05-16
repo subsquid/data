@@ -6,13 +6,14 @@ use crate::db::write::tx::Tx;
 use crate::db::{Chunk, ChunkReader, DatasetId, ReadSnapshot, TableBuilder};
 use arrow::datatypes::SchemaRef;
 use sqd_primitives::BlockNumber;
-use std::cmp::max;
+use std::cmp::{max, min};
 use std::collections::BTreeMap;
 
 
 pub const MAX_CHUNK_SIZE: usize = 200_000;
 pub const WA_LIMIT: f64 = 1.9;
 pub const MERGE_HORIZON: usize = 500;
+pub const COMPACTION_LEN_LIMIT: usize = 10;
 
 pub enum CompactionStatus {
     Ok(Vec<MergedChunk>),
@@ -32,6 +33,7 @@ pub fn perform_dataset_compaction(
     dataset_id: DatasetId,
     max_chunk_size: Option<usize>,
     write_amplification_limit: Option<f64>,
+    compaction_len_limit: Option<usize>,
 ) -> anyhow::Result<CompactionStatus>
 {
     DatasetCompaction {
@@ -41,6 +43,7 @@ pub fn perform_dataset_compaction(
         merge: Vec::new(),
         max_chunk_size: max_chunk_size.unwrap_or(MAX_CHUNK_SIZE),
         write_amplification_limit: write_amplification_limit.unwrap_or(WA_LIMIT),
+        compaction_len_limit: compaction_len_limit.unwrap_or(COMPACTION_LEN_LIMIT),
     }
     .execute()
 }
@@ -52,6 +55,7 @@ struct DatasetCompaction<'a> {
     merge: Vec<ChunkReader<'a>>,
     max_chunk_size: usize,
     write_amplification_limit: f64,
+    compaction_len_limit: usize,
 }
 
 impl<'a> DatasetCompaction<'a> {
@@ -191,18 +195,20 @@ impl<'a> DatasetCompaction<'a> {
         end: usize,
         chunk_size_threshold: usize,
         wa_threshold: f64,
+        len_limit: usize
     ) -> Option<(usize, usize, usize)> {
         if start + 1 >= end {
             return None;
         }
         let left = start;
         let mut right = left + 1;
+        let right_limit = min(end, start + len_limit);
         loop {
             let score = Self::score_merge(&chunk_sizes[left..right], Some(wa_threshold));
             if score >= chunk_size_threshold {
                 return Some((left, right, score));
             }
-            if right < end {
+            if right < right_limit {
                 right += 1;
                 continue;
             }
@@ -217,11 +223,11 @@ impl<'a> DatasetCompaction<'a> {
             .position(|element| element == max_el)
             .unwrap();
         let left_range =
-            Self::find_range(chunk_sizes, start, start + max_idx, *max_el, wa_threshold);
+            Self::find_range(chunk_sizes, start, start + max_idx, *max_el, wa_threshold, len_limit);
         if left_range.is_some() {
             return left_range;
         }
-        Self::find_range(chunk_sizes, start + max_idx + 1, end, *max_el, wa_threshold)
+        Self::find_range(chunk_sizes, start + max_idx + 1, end, *max_el, wa_threshold, len_limit)
     }
 
     fn prepare_merge_plan(&mut self) -> anyhow::Result<()> {
@@ -305,6 +311,7 @@ impl<'a> DatasetCompaction<'a> {
                 continous_run.len(),
                 self.max_chunk_size,
                 self.write_amplification_limit,
+                self.compaction_len_limit
             );
             if let Some((left, right, score)) = range_option {
                 skip_chunks += left;
