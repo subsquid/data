@@ -15,7 +15,7 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     tables.add_table("blocks", vec![
         "number"
     ])
-    .set_weight("logs_bloom", 256)
+    .set_weight("logs_bloom", 512)
     .set_weight_column("extra_data", "extra_data_size");
 
     tables.add_table("transactions", vec![
@@ -29,7 +29,6 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
 
     tables.add_table("logs", vec![
         "block_number",
-        "transaction_index",
         "log_index"
     ])
     .set_weight_column("data", "data_size");
