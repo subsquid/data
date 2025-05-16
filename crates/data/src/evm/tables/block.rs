@@ -36,13 +36,6 @@ table_builder! {
         d.downcast.block_number = vec!["number"];
         d.sort_key = vec!["number"];
         d.options.add_stats("number");
-        d.options.use_dictionary("extra_data");
-        d.options.use_dictionary("miner");
-        d.options.use_dictionary("nonce");
-        d.options.use_dictionary("gas_limit");
-        d.options.use_dictionary("total_difficulty");
-        d.options.use_dictionary("blob_gas_used");
-        d.options.use_dictionary("excess_blob_gas");
         d.options.row_group_size = 5_000;
     }
 }
