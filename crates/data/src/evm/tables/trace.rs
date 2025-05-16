@@ -1,5 +1,5 @@
 use crate::evm::model::{Block, Trace, TraceActionType, TraceResultType};
-use sqd_array::builder::{StringBuilder, UInt64Builder};
+use sqd_array::builder::{StringBuilder, UInt64Builder, UInt32Builder};
 use sqd_data_core::table_builder;
 
 use super::common::{HexBytesBuilder, TraceAddressListBuilder};
@@ -8,7 +8,7 @@ use super::common::{HexBytesBuilder, TraceAddressListBuilder};
 table_builder! {
     TraceBuilder {
         block_number: UInt64Builder,
-        transaction_index: UInt64Builder,
+        transaction_index: UInt32Builder,
         trace_address: TraceAddressListBuilder,
         subtraces: UInt64Builder,
         r#type: StringBuilder,

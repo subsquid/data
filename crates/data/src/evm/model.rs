@@ -1,6 +1,6 @@
 use crate::types::HexBytes;
 use serde::Deserialize;
-use sqd_primitives::BlockNumber;
+use sqd_primitives::{BlockNumber, ItemIndex};
 
 
 #[derive(Deserialize)]
@@ -43,7 +43,7 @@ pub struct EIP7702Authorization {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Transaction {
-    pub transaction_index: u64,
+    pub transaction_index: ItemIndex,
     pub hash: HexBytes,
     pub nonce: u64,
     pub from: HexBytes,
@@ -85,8 +85,8 @@ pub struct Transaction {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Log {
-    pub log_index: u64,
-    pub transaction_index: u64,
+    pub log_index: ItemIndex,
+    pub transaction_index: ItemIndex,
     pub transaction_hash: HexBytes,
     pub address: HexBytes,
     pub data: HexBytes,
@@ -167,7 +167,7 @@ pub enum TraceResultType {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Trace {
-    pub transaction_index: u64,
+    pub transaction_index: ItemIndex,
     pub trace_address: Vec<u64>,
     pub r#type: String,
     pub subtraces: u64,
@@ -180,7 +180,7 @@ pub struct Trace {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StateDiff {
-    pub transaction_index: u64,
+    pub transaction_index: ItemIndex,
     pub address: HexBytes,
     pub key: String,
     pub kind: String,

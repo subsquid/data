@@ -1,6 +1,6 @@
 use crate::evm::model::{Block, Transaction};
 use crate::evm::tables::common::*;
-use sqd_array::builder::{UInt64Builder, UInt8Builder};
+use sqd_array::builder::{UInt64Builder, UInt8Builder, UInt32Builder};
 use sqd_data_core::table_builder;
 
 use super::common::HexBytesBuilder;
@@ -20,7 +20,7 @@ use super::common::HexBytesBuilder;
 table_builder! {
     TransactionBuilder {
         block_number: UInt64Builder,
-        transaction_index: UInt64Builder,
+        transaction_index: UInt32Builder,
         hash: HexBytesBuilder,
         nonce: UInt64Builder,
         from: HexBytesBuilder,

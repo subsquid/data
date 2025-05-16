@@ -1,5 +1,5 @@
 use crate::evm::model::{Block, Log};
-use sqd_array::builder::UInt64Builder;
+use sqd_array::builder::{UInt64Builder, UInt32Builder};
 use sqd_data_core::table_builder;
 
 use super::common::HexBytesBuilder;
@@ -8,8 +8,8 @@ use super::common::HexBytesBuilder;
 table_builder! {
     LogBuilder {
         block_number: UInt64Builder,
-        log_index: UInt64Builder,
-        transaction_index: UInt64Builder,
+        log_index: UInt32Builder,
+        transaction_index: UInt32Builder,
         transaction_hash: HexBytesBuilder,
         address: HexBytesBuilder,
         data: HexBytesBuilder,
