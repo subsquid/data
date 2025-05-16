@@ -18,7 +18,18 @@ pub fn ingest<'a, 'b>(
 ) -> BoxFuture<'b, anyhow::Result<()>> 
 {
     match dataset_kind {
-        DatasetKind::Evm => unimplemented!(),
+        DatasetKind::Evm => {
+            let data_source = StandardDataSource::new(sources, from_json_bytes);
+            let builder = sqd_data::evm::tables::EVMChunkBuilder::new();
+            let ingest = IngestGeneric::new(
+                data_source,
+                builder,
+                first_block,
+                parent_block_hash.map(|s| s.to_string()),
+                message_sender
+            );
+            ingest.run().boxed()
+        },
         DatasetKind::Solana => {
             let data_source = StandardDataSource::new(sources, from_json_bytes);
             let builder = sqd_data::solana::tables::SolanaChunkBuilder::new();
