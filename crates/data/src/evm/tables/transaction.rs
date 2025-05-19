@@ -68,6 +68,8 @@ table_builder! {
         d.options.add_stats("to");
         d.options.add_stats("from");
         d.options.add_stats("sighash");
+        d.options.use_dictionary("to");
+        d.options.use_dictionary("sighash");
         d.options.row_group_size = 10_000;
     }
 }
