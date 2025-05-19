@@ -50,14 +50,16 @@ table_builder! {
     description(d) {
         d.downcast.block_number = vec!["block_number"];
         d.downcast.item_index = vec!["transaction_index"];
-        d.sort_key = vec!["block_number", "transaction_index", "trace_address"];
+        d.sort_key = vec!["type", "create_from", "call_sighash", "call_to", "block_number", "transaction_index", "trace_address"];
         d.options.add_stats("block_number");
         d.options.add_stats("transaction_index");
         d.options.add_stats("type");
+        d.options.add_stats("create_from");
         d.options.add_stats("call_from");
         d.options.add_stats("call_to");
         d.options.add_stats("call_sighash");
         d.options.use_dictionary("type");
+        d.options.use_dictionary("create_from");
         d.options.use_dictionary("call_from");
         d.options.use_dictionary("call_to");
         d.options.use_dictionary("call_sighash");
