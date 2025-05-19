@@ -209,7 +209,7 @@ impl sqd_primitives::Block for Block {
 
     fn parent_number(&self) -> BlockNumber {
         if self.header.number > 0 {
-            self.header.number - 1
+            self.header.number.saturating_sub(1)
         } else {
             0
         }
