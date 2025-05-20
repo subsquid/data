@@ -1,4 +1,4 @@
-use crate::evm::model::{Block, Trace, TraceActionType, TraceResultType};
+use crate::evm::model::{Block, Trace, TraceOp};
 use sqd_array::builder::{StringBuilder, UInt64Builder, UInt32Builder};
 use sqd_data_core::table_builder;
 
@@ -10,7 +10,7 @@ table_builder! {
         block_number: UInt64Builder,
         transaction_index: UInt32Builder,
         trace_address: TraceAddressListBuilder,
-        subtraces: UInt64Builder,
+        subtraces: UInt32Builder,
         r#type: StringBuilder,
         error: StringBuilder,
         revert_reason: StringBuilder,
@@ -74,30 +74,45 @@ impl TraceBuilder {
         self.transaction_index.append(row.transaction_index);
 
         for address in &row.trace_address {
-            self.trace_address.values().append(*address as u32);
+            self.trace_address.values().append(*address);
         }
         self.trace_address.append();
 
         self.subtraces.append(row.subtraces);
-        self.r#type.append(&row.r#type);
         self.error.append_option(row.error.as_deref());
         self.revert_reason.append_option(row.revert_reason.as_deref());
-
-        if let TraceActionType::TraceActionCreate(action) = &row.action {
+        if let TraceOp::Create { action, result } = &row.op {
+            self.r#type.append("create");
             self.create_from.append(&action.from);
             self.create_value.append_option(action.value.as_deref());
             self.create_gas.append(&action.gas);
             self.create_init.append(&action.init);
             self.create_init_size.append(action.init.len() as u64);
+            if let Some(res) = result {
+                self.create_result_gas_used.append(&res.gas_used);
+                self.create_result_code.append(&res.code);
+                self.create_result_address.append(&res.address);
+                self.create_result_code_size.append(res.code.len() as u64);
+            } else {
+                self.create_result_gas_used.append_null();
+                self.create_result_code.append_null();
+                self.create_result_address.append_null();
+                self.create_result_code_size.append(0);
+            }
         } else {
             self.create_from.append_null();
             self.create_value.append_null();
             self.create_gas.append_null();
             self.create_init.append_null();
             self.create_init_size.append(0);
+            self.create_result_gas_used.append_null();
+            self.create_result_code.append_null();
+            self.create_result_address.append_null();
+            self.create_result_code_size.append(0);
         }
 
-        if let TraceActionType::TraceActionCall(action) = &row.action {
+        if let TraceOp::Call { action, result } = &row.op {
+            self.r#type.append("call");
             self.call_from.append(&action.from);
             self.call_to.append(&action.to);
             self.call_value.append_option(action.value.as_deref());
@@ -107,6 +122,15 @@ impl TraceBuilder {
             self.call_type.append(&action.r#type);
             self.call_call_type.append(&action.call_type);
             self.call_input_size.append(action.input.len() as u64);
+            if let Some(res) = result {
+                self.call_result_gas_used.append(&res.gas_used);
+                self.call_result_output.append_option(res.output.as_deref());
+                self.call_result_output_size.append(res.output.as_ref().map_or(0, |v| v.len()) as u64);
+            } else {
+                self.call_result_gas_used.append_null();
+                self.call_result_output.append_null();
+                self.call_result_output_size.append(0);
+            }
         } else {
             self.call_from.append_null();
             self.call_to.append_null();
@@ -117,19 +141,24 @@ impl TraceBuilder {
             self.call_type.append_null();
             self.call_call_type.append_null();
             self.call_input_size.append(0);
+            self.call_result_gas_used.append_null();
+            self.call_result_output.append_null();
+            self.call_result_output_size.append(0);
         }
 
-        if let TraceActionType::TraceActionReward(action) = &row.action {
+        if let TraceOp::Reward { action } = &row.op {
+            self.r#type.append("reward");
             self.reward_author.append(&action.author);
             self.reward_value.append(action.value);
             self.reward_type.append(&action.reward_type);
         } else {
             self.reward_author.append_null();
-            self.reward_value.append_option(None); //WTF
+            self.reward_value.append_option(None);
             self.reward_type.append_null();
         }
 
-        if let TraceActionType::TraceActionSelfdestruct(action) = &row.action {
+        if let TraceOp::Selfdestruct{ action} = &row.op {
+            self.r#type.append("selfdestruct");
             self.suicide_address.append(&action.address);
             self.suicide_refund_address.append(&action.refund_address);
             self.suicide_balance.append(action.balance);
@@ -139,26 +168,6 @@ impl TraceBuilder {
             self.suicide_balance.append_option(None);
         }
 
-        if let Some(TraceResultType::TraceResultCreate(result)) = &row.result {
-            self.create_result_gas_used.append(&result.gas_used);
-            self.create_result_code.append(&result.code);
-            self.create_result_address.append(&result.address);
-            self.create_result_code_size.append(result.code.len() as u64);
-        } else {
-            self.create_result_gas_used.append_null();
-            self.create_result_code.append_null();
-            self.create_result_address.append_null();
-            self.create_result_code_size.append(0);
-        }
 
-        if let Some(TraceResultType::TraceResultCall(result)) = &row.result {
-            self.call_result_gas_used.append(&result.gas_used);
-            self.call_result_output.append_option(result.output.as_deref());
-            self.call_result_output_size.append(result.output.as_ref().map_or(0, |v| v.len()) as u64);
-        } else {
-            self.call_result_gas_used.append_null();
-            self.call_result_output.append_null();
-            self.call_result_output_size.append(0);
-        }
     }
 }

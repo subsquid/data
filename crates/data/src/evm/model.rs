@@ -132,16 +132,6 @@ pub struct TraceActionSelfdestruct {
     pub balance: u64
 }
 
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-pub enum TraceActionType {
-    TraceActionCreate(TraceActionCreate),
-    TraceActionCall(TraceActionCall),
-    TraceActionReward(TraceActionReward),
-    TraceActionSelfdestruct(TraceActionSelfdestruct),
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceResultCreate {
@@ -158,23 +148,38 @@ pub struct TraceResultCall {
 }
 
 #[derive(Deserialize)]
-#[serde(untagged)]
-pub enum TraceResultType {
-    TraceResultCreate(TraceResultCreate),
-    TraceResultCall(TraceResultCall),
+#[serde(rename_all = "camelCase")]
+pub struct Trace {
+    pub transaction_index: u32,
+    pub trace_address: Vec<u32>,
+    pub subtraces: u32,
+    pub error: Option<String>,
+    pub revert_reason: Option<String>,
+    #[serde(flatten)]
+    pub op: TraceOp
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Trace {
-    pub transaction_index: ItemIndex,
-    pub trace_address: Vec<u64>,
-    pub r#type: String,
-    pub subtraces: u64,
-    pub error: Option<String>,
-    pub revert_reason: Option<String>,
-    pub action: TraceActionType,
-    pub result: Option<TraceResultType>
+#[serde(tag = "type")]
+pub enum TraceOp {
+    #[serde(rename = "create")]
+    Create {
+        action: TraceActionCreate,
+        result: Option<TraceResultCreate>
+    },
+    #[serde(rename = "call")]
+    Call {
+        action: TraceActionCall,
+        result: Option<TraceResultCall>
+    },
+    #[serde(rename = "selfdestruct")]
+    Selfdestruct {
+        action: TraceActionSelfdestruct
+    },
+    #[serde(rename = "reward")]
+    Reward {
+        action: TraceActionReward
+    }
 }
 
 #[derive(Deserialize)]
