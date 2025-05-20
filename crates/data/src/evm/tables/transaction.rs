@@ -1,21 +1,21 @@
 use crate::evm::model::{Block, Transaction};
 use crate::evm::tables::common::*;
-use sqd_array::builder::{UInt64Builder, UInt8Builder, UInt32Builder};
-use sqd_data_core::table_builder;
+use sqd_array::builder::{UInt64Builder, UInt8Builder, UInt32Builder, ListBuilder};
+use sqd_data_core::{struct_builder, table_builder};
 
 use super::common::HexBytesBuilder;
 
-// type EIP7702AuthorizationListBuilder = ListBuilder<EIP7702AuthorizationBuilder>;
-// struct_builder! {
-//     EIP7702AuthorizationBuilder {
-//         chain_id: UInt64Builder,
-//         address: HexBytesBuilder,
-//         nonce: UInt64Builder,
-//         y_parity: UInt8Builder,
-//         r: HexBytesBuilder,
-//         s: HexBytesBuilder,
-//     }
-// }
+type EIP7702AuthorizationListBuilder = ListBuilder<EIP7702AuthorizationBuilder>;
+struct_builder! {
+    EIP7702AuthorizationBuilder {
+        chain_id: UInt64Builder,
+        address: HexBytesBuilder,
+        nonce: UInt64Builder,
+        y_parity: UInt8Builder,
+        r: HexBytesBuilder,
+        s: HexBytesBuilder,
+    }
+}
 
 table_builder! {
     TransactionBuilder {
@@ -39,7 +39,7 @@ table_builder! {
         chain_id: UInt64Builder,
         max_fee_per_blob_gas: HexBytesBuilder,
         blob_versioned_hashes: BlobHashesListBuilder,
-        // authorization_list: EIP7702AuthorizationListBuilder,
+        authorization_list: EIP7702AuthorizationListBuilder,
 
         contract_address: HexBytesBuilder,
         cumulative_gas_used: HexBytesBuilder,
@@ -105,17 +105,18 @@ impl TransactionBuilder {
         self.blob_versioned_hashes.append();
         
 
-        // for auth in row.authorization_list.iter().flatten() {
-        //     let item = self.authorization_list.values();
-        //     item.chain_id.append(auth.chain_id);
-        //     item.address.append(&auth.address);
-        //     item.nonce.append(auth.nonce);
-        //     item.y_parity.append(auth.y_parity);
-        //     item.r.append(&auth.r);
-        //     item.s.append(&auth.s);
-        // }
+        for auth in row.authorization_list.iter().flatten() {
+            let item = self.authorization_list.values();
+            item.chain_id.append_option(auth.chain_id);
+            item.address.append(&auth.address);
+            item.nonce.append(auth.nonce);
+            item.y_parity.append_option(auth.y_parity);
+            item.r.append(&auth.r);
+            item.s.append(&auth.s);
+            item.append_valid();
+        }
 
-        // self.authorization_list.append();
+        self.authorization_list.append();
 
         self.contract_address.append_option(row.contract_address.as_deref());
         self.cumulative_gas_used.append(&row.cumulative_gas_used);

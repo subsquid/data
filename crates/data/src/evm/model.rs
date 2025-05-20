@@ -32,10 +32,10 @@ pub struct BlockHeader {
 
 #[derive(Deserialize)]
 pub struct EIP7702Authorization {
-    pub chain_id: u64,
+    pub chain_id: Option<u64>,
     pub address: HexBytes,
     pub nonce: u64,
-    pub y_parity: u8,
+    pub y_parity: Option<u8>,
     pub r: HexBytes,
     pub s: HexBytes,
 }
@@ -64,7 +64,7 @@ pub struct Transaction {
     pub max_fee_per_blob_gas: Option<HexBytes>,
 
     pub blob_versioned_hashes: Option<Vec<HexBytes>>,
-    // pub authorization_list: Option<Vec<EIP7702Authorization>>,
+    pub authorization_list: Option<Vec<EIP7702Authorization>>,
 
     pub contract_address: Option<HexBytes>,
     pub cumulative_gas_used: HexBytes,
