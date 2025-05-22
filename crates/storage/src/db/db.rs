@@ -228,13 +228,14 @@ impl Database {
     }
 
     pub fn perform_dataset_compaction(
-        &self, 
-        dataset_id: DatasetId, 
-        max_chunk_size: Option<usize>, 
-        write_amplification_limit: Option<f64>
-    ) -> anyhow::Result<CompactionStatus> 
+        &self,
+        dataset_id: DatasetId,
+        max_chunk_size: Option<usize>,
+        write_amplification_limit: Option<f64>,
+        compaction_len_limit: Option<usize>,
+    ) -> anyhow::Result<CompactionStatus>
     {
-        perform_dataset_compaction(&self.db, dataset_id, max_chunk_size, write_amplification_limit)
+        perform_dataset_compaction(&self.db, dataset_id, max_chunk_size, write_amplification_limit, compaction_len_limit)
     }
 
     pub fn cleanup(&self) -> anyhow::Result<usize> {

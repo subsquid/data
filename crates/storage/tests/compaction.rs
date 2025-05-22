@@ -17,7 +17,7 @@ mod utils;
 
 
 fn compact(db: &Database, dataset_id: DatasetId) -> anyhow::Result<CompactionStatus> {
-    db.perform_dataset_compaction(dataset_id, Some(100), Some(1.25))
+    db.perform_dataset_compaction(dataset_id, Some(100), Some(1.25), None)
 }
 
 
@@ -96,9 +96,11 @@ fn compaction_wo_tables_test() {
         chunks.push(chunk);
     }
     validate_chunks(&db, dataset_id, chunks.iter().collect());
-    
-    compact(&db, dataset_id).unwrap();
-    compact(&db, dataset_id).unwrap();
+
+    while matches!(
+        db.perform_dataset_compaction(dataset_id, Some(100), Some(1.25), None),
+        Ok(CompactionStatus::Ok(_))
+    ) {}
 
     let chungus1 = Chunk::V0 {
         first_block: 0,
@@ -261,7 +263,7 @@ fn compaction_plan_test_execution(
             );
             assert!(db.insert_chunk(dataset_id, &chunk).is_ok());
             if compact_on_each_insert {
-                db.perform_dataset_compaction(dataset_id, Some(max_chunk_size), Some(wa_limit)).unwrap();
+                db.perform_dataset_compaction(dataset_id, Some(max_chunk_size), Some(wa_limit), None).unwrap();
             }
             chunks.push(chunk);
             global_data.extend(data);
@@ -274,7 +276,7 @@ fn compaction_plan_test_execution(
     }
 
     while matches!(
-        db.perform_dataset_compaction(dataset_id, Some(max_chunk_size), Some(wa_limit)),
+        db.perform_dataset_compaction(dataset_id, Some(max_chunk_size), Some(wa_limit), None),
         Ok(CompactionStatus::Ok(_))
     ) {}
 
