@@ -107,10 +107,10 @@ impl TransactionBuilder {
 
         for auth in row.authorization_list.iter().flatten() {
             let item = self.authorization_list.values();
-            item.chain_id.append_option(auth.chain_id);
+            item.chain_id.append(auth.chain_id);
             item.address.append(&auth.address);
             item.nonce.append(auth.nonce);
-            item.y_parity.append_option(auth.y_parity);
+            item.y_parity.append(auth.y_parity);
             item.r.append(&auth.r);
             item.s.append(&auth.s);
             item.append_valid();

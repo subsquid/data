@@ -31,11 +31,12 @@ pub struct BlockHeader {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EIP7702Authorization {
-    pub chain_id: Option<u64>,
+    pub chain_id: u64,
     pub address: HexBytes,
     pub nonce: u64,
-    pub y_parity: Option<u8>,
+    pub y_parity: u8,
     pub r: HexBytes,
     pub s: HexBytes,
 }
