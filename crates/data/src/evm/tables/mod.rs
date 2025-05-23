@@ -30,7 +30,6 @@ impl sqd_data_core::BlockChunkBuilder for EVMChunkBuilder {
     type Block = Block;
 
     fn push(&mut self, block: &Self::Block) -> anyhow::Result<()> {
-        // println!("START PUSH");
         self.blocks.push(&block.header);
 
         for row in block.transactions.iter() {
@@ -48,7 +47,6 @@ impl sqd_data_core::BlockChunkBuilder for EVMChunkBuilder {
         for row in block.traces.iter().flatten() {
             self.traces.push(block, row);
         }
-        // println!("END PUSH");
         Ok(())
     }
 }
