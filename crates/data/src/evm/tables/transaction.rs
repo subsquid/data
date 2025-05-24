@@ -1,9 +1,10 @@
 use crate::evm::model::{Block, Transaction};
 use crate::evm::tables::common::*;
-use sqd_array::builder::{UInt64Builder, UInt8Builder, UInt32Builder, ListBuilder};
+use sqd_array::builder::{ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder};
 use sqd_data_core::{struct_builder, table_builder};
 
 use super::common::HexBytesBuilder;
+
 
 type EIP7702AuthorizationListBuilder = ListBuilder<EIP7702AuthorizationBuilder>;
 struct_builder! {
@@ -122,7 +123,7 @@ impl TransactionBuilder {
         self.cumulative_gas_used.append(&row.cumulative_gas_used);
         self.effective_gas_price.append(&row.effective_gas_price);
         self.gas_used.append(&row.gas_used);
-        self.sighash.append_option(row.sighash.as_deref());
+        self.sighash.append_option(sighash(&row.input));
         self.status.append_option(row.status);
 
         self.l1_base_fee_scalar.append_option(row.l1_base_fee_scalar);

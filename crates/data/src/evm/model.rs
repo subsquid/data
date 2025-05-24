@@ -71,7 +71,6 @@ pub struct Transaction {
     pub cumulative_gas_used: HexBytes,
     pub effective_gas_price: HexBytes,
     pub gas_used: HexBytes,
-    pub sighash: Option<HexBytes>,
     pub status: Option<u8>,
 
     pub l1_base_fee_scalar: Option<u64>,
@@ -113,7 +112,6 @@ pub struct TraceActionCall {
     pub gas: HexBytes,
     pub input: HexBytes,
     pub call_type: String,
-    pub sighash: Option<HexBytes>,
     pub r#type: String,
 }
 

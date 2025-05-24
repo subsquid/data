@@ -1,8 +1,7 @@
+use super::common::{sighash, HexBytesBuilder, TraceAddressListBuilder};
 use crate::evm::model::{Block, Trace, TraceOp};
-use sqd_array::builder::{StringBuilder, UInt64Builder, UInt32Builder};
+use sqd_array::builder::{StringBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
-
-use super::common::{HexBytesBuilder, TraceAddressListBuilder};
 
 
 table_builder! {
@@ -118,7 +117,7 @@ impl TraceBuilder {
             self.call_value.append_option(action.value.as_deref());
             self.call_gas.append(&action.gas);
             self.call_input.append(&action.input);
-            self.call_sighash.append_option(action.sighash.as_deref());
+            self.call_sighash.append_option(sighash(&action.input));
             self.call_type.append(&action.r#type);
             self.call_call_type.append(&action.call_type);
             self.call_input_size.append(action.input.len() as u64);
@@ -167,7 +166,5 @@ impl TraceBuilder {
             self.suicide_refund_address.append_null();
             self.suicide_balance.append_option(None);
         }
-
-
     }
 }
