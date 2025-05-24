@@ -157,7 +157,7 @@ impl TraceBuilder {
             self.reward_type.append_null();
         }
 
-        if let TraceOp::Selfdestruct{ action} = &row.op {
+        if let TraceOp::SelfDestruct { action} = &row.op {
             self.r#type.append("suicide");
             self.suicide_address.append(&action.address);
             self.suicide_refund_address.append(&action.refund_address);

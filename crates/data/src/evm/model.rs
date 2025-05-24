@@ -127,7 +127,7 @@ pub struct TraceActionReward {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TraceActionSelfdestruct {
+pub struct TraceActionSelfDestruct {
     pub address: HexBytes,
     pub refund_address: HexBytes,
     pub balance: u64
@@ -174,8 +174,8 @@ pub enum TraceOp {
         result: Option<TraceResultCall>
     },
     #[serde(rename = "selfdestruct")]
-    Selfdestruct {
-        action: TraceActionSelfdestruct
+    SelfDestruct {
+        action: TraceActionSelfDestruct
     },
     #[serde(rename = "reward")]
     Reward {

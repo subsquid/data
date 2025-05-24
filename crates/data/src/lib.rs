@@ -1,4 +1,4 @@
-pub mod solana;
-pub mod hyperliquid;
 pub mod evm;
+pub mod hyperliquid;
+pub mod solana;
 mod types;
