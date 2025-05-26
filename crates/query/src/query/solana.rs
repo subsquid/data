@@ -3,9 +3,9 @@ use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
 use crate::primitives::BlockNumber;
+use anyhow::ensure;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
-use anyhow::ensure;
 
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
@@ -168,6 +168,10 @@ item_field_selection! {
         d2,
         d4,
         d8,
+        anchor_event_d1,
+        anchor_event_d2,
+        anchor_event_d4,
+        anchor_event_d8,
         error,
         compute_units_consumed,
         is_committed,
@@ -211,6 +215,10 @@ item_field_selection! {
             [this.d2]: HexNum,
             [this.d4]: HexNum,
             [this.d8]: HexNum,
+            [this.anchor_event_d1]: HexNum,
+            [this.anchor_event_d2]: HexNum,
+            [this.anchor_event_d4]: HexNum,
+            [this.anchor_event_d8]: HexNum,
             [this.error]: Value,
             [this.compute_units_consumed]: BigNum,
             [this.is_committed]: Value,
@@ -344,6 +352,7 @@ request! {
         pub transaction_token_balances: bool,
         pub transaction_instructions: bool,
         pub inner_instructions: bool,
+        pub parent_instructions: bool,
         pub logs: bool,
     }
 }
@@ -408,12 +417,82 @@ impl InstructionRequest {
         if self.inner_instructions {
             scan.include_children();
         }
+        if self.parent_instructions {
+            scan.include_parents();
+        }
         if self.logs {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index", "instruction_address"],
                 vec!["block_number", "transaction_index", "instruction_address"],
             );
+        }
+    }
+}
+
+
+request! {
+    pub struct AnchorEventRequest {
+        pub program_id: Option<Vec<Base58Bytes>>,
+        pub d1: Option<Vec<Bytes>>,
+        pub d2: Option<Vec<Bytes>>,
+        pub d4: Option<Vec<Bytes>>,
+        pub d8: Option<Vec<Bytes>>,
+        pub is_committed: Option<bool>,
+        pub transaction: bool,
+        pub transaction_balances: bool,
+        pub transaction_token_balances: bool,
+        pub transaction_instructions: bool,
+        pub parent_instructions: bool,
+    }
+}
+
+
+impl AnchorEventRequest {
+    fn predicate(&self, p: &mut PredicateBuilder) {
+        p.col_in_list("program_id", self.program_id.clone());
+        if self.d1.is_none() && self.d2.is_none() && self.d4.is_none() && self.d8.is_none() {
+            p.col_eq("d8", Some(0xe445a52e51cb9a1du64));
+        } else {
+            p.col_in_list("anchor_event_d1", self.d1.as_ref().map(convert_from_hex_lossy::<u8>));
+            p.col_in_list("anchor_event_d2", self.d2.as_ref().map(convert_from_hex_lossy::<u16>));
+            p.col_in_list("anchor_event_d4", self.d4.as_ref().map(convert_from_hex_lossy::<u32>));
+            p.col_in_list("anchor_event_d8", self.d8.as_ref().map(convert_from_hex_lossy::<u64>));
+        }
+        p.col_eq("is_committed", self.is_committed);
+    }
+
+    fn relations(&self, scan: &mut ScanBuilder) {
+        if self.transaction {
+            scan.join(
+                "transactions",
+                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"],
+            );
+        }
+        if self.transaction_balances {
+            scan.join(
+                "balances",
+                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"],
+            );
+        }
+        if self.transaction_token_balances {
+            scan.join(
+                "token_balances",
+                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"],
+            );
+        }
+        if self.transaction_instructions {
+            scan.join(
+                "instructions",
+                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
+            );
+        }
+        if self.parent_instructions {
+            scan.include_parents();
         }
     }
 }
@@ -613,6 +692,7 @@ request! {
         pub balances: Vec<BalanceRequest>,
         pub token_balances: Vec<TokenBalanceRequest>,
         pub rewards: Vec<RewardRequest>,
+        pub anchor_events: Vec<AnchorEventRequest>,
     }
 }
 
@@ -620,7 +700,7 @@ request! {
 impl SolanaQuery {
     pub fn validate(&self) -> anyhow::Result<()> {
         ensure_block_range!(self);
-        ensure_item_count!(self, transactions, instructions, logs, balances, token_balances, rewards);
+        ensure_item_count!(self, transactions, instructions, anchor_events, logs, balances, token_balances, rewards);
         for (i, tx) in self.transactions.iter().enumerate() {
             let len = tx.mentions_account.as_ref().map_or(0, |list| list.len());
             ensure!(
@@ -657,6 +737,7 @@ impl SolanaQuery {
             balances,
             token_balances,
             rewards,
+            <anchor_events: instructions>,
         )
     }
 }

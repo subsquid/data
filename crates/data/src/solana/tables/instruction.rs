@@ -46,6 +46,11 @@ table_builder! {
         d4: UInt32Builder,
         d8: UInt64Builder,
 
+        anchor_event_d1: UInt8Builder,
+        anchor_event_d2: UInt16Builder,
+        anchor_event_d4: UInt32Builder,
+        anchor_event_d8: UInt64Builder,
+
         accounts_size: UInt64Builder,
         data_size: UInt64Builder,
     }
@@ -56,6 +61,7 @@ table_builder! {
         d.sort_key = vec![
             "d1",
             "program_id",
+            "anchor_event_d1",
             "block_number",
             "transaction_index"
         ];
@@ -63,6 +69,10 @@ table_builder! {
         d.options.add_stats("d2");
         d.options.add_stats("d4");
         d.options.add_stats("d8");
+        d.options.add_stats("anchor_event_d1");
+        d.options.add_stats("anchor_event_d2");
+        d.options.add_stats("anchor_event_d4");
+        d.options.add_stats("anchor_event_d8");
         d.options.add_stats("program_id");
         d.options.add_stats("block_number");
         d.options.use_dictionary("program_id");
@@ -84,6 +94,13 @@ table_builder! {
         d.options.use_dictionary("rest_accounts.list.element");
         d.options.row_group_size = 20_000;
     }
+}
+
+
+macro_rules! desc {
+    ($ty:ty, $data:expr) => {
+        $data.get(..size_of::<$ty>()).map(|slice| <$ty>::from_be_bytes(slice.try_into().unwrap()))
+    };
 }
 
 
@@ -141,23 +158,25 @@ impl InstructionBuilder {
 
         // discriminators
         let data = bs58::decode(&row.data).into_vec().context("failed to decode instruction data")?;
-        self.d1.append_option(
-            data.get(..1)
-                .map(|slice| u8::from_be_bytes(slice.try_into().unwrap()))
-        );
-        self.d2.append_option(
-            data.get(..2)
-                .map(|slice| u16::from_be_bytes(slice.try_into().unwrap()))
-        );
-        self.d4.append_option(
-            data.get(..4)
-                .map(|slice| u32::from_be_bytes(slice.try_into().unwrap()))
-        );
-        self.d8.append_option(
-            data.get(..8)
-                .map(|slice| u64::from_be_bytes(slice.try_into().unwrap()))
-        );
-        
+        self.d1.append_option(desc!(u8, data));
+        self.d2.append_option(desc!(u16, data));
+        self.d4.append_option(desc!(u32, data));
+        let d8 = desc!(u64, data);
+        self.d8.append_option(d8);
+
+        if d8 == Some(0xe445a52e51cb9a1d) {
+            let event_data = &data[8..];
+            self.anchor_event_d1.append_option(desc!(u8, event_data));
+            self.anchor_event_d2.append_option(desc!(u16, event_data));
+            self.anchor_event_d4.append_option(desc!(u32, event_data));
+            self.anchor_event_d8.append_option(desc!(u64, event_data));
+        } else {
+            self.anchor_event_d1.append_option(None);
+            self.anchor_event_d2.append_option(None);
+            self.anchor_event_d4.append_option(None);
+            self.anchor_event_d8.append_option(None);
+        }
+
         Ok(())
     }
 
