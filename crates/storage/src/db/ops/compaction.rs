@@ -142,8 +142,8 @@ impl<'a> DatasetCompaction<'a> {
             last_block: last_chunk.last_block(),
             last_block_hash: last_chunk.last_block_hash().to_string(),
             parent_block_hash: first_chunk.base_block_hash().to_string(),
-            first_block_time: first_chunk.chunk().first_block_timestamp(),
-            last_block_time: last_chunk.chunk().last_block_timestamp(),
+            first_block_time: first_chunk.chunk().first_block_time(),
+            last_block_time: last_chunk.chunk().last_block_time(),
             tables,
         }
     }

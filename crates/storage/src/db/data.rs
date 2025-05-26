@@ -159,17 +159,17 @@ impl Chunk {
         }
     }
     
-    pub fn first_block_timestamp(&self) -> Option<i64> {
+    pub fn first_block_time(&self) -> Option<i64> {
         match self {
             Chunk::V0 { .. } => None,
-            Chunk::V1 { first_block_time: first_block_timestamp, .. } => *first_block_timestamp
+            Chunk::V1 { first_block_time, .. } => *first_block_time
         }
     }
 
-    pub fn last_block_timestamp(&self) -> Option<i64> {
+    pub fn last_block_time(&self) -> Option<i64> {
         match self {
             Chunk::V0 { .. } => None,
-            Chunk::V1 { last_block_time: last_block_timestamp, .. } => *last_block_timestamp
+            Chunk::V1 { last_block_time, .. } => *last_block_time
         }
     }
 
