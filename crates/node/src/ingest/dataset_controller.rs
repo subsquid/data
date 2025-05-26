@@ -203,11 +203,13 @@ impl WriteCtx {
             );
         }
 
-        let chunk = Chunk::V0 {
+        let chunk = Chunk::V1 {
             parent_block_hash: new_chunk.parent_block_hash,
             first_block: new_chunk.first_block,
             last_block: new_chunk.last_block,
             last_block_hash: new_chunk.last_block_hash,
+            first_block_time: new_chunk.first_block_time,
+            last_block_time: new_chunk.last_block_time,
             tables
         };
 

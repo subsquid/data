@@ -47,7 +47,7 @@ pub trait Block {
 
     fn parent_hash(&self) -> &str;
 
-    fn timestamp(&self) -> Option<SystemTime> {
+    fn timestamp(&self) -> Option<i64> {
         None
     }
 }

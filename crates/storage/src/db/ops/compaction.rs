@@ -133,11 +133,13 @@ impl<'a> DatasetCompaction<'a> {
     fn make_chunk(&self, tables: BTreeMap<String, TableId>) -> Chunk {
         let first_chunk = &self.merge[0];
         let last_chunk = self.merge.last().unwrap();
-        Chunk::V0 {
+        Chunk::V1 {
             first_block: first_chunk.first_block(),
             last_block: last_chunk.last_block(),
             last_block_hash: last_chunk.last_block_hash().to_string(),
             parent_block_hash: first_chunk.base_block_hash().to_string(),
+            first_block_time: first_chunk.chunk().first_block_timestamp(),
+            last_block_time: last_chunk.chunk().last_block_timestamp(),
             tables,
         }
     }

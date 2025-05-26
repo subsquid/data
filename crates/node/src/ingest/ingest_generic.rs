@@ -1,5 +1,5 @@
 use crate::ingest::write_controller::Rollback;
-use anyhow::ensure;
+use anyhow::{anyhow, ensure};
 use chrono::{DateTime, Utc};
 use futures::{SinkExt, StreamExt};
 use parking_lot::Mutex;
@@ -31,6 +31,8 @@ pub struct NewChunk {
     pub first_block: BlockNumber,
     pub last_block: BlockNumber,
     pub last_block_hash: String,
+    pub first_block_time: Option<i64>,
+    pub last_block_time: Option<i64>,
     pub tables: PreparedChunk
 }
 
@@ -107,9 +109,10 @@ pub struct IngestGeneric<DC, CB> {
     buffered_blocks: usize,
     parent_block_hash: String,
     first_block: BlockNumber,
+    first_block_time: Option<i64>,
     last_block: BlockNumber,
     last_block_hash: String,
-    last_block_time: Option<SystemTime>
+    last_block_time: Option<i64>
 }
 
 
@@ -135,6 +138,7 @@ where
             buffered_blocks: 0,
             parent_block_hash: String::new(),
             first_block,
+            first_block_time: None,
             last_block: 0,
             last_block_hash: String::new(),
             last_block_time: None
@@ -199,6 +203,7 @@ where
         if self.buffered_blocks == 0 {
             self.parent_block_hash.clear();
             self.parent_block_hash.push_str(block.parent_hash());
+            self.first_block_time = block.timestamp();
         } else {
             ensure!(
                 self.last_block_hash == block.parent_hash(),
@@ -238,7 +243,11 @@ where
         let last_block = self.last_block;
         let last_block_hash = self.last_block_hash.clone();
 
-        let last_block_time: DateTime<Utc> = self.last_block_time.unwrap_or(UNIX_EPOCH).into();
+        let last_block_time = DateTime::<Utc>::from_timestamp_millis(
+            self.last_block_time.unwrap_or(0)
+        ).ok_or_else(|| {
+            anyhow!("block time is out of range")
+        })?;
 
         info!(
             first_block = first_block,
@@ -260,6 +269,8 @@ where
             first_block,
             last_block,
             last_block_hash,
+            first_block_time: self.first_block_time,
+            last_block_time: self.last_block_time,
             tables
         })).await?;
 

@@ -47,4 +47,8 @@ impl sqd_primitives::Block for Block {
     fn parent_hash(&self) -> &str {
         &self.header.parent_hash
     }
+
+    fn timestamp(&self) -> Option<i64> {
+        Some(self.header.block_time * 1000)
+    }
 }

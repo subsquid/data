@@ -25,11 +25,13 @@ fn compact(db: &Database, dataset_id: DatasetId) -> anyhow::Result<CompactionSta
 fn small_chunks_test() {
     let (db, dataset_id) = setup_db();
 
-    let chunk1 = Chunk::V0 {
+    let chunk1 = Chunk::V1 {
         first_block: 0,
         last_block: 0,
         last_block_hash: "last_1".to_owned(),
         parent_block_hash: "base".to_owned(),
+        first_block_time: Some(5),
+        last_block_time: None,
         tables: Default::default(),
     };
     let chunk2 = Chunk::V0 {
@@ -46,11 +48,13 @@ fn small_chunks_test() {
         parent_block_hash: "last_2".to_owned(),
         tables: Default::default(),
     };
-    let chunk4 = Chunk::V0 {
+    let chunk4 = Chunk::V1 {
         first_block: 3,
         last_block: 3,
         last_block_hash: "last_4".to_owned(),
         parent_block_hash: "last_3".to_owned(),
+        first_block_time: None,
+        last_block_time: Some(10),
         tables: Default::default(),
     };
 
@@ -67,11 +71,13 @@ fn small_chunks_test() {
 
     compact(&db, dataset_id).unwrap();
 
-    let compacted = Chunk::V0 {
+    let compacted = Chunk::V1 {
         first_block: 0,
         last_block: 3,
         last_block_hash: "last_4".to_owned(),
         parent_block_hash: "base".to_owned(),
+        first_block_time: Some(5),
+        last_block_time: Some(10),
         tables: Default::default(),
     };
     validate_chunks(&db, dataset_id, [&compacted].to_vec());
@@ -100,18 +106,22 @@ fn compaction_wo_tables_test() {
     compact(&db, dataset_id).unwrap();
     compact(&db, dataset_id).unwrap();
 
-    let chungus1 = Chunk::V0 {
+    let chungus1 = Chunk::V1 {
         first_block: 0,
         last_block: 99,
         last_block_hash: "last_100".to_owned(),
         parent_block_hash: "last_0".to_owned(),
+        first_block_time: None,
+        last_block_time: None,
         tables: Default::default(),
     };
-    let chungus2 = Chunk::V0 {
+    let chungus2 = Chunk::V1 {
         first_block: 100,
         last_block: 149,
         last_block_hash: "last_150".to_owned(),
         parent_block_hash: "last_100".to_owned(),
+        first_block_time: None,
+        last_block_time: None,
         tables: Default::default(),
     };
     validate_chunks(&db, dataset_id, [&chungus1, &chungus2].to_vec());
