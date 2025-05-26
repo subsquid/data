@@ -617,7 +617,7 @@ async fn compaction_loop(
                 let _s = span.enter();
                 info!("compaction started");
                 warn_on_tx_restart! {
-                    db.perform_dataset_compaction(dataset_id, None, None)
+                    db.perform_dataset_compaction(dataset_id, None, None, None)
                 }
             }).await {
                 Ok(res) => res,
