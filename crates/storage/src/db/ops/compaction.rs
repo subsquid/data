@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 pub const MAX_CHUNK_SIZE: usize = 200_000;
 pub const WA_LIMIT: f64 = 1.9;
 pub const MERGE_HORIZON: usize = 500;
-pub const COMPACTION_LEN_LIMIT: usize = 10;
+pub const COMPACTION_LEN_LIMIT: usize = 50;
 
 pub enum CompactionStatus {
     Ok(Vec<MergedChunk>),
