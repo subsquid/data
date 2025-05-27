@@ -434,6 +434,7 @@ impl InstructionRequest {
 request! {
     pub struct AnchorEventRequest {
         pub program_id: Option<Vec<Base58Bytes>>,
+        pub authority: Option<Vec<Base58Bytes>>,
         pub d1: Option<Vec<Bytes>>,
         pub d2: Option<Vec<Bytes>>,
         pub d4: Option<Vec<Bytes>>,
@@ -451,6 +452,7 @@ request! {
 impl AnchorEventRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_in_list("program_id", self.program_id.clone());
+        p.col_in_list("a0", self.authority.clone());
         if self.d1.is_none() && self.d2.is_none() && self.d4.is_none() && self.d8.is_none() {
             p.col_eq("d8", Some(0xe445a52e51cb9a1du64));
         } else {
