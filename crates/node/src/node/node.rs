@@ -126,6 +126,10 @@ impl Node {
         self.get_dataset(dataset_id).map(|d| d.get_head())
     }
     
+    pub fn get_timestamp(&self, dataset_id: DatasetId) -> Result<Option<i64>, UnknownDataset> {
+        self.get_dataset(dataset_id).map(|d| d.get_timestamp())
+    }
+
     pub fn retain(&self, dataset_id: DatasetId, retention_strategy: RetentionStrategy) {
         self.get_dataset(dataset_id).unwrap().retain(retention_strategy)
     }

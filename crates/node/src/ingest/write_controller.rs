@@ -23,6 +23,7 @@ pub struct WriteController {
     dataset_kind: DatasetKind,
     first_block: BlockNumber,
     parent_block_hash: Option<String>,
+    timestamp: Option<i64>,
     first_chunk_head: Option<BlockRef>,
     head: Option<BlockRef>,
     finalized_head: Option<BlockRef>
@@ -42,6 +43,11 @@ impl WriteController {
         let label = snapshot.get_label(dataset_id)?;
         let first_chunk = snapshot.get_first_chunk(dataset_id)?;
         let last_chunk = snapshot.get_last_chunk(dataset_id)?;
+        let timestamp = match last_chunk {
+            Some(StorageChunk::V1 { last_block_time, .. }) => last_block_time,
+            Some(..) => None,
+            None => None,
+        };
         
         let mut controller = Self {
             db: db.clone(),
@@ -51,7 +57,8 @@ impl WriteController {
             parent_block_hash: first_chunk.as_ref().map(|c| c.last_block_hash().to_string()),
             first_chunk_head: first_chunk.as_ref().map(get_chunk_head),
             head: last_chunk.as_ref().map(get_chunk_head),
-            finalized_head: label.and_then(|l| l.finalized_head().cloned())
+            finalized_head: label.and_then(|l| l.finalized_head().cloned()),
+            timestamp,
         };
         
         Ok(controller)
@@ -86,7 +93,11 @@ impl WriteController {
     pub fn head(&self) -> Option<&BlockRef> {
         self.head.as_ref()
     }
-    
+
+    pub fn timestamp(&self) -> Option<i64> {
+        self.timestamp
+    }
+
     pub fn finalized_head(&self) -> Option<&BlockRef> {
         self.finalized_head.as_ref()
     }
@@ -255,6 +266,7 @@ impl WriteController {
                 finalized_head
             } => {
                 self.head = Some(get_chunk_head(&head));
+                self.timestamp = head.last_block_time();
                 self.finalized_head = finalized_head;
                 self.first_chunk_head = Some(get_chunk_head(&first_chunk));
                 info!(
@@ -288,6 +300,7 @@ impl WriteController {
 
     fn clear_heads(&mut self) {
         self.head = None;
+        self.timestamp = None;
         self.finalized_head = None;
         self.first_chunk_head = None;
     }
@@ -410,6 +423,7 @@ impl WriteController {
 
         self.finalized_head = finalized_head;
         self.head = Some(get_chunk_head(&chunk));
+        self.timestamp = chunk.last_block_time();
         if self.first_chunk_head.as_ref().map_or(true, |h| chunk.first_block() <= h.number) {
             self.first_chunk_head = self.head.clone();
         }

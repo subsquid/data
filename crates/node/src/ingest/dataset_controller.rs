@@ -32,6 +32,7 @@ pub struct DatasetController {
     retention_sender: tokio::sync::watch::Sender<RetentionStrategy>,
     head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
     finalized_head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
+    timestamp_receiver: tokio::sync::watch::Receiver<Option<i64>>,
     compaction_enabled_sender: tokio::sync::watch::Sender<bool>,
     task: JoinHandle<()>,
     compaction_task: JoinHandle<()>
@@ -64,10 +65,12 @@ impl DatasetController {
 
         let (retention_sender, retention_recv) = tokio::sync::watch::channel(retention);
         let (head_sender, head_receiver) = tokio::sync::watch::channel(None);
+        let (timestamp_sender, timestamp_receiver) = tokio::sync::watch::channel(None);
         let (finalized_head_sender, finalized_head_receiver) = tokio::sync::watch::channel(None);
         let (compaction_enabled_sender, compaction_enabled_receiver) = tokio::sync::watch::channel(false);
 
         head_sender.send(write.head().cloned());
+        timestamp_sender.send(write.timestamp());
         finalized_head_sender.send(write.finalized_head().cloned());
 
         let ctl = Ctl {
@@ -77,6 +80,7 @@ impl DatasetController {
             data_sources,
             retention_recv,
             head_sender,
+            timestamp_sender,
             finalized_head_sender
         };
 
@@ -94,6 +98,7 @@ impl DatasetController {
             retention_sender,
             head_receiver,
             finalized_head_receiver,
+            timestamp_receiver,
             compaction_enabled_sender,
             task,
             compaction_task
@@ -114,6 +119,10 @@ impl DatasetController {
 
     pub fn get_head(&self) -> Option<BlockRef> {
         self.head_receiver.borrow().clone()
+    }
+
+    pub fn get_timestamp(&self) -> Option<i64> {
+        self.timestamp_receiver.borrow().clone()
     }
 
     pub fn get_head_block_number(&self) -> Option<BlockNumber> {
@@ -146,6 +155,7 @@ struct WriteCtx {
     db: DBRef,
     write: WriteController,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
+    timestamp_sender: tokio::sync::watch::Sender<Option<i64>>,
     finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
 }
 
@@ -220,11 +230,16 @@ impl WriteCtx {
         self.write.retain(from_block, parent_hash)?;
         self.notify_finalized_head();
         self.notify_head();
+        self.notify_timestamp();
         Ok(())
     }
 
     fn notify_head(&self) {
         send_if_new(&self.head_sender, self.write.head().cloned());
+    }
+
+    fn notify_timestamp(&self) {
+        send_if_new(&self.timestamp_sender, self.write.timestamp());
     }
 
     fn notify_finalized_head(&self) {
@@ -290,6 +305,7 @@ struct Ctl {
     data_sources: Vec<ReqwestDataClient>,
     retention_recv: tokio::sync::watch::Receiver<RetentionStrategy>,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
+    timestamp_sender: tokio::sync::watch::Sender<Option<i64>>,
     finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>
 }
 
@@ -527,6 +543,7 @@ impl Ctl {
             db: self.db.clone(),
             write,
             head_sender: self.head_sender.clone(),
+            timestamp_sender: self.timestamp_sender.clone(),
             finalized_head_sender: self.finalized_head_sender.clone()
         })
     }
