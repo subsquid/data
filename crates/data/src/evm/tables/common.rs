@@ -7,5 +7,5 @@ pub type TraceAddressListBuilder = ListBuilder<UInt32Builder>;
 
 
 pub fn sighash(bytes: &str) -> Option<&str> {
-    (bytes.len() >= 10).then_some(&bytes[0..10])
+    (bytes.len() >= 10).then(|| { &bytes[0..10] })
 }
