@@ -30,6 +30,7 @@ pub struct DatasetController {
     dataset_id: DatasetId,
     dataset_kind: DatasetKind,
     retention_sender: tokio::sync::watch::Sender<RetentionStrategy>,
+    first_block_receiver: tokio::sync::watch::Receiver<BlockNumber>,
     head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
     finalized_head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
     timestamp_receiver: tokio::sync::watch::Receiver<Option<i64>>,
@@ -64,6 +65,7 @@ impl DatasetController {
         }
 
         let (retention_sender, retention_recv) = tokio::sync::watch::channel(retention);
+        let (first_block_sender, first_block_receiver) = tokio::sync::watch::channel(write.start_block());
         let (head_sender, head_receiver) = tokio::sync::watch::channel(None);
         let (timestamp_sender, timestamp_receiver) = tokio::sync::watch::channel(None);
         let (finalized_head_sender, finalized_head_receiver) = tokio::sync::watch::channel(None);
@@ -79,6 +81,7 @@ impl DatasetController {
             dataset_kind,
             data_sources,
             retention_recv,
+            first_block_sender,
             head_sender,
             timestamp_sender,
             finalized_head_sender
@@ -96,6 +99,7 @@ impl DatasetController {
             dataset_id,
             dataset_kind,
             retention_sender,
+            first_block_receiver,
             head_receiver,
             finalized_head_receiver,
             timestamp_receiver,
@@ -134,8 +138,7 @@ impl DatasetController {
     }
 
     pub fn get_first_block_number(&self) -> BlockNumber {
-        // self.first_block_receiver.borrow().clone()
-        unimplemented!()
+        self.first_block_receiver.borrow().clone()
     }
 
     pub fn retain(&self, strategy: RetentionStrategy) {
@@ -159,6 +162,7 @@ impl DatasetController {
 struct WriteCtx {
     db: DBRef,
     write: WriteController,
+    first_block_sender: tokio::sync::watch::Sender<BlockNumber>,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
     timestamp_sender: tokio::sync::watch::Sender<Option<i64>>,
     finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
@@ -234,10 +238,15 @@ impl WriteCtx {
 
     fn retain(&mut self, from_block: BlockNumber, parent_hash: Option<String>) -> anyhow::Result<()> {
         self.write.retain(from_block, parent_hash)?;
+        self.notify_first_block();
         self.notify_finalized_head();
         self.notify_head();
         self.notify_timestamp();
         Ok(())
+    }
+
+    fn notify_first_block(&self) {
+        send_if_new(&self.first_block_sender, self.write.start_block());
     }
 
     fn notify_head(&self) {
@@ -310,6 +319,7 @@ struct Ctl {
     dataset_kind: DatasetKind,
     data_sources: Vec<ReqwestDataClient>,
     retention_recv: tokio::sync::watch::Receiver<RetentionStrategy>,
+    first_block_sender: tokio::sync::watch::Sender<BlockNumber>,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
     timestamp_sender: tokio::sync::watch::Sender<Option<i64>>,
     finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>
@@ -548,6 +558,7 @@ impl Ctl {
         Ok(WriteCtx {
             db: self.db.clone(),
             write,
+            first_block_sender: self.first_block_sender.clone(),
             head_sender: self.head_sender.clone(),
             timestamp_sender: self.timestamp_sender.clone(),
             finalized_head_sender: self.finalized_head_sender.clone()
