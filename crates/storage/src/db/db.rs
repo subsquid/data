@@ -10,6 +10,7 @@ use anyhow::ensure;
 use arrow::datatypes::SchemaRef;
 use rocksdb::{ColumnFamilyDescriptor, Options as RocksOptions};
 use sqd_primitives::Name;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 
@@ -253,6 +254,36 @@ impl Database {
         let val = self.db.property_value_cf(cf_handle, name)?;
         Ok(val)
     }
+
+    pub fn get_metrics(&self) -> anyhow::Result<DatabaseMetrics> {
+        let mut cf_metrics = BTreeMap::new();
+        for cf_name in [
+            CF_DATASETS,
+            CF_CHUNKS,
+            CF_TABLES,
+            CF_DIRTY_TABLES,
+            CF_DELETED_TABLES,
+        ] {
+            let cf = self.db.cf_handle(cf_name).unwrap();
+            let metadata = self.db.get_column_family_metadata_cf(cf);
+            let memtables_size = self
+                .db
+                .property_int_value_cf(cf, rocksdb::properties::SIZE_ALL_MEM_TABLES)?;
+            let num_keys = self
+                .db
+                .property_int_value_cf(cf, rocksdb::properties::ESTIMATE_NUM_KEYS)?;
+            cf_metrics.insert(
+                cf_name.to_owned(),
+                CfMetrics {
+                    sst_files_size: metadata.size,
+                    file_count: metadata.file_count,
+                    memtables_size,
+                    num_keys,
+                },
+            );
+        }
+        Ok(DatabaseMetrics { cf_metrics })
+    }
 }
 
 
@@ -262,4 +293,15 @@ impl std::fmt::Debug for Database {
             .field("path", &self.db.path())
             .finish()
     }
+}
+
+pub struct DatabaseMetrics {
+    pub cf_metrics: BTreeMap<String, CfMetrics>,
+}
+
+pub struct CfMetrics {
+    pub sst_files_size: u64,
+    pub file_count: usize,
+    pub memtables_size: Option<u64>,
+    pub num_keys: Option<u64>,
 }
