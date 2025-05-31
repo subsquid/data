@@ -1,23 +1,25 @@
-
-pub use nullable::*;
-pub use primitive::*;
-pub use hex::*;
-pub use boolean::*;
-pub use string::*;
-pub use list::*;
-pub use r#struct::*;
-pub use json::*;
-
+mod binary;
+mod boolean;
+pub mod factory;
+mod hex;
+mod json;
+mod list;
 mod nullable;
 mod primitive;
-mod hex;
-mod boolean;
-mod string;
-mod list;
 mod r#struct;
+mod string;
 pub mod util;
-pub mod factory;
-mod json;
+
+
+pub use binary::*;
+pub use boolean::*;
+pub use hex::*;
+pub use json::*;
+pub use list::*;
+pub use nullable::*;
+pub use primitive::*;
+pub use r#struct::*;
+pub use string::*;
 
 
 pub trait Encoder: Send {

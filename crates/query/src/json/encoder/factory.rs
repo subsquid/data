@@ -1,8 +1,8 @@
-use arrow::array::{Array, AsArray, BooleanArray, GenericListArray, GenericStringArray, PrimitiveArray, StructArray};
-use arrow::buffer::NullBuffer;
-use arrow::datatypes::*;
 use super::*;
 use crate::primitives::SchemaError;
+use arrow::array::{Array, AsArray, BinaryArray, BooleanArray, FixedSizeBinaryArray, GenericListArray, GenericStringArray, PrimitiveArray, StructArray};
+use arrow::buffer::NullBuffer;
+use arrow::datatypes::*;
 
 
 macro_rules! _ok_box {
@@ -59,6 +59,16 @@ macro_rules! _make_non_list_encoder {
                 let array = array.as_boolean();
                 let (values, nulls) = array.clone().into_parts();
                 _nullable_encoder!(nulls, BooleanEncoder::new(values), $constructor)
+            },
+            DataType::FixedSizeBinary(_) => {
+                let array = array.as_fixed_size_binary().clone();
+                let nulls = array.nulls().cloned();
+                _nullable_encoder!(nulls, FixedSizedBinaryEncoder::new(array), $constructor)
+            },
+            DataType::Binary => {
+                let array = array.as_binary::<i32>().clone();
+                let nulls = array.nulls().cloned();
+                _nullable_encoder!(nulls, BinaryEncoder::new(array), $constructor)
             },
             DataType::Utf8 => {
                 let array = array.as_string::<i32>();
@@ -126,10 +136,10 @@ pub fn make_nullable_encoder<E: Encoder + 'static>(encoder: E, maybe_nulls: Opti
 
 
 pub fn extract_nulls(array: &dyn Array) -> Result<(Option<Box<dyn Array>>, Option<NullBuffer>), SchemaError> {
-    if array.null_count() == 0 {
+    if array.nulls().is_none() {
         return Ok((None, None))
     }
-    
+
     macro_rules! ok {
         ($array:expr, $nulls:expr) => {
             Ok((Some(Box::new($array) as Box<dyn Array>), $nulls))
@@ -159,6 +169,18 @@ pub fn extract_nulls(array: &dyn Array) -> Result<(Option<Box<dyn Array>>, Optio
             let array = array.as_boolean();
             let (values, nulls) = array.clone().into_parts();
             ok!(BooleanArray::new(values, None), nulls)
+        },
+        DataType::FixedSizeBinary(_) => {
+            let array = array.as_fixed_size_binary();
+            let (size, values, nulls) = array.clone().into_parts();
+            ok!(FixedSizeBinaryArray::new(size, values, None), nulls)
+        },
+        DataType::Binary => {
+            let array = array.as_binary::<i32>();
+            let (offsets, values, nulls) = array.clone().into_parts();
+            ok!(unsafe {
+                BinaryArray::new_unchecked(offsets, values, None)
+            }, nulls)
         },
         DataType::Utf8 => {
             let array = array.as_string::<i32>();
