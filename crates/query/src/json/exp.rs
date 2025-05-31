@@ -159,7 +159,6 @@ fn eval_hex(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
         DataType::UInt16 => make_encoder(array.as_primitive::<UInt16Type>()),
         DataType::UInt32 => make_encoder(array.as_primitive::<UInt32Type>()),
         DataType::UInt64 => make_encoder(array.as_primitive::<UInt64Type>()),
-        DataType::Decimal128(_, 0) => make_encoder(array.as_primitive::<Decimal128Type>()),
         ty => Err(schema_error!(
             "Expected unsigned numeric primitive value, but got - {}", ty
         ))
