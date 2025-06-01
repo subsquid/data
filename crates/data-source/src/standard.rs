@@ -51,7 +51,7 @@ struct DataSourceState<F> {
     position: BlockStreamRequest,
     position_is_canonical: bool,
     max_seen_finalized_block: BlockNumber,
-    forks: usize
+    fork_consensus_timeout: Option<Pin<Box<Sleep>>>
 }
 
 
@@ -146,7 +146,6 @@ impl<F> DataSourceState<F> {
                 },
                 EndpointState::Fork { req, .. } => {
                     if req == &self.position {
-                        self.forks += 1;
                         return Poll::Pending
                     } else {
                         ep.state = EndpointState::Ready;
@@ -176,6 +175,7 @@ impl<F> DataSourceState<F> {
         }
         self.position.first_block = block.number() + 1;
         self.position_is_canonical = true;
+        self.fork_consensus_timeout = None;
 
         if is_final {
             set_head(&mut self.finalized_head, block.number(), block.hash());
@@ -243,6 +243,20 @@ fn set_head(head: &mut Option<BlockRef>, number: BlockNumber, hash: &str) {
 
 
 impl<C: DataClient> Endpoint<C> {
+    fn is_on_fork(&self) -> bool {
+        match self.state {
+            EndpointState::Fork { .. } => true,
+            _ => false
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        match self.state {
+            EndpointState::Backoff(_) => false,
+            _ => true
+        }
+    }
+
     fn on_error(&mut self, error: anyhow::Error) {
         let backoff = [0, 100, 200, 500, 1000, 2000, 5000, 10000];
         let pause = backoff[std::cmp::min(self.error_counter, backoff.len() - 1)];
@@ -296,7 +310,7 @@ where
             },
             position_is_canonical: false,
             max_seen_finalized_block: 0,
-            forks: 0
+            fork_consensus_timeout: None
         };
 
         Self {
@@ -306,8 +320,6 @@ where
     }
 
     fn poll_next_event(&mut self, cx: &mut std::task::Context<'_>) -> Poll<DataEvent<B>> {
-        self.state.forks = 0;
-
         for ep in self.endpoints.iter_mut() {
             let event = self.state.poll_endpoint(ep, cx);
             if event.is_ready() {
@@ -315,26 +327,40 @@ where
             }
         }
 
-        if self.state.forks > 0 {
-            if self.state.forks > self.endpoints.len() / 2 || self.state.forks == self.active_endpoints() {
+        let forks = self.endpoints.iter().filter(|ep| ep.is_on_fork()).count();
+        if forks > 0 {
+            if 
+                forks > self.endpoints.len() / 2 || 
+                forks == self.endpoints.iter().filter(|ep| ep.is_active()).count() ||
+                self.fork_consensus_timeout(cx)
+            {
                 return Poll::Ready(DataEvent::Fork(self.extract_fork()))
             }
+        } else {
+            self.state.fork_consensus_timeout = None
         }
 
         Poll::Pending
     }
 
-    fn active_endpoints(&self) -> usize {
-        self.endpoints.iter().map(|ep| {
-            if let EndpointState::Backoff(_) = &ep.state {
-                0
-            } else {
-                1
-            }
-        }).sum()
+    fn fork_consensus_timeout(&mut self, cx: &mut std::task::Context<'_>) -> bool {
+        let mut timeout = self.state
+            .fork_consensus_timeout
+            .take()
+            .unwrap_or_else(|| {
+                Box::pin(tokio::time::sleep(Duration::from_secs(2)))
+            });
+        
+        if timeout.poll_unpin(cx) == Poll::Pending {
+            self.state.fork_consensus_timeout = Some(timeout);
+            false
+        } else {
+            true
+        }
     }
-
+    
     fn extract_fork(&mut self) -> Vec<BlockRef> {
+        self.state.fork_consensus_timeout = None;
         let mut chain = Vec::new();
         for ep in self.endpoints.iter_mut() {
             match std::mem::replace(&mut ep.state, EndpointState::Ready) {

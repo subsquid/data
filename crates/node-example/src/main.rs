@@ -11,7 +11,7 @@ use std::io::IsTerminal;
 use std::time::Duration;
 use tokio::signal;
 use tower_http::timeout::TimeoutLayer;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, instrument};
 
 
 #[global_allocator]
