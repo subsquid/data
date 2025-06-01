@@ -232,23 +232,24 @@ macro_rules! compile_plan {
 pub(crate) use compile_plan;
 
 
-fn parse_hex<T: TryFrom<u64>>(s: &str) -> Option<T> {
+pub fn parse_hex<const N: usize>(s: &str) -> Option<[u8; N]> {
     if !s.starts_with("0x") {
         return None;
     }
-    if s.len() - 2 != std::mem::size_of::<T>() * 2 {
-        // the size of "dX" fields should be exactly X bytes
+    if s.len() != 2 + N * 2 {
         return None;
     }
-    u64::from_str_radix(&s[2..], 16)
+    let mut bytes: [u8; N] = [0; N];
+    faster_hex::hex_decode(s[2..].as_bytes(), &mut bytes)
         .ok()
-        .and_then(|x| x.try_into().ok())
+        .map(|_| bytes)
 }
 
 
-pub fn convert_from_hex_lossy<T: TryFrom<u64>>(v: &Vec<String>) -> impl Iterator<Item = T> + '_ {
-    v.into_iter().filter_map(|s| parse_hex::<T>(s))
+pub fn parse_hex_list<const N: usize>(list: &Vec<String>) -> impl Iterator<Item = [u8; N]> + '_ {
+    list.iter().filter_map(|s| parse_hex::<N>(&s))
 }
+
 
 pub fn to_lowercase_iter(list: &Option<Vec<String>>) -> Option<impl Iterator<Item = String> + '_> {
     list.as_ref().map(|v| v.iter().map(|s| s.to_ascii_lowercase()))

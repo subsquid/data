@@ -43,13 +43,22 @@ table_builder! {
 
         d1: UInt8Builder,
         d2: UInt16Builder,
+        d3: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(3, 0),
         d4: UInt32Builder,
+        d5: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(5, 0),
+        d6: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(6, 0),
+        d7: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(7, 0),
         d8: UInt64Builder,
+        d9: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(9, 0),
+        d10: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(10, 0),
+        d11: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(11, 0),
+        d12: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(12, 0),
+        d13: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(13, 0),
+        d14: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(14, 0),
+        d15: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(15, 0),
+        d16: FixedSizeBinaryBuilder = FixedSizeBinaryBuilder::new(16, 0),
 
-        anchor_event_d1: UInt8Builder,
-        anchor_event_d2: UInt16Builder,
-        anchor_event_d4: UInt32Builder,
-        anchor_event_d8: UInt64Builder,
+        b9: UInt8Builder,
 
         accounts_size: UInt64Builder,
         data_size: UInt64Builder,
@@ -59,20 +68,28 @@ table_builder! {
         d.downcast.block_number = vec!["block_number"];
         d.downcast.item_index = vec!["transaction_index", "instruction_address"];
         d.sort_key = vec![
-            "d1",
             "program_id",
-            "anchor_event_d1",
+            "d1",
+            "b9",
             "block_number",
             "transaction_index"
         ];
         d.options.add_stats("d1");
         d.options.add_stats("d2");
+        d.options.add_stats("d3");
         d.options.add_stats("d4");
+        d.options.add_stats("d5");
+        d.options.add_stats("d6");
+        d.options.add_stats("d7");
         d.options.add_stats("d8");
-        d.options.add_stats("anchor_event_d1");
-        d.options.add_stats("anchor_event_d2");
-        d.options.add_stats("anchor_event_d4");
-        d.options.add_stats("anchor_event_d8");
+        d.options.add_stats("d9");
+        d.options.add_stats("d10");
+        d.options.add_stats("d11");
+        d.options.add_stats("d12");
+        d.options.add_stats("d13");
+        d.options.add_stats("d14");
+        d.options.add_stats("d15");
+        d.options.add_stats("d16");
         d.options.add_stats("program_id");
         d.options.add_stats("block_number");
         d.options.use_dictionary("program_id");
@@ -94,13 +111,6 @@ table_builder! {
         d.options.use_dictionary("rest_accounts.list.element");
         d.options.row_group_size = 20_000;
     }
-}
-
-
-macro_rules! desc {
-    ($ty:ty, $data:expr) => {
-        $data.get(..size_of::<$ty>()).map(|slice| <$ty>::from_be_bytes(slice.try_into().unwrap()))
-    };
 }
 
 
@@ -157,24 +167,37 @@ impl InstructionBuilder {
         self.has_dropped_log_messages.append(row.has_dropped_log_messages);
 
         // discriminators
-        let data = bs58::decode(&row.data).into_vec().context("failed to decode instruction data")?;
-        self.d1.append_option(desc!(u8, data));
-        self.d2.append_option(desc!(u16, data));
-        self.d4.append_option(desc!(u32, data));
-        let d8 = desc!(u64, data);
-        self.d8.append_option(d8);
+        let data = bs58::decode(&row.data)
+            .into_vec()
+            .context("failed to decode instruction data")?;
 
-        if d8 == Some(0xe445a52e51cb9a1d) {
-            let event_data = &data[8..];
-            self.anchor_event_d1.append_option(desc!(u8, event_data));
-            self.anchor_event_d2.append_option(desc!(u16, event_data));
-            self.anchor_event_d4.append_option(desc!(u32, event_data));
-            self.anchor_event_d8.append_option(desc!(u64, event_data));
+        macro_rules! desc {
+            ($ty:ty) => {
+                data.get(..size_of::<$ty>()).map(|slice| <$ty>::from_be_bytes(slice.try_into().unwrap()))
+            };
+        }
+
+        self.d1.append_option(desc!(u8));
+        self.d2.append_option(desc!(u16));
+        self.d3.append_option(data.get(..3));
+        self.d4.append_option(desc!(u32));
+        self.d5.append_option(data.get(..5));
+        self.d6.append_option(data.get(..6));
+        self.d7.append_option(data.get(..7));
+        self.d8.append_option(desc!(u64));
+        self.d9.append_option(data.get(..9));
+        self.d10.append_option(data.get(..10));
+        self.d11.append_option(data.get(..11));
+        self.d12.append_option(data.get(..12));
+        self.d13.append_option(data.get(..13));
+        self.d14.append_option(data.get(..14));
+        self.d15.append_option(data.get(..15));
+        self.d16.append_option(data.get(..16));
+
+        if data.get(..8) == Some(b"e445a52e51cb9a1d") {
+            self.b9.append_option(data.get(9).copied());
         } else {
-            self.anchor_event_d1.append_option(None);
-            self.anchor_event_d2.append_option(None);
-            self.anchor_event_d4.append_option(None);
-            self.anchor_event_d8.append_option(None);
+            self.b9.append_option(None);
         }
 
         Ok(())

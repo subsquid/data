@@ -1,6 +1,5 @@
+use arrow::array::{ArrayRef, BinaryArray, BooleanArray, FixedSizeBinaryBuilder, Int16Array, Int32Array, Int64Array, Int8Array, Scalar, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array};
 use std::sync::Arc;
-
-use arrow::array::{ArrayRef, BooleanArray, Int16Array, Int32Array, Int64Array, Int8Array, Scalar, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array};
 
 
 pub trait IntoArrow: Sized {
@@ -34,5 +33,17 @@ impl_scalar!(i8, Int8Array);
 impl_scalar!(i16, Int16Array);
 impl_scalar!(i32, Int32Array);
 impl_scalar!(i64, Int64Array);
+impl_scalar!(&[u8], BinaryArray);
 impl_scalar!(&str, StringArray);
 impl_scalar!(String, StringArray);
+
+
+impl <const N: usize> IntoArrow for [u8; N] {
+    fn make_array(values: Vec<Self>) -> ArrayRef {
+        let mut builder = FixedSizeBinaryBuilder::with_capacity(values.len(), N as i32);
+        for val in values {
+            builder.append_value(val).unwrap();
+        }
+        Arc::new(builder.finish())
+    }
+}
