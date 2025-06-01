@@ -23,7 +23,7 @@ use std::time::Duration;
 use tokio::select;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use tracing::{error, info, info_span, instrument, warn, Instrument};
+use tracing::{debug, error, info, info_span, instrument, warn, Instrument};
 
 
 pub struct DatasetController {
@@ -615,7 +615,7 @@ async fn compaction_loop(
             let span = tracing::Span::current();
             let result = match tokio::task::spawn_blocking(move || {
                 let _s = span.enter();
-                info!("compaction started");
+                debug!("compaction started");
                 warn_on_tx_restart! {
                     db.perform_dataset_compaction(dataset_id, None, None, None)
                 }
@@ -637,7 +637,7 @@ async fn compaction_loop(
                     skips = 0;
                 },
                 Ok(CompactionStatus::NotingToCompact) => {
-                    info!("nothing to compact");
+                    debug!("nothing to compact");
                     skips += 1;
                     let pause = skip_pause[std::cmp::min(skips, skip_pause.len() - 1)];
                     tokio::time::sleep(Duration::from_secs(pause)).await;

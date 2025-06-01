@@ -11,7 +11,7 @@ use std::io::IsTerminal;
 use std::time::Duration;
 use tokio::signal;
 use tower_http::timeout::TimeoutLayer;
-use tracing::{error, info, instrument};
+use tracing::{debug, error, info, instrument};
 
 
 #[global_allocator]
@@ -98,15 +98,15 @@ async fn shutdown_signal() {
 async fn db_cleanup_task(db: DBRef) {
     tokio::time::sleep(Duration::from_secs(10)).await;
     loop {
-        info!("db cleanup started");
+        debug!("db cleanup started");
         let db = db.clone();
         let result = tokio::task::spawn_blocking(move || db.cleanup()).await;
         match result {
             Ok(Ok(deleted)) => {
                 if deleted > 0 {
-                    info!("purged {} tables", deleted)
+                    debug!("purged {} tables", deleted)
                 } else {
-                    info!("nothing to purge, pausing cleanup for 10 seconds");
+                    debug!("nothing to purge, pausing cleanup for 10 seconds");
                     tokio::time::sleep(Duration::from_secs(10)).await;
                 }
             },
