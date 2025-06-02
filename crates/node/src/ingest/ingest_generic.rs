@@ -89,9 +89,7 @@ impl<CB: BlockChunkBuilder> DataBuilder<CB> {
 
     pub fn finish(&mut self) -> anyhow::Result<PreparedChunk> {
         self.flush_to_processor()?;
-        std::mem::take(&mut self.processor)
-            .unwrap()
-            .finish()
+        self.processor.take().unwrap().finish()
     }
 
     pub fn clear(&mut self) {
