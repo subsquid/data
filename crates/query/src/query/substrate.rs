@@ -2,7 +2,7 @@ use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
 use crate::primitives::BlockNumber;
-use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
+use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, to_lowercase_list, PredicateBuilder};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -167,7 +167,7 @@ request! {
 
 impl EventRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("name", self.name.clone());
+        p.col_in_list("name", self.name.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -211,7 +211,7 @@ request! {
 
 impl CallRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("name", self.name.clone());
+        p.col_in_list("name", self.name.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -258,12 +258,12 @@ request! {
 
 impl EvmLogRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("name", Some(["EVM.Log"]));
-        p.col_in_list("_evm_log_address", self.address.clone());
-        p.col_in_list("_evm_log_topic0", self.topic0.clone());
-        p.col_in_list("_evm_log_topic1", self.topic1.clone());
-        p.col_in_list("_evm_log_topic2", self.topic2.clone());
-        p.col_in_list("_evm_log_topic3", self.topic3.clone());
+        p.col_eq("name", Some("EVM.Log"));
+        p.col_in_list("_evm_log_address", to_lowercase_list(&self.address));
+        p.col_in_list("_evm_log_topic0", to_lowercase_list(&self.topic0));
+        p.col_in_list("_evm_log_topic1", to_lowercase_list(&self.topic1));
+        p.col_in_list("_evm_log_topic2", to_lowercase_list(&self.topic2));
+        p.col_in_list("_evm_log_topic3", to_lowercase_list(&self.topic3));
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -307,9 +307,9 @@ request! {
 
 impl EthereumTransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("name", Some(["Ethereum.transact"]));
-        p.col_in_list("_ethereum_transact_to", self.to.clone());
-        p.col_in_list("_ethereum_transact_sighash", self.sighash.clone());
+        p.col_eq("name", Some("Ethereum.transact"));
+        p.col_in_list("_ethereum_transact_to", to_lowercase_list(&self.to));
+        p.col_in_list("_ethereum_transact_sighash", to_lowercase_list(&self.sighash));
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -348,8 +348,8 @@ request! {
 
 impl ContractsContractEmittedRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("name", Some(["Contracts.ContractEmitted"]));
-        p.col_in_list("_contract_address", self.contract_address.clone());
+        p.col_eq("name", Some("Contracts.ContractEmitted"));
+        p.col_in_list("_contract_address", self.contract_address.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -392,8 +392,8 @@ request! {
 
 impl GearMessageEnqueuedRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("name", Some(["Gear.UserMessageEnqueued"]));
-        p.col_in_list("_gear_program_id", self.program_id.clone());
+        p.col_eq("name", Some("Gear.UserMessageEnqueued"));
+        p.col_in_list("_gear_program_id", self.program_id.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -436,8 +436,8 @@ request! {
 
 impl GearUserMessageSentRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("name", Some(["Gear.UserMessageSent"]));
-        p.col_in_list("_gear_program_id", self.program_id.clone());
+        p.col_eq("name", Some("Gear.UserMessageSent"));
+        p.col_in_list("_gear_program_id", self.program_id.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {

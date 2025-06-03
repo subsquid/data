@@ -19,7 +19,7 @@
   "instructions": [
     {
       "programId": ["whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"],
-      "d8": ["0xf8c69e91e17587c8"],
+      "discriminator": ["0xf8c69e91e17587c8"],
       "transaction": true,
       "transactionInstructions": true,
       "isCommitted": true

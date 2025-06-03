@@ -1,11 +1,11 @@
+use crate::primitives::Name;
+use crate::scan::array_predicate::ArrayPredicateRef;
+use crate::scan::arrow::IntoArrowScalar;
+use crate::scan::row_predicate::{AndPredicate, ColumnPredicate, OrPredicate, RowPredicateRef};
+use crate::scan::{array_predicate, IntoArrowArray};
+use arrow::array::{Array, Scalar};
 use std::hash::Hash;
 use std::sync::Arc;
-
-use crate::primitives::Name;
-use crate::scan::array_predicate;
-use crate::scan::array_predicate::ArrayPredicateRef;
-use crate::scan::arrow::IntoArrow;
-use crate::scan::row_predicate::{AndPredicate, ColumnPredicate, OrPredicate, RowPredicateRef};
 
 
 macro_rules! make_column_predicate {
@@ -20,20 +20,22 @@ macro_rules! make_column_predicate {
 }
 
 
-pub fn col_eq<T: IntoArrow>(name: Name, value: T) -> RowPredicateRef {
+pub fn col_eq<T: IntoArrowScalar>(name: Name, value: T) -> RowPredicateRef {
     make_column_predicate!(name, array_predicate::Eq::new(value))
 }
 
 
-pub fn col_in_list<T: IntoArrow>(name: Name, values: Vec<T>) -> RowPredicateRef {
+pub fn col_in_list<L: IntoArrowArray>(name: Name, values: L) -> RowPredicateRef {
+    let values = values.into_array();
     match values.len() {
-        1 => col_eq(name, values.into_iter().next().unwrap()),
+        1 => col_eq(name, Scalar::new(values)),
         0 | 2..10 => {
             make_column_predicate!(
                 name,
                 array_predicate::Or::new(
-                    values.into_iter().map(|v| {
-                        Arc::new(array_predicate::Eq::new(v)) as ArrayPredicateRef
+                    (0..values.len()).map(|i| {
+                        let val = Scalar::new(values.slice(i, 1));
+                        Arc::new(array_predicate::Eq::new(val)) as ArrayPredicateRef
                     }).collect()
                 )
             )
@@ -49,19 +51,19 @@ pub fn col_in_list<T: IntoArrow>(name: Name, values: Vec<T>) -> RowPredicateRef 
 
 
 /// column <= value
-pub fn col_lt_eq<T: IntoArrow>(name: Name, value: T) -> RowPredicateRef {
+pub fn col_lt_eq<T: IntoArrowScalar>(name: Name, value: T) -> RowPredicateRef {
     make_column_predicate!(name, array_predicate::GtEq::new(value))
 }
 
 
 /// column >= value
-pub fn col_gt_eq<T: IntoArrow>(name: Name, value: T) -> RowPredicateRef {
+pub fn col_gt_eq<T: IntoArrowScalar>(name: Name, value: T) -> RowPredicateRef {
     make_column_predicate!(name, array_predicate::LtEq::new(value))
 }
 
 
 /// low <= column <= high
-pub fn col_between<T: IntoArrow>(name: Name, low: T, high: T) -> RowPredicateRef {
+pub fn col_between<T: IntoArrowScalar>(name: Name, low: T, high: T) -> RowPredicateRef {
     make_column_predicate!(name, array_predicate::And::new(vec![
         Arc::new(array_predicate::LtEq::new(low)),
         Arc::new(array_predicate::GtEq::new(high))
@@ -69,37 +71,25 @@ pub fn col_between<T: IntoArrow>(name: Name, low: T, high: T) -> RowPredicateRef
 }
 
 
-pub fn bloom_filter<T: Hash>(
+pub fn bloom_filter<L>(
     name: Name, 
     bytes_size: usize, 
     num_hashes: usize, 
-    values: Vec<T>
-) -> RowPredicateRef 
+    values: L
+) -> RowPredicateRef
+where 
+    L: IntoIterator<Item: Hash>
 {
-    match values.len() {
-        1 => make_column_predicate!(
-            name,
-            array_predicate::BloomFilter::new(
-                bytes_size, 
+    let array_pred = array_predicate::or(
+        values.into_iter().map(|val| {
+            Arc::new(array_predicate::BloomFilter::new(
+                bytes_size,
                 num_hashes,
-                values.into_iter().next().unwrap()
-            )
-        ),
-        0 | 2.. => {
-            make_column_predicate!(
-                name,
-                array_predicate::Or::new(
-                    values.into_iter().map(|v| {
-                        Arc::new(array_predicate::BloomFilter::new(
-                            bytes_size, 
-                            num_hashes, 
-                            v
-                        )) as ArrayPredicateRef
-                    }).collect()
-                )
-            )
-        }
-    }
+                val
+            )) as ArrayPredicateRef
+        }).collect()
+    );
+    Arc::new(ColumnPredicate::new(name, array_pred))
 }
 
 
@@ -115,7 +105,11 @@ pub fn and(predicates: Vec<RowPredicateRef>) -> RowPredicateRef {
 
 
 pub fn or(predicates: Vec<RowPredicateRef>) -> RowPredicateRef {
-    Arc::new(
-        OrPredicate::new(predicates)
-    )
+    if predicates.len() == 1 {
+        predicates.into_iter().next().unwrap()
+    } else {
+        Arc::new(
+            OrPredicate::new(predicates)
+        )
+    }
 }

@@ -1,11 +1,13 @@
-use super::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, parse_hex_list, request, PredicateBuilder};
+use super::util::{check_hex, compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, parse_hex, parse_static_hex, request, PredicateBuilder};
 use crate::json::exp::Exp;
 use crate::json::lang::*;
 use crate::plan::{Plan, ScanBuilder, TableSet};
 use crate::primitives::BlockNumber;
-use anyhow::ensure;
+use crate::scan::{col_in_list, or, RowPredicateRef};
+use anyhow::{anyhow, ensure};
+use arrow::array::{ArrayRef, FixedSizeBinaryBuilder, UInt16Array, UInt32Array, UInt64Array, UInt8Array};
 use serde::{Deserialize, Serialize};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
@@ -317,22 +319,11 @@ type Base58Bytes = String;
 request! {
     pub struct InstructionRequest {
         pub program_id: Option<Vec<Base58Bytes>>,
+        pub discriminator: Option<Vec<Bytes>>,
         pub d1: Option<Vec<Bytes>>,
         pub d2: Option<Vec<Bytes>>,
-        pub d3: Option<Vec<Bytes>>,
         pub d4: Option<Vec<Bytes>>,
-        pub d5: Option<Vec<Bytes>>,
-        pub d6: Option<Vec<Bytes>>,
-        pub d7: Option<Vec<Bytes>>,
         pub d8: Option<Vec<Bytes>>,
-        pub d9: Option<Vec<Bytes>>,
-        pub d10: Option<Vec<Bytes>>,
-        pub d11: Option<Vec<Bytes>>,
-        pub d12: Option<Vec<Bytes>>,
-        pub d13: Option<Vec<Bytes>>,
-        pub d14: Option<Vec<Bytes>>,
-        pub d15: Option<Vec<Bytes>>,
-        pub d16: Option<Vec<Bytes>>,
         pub mentions_account: Option<Vec<Bytes>>,
         pub a0: Option<Vec<Bytes>>,
         pub a1: Option<Vec<Bytes>>,
@@ -364,41 +355,114 @@ request! {
 
 impl InstructionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("program_id", self.program_id.clone());
-        p.col_in_list("d1", self.d1.as_ref().map(|list| parse_hex_list::<1>(list).map(u8::from_be_bytes)));
-        p.col_in_list("d2", self.d2.as_ref().map(|list| parse_hex_list::<2>(list).map(u16::from_be_bytes)));
-        p.col_in_list("d3", self.d3.as_ref().map(parse_hex_list::<3>));
-        p.col_in_list("d4", self.d4.as_ref().map(|list| parse_hex_list::<4>(list).map(u32::from_be_bytes)));
-        p.col_in_list("d5", self.d5.as_ref().map(parse_hex_list::<5>));
-        p.col_in_list("d6", self.d6.as_ref().map(parse_hex_list::<6>));
-        p.col_in_list("d7", self.d7.as_ref().map(parse_hex_list::<7>));
-        p.col_in_list("d8", self.d8.as_ref().map(|list| parse_hex_list::<8>(list).map(u64::from_be_bytes)));
-        p.col_in_list("d9", self.d9.as_ref().map(parse_hex_list::<9>));
-        p.col_in_list("d10", self.d10.as_ref().map(parse_hex_list::<10>));
-        p.col_in_list("d11", self.d11.as_ref().map(parse_hex_list::<11>));
-        p.col_in_list("d12", self.d12.as_ref().map(parse_hex_list::<12>));
-        p.col_in_list("d13", self.d13.as_ref().map(parse_hex_list::<13>));
-        p.col_in_list("d14", self.d14.as_ref().map(parse_hex_list::<14>));
-        p.col_in_list("d15", self.d15.as_ref().map(parse_hex_list::<15>));
-        p.col_in_list("d16", self.d16.as_ref().map(parse_hex_list::<16>));
-        p.bloom_filter("accounts_bloom", 64, 7, self.mentions_account.clone());
-        p.col_in_list("a0", self.a0.clone());
-        p.col_in_list("a1", self.a1.clone());
-        p.col_in_list("a2", self.a2.clone());
-        p.col_in_list("a3", self.a3.clone());
-        p.col_in_list("a4", self.a4.clone());
-        p.col_in_list("a5", self.a5.clone());
-        p.col_in_list("a6", self.a6.clone());
-        p.col_in_list("a7", self.a7.clone());
-        p.col_in_list("a8", self.a8.clone());
-        p.col_in_list("a9", self.a9.clone());
-        p.col_in_list("a10", self.a10.clone());
-        p.col_in_list("a11", self.a11.clone());
-        p.col_in_list("a12", self.a12.clone());
-        p.col_in_list("a13", self.a13.clone());
-        p.col_in_list("a14", self.a14.clone());
-        p.col_in_list("a15", self.a15.clone());
+        p.col_in_list("program_id", self.program_id.as_deref());
+        self.discriminator_predicate(p);
+        p.col_in_list("d1", self.d1.as_ref().map(|list| list.iter().filter_map(|s| parse_static_hex::<1>(s)).map(u8::from_be_bytes).collect::<Vec<_>>()));
+        p.col_in_list("d2", self.d2.as_ref().map(|list| list.iter().filter_map(|s| parse_static_hex::<2>(s)).map(u16::from_be_bytes).collect::<Vec<_>>()));
+        p.col_in_list("d4", self.d4.as_ref().map(|list| list.iter().filter_map(|s| parse_static_hex::<4>(s)).map(u32::from_be_bytes).collect::<Vec<_>>()));
+        p.col_in_list("d8", self.d8.as_ref().map(|list| list.iter().filter_map(|s| parse_static_hex::<8>(s)).map(u64::from_be_bytes).collect::<Vec<_>>()));
+        p.bloom_filter("accounts_bloom", 64, 7, self.mentions_account.as_deref());
+        p.col_in_list("a0", self.a0.as_deref());
+        p.col_in_list("a1", self.a1.as_deref());
+        p.col_in_list("a2", self.a2.as_deref());
+        p.col_in_list("a3", self.a3.as_deref());
+        p.col_in_list("a4", self.a4.as_deref());
+        p.col_in_list("a5", self.a5.as_deref());
+        p.col_in_list("a6", self.a6.as_deref());
+        p.col_in_list("a7", self.a7.as_deref());
+        p.col_in_list("a8", self.a8.as_deref());
+        p.col_in_list("a9", self.a9.as_deref());
+        p.col_in_list("a10", self.a10.as_deref());
+        p.col_in_list("a11", self.a11.as_deref());
+        p.col_in_list("a12", self.a12.as_deref());
+        p.col_in_list("a13", self.a13.as_deref());
+        p.col_in_list("a14", self.a14.as_deref());
+        p.col_in_list("a15", self.a15.as_deref());
         p.col_eq("is_committed", self.is_committed);
+    }
+
+    fn discriminator_predicate(&self, p: &mut PredicateBuilder) {
+        let Some(list) = self.discriminator.as_ref() else { return };
+
+        let list: Vec<Vec<u8>> = list.iter().filter_map(|s| {
+            let d = parse_hex(s)?;
+            if d.len() > 16 {
+                None
+            } else {
+                Some(d)
+            }
+        }).collect();
+
+        if list.is_empty()  {
+            p.mark_as_never();
+            return
+        }
+
+        if list.iter().any(|d| d.is_empty()) {
+            // empty prefix always matches
+            return
+        }
+
+        let mut ds: Vec<Vec<Vec<u8>>> = vec![vec![]; 17];
+        for d in list {
+            ds[d.len()].push(d);
+        }
+
+        let mut predicates: Vec<RowPredicateRef> = Vec::new();
+
+        for (i, list) in ds.into_iter().enumerate() {
+            if list.is_empty() {
+                continue
+            }
+
+            macro_rules! disc {
+                ($t:ty, $array:ty) => {
+                    Arc::new(<$array>::from_iter_values(
+                        list.into_iter().map(|d| <$t>::from_be_bytes(d.try_into().unwrap()))
+                    ))
+                };
+            }
+
+            let array: ArrayRef = match i {
+                1 => disc!(u8, UInt8Array),
+                2 => disc!(u16, UInt16Array),
+                4 => disc!(u32, UInt32Array),
+                8 => disc!(u64, UInt64Array),
+                _ => {
+                    let mut builder = FixedSizeBinaryBuilder::with_capacity(list.len(), i as i32);
+                    for d in list.iter() {
+                        builder.append_value(d).unwrap();
+                    }
+                    Arc::new(builder.finish())
+                }
+            };
+
+            let col = match i {
+                1 => "d1",
+                2 => "d2",
+                3 => "d3",
+                4 => "d4",
+                5 => "d5",
+                6 => "d6",
+                7 => "d7",
+                8 => "d8",
+                9 => "d9",
+                10 => "d10",
+                11 => "d11",
+                12 => "d12",
+                13 => "d13",
+                14 => "d14",
+                15 => "d15",
+                16 => "d16",
+                _ => unreachable!()
+            };
+
+            predicates.push(
+                col_in_list(col, array)
+            )
+        }
+
+        p.add(or(predicates));
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -461,8 +525,8 @@ request! {
 
 impl TransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("fee_payer", self.fee_payer.clone());
-        p.bloom_filter("accounts_bloom", 64, 7, self.mentions_account.clone());
+        p.col_in_list("fee_payer", self.fee_payer.as_deref());
+        p.bloom_filter("accounts_bloom", 64, 7, self.mentions_account.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -510,8 +574,8 @@ request! {
 
 impl LogRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("program_id", self.program_id.clone());
-        p.col_in_list("kind", self.kind.clone());
+        p.col_in_list("program_id", self.program_id.as_deref());
+        p.col_in_list("kind", self.kind.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -545,7 +609,7 @@ request! {
 
 impl BalanceRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("account", self.account.clone());
+        p.col_in_list("account", self.account.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -584,13 +648,13 @@ request! {
 
 impl TokenBalanceRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("account", self.account.clone());
-        p.col_in_list("pre_mint", self.pre_mint.clone());
-        p.col_in_list("post_mint", self.post_mint.clone());
-        p.col_in_list("pre_program_id", self.pre_program_id.clone());
-        p.col_in_list("post_program_id", self.post_program_id.clone());
-        p.col_in_list("pre_owner", self.pre_owner.clone());
-        p.col_in_list("post_owner", self.post_owner.clone());
+        p.col_in_list("account", self.account.as_deref());
+        p.col_in_list("pre_mint", self.pre_mint.as_deref());
+        p.col_in_list("post_mint", self.post_mint.as_deref());
+        p.col_in_list("pre_program_id", self.pre_program_id.as_deref());
+        p.col_in_list("post_program_id", self.post_program_id.as_deref());
+        p.col_in_list("pre_owner", self.pre_owner.as_deref());
+        p.col_in_list("post_owner", self.post_owner.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -621,7 +685,7 @@ request! {
 
 impl RewardRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("pubkey", self.pubkey.clone());
+        p.col_in_list("pubkey", self.pubkey.as_deref());
     }
 
     fn relations(&self, _scan: &mut ScanBuilder) {}
@@ -653,7 +717,7 @@ impl SolanaQuery {
             let len = tx.mentions_account.as_ref().map_or(0, |list| list.len());
             ensure!(
                 len <= 10,
-                ".transactions[{}].mentionsAccount filter has {} cases, but maximum is 10",
+                "'.transactions[{}].mentionsAccount' filter has {} cases, but maximum is 10",
                 i,
                 len
             )
@@ -662,10 +726,49 @@ impl SolanaQuery {
             let len = ins.mentions_account.as_ref().map_or(0, |list| list.len());
             ensure!(
                 len <= 10,
-                ".instructions[{}].mentionsAccount filter has {} cases, but maximum is 10",
+                "'.instructions[{}].mentionsAccount' filter has {} cases, but maximum is 10",
                 i,
                 len
-            )
+            );
+
+            let mut discriminator_filters: Vec<&'static str> = Vec::new();
+            if ins.d1.is_some() {
+                discriminator_filters.push("d1")
+            }
+            if ins.d2.is_some() {
+                discriminator_filters.push("d2")
+            }
+            if ins.d4.is_some() {
+                discriminator_filters.push("d4")
+            }
+            if ins.d8.is_some() {
+                discriminator_filters.push("d8")
+            }
+            if ins.discriminator.is_some() {
+                discriminator_filters.push("discriminator")
+            }
+            ensure!(
+                discriminator_filters.len() < 2,
+                "invalid instruction request at '.instructions[{}]': '{}' and '{}' filters can't be specified simultaneously",
+                i,
+                discriminator_filters[0],
+                discriminator_filters[1]
+            );
+
+            if let Some(ds) = ins.discriminator.as_ref() {
+                for (dix, d) in ds.iter().enumerate() {
+                    check_hex(d).and_then(|_| {
+                        if d.len() > 34 {
+                            Err("discriminator can't be longer than 16 bytes")
+                        } else {
+                            Ok(())
+                        }
+                    }).map_err(|msg| anyhow!(
+                        "invalid discriminator at .instructions[{}].discriminator[{}]: {}",
+                        i, dix, msg
+                    ))?;
+                }
+            }
         }
         Ok(())
     }

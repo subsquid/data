@@ -7,7 +7,7 @@ autobenches = false
 [dependencies]
 anyhow = { workspace = true }
 arrow = { workspace = true, features = ["prettyprint"] }
-bytes = "1.6.0"
+bytes = { workspace = true }
 convert_case = "0.6.0"
 dashmap = "6.0.1"
 divan = { version = "0.1.17", optional = true }

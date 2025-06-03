@@ -83,9 +83,11 @@ mod storage {
         if let Some(table_desc) = d.tables.get(name) {
             table_desc.options.column_options.iter()
                 .filter_map(|(&name, opts)| {
-                    opts.stats_enable.then(|| {
-                        schema.index_of(name).unwrap()
-                    })
+                    if opts.stats_enable {
+                        schema.index_of(name).ok()
+                    } else {
+                        None
+                    }
                 })
                 .collect()
         } else {

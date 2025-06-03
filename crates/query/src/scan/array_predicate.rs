@@ -1,13 +1,13 @@
-use std::hash::Hash;
-use std::ops::BitAnd;
-use std::sync::Arc;
-
-use crate::scan::arrow::IntoArrow;
+use crate::scan::arrow::IntoArrowScalar;
 use anyhow::{anyhow, bail, ensure};
 use arrow::array::{Array, ArrayRef, AsArray, BooleanArray, Datum, PrimitiveArray, Scalar};
 use arrow::buffer::{BooleanBuffer, Buffer};
 use arrow::compute::{cast_with_options, CastOptions};
 use arrow::datatypes::{ArrowNativeType, ArrowNativeTypeOp, ArrowPrimitiveType, DataType, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
+use std::hash::Hash;
+use std::ops::BitAnd;
+use std::sync::Arc;
+use crate::scan::IntoArrowArray;
 
 
 pub type ArrayPredicateRef = Arc<dyn ArrayPredicate>;
@@ -123,6 +123,15 @@ impl ArrayPredicate for Or {
 }
 
 
+pub fn or(predicates: Vec<ArrayPredicateRef>) -> ArrayPredicateRef {
+    if predicates.len() == 1 {
+        predicates.into_iter().next().unwrap()
+    } else {
+        Arc::new(Or::new(predicates))
+    }
+}
+
+
 macro_rules! cast_scalar {
     ($value:ident, $scalar:expr, $arr:ident, Less: $less:literal, Greater: $greater:literal) => {
         let scalar = $scalar;
@@ -143,7 +152,7 @@ pub struct Eq {
 
 
 impl Eq {
-    pub fn new<T: IntoArrow>(value: T) -> Self {
+    pub fn new<T: IntoArrowScalar>(value: T) -> Self {
         Self {
             value: value.into_scalar()
         }
@@ -179,7 +188,7 @@ pub struct GtEq {
 
 
 impl GtEq {
-    pub fn new<T: IntoArrow>(value: T) -> Self {
+    pub fn new<T: IntoArrowScalar>(value: T) -> Self {
         Self {
             value: value.into_scalar()
         }
@@ -214,7 +223,7 @@ pub struct LtEq {
 
 
 impl LtEq {
-    pub fn new<T: IntoArrow>(value: T) -> Self {
+    pub fn new<T: IntoArrowScalar>(value: T) -> Self {
         Self {
             value: value.into_scalar()
         }
@@ -394,8 +403,8 @@ pub struct InList {
 
 
 impl InList {
-    pub fn new<T: IntoArrow>(values: Vec<T>) -> Self {
-        let arr = T::make_array(values);
+    pub fn new<L: IntoArrowArray>(values: L) -> Self {
+        let arr = values.into_array();
         let list = sqd_polars::arrow::array_series("value_list", &arr).unwrap();
         Self {
             list

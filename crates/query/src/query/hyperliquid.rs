@@ -78,7 +78,7 @@ request! {
 
 impl TransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("user", self.user.clone());
+        p.col_in_list("user", self.user.as_deref());
     }
 
     fn relations(&self, _scan: &mut ScanBuilder) { }
