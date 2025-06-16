@@ -117,37 +117,81 @@ pub enum Chunk {
         last_block_hash: String,
         parent_block_hash: String,
         tables: BTreeMap<String, TableId>
+    },
+    V1 {
+        first_block: BlockNumber,
+        last_block: BlockNumber,
+        last_block_hash: String,
+        parent_block_hash: String,
+        first_block_time: Option<i64>,
+        last_block_time: Option<i64>,
+        tables: BTreeMap<String, TableId>
     }
 }
 
 
 impl Chunk {
     pub fn first_block(&self) -> BlockNumber {
-        match self { Chunk::V0 { first_block, .. } => *first_block }
+        match self {
+            Chunk::V0 { first_block, .. } => *first_block,
+            Chunk::V1 { first_block, .. } => *first_block,
+        }
     }
 
     pub fn last_block(&self) -> BlockNumber {
-        match self { Chunk::V0 { last_block, .. } => *last_block }
+        match self {
+            Chunk::V0 { last_block, .. } => *last_block,
+            Chunk::V1 { last_block, .. } => *last_block,
+        }
     }
 
     pub fn last_block_hash(&self) -> &str {
-        match self { Chunk::V0 { last_block_hash, .. } => last_block_hash }
+        match self {
+            Chunk::V0 { last_block_hash, .. } => last_block_hash,
+            Chunk::V1 { last_block_hash, .. } => last_block_hash,
+        }
     }
 
     pub fn parent_block_hash(&self) -> &str {
-        match self { Chunk::V0 { parent_block_hash, .. } => parent_block_hash }
+        match self {
+            Chunk::V0 { parent_block_hash, .. } => parent_block_hash,
+            Chunk::V1 { parent_block_hash, .. } => parent_block_hash,
+        }
     }
     
+    pub fn first_block_time(&self) -> Option<i64> {
+        match self {
+            Chunk::V0 { .. } => None,
+            Chunk::V1 { first_block_time, .. } => *first_block_time
+        }
+    }
+
+    pub fn last_block_time(&self) -> Option<i64> {
+        match self {
+            Chunk::V0 { .. } => None,
+            Chunk::V1 { last_block_time, .. } => *last_block_time
+        }
+    }
+
     pub fn tables(&self) -> &BTreeMap<String, TableId> {
-        match self { Chunk::V0 { tables, .. } => tables }
+        match self {
+            Chunk::V0 { tables, .. } => tables,
+            Chunk::V1 { tables, .. } => tables,
+        }
     }
 
     pub fn blocks_count(&self) -> u64 {
-        match self { Chunk::V0 { first_block, last_block, .. } => *last_block - *first_block + 1 }
+        match self {
+            Chunk::V0 { first_block, last_block, .. } => *last_block - *first_block + 1,
+            Chunk::V1 { first_block, last_block, .. } => *last_block - *first_block + 1,
+        }
     }
 
     pub fn next_block(&self) -> BlockNumber {
-        match self { Chunk::V0 { last_block, .. } => *last_block + 1 }
+        match self {
+            Chunk::V0 { last_block, .. } => *last_block + 1,
+            Chunk::V1 { last_block, .. } => *last_block + 1,
+        }
     }
 }
 

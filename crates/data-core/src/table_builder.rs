@@ -31,7 +31,7 @@ macro_rules! table_builder {
                 let schema_fields: Vec<FieldRef> = vec![
                     $(
                         Arc::new(
-                            Field::new(stringify!($field), $field.data_type(), true)
+                            Field::new(stringify!($field).strip_prefix("r#").unwrap_or(stringify!($field)), $field.data_type(), true)
                         ),
                     )*
                 ];

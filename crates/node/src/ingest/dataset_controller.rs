@@ -23,7 +23,7 @@ use std::time::Duration;
 use tokio::select;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use tracing::{error, info, info_span, instrument, warn, Instrument};
+use tracing::{debug, error, info, info_span, instrument, warn, Instrument};
 
 
 pub struct DatasetController {
@@ -163,7 +163,7 @@ impl WriteCtx {
                 self.notify_head();
                 self.notify_finalized_head();
                 if let Some(n) = head {
-                    if self.write.first_chunk_head().map_or(false, |h| self.write.next_block() - h.number >= n) {
+                    if self.write.first_chunk_head().map_or(false, |h| self.write.next_block() - h.number > n) {
                         self.retain(self.write.next_block() - n, None)?;
                     }
                 }
@@ -203,11 +203,13 @@ impl WriteCtx {
             );
         }
 
-        let chunk = Chunk::V0 {
+        let chunk = Chunk::V1 {
             parent_block_hash: new_chunk.parent_block_hash,
             first_block: new_chunk.first_block,
             last_block: new_chunk.last_block,
             last_block_hash: new_chunk.last_block_hash,
+            first_block_time: new_chunk.first_block_time,
+            last_block_time: new_chunk.last_block_time,
             tables
         };
 
@@ -613,9 +615,9 @@ async fn compaction_loop(
             let span = tracing::Span::current();
             let result = match tokio::task::spawn_blocking(move || {
                 let _s = span.enter();
-                info!("compaction started");
+                debug!("compaction started");
                 warn_on_tx_restart! {
-                    db.perform_dataset_compaction(dataset_id, None, None)
+                    db.perform_dataset_compaction(dataset_id, None, None, None)
                 }
             }).await {
                 Ok(res) => res,
@@ -635,7 +637,8 @@ async fn compaction_loop(
                     skips = 0;
                 },
                 Ok(CompactionStatus::NotingToCompact) => {
-                    info!("nothing to compact");
+                    debug!("nothing to compact");
+                    skips += 1;
                     let pause = skip_pause[std::cmp::min(skips, skip_pause.len() - 1)];
                     tokio::time::sleep(Duration::from_secs(pause)).await;
                 },

@@ -85,7 +85,8 @@ pub fn cast_item_index(
         },
         AnySlice::UInt64(s) => match target_type {
             DataType::UInt32 => cast_primitive::<_, u32>(s, dst),
-            _ => invalid_cast!(DataType::UInt16, target_type)
+            DataType::UInt16 => cast_primitive::<_, u16>(s, dst),
+            _ => invalid_cast!(DataType::UInt64, target_type)
         },
         AnySlice::List(s) => cast_address(s, target_type, dst),
         _ => bail!("src is not an index slice")

@@ -29,7 +29,16 @@ pub struct CLI {
     pub query_queue_size: Option<usize>,
 
     #[arg(long, hide = true)]
-    pub query_urgency: Option<usize>
+    pub query_urgency: Option<usize>,
+
+    #[arg(long, default_value = "3000")]
+    pub port: u16,
+
+    #[arg(long)]
+    pub with_rocksdb_stats: bool,
+    
+    #[arg(long)]
+    pub with_direct_io: bool
 }
 
 
@@ -40,6 +49,8 @@ impl CLI {
 
         let db = DatabaseSettings::default()
             .with_data_cache_size(self.data_cache_size)
+            .with_rocksdb_stats(self.with_rocksdb_stats)
+            .with_direct_io(self.with_direct_io)
             .open(&self.database_dir)
             .map(Arc::new)
             .context("failed to open rocksdb database")?;

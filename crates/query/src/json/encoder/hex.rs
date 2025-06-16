@@ -1,19 +1,17 @@
 use crate::json::encoder::Encoder;
 use arrow::buffer::ScalarBuffer;
 use arrow::datatypes::ArrowNativeType;
-use std::io::Write;
+
+
+static TABLE: &[u8] = b"0123456789abcdef";
 
 
 pub trait HexEncode: ArrowNativeType + Send {
-    type Buffer: Send;
+    type Buffer: Send + AsRef<[u8]>;
 
-    // Workaround https://github.com/rust-lang/rust/issues/61415
     fn init_buffer() -> Self::Buffer;
 
-    /// Encode the primitive value as bytes, returning a reference to that slice.
-    ///
-    /// `buf` is temporary space that may be used
-    fn encode(self, buf: &mut Self::Buffer) -> &[u8];
+    fn encode(self, buf: &mut Self::Buffer);
 }
 
 
@@ -21,30 +19,32 @@ macro_rules! hex_encode {
     ($($t:ty),*) => {
         $(
             impl HexEncode for $t {
-                type Buffer = [u8; 2 + std::mem::size_of::<Self>() * 2];
+                type Buffer = [u8; 4 + std::mem::size_of::<Self>() * 2];
 
                 fn init_buffer() -> Self::Buffer {
-                    [0; 2 + std::mem::size_of::<Self>() * 2]
+                    let mut buf = [0; 4 + std::mem::size_of::<Self>() * 2];
+                    buf[0] = b'"';
+                    buf[1] = b'0';
+                    buf[2] = b'x';
+                    buf[buf.len() - 1] = b'"';
+                    buf
                 }
 
-                fn encode(self, buf: &mut Self::Buffer) -> &[u8] {
-                    write_hex(buf.as_mut(), &self.to_be_bytes());
-                    buf
+                fn encode(self, buf: &mut Self::Buffer) {
+                    let bytes = self.to_le_bytes();
+                    let size = bytes.len();
+                    for i in 0..size {
+                        let b = bytes[size - 1 - i];
+                        let pos = 3 + i * 2;
+                        buf[pos] = TABLE[((b >> 4) & 0xf) as usize];
+                        buf[pos + 1] = TABLE[(b & 0xf) as usize];
+                    }
                 }
             }
         )*
     };
 }
-// Implementation for signed types depends on the implementation of `to_be_bytes`
-hex_encode!(u8, u16, u32, u64, u128, i128);
-
-
-fn write_hex(mut buf: impl Write, bytes: &[u8]) {
-    write!(buf, "0x").unwrap();
-    for b in bytes {
-        write!(buf, "{:02x}", b).unwrap();
-    }
-}
+hex_encode!(u8, u16, u32, u64, u128);
 
 
 pub struct HexEncoder<N: HexEncode> {
@@ -65,9 +65,8 @@ impl <N: HexEncode> HexEncoder<N> {
 
 impl<N: HexEncode> Encoder for HexEncoder<N> {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {
-        out.push(b'"');
-        out.extend_from_slice(self.values[idx].encode(&mut self.buffer));
-        out.push(b'"');
+        self.values[idx].encode(&mut self.buffer);
+        out.extend_from_slice(self.buffer.as_ref());
     }
 }
 
@@ -80,9 +79,11 @@ mod tests {
     #[test]
     fn test_hex_write() {
         let mut buf = u16::init_buffer();
-        assert_eq!(1600u16.encode(&mut buf), b"0x0640");
+        1600u16.encode(&mut buf);
+        assert_eq!(&buf, b"\"0x0640\"");
 
         let mut buf = u64::init_buffer();
-        assert_eq!(1600u64.encode(&mut buf), b"0x0000000000000640");
+        1600u64.encode(&mut buf);
+        assert_eq!(&buf, b"\"0x0000000000000640\"");
     }
 }

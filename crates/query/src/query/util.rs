@@ -1,6 +1,8 @@
 use crate::primitives::Name;
-use crate::scan::{and, bloom_filter, col_eq, col_gt_eq, col_in_list, col_lt_eq, IntoArrow, RowPredicateRef};
+use crate::scan::{and, bloom_filter, col_eq, col_gt_eq, col_in_list, col_lt_eq, IntoArrowArray, IntoArrowScalar, RowPredicateRef};
+use arrow::array::StringArray;
 use std::hash::Hash;
+
 
 macro_rules! item_field_selection {
     (
@@ -111,7 +113,7 @@ impl PredicateBuilder {
         }
     }
 
-    pub fn col_eq<T: IntoArrow>(&mut self, name: Name, maybe_value: Option<T>) -> &mut Self {
+    pub fn col_eq<T: IntoArrowScalar>(&mut self, name: Name, maybe_value: Option<T>) -> &mut Self {
         if let Some(value) = maybe_value {
             let predicate = col_eq(name, value);
             self.conditions.push(predicate)
@@ -120,21 +122,20 @@ impl PredicateBuilder {
     }
 
     pub fn col_in_list<L>(&mut self, name: Name, maybe_list: Option<L>) -> &mut Self
-        where L: IntoIterator,
-              L::Item: IntoArrow
+        where L: IntoArrowArray
     {
         if let Some(list) = maybe_list {
-            let list: Vec<_> = list.into_iter().collect();
-            if list.len() == 0 {
+            let values = list.into_array();
+            if values.len() == 0 {
                 self.is_never = true
             }
-            let predicate = col_in_list(name, list);
+            let predicate = col_in_list(name, values);
             self.conditions.push(predicate)
         }
         self
     }
 
-    pub fn col_gt_eq<T: IntoArrow>(&mut self, name: Name, maybe_value: Option<T>) -> &mut Self {
+    pub fn col_gt_eq<T: IntoArrowScalar>(&mut self, name: Name, maybe_value: Option<T>) -> &mut Self {
         if let Some(value) = maybe_value {
             let predicate = col_gt_eq(name, value);
             self.conditions.push(predicate)
@@ -142,7 +143,7 @@ impl PredicateBuilder {
         self
     }
 
-    pub fn col_lt_eq<T: IntoArrow>(&mut self, name: Name, maybe_value: Option<T>) -> &mut Self {
+    pub fn col_lt_eq<T: IntoArrowScalar>(&mut self, name: Name, maybe_value: Option<T>) -> &mut Self {
         if let Some(value) = maybe_value {
             let predicate = col_lt_eq(name, value);
             self.conditions.push(predicate)
@@ -150,18 +151,15 @@ impl PredicateBuilder {
         self
     }
 
-    pub fn bloom_filter<L>(
+    pub fn bloom_filter<T: Hash>(
         &mut self, 
         name: Name,
         byte_size: usize,
         num_hashes: usize,
-        maybe_list: Option<L>
+        maybe_list: Option<&[T]>
     ) -> &mut Self
-        where L: IntoIterator,
-              L::Item: Hash
     {
         if let Some(list) = maybe_list {
-            let list: Vec<_> = list.into_iter().collect();
             if list.len() == 0 {
                 self.is_never = true
             }
@@ -170,9 +168,18 @@ impl PredicateBuilder {
         }
         self
     }
+    
+    pub fn add(&mut self, condition: RowPredicateRef) -> &mut Self {
+        self.conditions.push(condition);
+        self
+    }
 
     pub fn is_never(&self) -> bool {
         self.is_never
+    }
+    
+    pub fn mark_as_never(&mut self) {
+        self.is_never = true
     }
     
     pub fn build(self) -> Option<RowPredicateRef> {
@@ -232,24 +239,52 @@ macro_rules! compile_plan {
 pub(crate) use compile_plan;
 
 
-fn parse_hex<T: TryFrom<u64>>(s: &str) -> Option<T> {
+pub fn check_hex(s: &str) -> Result<(), &'static str> {
     if !s.starts_with("0x") {
-        return None;
+        return Err("binary hex string should start with '0x'")
     }
-    if s.len() - 2 != std::mem::size_of::<T>() * 2 {
-        // the size of "dX" fields should be exactly X bytes
-        return None;
+    if s.len() % 2 != 0 {
+        return Err("binary hex string should have an even length")
     }
-    u64::from_str_radix(&s[2..], 16)
+    if !faster_hex::hex_check(s[2..].as_bytes()) {
+        return Err("contains non-hex character")
+    }
+    Ok(())
+}
+
+
+pub fn parse_hex(s: &str) -> Option<Vec<u8>> {
+    if !s.starts_with("0x") {
+        return None
+    }
+    if s.len() % 2 != 0 {
+        return None
+    }
+    let mut bytes = vec![0; s.len() / 2 - 1];
+    faster_hex::hex_decode(s[2..].as_bytes(), &mut bytes)
         .ok()
-        .and_then(|x| x.try_into().ok())
+        .map(|_| bytes)
 }
 
 
-pub fn convert_from_hex_lossy<T: TryFrom<u64>>(v: &Vec<String>) -> impl Iterator<Item = T> + '_ {
-    v.into_iter().filter_map(|s| parse_hex::<T>(s))
+pub fn parse_static_hex<const N: usize>(s: &str) -> Option<[u8; N]> {
+    if !s.starts_with("0x") {
+        return None
+    }
+    if s.len() != 2 + N * 2 {
+        return None
+    }
+    let mut bytes: [u8; N] = [0; N];
+    faster_hex::hex_decode(s[2..].as_bytes(), &mut bytes)
+        .ok()
+        .map(|_| bytes)
 }
 
-pub fn to_lowercase_iter(list: &Option<Vec<String>>) -> Option<impl Iterator<Item = String> + '_> {
-    list.as_ref().map(|v| v.iter().map(|s| s.to_ascii_lowercase()))
+
+pub fn to_lowercase_list(list: &Option<Vec<String>>) -> Option<StringArray> {
+    list.as_ref().map(|v| {
+        StringArray::from_iter_values(
+            v.iter().map(|s| s.to_ascii_lowercase())
+        )
+    })
 }

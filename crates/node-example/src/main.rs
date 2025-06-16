@@ -3,15 +3,15 @@ mod dataset_config;
 mod app;
 
 
-use std::io::IsTerminal;
 use crate::app::build_app;
 use crate::cli::CLI;
 use clap::Parser;
 use sqd_node::DBRef;
+use std::io::IsTerminal;
 use std::time::Duration;
 use tokio::signal;
 use tower_http::timeout::TimeoutLayer;
-use tracing::error;
+use tracing::{debug, error, instrument};
 
 
 #[global_allocator]
@@ -52,11 +52,11 @@ fn main() -> anyhow::Result<()> {
         .block_on(async {
             let (node, db) = args.build_node().await?;
 
-            tokio::spawn(db_cleanup_task(db));
+            tokio::spawn(db_cleanup_task(db.clone()));
 
-            let app = build_app(node).layer(TimeoutLayer::new(Duration::from_secs(10)));
+            let app = build_app(node, db).layer(TimeoutLayer::new(Duration::from_secs(10)));
 
-            let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+            let listener = tokio::net::TcpListener::bind(("0.0.0.0", args.port)).await?;
 
             axum::serve(listener, app)
                 .with_graceful_shutdown(shutdown_signal())
@@ -94,13 +94,22 @@ async fn shutdown_signal() {
 }
 
 
+#[instrument(name = "db_cleanup", skip_all)]
 async fn db_cleanup_task(db: DBRef) {
+    tokio::time::sleep(Duration::from_secs(10)).await;
     loop {
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        debug!("db cleanup started");
         let db = db.clone();
         let result = tokio::task::spawn_blocking(move || db.cleanup()).await;
         match result {
-            Ok(Ok(())) => {},
+            Ok(Ok(deleted)) => {
+                if deleted > 0 {
+                    debug!("purged {} tables", deleted)
+                } else {
+                    debug!("nothing to purge, pausing cleanup for 10 seconds");
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                }
+            },
             Ok(Err(err)) => error!(error =? err, "database cleanup task failed"),
             Err(_) => error!("database cleanup task panicked")
         }

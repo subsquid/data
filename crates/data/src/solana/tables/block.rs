@@ -30,6 +30,6 @@ impl BlockBuilder {
         self.parent_number.append(row.parent_number);
         self.parent_hash.append(&row.parent_hash);
         self.height.append(row.height);
-        self.timestamp.append(row.timestamp);
+        self.timestamp.append_option(row.timestamp);
     }
 }

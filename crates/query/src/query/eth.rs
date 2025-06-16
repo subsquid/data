@@ -6,7 +6,7 @@ use crate::{BlockNumber, Plan};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
-use super::util::to_lowercase_iter;
+use super::util::to_lowercase_list;
 
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
@@ -423,9 +423,9 @@ request! {
 
 impl TransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("from", to_lowercase_iter(&self.from));
-        p.col_in_list("to", to_lowercase_iter(&self.to));
-        p.col_in_list("sighash", to_lowercase_iter(&self.sighash));
+        p.col_in_list("from", to_lowercase_list(&self.from));
+        p.col_in_list("to", to_lowercase_list(&self.to));
+        p.col_in_list("sighash", to_lowercase_list(&self.sighash));
         p.col_gt_eq("nonce", self.first_nonce);
         p.col_lt_eq("nonce", self.last_nonce);
     }
@@ -473,11 +473,11 @@ request! {
 
 impl LogRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("address", to_lowercase_iter(&self.address));
-        p.col_in_list("topic0", to_lowercase_iter(&self.topic0));
-        p.col_in_list("topic1", to_lowercase_iter(&self.topic1));
-        p.col_in_list("topic2", to_lowercase_iter(&self.topic2));
-        p.col_in_list("topic3", to_lowercase_iter(&self.topic3));
+        p.col_in_list("address", to_lowercase_list(&self.address));
+        p.col_in_list("topic0", to_lowercase_list(&self.topic0));
+        p.col_in_list("topic1", to_lowercase_list(&self.topic1));
+        p.col_in_list("topic2", to_lowercase_list(&self.topic2));
+        p.col_in_list("topic3", to_lowercase_list(&self.topic3));
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -533,14 +533,14 @@ request! {
 
 impl TraceRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("type", self.r#type.clone());
-        p.col_in_list("create_from", self.create_from.clone());
-        p.col_in_list("create_result_address", self.create_result_address.clone());
-        p.col_in_list("call_from", self.call_from.clone());
-        p.col_in_list("call_to", self.call_to.clone());
-        p.col_in_list("call_sighash", self.call_sighash.clone());
-        p.col_in_list("suicide_refund_address", self.suicide_refund_address.clone());
-        p.col_in_list("reward_author", self.reward_author.clone());
+        p.col_in_list("type", self.r#type.as_deref());
+        p.col_in_list("create_from", to_lowercase_list(&self.create_from));
+        p.col_in_list("create_result_address", to_lowercase_list(&self.create_result_address));
+        p.col_in_list("call_from", to_lowercase_list(&self.call_from));
+        p.col_in_list("call_to", to_lowercase_list(&self.call_to));
+        p.col_in_list("call_sighash", to_lowercase_list(&self.call_sighash));
+        p.col_in_list("suicide_refund_address", to_lowercase_list(&self.suicide_refund_address));
+        p.col_in_list("reward_author", to_lowercase_list(&self.reward_author));
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -580,9 +580,9 @@ request! {
 
 impl StateDiffRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("address", to_lowercase_iter(&self.address));
-        p.col_in_list("key", self.key.clone());
-        p.col_in_list("kind", self.kind.clone());
+        p.col_in_list("address", to_lowercase_list(&self.address));
+        p.col_in_list("key", self.key.as_deref());
+        p.col_in_list("kind", self.kind.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {

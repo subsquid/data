@@ -517,7 +517,7 @@ request! {
 
 impl TransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("type", self.r#type.clone());
+        p.col_in_list("type", self.r#type.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -561,12 +561,12 @@ request! {
 
 impl InputRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("type", self.r#type.clone());
-        p.col_in_list("coin_owner", self.coin_owner.clone());
-        p.col_in_list("coin_asset_id", self.coin_asset_id.clone());
-        p.col_in_list("contract_contract", self.contract_contract.clone());
-        p.col_in_list("message_sender", self.message_sender.clone());
-        p.col_in_list("message_recipient", self.message_recipient.clone());
+        p.col_in_list("type", self.r#type.as_deref());
+        p.col_in_list("coin_owner", self.coin_owner.as_deref());
+        p.col_in_list("coin_asset_id", self.coin_asset_id.as_deref());
+        p.col_in_list("contract_contract", self.contract_contract.as_deref());
+        p.col_in_list("message_sender", self.message_sender.as_deref());
+        p.col_in_list("message_recipient", self.message_recipient.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -591,7 +591,7 @@ request! {
 
 impl OutputRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("type", self.r#type.clone());
+        p.col_in_list("type", self.r#type.as_deref());
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {

@@ -7,10 +7,11 @@ autobenches = false
 [dependencies]
 anyhow = { workspace = true }
 arrow = { workspace = true, features = ["prettyprint"] }
-bytes = "1.6.0"
+bytes = { workspace = true }
 convert_case = "0.6.0"
 dashmap = "6.0.1"
 divan = { version = "0.1.17", optional = true }
+faster-hex = "0.10.0"
 identconv = "0.2.0"
 lexical-core = "1.0.2"
 memmap2 = { version = "0.9.4", optional = true }
