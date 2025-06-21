@@ -1,4 +1,3 @@
-use crate::storage::{Block, BlockBatch, BlockHeader, BlockHeaderBatch};
 use ouroboros::self_referencing;
 use scylla::_macro_internal::DeserializeRow;
 use scylla::response::query_result::QueryRowsResult;

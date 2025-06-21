@@ -1,5 +1,5 @@
-use crate::storage::cassandra::row_batch::Row;
-use crate::storage::{Block, BlockHeader};
+use super::row_batch::Row;
+use crate::types::{Block, BlockHeader};
 use anyhow::Context;
 use sqd_primitives::BlockNumber;
 
@@ -12,8 +12,8 @@ impl Row for BlockHeader<'static> {
         &'a str, // hash
         i64, // parent_number
         &'a str, // parent_hash
-        Option<i64>, // block_timestamp
-        i64, // ingest_timestamp
+        Option<i64>, // block_timestamp,
+        bool // is_final
     );
 
     fn convert(row: Self::Tuple<'_>) -> anyhow::Result<Self::Type<'_>> {
@@ -24,8 +24,8 @@ impl Row for BlockHeader<'static> {
             hash: row.1.into(),
             parent_number,
             parent_hash: row.3.into(),
-            block_timestamp: row.4,
-            ingest_timestamp: row.5
+            timestamp: row.4,
+            is_final: row.5
         })
     }
 
