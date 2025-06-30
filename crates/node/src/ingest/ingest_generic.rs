@@ -122,12 +122,10 @@ where
     pub fn new(
         mut data_source: DS,
         chunk_builder: CB,
-        first_block: BlockNumber,
-        parent_block_hash: Option<String>,
         message_sender: tokio::sync::mpsc::Sender<IngestMessage>
     ) -> Self
     {
-        data_source.set_position(first_block, parent_block_hash);
+        let first_block = data_source.get_next_block();
         Self {
             message_sender,
             data_source,

@@ -17,4 +17,8 @@ pub trait DataSource: Stream<Item = DataEvent<Self::Block>> + Unpin {
     type Block: Block;
 
     fn set_position(&mut self, next_block: BlockNumber, parent_block_hash: Option<String>);
+
+    fn get_next_block(&self) -> BlockNumber;
+
+    fn get_parent_block_hash(&self) -> Option<&str>;
 }

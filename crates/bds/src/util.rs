@@ -1,7 +1,7 @@
 use std::ops::RangeBounds;
 use sqd_primitives::BlockNumber;
 use std::collections::Bound;
-use crate::types::BlockRange;
+use crate::block::BlockRange;
 
 
 pub fn to_range(bounds: impl RangeBounds<BlockNumber>) -> BlockRange {

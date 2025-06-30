@@ -4762,6 +4762,7 @@ dependencies = [
  "async-stream",
  "futures",
  "ouroboros",
+ "parking_lot",
  "scylla",
  "sqd-data-source",
  "sqd-primitives",

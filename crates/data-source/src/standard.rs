@@ -410,4 +410,12 @@ where
             ep.last_committed_block = None;
         }
     }
+
+    fn get_next_block(&self) -> BlockNumber {
+        self.state.position.first_block
+    }
+
+    fn get_parent_block_hash(&self) -> Option<&str> {
+        self.state.position.parent_block_hash.as_deref()
+    }
 }

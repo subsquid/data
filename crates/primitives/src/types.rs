@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::sync::Arc;
 
 
 pub type Name = &'static str;
@@ -48,5 +49,33 @@ pub trait Block {
 
     fn timestamp(&self) -> Option<i64> {
         None
+    }
+}
+
+
+impl<T: Block> Block for Arc<T> {
+    #[inline]
+    fn number(&self) -> BlockNumber {
+        self.as_ref().number()
+    }
+
+    #[inline]
+    fn hash(&self) -> &str {
+        self.as_ref().hash()
+    }
+
+    #[inline]
+    fn parent_number(&self) -> BlockNumber {
+        self.as_ref().parent_number()
+    }
+
+    #[inline]
+    fn parent_hash(&self) -> &str {
+        self.as_ref().parent_hash()
+    }
+
+    #[inline]
+    fn timestamp(&self) -> Option<i64> {
+        self.as_ref().timestamp()
     }
 }

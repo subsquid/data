@@ -1,6 +1,7 @@
-use sqd_primitives::{BlockNumber, BlockRef};
+use sqd_primitives::BlockNumber;
 use std::borrow::Cow;
 use std::ops::Range;
+use std::sync::Arc;
 
 
 pub type BlockRange = Range<BlockNumber>;
@@ -24,6 +25,9 @@ pub struct Block<'a> {
 }
 
 
+pub type BlockArc = Arc<Block<'static>>;
+
+
 impl <'a> sqd_primitives::Block for Block<'a> {
     fn number(&self) -> BlockNumber {
         self.header.number
@@ -44,15 +48,4 @@ impl <'a> sqd_primitives::Block for Block<'a> {
     fn timestamp(&self) -> Option<i64> {
         self.header.timestamp
     }
-}
-
-
-pub trait Sink {
-    async fn compute_fork_base(&self, prev_blocks: &[BlockRef]) -> anyhow::Result<Option<BlockRef>>;
-    
-    async fn push(&mut self, block: Block<'static>) -> anyhow::Result<()>;
-    
-    async fn finalize(&mut self, block_number: BlockNumber, hash: &str) -> anyhow::Result<()>;
-    
-    async fn on_head(&mut self) -> anyhow::Result<()>;
 }

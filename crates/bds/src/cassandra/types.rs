@@ -1,5 +1,5 @@
 use super::row_batch::Row;
-use crate::types::{Block, BlockHeader};
+use crate::block::{Block, BlockHeader};
 use anyhow::Context;
 use sqd_primitives::BlockNumber;
 

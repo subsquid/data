@@ -6,9 +6,10 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 async-stream = { workspace = true }
-sqd-data-source = { path = "../data-source" }
 futures = { workspace = true }
 ouroboros = { workspace = true }
+parking_lot = { workspace = true }
 scylla = { workspace = true }
+sqd-data-source = { path = "../data-source" }
 sqd-primitives = { path = "../primitives" }
 tokio = { workspace = true, features = ["full"] }

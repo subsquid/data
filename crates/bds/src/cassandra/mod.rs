@@ -3,7 +3,7 @@ mod types;
 
 
 pub use self::row_batch::RowBatch;
-use crate::types::{Block, BlockHeader, BlockRange};
+use crate::block::{Block, BlockHeader, BlockRange};
 use anyhow::Context;
 use async_stream::try_stream;
 use futures::{Stream, StreamExt, TryStream};
