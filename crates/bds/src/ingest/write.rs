@@ -1,5 +1,5 @@
 use crate::chain::Chain;
-use crate::chain_sender::ChainSender;
+use crate::chain_watch::ChainSender;
 use crate::ingest::store::Store;
 use futures::stream::FuturesUnordered;
 use futures::{StreamExt, TryStreamExt};

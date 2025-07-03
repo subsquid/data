@@ -20,7 +20,7 @@ pub fn ingest<'a, 'b>(
     macro_rules! run {
         ($builder:expr) => {{
             let mut data_source = StandardDataSource::new(sources, from_json_bytes);
-            data_source.set_position(first_block, parent_block_hash.map(|s| s.to_string()));
+            data_source.set_position(first_block, parent_block_hash);
             IngestGeneric::new(
                 data_source,
                 $builder,

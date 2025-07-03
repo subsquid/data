@@ -45,6 +45,10 @@ impl <B: Block> Chain<B> {
         todo!()
     }
     
+    pub fn block_slices(&self) -> (&[B], &[B]) {
+        self.blocks.as_slices()
+    }
+    
     pub fn len(&self) -> usize {
         self.blocks.len()
     }

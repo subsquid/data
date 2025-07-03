@@ -19,9 +19,19 @@ impl BlockStreamRequest {
         }
     }
     
-    pub fn with_parent_block_hash(mut self, parent_block_hash: impl Into<Option<String>>) -> Self {
-        self.parent_block_hash = parent_block_hash.into();
-        self
+    pub fn set_parent_block_hash(&mut self, hash: Option<&str>) {
+        match (hash, self.parent_block_hash.as_mut()) {
+            (Some(src), Some(target)) => {
+                target.clear();
+                target.push_str(src)
+            },
+            (Some(src), None) => {
+                self.parent_block_hash = Some(src.to_string())
+            },
+            (None, _) => {
+                self.parent_block_hash = None
+            }
+        }
     }
 }
 

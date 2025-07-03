@@ -400,9 +400,9 @@ where
 {
     type Block = B;
 
-    fn set_position(&mut self, next_block: BlockNumber, parent_block_hash: Option<String>) {
+    fn set_position(&mut self, next_block: BlockNumber, parent_block_hash: Option<&str>) {
         self.state.position.first_block = next_block;
-        self.state.position.parent_block_hash = parent_block_hash;
+        self.state.position.set_parent_block_hash(parent_block_hash);
         self.state.position_is_canonical = false;
         self.state.finalized_head = None;
         for ep in self.endpoints.iter_mut() {

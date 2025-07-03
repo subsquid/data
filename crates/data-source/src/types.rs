@@ -16,7 +16,7 @@ pub enum DataEvent<B> {
 pub trait DataSource: Stream<Item = DataEvent<Self::Block>> + Unpin {
     type Block: Block;
 
-    fn set_position(&mut self, next_block: BlockNumber, parent_block_hash: Option<String>);
+    fn set_position(&mut self, next_block: BlockNumber, parent_block_hash: Option<&str>);
 
     fn get_next_block(&self) -> BlockNumber;
 

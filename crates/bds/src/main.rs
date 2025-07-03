@@ -1,7 +1,7 @@
 #![allow(unused)]
 mod cassandra;
 mod chain;
-mod chain_sender;
+mod chain_watch;
 mod ingest;
 mod block;
 mod util;
