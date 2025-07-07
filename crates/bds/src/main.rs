@@ -1,23 +1,39 @@
 #![allow(unused)]
+mod block;
 mod cassandra;
 mod chain;
 mod chain_watch;
+mod cmd;
 mod ingest;
-mod block;
 mod util;
 
 
-use scylla::client::session::Session;
-use scylla::client::session_builder::SessionBuilder;
+use clap::Parser;
 
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let session: Session = SessionBuilder::new()
-        .known_node("127.0.0.1:9042")
-        .build()
-        .await?;
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-    println!("connected");
-    Ok(())
+
+#[derive(clap::Parser)]
+struct CLI {
+    #[command(subcommand)]
+    command: Command
+}
+
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Run data ingestion
+    Ingest(cmd::ingest::Args)
+}
+
+
+fn main() -> anyhow::Result<()> {
+    let cli = CLI::parse();
+    match cli.command { 
+        Command::Ingest(args) => {
+            cmd::ingest::run(args)
+        } 
+    }
 }

@@ -22,3 +22,18 @@ pub trait DataSource: Stream<Item = DataEvent<Self::Block>> + Unpin {
 
     fn get_parent_block_hash(&self) -> Option<&str>;
 }
+
+
+impl<B> DataEvent<B> {
+    pub fn map<T>(self, f: impl FnOnce(B, bool) -> T) -> DataEvent<T> {
+        match self {
+            DataEvent::FinalizedHead(head) => DataEvent::FinalizedHead(head),
+            DataEvent::Block { block, is_final } => DataEvent::Block {
+                block: f(block, is_final),
+                is_final
+            },
+            DataEvent::Fork(prev) => DataEvent::Fork(prev),
+            DataEvent::MaybeOnHead => DataEvent::MaybeOnHead
+        }
+    }
+}

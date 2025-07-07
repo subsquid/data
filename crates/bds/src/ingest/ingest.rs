@@ -10,14 +10,16 @@ use tokio::select;
 use tokio::time::{sleep_until, Instant};
 
 
-pub async fn ingest<S: Store>(
+pub async fn grow_chain<S: Store>(
     store: S,
+    first_block: BlockNumber,
+    parent_block_hash: Option<String>,
     chain_sender: ChainSender<S::Block>,
     mut data_source: impl DataSource<Block = S::Block>
-) -> anyhow::Result<()> 
+) -> anyhow::Result<()>
 {
-    let first_block = data_source.get_next_block();
-    let parent_block_hash = data_source.get_parent_block_hash().map(|s| s.to_string());
+    // FIXME: check already ingested blocks
+    data_source.set_position(first_block, parent_block_hash.as_deref());
 
     let mut last_push = Instant::now();
     let mut buf: Vec<S::Block> = Vec::new();
@@ -49,7 +51,7 @@ pub async fn ingest<S: Store>(
                         &prev,
                         &store,
                         first_block,
-                        *&parent_block_hash.as_deref(),
+                        parent_block_hash.as_deref(),
                         &mut buf,
                         &chain_sender,
                         &mut data_source

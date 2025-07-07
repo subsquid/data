@@ -1,3 +1,4 @@
+mod ingest_store;
 mod row_batch;
 mod types;
 

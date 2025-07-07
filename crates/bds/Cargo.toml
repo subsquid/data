@@ -6,10 +6,16 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 async-stream = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 ouroboros = { workspace = true }
-parking_lot = { workspace = true }
 scylla = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqd-data-client = { path = "../data-client" }
 sqd-data-source = { path = "../data-source" }
 sqd-primitives = { path = "../primitives" }
+tikv-jemallocator = "0.6.0"
 tokio = { workspace = true, features = ["full"] }
+url = { workspace = true }

@@ -4760,13 +4760,19 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-stream",
+ "bytes",
+ "clap",
  "futures",
  "ouroboros",
- "parking_lot",
  "scylla",
+ "serde",
+ "serde_json",
+ "sqd-data-client",
  "sqd-data-source",
  "sqd-primitives",
+ "tikv-jemallocator",
  "tokio",
+ "url",
 ]
 
 [[package]]
