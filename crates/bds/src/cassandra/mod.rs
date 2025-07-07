@@ -29,6 +29,7 @@ struct Inner {
     update_statement: PreparedStatement,
     fetch_statement: PreparedStatement,
     list_statement: PreparedStatement,
+    reversed_list_statement: PreparedStatement,
     partition_size: u64
 }
 
@@ -59,11 +60,20 @@ impl CassandraStorage {
         list_statement.set_is_idempotent(true);
         list_statement.set_page_size((partition_size * 10) as i32);
 
+        let mut reversed_list_statement = session.prepare(format!(
+            "SELECT number, hash, parent_number, parent_hash, timestamp FROM {}.blocks WHERE partition = ? AND number >= ? AND number < ? ORDER BY number DESC",
+            keyspace
+        )).await?;
+        reversed_list_statement.set_consistency(Consistency::One);
+        reversed_list_statement.set_is_idempotent(true);
+        reversed_list_statement.set_page_size((partition_size * 10) as i32);
+        
         let inner = Inner {
             session,
             update_statement,
             fetch_statement,
             list_statement,
+            reversed_list_statement,
             partition_size
         };
 
@@ -84,10 +94,6 @@ impl CassandraStorage {
         )).await?;
         Ok(())
     }
-
-    pub fn split_into_partitions(&self, range: BlockRange) -> impl Iterator<Item = BlockRange> {
-        split_into_partitions(self.inner.partition_size, range)
-    }
     
     pub fn fetch_blocks(
         &self,
@@ -96,7 +102,8 @@ impl CassandraStorage {
     {
         self.execute_block_list(
             &|inner| &inner.fetch_statement,
-            range
+            range,
+            false
         ).map(|rows| {
             rows.and_then(RowBatch::new)
         })
@@ -109,7 +116,22 @@ impl CassandraStorage {
     {
         self.execute_block_list(
             &|inner| &inner.list_statement,
-            range
+            range,
+            false
+        ).map(|rows| {
+            rows.and_then(RowBatch::new)
+        })
+    }
+    
+    pub fn list_blocks_in_reversed_order(
+        &self,
+        range: BlockRange
+    ) -> impl Stream<Item = anyhow::Result<RowBatch<BlockHeader<'static>>>>
+    {
+        self.execute_block_list(
+            &|inner| &inner.reversed_list_statement,
+            range,
+            true
         ).map(|rows| {
             rows.and_then(RowBatch::new)
         })
@@ -118,12 +140,13 @@ impl CassandraStorage {
     fn execute_block_list(
         &self,
         statement: &'static dyn Fn(&Inner) -> &PreparedStatement,
-        range: Range<BlockNumber>
+        range: Range<BlockNumber>,
+        reverse_partitions: bool
     ) -> impl Stream<Item = anyhow::Result<QueryRowsResult>>
     {
         let inner = self.inner.clone();
         try_stream! {
-            for r in split_into_partitions(inner.partition_size, range.clone()) {
+            for r in split_into_partitions(reverse_partitions, inner.partition_size, range.clone()) {
                 let partition = get_partition(inner.partition_size, r.start);
                 let mut page = PagingState::start();
                 loop {
@@ -155,14 +178,22 @@ fn get_partition(partition_size: u64, block_number: BlockNumber) -> u64 {
 }
 
 
-fn split_into_partitions(partition_size: u64, mut range: Range<BlockNumber>) -> impl Iterator<Item = Range<BlockNumber>> {
+fn split_into_partitions(reverse: bool, partition_size: u64, mut range: Range<BlockNumber>) -> impl Iterator<Item = Range<BlockNumber>> {
     std::iter::from_fn(move || {
         if range.is_empty() {
             return None
         }
-        let end = get_partition(partition_size, range.start) + partition_size;
-        let next = Some(range.start..end);
-        range.start = end;
-        next
+        if reverse {
+            let start = std::cmp::max(range.start, get_partition(partition_size, range.end - 1));
+            let next = Some(start..range.end);
+            range.end = start;
+            next
+        } else {
+            let end = get_partition(partition_size, range.start) + partition_size;
+            let next = Some(range.start..end);
+            range.start = end;
+            next
+        }
+
     })
 }

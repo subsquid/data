@@ -1,4 +1,4 @@
-use sqd_primitives::BlockRef;
+use sqd_primitives::{BlockNumber, BlockRef};
 use crate::block::BlockArc;
 use crate::cassandra::CassandraStorage;
 use crate::ingest::Store;
@@ -11,11 +11,16 @@ impl Store for CassandraStorage {
         todo!()
     }
 
+    async fn get_chain_head(&self, first_block: BlockNumber, parent_hash: Option<&str>) -> anyhow::Result<Option<BlockRef>> {
+        todo!()
+    }
+
     async fn compute_fork(&self, prev: &[BlockRef]) -> anyhow::Result<Option<usize>> {
         todo!()
     }
 
     async fn save(&self, block: Self::Block) -> anyhow::Result<Self::Block> {
-        todo!()
+        self.save_block(block.as_ref()).await?;
+        Ok(block)
     }
 }

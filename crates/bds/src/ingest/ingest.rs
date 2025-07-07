@@ -18,8 +18,11 @@ pub async fn grow_chain<S: Store>(
     mut data_source: impl DataSource<Block = S::Block>
 ) -> anyhow::Result<()>
 {
-    // FIXME: check already ingested blocks
-    data_source.set_position(first_block, parent_block_hash.as_deref());
+    if let Some(head) = store.get_chain_head(first_block, parent_block_hash.as_deref()).await? {
+        data_source.set_position(head.number + 1, Some(head.hash.as_str()));
+    } else {
+        data_source.set_position(first_block, parent_block_hash.as_deref());
+    }
 
     let mut last_push = Instant::now();
     let mut buf: Vec<S::Block> = Vec::new();
