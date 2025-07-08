@@ -9,6 +9,7 @@ use futures::{FutureExt, StreamExt, TryStreamExt};
 use sqd_primitives::BlockRef;
 use sqd_query::Query;
 use sqd_storage::db::DatasetId;
+use tokio::sync::watch;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -128,6 +129,22 @@ impl Node {
     
     pub fn retain(&self, dataset_id: DatasetId, retention_strategy: RetentionStrategy) {
         self.get_dataset(dataset_id).unwrap().retain(retention_strategy)
+    }
+
+    pub fn subscribe_head_updates(
+        &self,
+        dataset_id: DatasetId,
+    ) -> Result<watch::Receiver<Option<BlockRef>>, UnknownDataset> {
+        self.get_dataset(dataset_id)
+            .map(|d| d.subscribe_head_updates())
+    }
+
+    pub fn subscribe_finalized_head_updates(
+        &self,
+        dataset_id: DatasetId,
+    ) -> Result<watch::Receiver<Option<BlockRef>>, UnknownDataset> {
+        self.get_dataset(dataset_id)
+            .map(|d| d.subscribe_finalized_head_updates())
     }
 
     fn get_dataset(&self, dataset_id: DatasetId) -> Result<&DatasetController, UnknownDataset> {
