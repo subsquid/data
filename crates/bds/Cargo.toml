@@ -19,3 +19,4 @@ sqd-primitives = { path = "../primitives" }
 tikv-jemallocator = "0.6.0"
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }

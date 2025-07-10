@@ -58,23 +58,23 @@ async fn ingest(args: Args) -> anyhow::Result<()> {
     let data_source = create_data_source(
         args.data_source.into_iter().map(ReqwestDataClient::from_url).collect()
     );
-    
+
     let chain_sender = ChainSender::<BlockArc>::new();
 
     let mut write_task = tokio::spawn(
         write_chain(storage.clone(), chain_sender.clone())
     );
-    
+
     let mut ingest_task = tokio::spawn(
         grow_chain(
-            storage.clone(), 
+            storage.clone(),
             args.first_block,
             args.parent_block_hash,
             chain_sender,
             data_source
         )
     );
-    
+
     let res = select! {
         res = &mut write_task => {
             task_termination_error("write", res)
@@ -83,22 +83,22 @@ async fn ingest(args: Args) -> anyhow::Result<()> {
             task_termination_error("ingest", res)
         }
     };
-    
+
     write_task.abort();
     ingest_task.abort();
-    
+
     res
 }
 
 
 fn task_termination_error(
-    task_name: &str, 
+    task_name: &str,
     res: Result<anyhow::Result<()>, tokio::task::JoinError>
-) -> anyhow::Result<()> 
+) -> anyhow::Result<()>
 {
     match res {
         Ok(Ok(_)) => bail!("{} task unexpectedly terminated", task_name),
         Ok(Err(err)) => Err(err.context(format!("{} task failed", task_name))),
         Err(join_error) => bail!("{} task terminated: {}", task_name, join_error)
-    }    
+    }
 }

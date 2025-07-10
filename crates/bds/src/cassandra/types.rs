@@ -1,5 +1,5 @@
 use super::row_batch::Row;
-use crate::block::{Block, BlockHeader, ByteRef};
+use crate::block::{Block, BlockHeader};
 use anyhow::Context;
 use sqd_primitives::BlockNumber;
 
@@ -51,4 +51,10 @@ impl Row for Block<'static> {
     fn reborrow<'a, 'this>(slice: &'a [Self::Type<'this>]) -> &'a [Self::Type<'a>] {
         slice
     }
+}
+
+
+pub struct Tops {
+    pub head: BlockNumber,
+    pub finalized_head: Option<BlockNumber>
 }

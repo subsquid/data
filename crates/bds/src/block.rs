@@ -93,3 +93,26 @@ impl <'a> sqd_primitives::Block for Block<'a> {
         self.header.timestamp
     }
 }
+
+
+impl <'a> sqd_primitives::Block for BlockHeader<'a> {
+    fn number(&self) -> BlockNumber {
+        self.number
+    }
+
+    fn hash(&self) -> &str {
+        &self.hash
+    }
+
+    fn parent_number(&self) -> BlockNumber {
+        self.parent_number
+    }
+
+    fn parent_hash(&self) -> &str {
+        &self.parent_hash
+    }
+
+    fn timestamp(&self) -> Option<i64> {
+        self.timestamp
+    }
+}

@@ -90,41 +90,29 @@ async fn handle_fork<S: Store>(
     );
 
     macro_rules! return_block {
-        ($list:expr, $i:expr) => {
-            let block = &$list[$i];
-            data_source.set_position(block.number() + 1, Some(block.hash()));
+        ($b:ident) => {
+            data_source.set_position($b.number + 1, Some(&$b.hash));
             return Ok(())
         };
     }
 
     let prev = &mut prev;
 
-    if let Some(i) = compute_fork_base(&buf, prev) {
-        buf.truncate(i + 1);
-        return_block!(buf, i);
+    if let Some(block_ref) = compute_fork_base(buf.iter().rev(), prev) {
+        buf.retain(|b| b.number() <= block_ref.number);
+        return_block!(block_ref);
     }
 
-    let first_buffered_block = buf.first().cloned();
     buf.clear();
     
     {
         let chain = chain_sender.borrow();
         let (head, tail) = chain.block_slices();
-        if let Some(i) = compute_fork_base(tail, prev) {
-            return_block!(tail, i);
+        if let Some(b) = compute_fork_base(tail.iter().rev(), prev) {
+            return_block!(b);
         }
-        if let Some(i) = compute_fork_base(head, prev) {
-            return_block!(head, i);
-        }
-        if prev.is_empty() {
-            let (number, hash) = chain.first()
-                .map(|b| (b.parent_number(), b.parent_hash()))
-                .unwrap_or_else(|| {
-                    let b = first_buffered_block.as_ref().expect("block buffer should have been non-empty");
-                    (b.parent_number(), b.parent_hash())
-                });
-            data_source.set_position(number + 1, Some(hash));
-            return Ok(())
+        if let Some(b) = compute_fork_base(head.iter().rev(), prev) {
+            return_block!(b);
         }
     }
     
@@ -144,10 +132,11 @@ async fn handle_fork<S: Store>(
         *prev = &prev[offset..];
     }
     
-    if let Some(i) = store.compute_fork(prev).await? {
-        data_source.set_position(prev[i].number + 1, Some(&prev[i].hash));
-        return Ok(())
-    }
+    // if let Some(b) = store.compute_fork_base(prev).await? {
+    //     if b.number >= first_block {
+    //         return_block!(b);
+    //     }
+    // }
     
     data_source.set_position(
         first_block, 

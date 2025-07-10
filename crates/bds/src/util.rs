@@ -1,30 +1,12 @@
-use crate::block::BlockRange;
-use sqd_primitives::{Block, BlockNumber, BlockRef};
-use std::collections::Bound;
-use std::ops::RangeBounds;
+use sqd_primitives::{Block, BlockRef};
 
 
-pub fn to_range(bounds: impl RangeBounds<BlockNumber>) -> BlockRange {
-    let start = match bounds.start_bound() {
-        Bound::Included(n) => *n,
-        Bound::Excluded(n) => n.saturating_add(1),
-        Bound::Unbounded => 0
-    };
-    
-    let end = match bounds.end_bound() {
-        Bound::Included(n) => n.saturating_add(1),
-        Bound::Excluded(n) => *n,
-        Bound::Unbounded => BlockNumber::MAX
-    };
-
-    start..end
-}
-
-
-pub fn compute_fork_base<B: Block>(chain: &[B], prev: &mut &[BlockRef]) -> Option<usize> {
-    for i in (0..chain.len()).rev() {
-        let b = &chain[i];
-
+pub fn compute_fork_base<'a, 'b, 'c, B: Block + 'a>(
+    reversed_chain: impl IntoIterator<Item = &'a B>, 
+    prev: &'b mut &'c [BlockRef]
+) -> Option<BlockRef> 
+{
+    for b in reversed_chain {
         if prev.last().map_or(false, |p| p.number < b.number()) {
             continue
         }
@@ -34,17 +16,27 @@ pub fn compute_fork_base<B: Block>(chain: &[B], prev: &mut &[BlockRef]) -> Optio
         }
         
         if prev.is_empty() {
-            return Some(i)
+            return Some(BlockRef {
+                number: b.number(),
+                hash: b.hash().to_string()
+            })
         }
         
         let p = prev.last().unwrap();
         if b.number() == p.number && b.hash() == &p.hash {
-            return Some(i)
+            return Some(p.clone())
         } else {
             *prev = pop(prev)
         }
+        
+        if prev.is_empty() {
+            return Some(BlockRef {
+                number: b.parent_number(),
+                hash: b.parent_hash().to_string()
+            })
+        }
     }
- 
+
     None
 }
 

@@ -17,6 +17,14 @@ pub struct BlockRef {
 }
 
 
+impl BlockRef {
+    pub fn set_hash(&mut self, hash: &str) {
+        self.hash.clear();
+        self.hash.push_str(hash)
+    }
+}
+
+
 impl Display for BlockRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}#{}", self.number, self.hash)
