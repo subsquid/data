@@ -1,7 +1,8 @@
 use super::row_batch::Row;
 use crate::block::{Block, BlockHeader};
 use anyhow::Context;
-use sqd_primitives::BlockNumber;
+use uuid::Uuid;
+use sqd_primitives::{BlockNumber, BlockRef};
 
 
 impl Row for BlockHeader<'static> {
@@ -54,7 +55,8 @@ impl Row for Block<'static> {
 }
 
 
-pub struct Tops {
-    pub head: BlockNumber,
-    pub finalized_head: Option<BlockNumber>
+pub struct WriteState {
+    pub id: Uuid,
+    pub head: BlockRef,
+    pub finalized_head: Option<BlockRef>
 }

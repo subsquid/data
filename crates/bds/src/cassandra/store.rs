@@ -1,8 +1,8 @@
 use super::row_batch::{Row, RowBatch};
 use crate::block::{Block, BlockHeader};
-use crate::cassandra::types::Tops;
+use crate::cassandra::types::WriteState;
 use crate::cassandra::BlockBatch;
-use anyhow::ensure;
+use anyhow::{anyhow, bail, Context};
 use async_stream::try_stream;
 use futures::{Stream, StreamExt};
 use scylla::client::session::Session;
@@ -10,7 +10,7 @@ use scylla::response::query_result::QueryRowsResult;
 use scylla::response::{PagingState, PagingStateResponse};
 use scylla::statement::prepared::PreparedStatement;
 use scylla::statement::Consistency;
-use sqd_primitives::BlockNumber;
+use sqd_primitives::{BlockNumber, BlockRef};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -27,7 +27,7 @@ struct Inner {
     fetch_statement: PreparedStatement,
     list_statement: PreparedStatement,
     reversed_list_statement: PreparedStatement,
-    fetch_write_tops_statement: PreparedStatement,
+    fetch_write_states_statement: PreparedStatement,
     set_write_head_statement: PreparedStatement,
     set_write_finalized_head_statement: PreparedStatement,
     partition_size: u64,
@@ -69,12 +69,13 @@ impl CassandraStorage {
         reversed_list_statement.set_is_idempotent(true);
         reversed_list_statement.set_page_size((partition_size * 10) as i32);
 
-        let mut fetch_write_tops_statement = session.prepare(format!(
-            "SELECT MAX(head_number), MAX(finalized_head_number) FROM {}.writers WHERE dummy_partition = 0",
+        let mut fetch_write_states_statement = session.prepare(format!(
+            "SELECT id, head_number, head_hash, finalized_head_number, finalized_head_hash \
+            FROM {}.writers WHERE dummy_partition = 0",
             keyspace
         )).await?;
-        fetch_write_tops_statement.set_consistency(Consistency::One);
-        fetch_write_tops_statement.set_is_idempotent(true);
+        fetch_write_states_statement.set_consistency(Consistency::One);
+        fetch_write_states_statement.set_is_idempotent(true);
 
         let mut set_write_head_statement = session.prepare(format!(
             "UPDATE {}.writers SET head_number = ?, head_hash = ? \
@@ -98,7 +99,7 @@ impl CassandraStorage {
             fetch_statement,
             list_statement,
             reversed_list_statement,
-            fetch_write_tops_statement,
+            fetch_write_states_statement,
             set_write_head_statement,
             set_write_finalized_head_statement,
             partition_size,
@@ -141,30 +142,60 @@ impl CassandraStorage {
         Ok(())
     }
 
-    pub async fn fetch_tops(&self) -> anyhow::Result<Option<Tops>> {
-        let res = self.inner.session.execute_unpaged(&self.inner.fetch_write_tops_statement, ()).await?;
+    pub async fn fetch_write_states(&self) -> anyhow::Result<Vec<WriteState>> {
+        let res = self.inner.session.execute_unpaged(&self.inner.fetch_write_states_statement, ()).await?;
         let rows = res.into_rows_result()?;
-        if rows.rows_num() == 0 {
-            return Ok(None)
-        }
 
-        let (mut head, finalized_head) = rows.first_row::<(
+        let rows = rows.rows::<(
+            Uuid,
             Option<i64>,
-            Option<i64>
+            Option<String>,
+            Option<i64>,
+            Option<String>
         )>()?;
 
-        if head.is_none() {
-            ensure!(finalized_head.is_some());
-            head = finalized_head;
+        fn into_block_ref(number: Option<i64>, hash: Option<String>) -> anyhow::Result<Option<BlockRef>> {
+            match (number, hash) {
+                (Some(number), Some(hash)) => {
+                    let number: BlockNumber = number
+                        .try_into()
+                        .context("invalid block number")?;
+                    Ok(Some(BlockRef {
+                        number,
+                        hash
+                    }))
+                },
+                (Some(_), None) => bail!("block number is present, but hash is not"),
+                (None, Some(_)) => bail!("block hash is present, but block number is not"),
+                (None, None) => Ok(None)
+            }
         }
 
-        let head: BlockNumber = head.unwrap().try_into()?;
-        let finalized_head = finalized_head.map(BlockNumber::try_from).transpose()?;
+        rows.map(|row_result| {
+            let (id, head_number, head_hash, finalized_head_number, finalized_head_hash) = row_result?;
 
-        Ok(Some(Tops {
-            head,
-            finalized_head
-        }))
+            let mut head = into_block_ref(head_number, head_hash).with_context(|| {
+                format!("invalid head in a write state {}", id)
+            })?;
+
+            let finalized_head = into_block_ref(finalized_head_number, finalized_head_hash).with_context(|| {
+                format!("invalid finalized head in a write state {}", id)
+            })?;
+
+            if head.is_none() {
+                head = finalized_head.clone();
+            }
+
+            let head = head.ok_or_else(|| {
+                anyhow!("write state {} has no heads", id)
+            })?;
+
+            Ok(WriteState {
+                id,
+                head,
+                finalized_head
+            })
+        }).collect()
     }
 
     pub fn fetch_blocks(
@@ -211,7 +242,7 @@ impl CassandraStorage {
 
     fn execute_block_list<R: Row>(
         &self,
-        statement: &'static dyn Fn(&Inner) -> &PreparedStatement,
+        statement: &'static (dyn (Fn(&Inner) -> &PreparedStatement) + Sync),
         first_block: BlockNumber,
         last_block: BlockNumber,
         reverse_partitions: bool
@@ -235,7 +266,7 @@ impl CassandraStorage {
 
     fn execute_untyped_block_list(
         &self,
-        statement: &'static dyn Fn(&Inner) -> &PreparedStatement,
+        statement: &'static (dyn (Fn(&Inner) -> &PreparedStatement) + Sync),
         first_block: BlockNumber,
         last_block: BlockNumber,
         reverse_partitions: bool

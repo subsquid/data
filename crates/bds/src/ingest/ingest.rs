@@ -1,10 +1,10 @@
 use super::store::Store;
 use crate::chain_watch::ChainSender;
 use crate::util::compute_fork_base;
-use anyhow::{bail, ensure};
+use anyhow::{anyhow, bail, ensure};
 use futures::StreamExt;
 use sqd_data_source::{DataEvent, DataSource};
-use sqd_primitives::{Block, BlockNumber, BlockRef};
+use sqd_primitives::{Block, BlockNumber, BlockPtr, BlockRef};
 use std::time::Duration;
 use tokio::select;
 use tokio::time::{sleep_until, Instant};
@@ -32,7 +32,7 @@ pub async fn grow_chain<S: Store>(
             biased;
             event = data_source.next() => {
                 let Some(event) = event else {
-                    break
+                    bail!("unexpected end of data source stream")
                 };
                 match event {
                     DataEvent::FinalizedHead(_) => {},
@@ -67,8 +67,6 @@ pub async fn grow_chain<S: Store>(
             }
         }
     }
-    
-    Ok(())
 }
 
 
@@ -97,6 +95,26 @@ async fn handle_fork<S: Store>(
     }
 
     let prev = &mut prev;
+    {
+        // we are not interested in going below `first_block`.
+        let Some(offset) = prev.iter().position(|b| b.number >= first_block) else {
+            // all `prev` blocks are below `first_block`,
+            match (data_source.get_next_block(), data_source.get_parent_block_hash()) {
+                (next_block, Some(parent_hash)) if next_block == first_block => {
+                    bail!(
+                        "parent hash of the first requested block {} does not have an expected value of {}",
+                        first_block,
+                        parent_hash
+                    );
+                },
+                _ => {
+                    data_source.set_position(first_block, parent_block_hash.as_deref());
+                    return Ok(())
+                }
+            }
+        };
+        *prev = &prev[offset..];
+    }
 
     if let Some(block_ref) = compute_fork_base(buf.iter().rev(), prev) {
         buf.retain(|b| b.number() <= block_ref.number);
@@ -107,36 +125,28 @@ async fn handle_fork<S: Store>(
     
     {
         let chain = chain_sender.borrow();
-        let (head, tail) = chain.block_slices();
-        if let Some(b) = compute_fork_base(tail.iter().rev(), prev) {
+        if let Some(b) = compute_fork_base(chain.iter().rev(), prev) {
             return_block!(b);
         }
-        if let Some(b) = compute_fork_base(head.iter().rev(), prev) {
-            return_block!(b);
-        }
-    }
-    
-    {
-        let Some(offset) = prev.iter().position(|b| b.number >= first_block) else {
-            if let Some(parent_hash) = parent_block_hash {
-                bail!(
-                    "parent hash of the first requested block {} does not have an expected value of {}", 
-                    first_block, 
-                    parent_hash
-                );
-            } else {
-                data_source.set_position(first_block, None);
-                return Ok(())
+        if let Some(base) = chain.base() {
+            if base.number < data_source.get_next_block() {
+                data_source.set_position(base.number + 1, Some(base.hash));
             }
-        };
-        *prev = &prev[offset..];
+        }
     }
-    
-    // if let Some(b) = store.compute_fork_base(prev).await? {
-    //     if b.number >= first_block {
-    //         return_block!(b);
-    //     }
-    // }
+
+    let head = BlockPtr {
+        number: data_source.get_next_block() - 1,
+        hash: data_source.get_parent_block_hash().ok_or_else(|| {
+            anyhow!("data source got rollback, while no parent_hash was specified")
+        })?
+    };
+
+    if let Some(b) = store.compute_fork_base(head, prev).await? {
+        if b.number >= first_block {
+            return_block!(b);
+        }
+    }
     
     data_source.set_position(
         first_block, 
