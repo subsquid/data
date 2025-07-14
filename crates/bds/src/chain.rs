@@ -6,17 +6,17 @@ use std::ops::Index;
 
 pub struct Chain<B> {
     blocks: VecDeque<B>,
-    droppable: Vec<bool>,
+    droppable: VecDeque<bool>,
     min_size: usize,
 }
 
 
 impl <B: Block> Chain<B> {
-    pub fn new() -> Self {
+    pub fn new(min_size: usize) -> Self {
         Self {
-            blocks: VecDeque::with_capacity(10),
-            droppable: Vec::with_capacity(10),
-            min_size: 1
+            blocks: VecDeque::with_capacity(min_size.max(10)),
+            droppable: VecDeque::with_capacity(min_size.max(10)),
+            min_size
         }
     }
 
@@ -62,16 +62,68 @@ impl <B: Block> Chain<B> {
         end
     }
     
+    pub fn is_droppable(&self, idx: usize) -> bool {
+        self.droppable[idx]
+    }
+
     pub fn push(&mut self, block: B) {
-        todo!()
+        self.push_impl(block);
+        self.clean();
+    }
+    
+    fn push_impl(&mut self, block: B) {
+        loop {
+            let Some(prev) = self.blocks.back() else {
+                self.blocks.push_back(block);
+                self.droppable.push_back(false);
+                return;
+            };
+            if prev.number() == block.parent_number() && prev.hash() == block.parent_hash() {
+                self.blocks.push_back(block);
+                self.droppable.push_back(false);
+                return;
+            } else {
+                self.blocks.pop_back();
+                self.droppable.pop_back();
+            }
+        }
     }
     
     pub fn drop(&mut self, number: BlockNumber, hash: &str) -> bool {
-        todo!()
+        let pos = self.bisect(number);
+        
+        let Some(block) = self.blocks.get(pos) else {
+            return false  
+        };
+        
+        if block.number() != number || block.hash() != hash {
+            return false
+        }
+        
+        self.droppable[pos] = true;
+        self.clean()
+    }
+    
+    fn clean(&mut self) -> bool {
+        let mut dropped = false;
+        for _ in 0..self.len().saturating_sub(self.min_size) {
+            if self.droppable[0] {
+                self.droppable.pop_front();
+                self.blocks.pop_front();
+                dropped = true;
+            } else {
+                break
+            }
+        }
+        dropped
     }
 
     pub fn len(&self) -> usize {
         self.blocks.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
     }
 }
 

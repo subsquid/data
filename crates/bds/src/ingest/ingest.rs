@@ -40,14 +40,14 @@ pub async fn grow_chain<S: Store>(
                         buf.push(block);
                         let now = Instant::now();
                         if buf.len() >= 5 || now - last_push > Duration::from_millis(10) {
-                            chain_sender.extend(buf.drain(..));
                             last_push = now;
+                            chain_sender.extend_and_wait(buf.drain(..)).await;
                         }
                     }, 
                     DataEvent::MaybeOnHead => {
                         if !buf.is_empty() {
-                            chain_sender.extend(buf.drain(..));
-                            last_push = Instant::now()
+                            last_push = Instant::now();
+                            chain_sender.extend_and_wait(buf.drain(..)).await
                         }
                     },
                     DataEvent::Fork(prev) => handle_fork(
@@ -62,8 +62,8 @@ pub async fn grow_chain<S: Store>(
                 } 
             },
             _ =  sleep_until(last_push + Duration::from_millis(20)), if !buf.is_empty() => {
-                chain_sender.extend(buf.drain(..));
-                last_push = Instant::now()
+                last_push = Instant::now();
+                chain_sender.extend_and_wait(buf.drain(..)).await
             }
         }
     }

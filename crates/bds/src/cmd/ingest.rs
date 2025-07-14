@@ -59,7 +59,7 @@ async fn ingest(args: Args) -> anyhow::Result<()> {
         args.data_source.into_iter().map(ReqwestDataClient::from_url).collect()
     );
 
-    let chain_sender = ChainSender::<BlockArc>::new();
+    let chain_sender = ChainSender::<BlockArc>::new(10, 100);
 
     let mut write_task = tokio::spawn(
         write_chain(storage.clone(), chain_sender.clone())
