@@ -1,8 +1,8 @@
 use super::row_batch::Row;
 use crate::block::{Block, BlockHeader};
 use anyhow::Context;
-use uuid::Uuid;
 use sqd_primitives::{BlockNumber, BlockRef};
+use uuid::Uuid;
 
 
 impl Row for BlockHeader<'static> {
@@ -14,7 +14,7 @@ impl Row for BlockHeader<'static> {
         i64, // parent_number
         &'a str, // parent_hash
         Option<i64>, // block_timestamp,
-        bool // is_final
+        Option<bool> // is_final
     );
 
     fn convert(row: Self::Tuple<'_>) -> anyhow::Result<Self::Type<'_>> {
@@ -26,7 +26,7 @@ impl Row for BlockHeader<'static> {
             parent_number,
             parent_hash: row.3.into(),
             timestamp: row.4,
-            is_final: row.5
+            is_final: row.5.unwrap_or(false)
         })
     }
 

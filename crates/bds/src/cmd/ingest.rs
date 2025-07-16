@@ -3,17 +3,19 @@ use crate::cassandra::CassandraStorage;
 use crate::chain_watch::ChainSender;
 use crate::ingest::{create_data_source, grow_chain, write_chain};
 use anyhow::{bail, Context};
+use futures::future::pending;
 use sqd_data_client::reqwest::ReqwestDataClient;
-use sqd_primitives::BlockNumber;
+use sqd_primitives::{BlockNumber, BlockRef};
 use std::sync::Arc;
 use tokio::select;
+use tracing::debug;
 use url::Url;
 
 
 #[derive(clap::Args)]
 pub struct Args {
     #[arg(required = true, short = 'c', long, value_name = "HOST[:PORT]")]
-    cassandra_node: Vec<String>,
+    pub cassandra_node: Vec<String>,
 
     #[arg(required = true, short = 'k', long, value_name = "NAME")]
     pub cassandra_keyspace: String,
@@ -54,15 +56,22 @@ async fn ingest(args: Args) -> anyhow::Result<()> {
         cassandra_session,
         &args.cassandra_keyspace
     ).await?;
+    
+    debug!("cassandra storage initialized");
 
     let data_source = create_data_source(
         args.data_source.into_iter().map(ReqwestDataClient::from_url).collect()
     );
 
     let chain_sender = ChainSender::<BlockArc>::new(10, 100);
+    let (head_sender, head_receiver) = tokio::sync::watch::channel(BlockRef::default());
 
     let mut write_task = tokio::spawn(
-        write_chain(storage.clone(), chain_sender.clone())
+        write_chain(storage.clone(), chain_sender.clone(), head_sender)
+    );
+    
+    let mut head_update_task = tokio::spawn(
+        head_update(storage.clone(), head_receiver)
     );
 
     let mut ingest_task = tokio::spawn(
@@ -79,15 +88,39 @@ async fn ingest(args: Args) -> anyhow::Result<()> {
         res = &mut write_task => {
             task_termination_error("write", res)
         },
+        res = &mut head_update_task => {
+            task_termination_error("head update", res)
+        },
         res = &mut ingest_task => {
             task_termination_error("ingest", res)
         }
     };
 
     write_task.abort();
+    head_update_task.abort();
     ingest_task.abort();
 
     res
+}
+
+
+async fn head_update(
+    storage: CassandraStorage,
+    mut head_receiver: tokio::sync::watch::Receiver<BlockRef>
+) -> anyhow::Result<()> 
+{
+    loop {
+        if head_receiver.changed().await.is_err() {
+            pending::<()>().await;
+        }
+        let head = head_receiver.borrow_and_update().clone();
+        storage.set_head(head.number, &head.hash).await?;
+        debug!(
+            number = head.number,
+            hash =% head.hash, 
+            "head updated"
+        );
+    }
 }
 
 

@@ -4,8 +4,9 @@ use bytes::Bytes;
 use futures::StreamExt;
 use serde::Deserialize;
 use sqd_data_client::reqwest::ReqwestDataClient;
-use sqd_data_source::{DataSource, StandardDataSource};
+use sqd_data_source::{DataSource, MappedDataSource, StandardDataSource};
 use sqd_primitives::BlockNumber;
+use std::io::Write;
 use std::sync::Arc;
 
 
@@ -16,6 +17,7 @@ struct JsonBlock {
 
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct JsonBlockHeader {
     number: BlockNumber,
     hash: String,
@@ -25,7 +27,16 @@ struct JsonBlockHeader {
 }
 
 
-fn parse_block(bytes: Bytes) -> anyhow::Result<BlockArc> {
+
+#[derive(Debug)]
+struct ParsedBlock {
+    pub header: BlockHeader<'static>,
+    pub data: Bytes
+}
+
+
+
+fn parse_block(bytes: Bytes) -> anyhow::Result<ParsedBlock> {
     let json: JsonBlock = serde_json::from_slice(&bytes)?;
     
     if let Some(parent_number) = json.header.parent_number {
@@ -41,21 +52,52 @@ fn parse_block(bytes: Bytes) -> anyhow::Result<BlockArc> {
         is_final: false
     };
     
-    let block = Block {
+    Ok(ParsedBlock {
         header,
-        data: bytes.into()
-    };
-    
-    Ok(Arc::new(block))
+        data: bytes
+    })
 }
 
 
-pub type ReqwestDataSource = StandardDataSource<
-    ReqwestDataClient, 
-    &'static (dyn (Fn(Bytes) -> anyhow::Result<BlockArc>) + Sync)
->;
+pub fn create_data_source(clients: Vec<ReqwestDataClient>) -> impl DataSource<Block = BlockArc> {
+    MappedDataSource::new(
+        StandardDataSource::new(clients, &parse_block),
+        |mut parsed_block: ParsedBlock, is_final: bool| {
+            let compressed = {
+                use flate2::*;
+                use flate2::write::GzEncoder;
+                let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+                encoder.write_all(&parsed_block.data);
+                encoder.finish().expect("IO errors are not possible")
+            };
+            parsed_block.header.is_final = is_final;
+            Arc::new(Block {
+                header: parsed_block.header,
+                data: compressed.into()
+            })
+        }
+    )
+}
 
 
-pub fn create_data_source(clients: Vec<ReqwestDataClient>) -> ReqwestDataSource {
-    StandardDataSource::new(clients, &parse_block)
+impl sqd_primitives::Block for ParsedBlock {
+    fn number(&self) -> BlockNumber {
+        self.header.number
+    }
+
+    fn hash(&self) -> &str {
+        &self.header.hash
+    }
+
+    fn parent_number(&self) -> BlockNumber {
+        self.header.parent_number
+    }
+
+    fn parent_hash(&self) -> &str {
+        &self.header.parent_hash
+    }
+
+    fn timestamp(&self) -> Option<i64> {
+        self.header.timestamp
+    }
 }

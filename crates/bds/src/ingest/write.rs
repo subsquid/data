@@ -3,14 +3,16 @@ use crate::chain_watch::ChainSender;
 use crate::ingest::store::Store;
 use futures::stream::FuturesUnordered;
 use futures::{StreamExt, TryStreamExt};
-use sqd_primitives::{Block, BlockNumber};
+use sqd_primitives::{Block, BlockNumber, BlockRef};
 use std::future::Future;
 use tokio::select;
+use tracing::debug;
 
 
 pub async fn write_chain<S: Store>(
     store: S,
     chain_sender: ChainSender<S::Block>,
+    head_sender: tokio::sync::watch::Sender<BlockRef>
 ) -> anyhow::Result<()>
 {
     let mut chain_receiver = chain_sender.subscribe();
@@ -24,7 +26,10 @@ pub async fn write_chain<S: Store>(
             biased;
             write_result = writes.try_next(), if !writes.is_empty() => {
                 let block = write_result?.expect("empty writes are never polled");
-                chain_sender.drop(block.number(), block.hash());
+                debug!(number = block.number(), hash = block.hash(), "block saved");
+                if let Some(head) = chain_sender.drop(block.number(), block.hash()) {
+                    let _ = head_sender.send(head);
+                }
                 state.ready(block);
             },
             _ = chain_receiver.changed(), if state.is_waiting_new_blocks() => {

@@ -14,8 +14,8 @@ pub struct Chain<B> {
 impl <B: Block> Chain<B> {
     pub fn new(min_size: usize) -> Self {
         Self {
-            blocks: VecDeque::with_capacity(min_size.max(10)),
-            droppable: VecDeque::with_capacity(min_size.max(10)),
+            blocks: VecDeque::with_capacity(min_size + 10),
+            droppable: VecDeque::with_capacity(min_size + 10),
             min_size
         }
     }
@@ -101,10 +101,10 @@ impl <B: Block> Chain<B> {
         }
         
         self.droppable[pos] = true;
-        self.clean()
+        true
     }
     
-    fn clean(&mut self) -> bool {
+    pub fn clean(&mut self) -> bool {
         let mut dropped = false;
         for _ in 0..self.len().saturating_sub(self.min_size) {
             if self.droppable[0] {
@@ -116,6 +116,13 @@ impl <B: Block> Chain<B> {
             }
         }
         dropped
+    }
+
+    pub fn droppable_head(&self) -> Option<BlockPtr<'_>> {
+        match self.droppable.iter().position(|&is_droppable| !is_droppable) {
+            None => self.blocks.back().map(|b| b.ptr()),
+            Some(i) => i.checked_sub(1).map(|i| self.blocks[i].ptr())
+        }
     }
 
     pub fn len(&self) -> usize {

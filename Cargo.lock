@@ -4762,6 +4762,7 @@ dependencies = [
  "async-stream",
  "bytes",
  "clap",
+ "flate2",
  "futures",
  "ouroboros",
  "scylla",
@@ -4772,6 +4773,8 @@ dependencies = [
  "sqd-primitives",
  "tikv-jemallocator",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "url",
  "uuid",
 ]

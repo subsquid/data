@@ -8,6 +8,7 @@ use sqd_primitives::{Block, BlockNumber, BlockPtr, BlockRef};
 use std::time::Duration;
 use tokio::select;
 use tokio::time::{sleep_until, Instant};
+use tracing::debug;
 
 
 pub async fn grow_chain<S: Store>(
@@ -24,6 +25,12 @@ pub async fn grow_chain<S: Store>(
         data_source.set_position(first_block, parent_block_hash.as_deref());
     }
 
+    debug!(
+        first_block = data_source.get_next_block(),
+        parent_hash =% data_source.get_parent_block_hash().unwrap_or("None"),
+        "starting data ingestion"
+    );
+
     let mut last_push = Instant::now();
     let mut buf: Vec<S::Block> = Vec::new();
 
@@ -37,6 +44,11 @@ pub async fn grow_chain<S: Store>(
                 match event {
                     DataEvent::FinalizedHead(_) => {},
                     DataEvent::Block { block, .. } => {
+                        debug!(
+                            number = block.number(),
+                            hash =% block.hash(),
+                            "block received"
+                        );
                         buf.push(block);
                         let now = Instant::now();
                         if buf.len() >= 5 || now - last_push > Duration::from_millis(10) {

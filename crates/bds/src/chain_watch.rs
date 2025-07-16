@@ -1,5 +1,5 @@
 use crate::chain::Chain;
-use sqd_primitives::{Block, BlockNumber};
+use sqd_primitives::{Block, BlockNumber, BlockRef};
 
 
 pub type ChainReceiver<B> = tokio::sync::watch::Receiver<Chain<B>>;
@@ -28,13 +28,21 @@ impl<B: Block> ChainSender<B> {
         self.inner.borrow()
     }
 
-    pub fn drop(&self, number: BlockNumber, hash: &str) {
+    pub fn drop(&self, number: BlockNumber, hash: &str) -> Option<BlockRef> {
+        let mut drop_head = None;
         self.inner.send_if_modified(|chain| {
-            let over = chain.len() > self.max_size;
-            let dropped = chain.drop(number, hash);
-            // notify about change only when crossed max_size threshold
-            dropped && over && chain.len() < self.max_size
+            if !chain.drop(number, hash) {
+                return false
+            }
+            if let Some(ptr) = chain.droppable_head() {
+                drop_head = Some(ptr.to_ref())
+            }
+            let over = chain.len() >= self.max_size;
+            chain.clean();
+            // notify only when max_size threshold has been crossed
+            over && chain.len() < self.max_size
         });
+        drop_head
     }
     
     pub async fn extend_and_wait(&self, blocks: impl IntoIterator<Item = B>) {

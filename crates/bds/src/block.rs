@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use sqd_primitives::BlockNumber;
 use std::borrow::{Borrow, Cow};
-use std::ops::{Deref, Range};
+use std::ops::Range;
 use std::sync::Arc;
 
 
@@ -22,51 +22,9 @@ pub struct BlockHeader<'a> {
 #[derive(Clone, Debug)]
 pub struct Block<'a> {
     pub header: BlockHeader<'a>,
-    pub data: ByteRef<'a>
+    pub data: Cow<'a, [u8]>
 }
 
-
-#[derive(Debug)]
-pub enum ByteRef<'a> {
-    Borrowed(&'a [u8]),
-    Owned(Bytes)
-}
-
-
-impl<'a> Deref for ByteRef<'a> {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            ByteRef::Borrowed(s) => s,
-            ByteRef::Owned(b) => b.as_ref()
-        }
-    }
-}
-
-
-impl<'a> Clone for ByteRef<'a> {
-    fn clone(&self) -> Self {
-        match self {
-            ByteRef::Borrowed(s) => ByteRef::Borrowed(s),
-            ByteRef::Owned(b) => ByteRef::Owned(b.clone())
-        }
-    }
-}
-
-
-impl<'a> From<&'a [u8]> for ByteRef<'a> {
-    fn from(value: &'a [u8]) -> Self {
-        Self::Borrowed(value)
-    }
-}
-
-
-impl<'a> From<Bytes> for ByteRef<'a> {
-    fn from(value: Bytes) -> Self {
-        Self::Owned(value)
-    }
-}
 
 
 pub type BlockArc = Arc<Block<'static>>;
@@ -95,7 +53,7 @@ impl <'a> sqd_primitives::Block for Block<'a> {
 }
 
 
-impl <'a> sqd_primitives::Block for BlockHeader<'a> {
+impl<'a> sqd_primitives::Block for BlockHeader<'a> {
     fn number(&self) -> BlockNumber {
         self.number
     }
