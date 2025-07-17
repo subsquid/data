@@ -7,6 +7,7 @@ use url::Url;
 pub enum NetworkKind {
     Solana,
     Hyperliquid,
+    Evm,
 }
 
 

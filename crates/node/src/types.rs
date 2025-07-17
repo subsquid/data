@@ -32,7 +32,7 @@ impl DatasetKind {
     
     pub fn dataset_description(&self) -> DatasetDescriptionRef {
         match self {
-            DatasetKind::Evm => sqd_data::evm::tables::EVMChunkBuilder::dataset_description(),
+            DatasetKind::Evm => sqd_data::evm::tables::EvmChunkBuilder::dataset_description(),
             DatasetKind::Solana => sqd_data::solana::tables::SolanaChunkBuilder::dataset_description()
         }
     }

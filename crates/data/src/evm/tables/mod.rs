@@ -16,7 +16,7 @@ use sqd_data_core::chunk_builder;
 
 
 chunk_builder! {
-    EVMChunkBuilder {
+    EvmChunkBuilder {
         blocks: BlockBuilder,
         transactions: TransactionBuilder,
         logs: LogBuilder,
@@ -26,7 +26,7 @@ chunk_builder! {
 }
 
 
-impl sqd_data_core::BlockChunkBuilder for EVMChunkBuilder {
+impl sqd_data_core::BlockChunkBuilder for EvmChunkBuilder {
     type Block = Block;
 
     fn push(&mut self, block: &Self::Block) -> anyhow::Result<()> {

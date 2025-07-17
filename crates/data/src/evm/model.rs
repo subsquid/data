@@ -97,7 +97,7 @@ pub struct Log {
 #[serde(rename_all = "camelCase")]
 pub struct TraceActionCreate {
     pub from: HexBytes,
-    pub value: Option<HexBytes>,
+    pub value: HexBytes,
     pub gas: HexBytes,
     pub init: HexBytes,
     pub creation_method: Option<String>
@@ -112,37 +112,36 @@ pub struct TraceActionCall {
     pub gas: HexBytes,
     pub input: HexBytes,
     pub call_type: String,
-    pub r#type: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceActionReward {
     pub author: HexBytes,
-    pub value: u64,
+    pub value: HexBytes,
     pub reward_type: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceActionSelfDestruct {
-    pub address: HexBytes,
+    pub address: Option<HexBytes>,
     pub refund_address: HexBytes,
-    pub balance: u64
+    pub balance: Option<HexBytes>
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceResultCreate {
     pub gas_used: HexBytes,
-    pub code: HexBytes,
-    pub address: HexBytes,
+    pub code: Option<HexBytes>,
+    pub address: Option<HexBytes>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TraceResultCall {
-    pub gas_used: HexBytes,
+    pub gas_used: Option<HexBytes>,
     pub output: Option<HexBytes>
 }
 

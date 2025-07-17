@@ -29,15 +29,14 @@ table_builder! {
         call_input: HexBytesBuilder,
         call_sighash: HexBytesBuilder,
         call_type: StringBuilder,
-        call_call_type: HexBytesBuilder,
         call_result_gas_used: HexBytesBuilder,
         call_result_output: HexBytesBuilder,
 
         suicide_address: HexBytesBuilder,
         suicide_refund_address: HexBytesBuilder,
-        suicide_balance: UInt64Builder,
+        suicide_balance: HexBytesBuilder,
         reward_author: HexBytesBuilder,
-        reward_value: UInt64Builder,
+        reward_value: HexBytesBuilder,
         reward_type: StringBuilder,
 
         create_init_size: UInt64Builder,
@@ -83,15 +82,15 @@ impl TraceBuilder {
         if let TraceOp::Create { action, result } = &row.op {
             self.r#type.append("create");
             self.create_from.append(&action.from);
-            self.create_value.append_option(action.value.as_deref());
+            self.create_value.append(&action.value);
             self.create_gas.append(&action.gas);
             self.create_init.append(&action.init);
             self.create_init_size.append(action.init.len() as u64);
             if let Some(res) = result {
                 self.create_result_gas_used.append(&res.gas_used);
-                self.create_result_code.append(&res.code);
-                self.create_result_address.append(&res.address);
-                self.create_result_code_size.append(res.code.len() as u64);
+                self.create_result_code.append_option(res.code.as_deref());
+                self.create_result_address.append_option(res.address.as_deref());
+                self.create_result_code_size.append(res.code.as_ref().map_or(0, |v| v.len()) as u64);
             } else {
                 self.create_result_gas_used.append_null();
                 self.create_result_code.append_null();
@@ -118,11 +117,10 @@ impl TraceBuilder {
             self.call_gas.append(&action.gas);
             self.call_input.append(&action.input);
             self.call_sighash.append_option(sighash(&action.input));
-            self.call_type.append(&action.r#type);
-            self.call_call_type.append(&action.call_type);
+            self.call_type.append(&action.call_type);
             self.call_input_size.append(action.input.len() as u64);
             if let Some(res) = result {
-                self.call_result_gas_used.append(&res.gas_used);
+                self.call_result_gas_used.append_option(res.gas_used.as_deref());
                 self.call_result_output.append_option(res.output.as_deref());
                 self.call_result_output_size.append(res.output.as_ref().map_or(0, |v| v.len()) as u64);
             } else {
@@ -138,7 +136,6 @@ impl TraceBuilder {
             self.call_input.append_null();
             self.call_sighash.append_null();
             self.call_type.append_null();
-            self.call_call_type.append_null();
             self.call_input_size.append(0);
             self.call_result_gas_used.append_null();
             self.call_result_output.append_null();
@@ -148,7 +145,7 @@ impl TraceBuilder {
         if let TraceOp::Reward { action } = &row.op {
             self.r#type.append("reward");
             self.reward_author.append(&action.author);
-            self.reward_value.append(action.value);
+            self.reward_value.append(&action.value);
             self.reward_type.append(&action.reward_type);
         } else {
             self.reward_author.append_null();
@@ -158,9 +155,9 @@ impl TraceBuilder {
 
         if let TraceOp::SelfDestruct { action} = &row.op {
             self.r#type.append("suicide");
-            self.suicide_address.append(&action.address);
+            self.suicide_address.append_option(action.address.as_deref());
             self.suicide_refund_address.append(&action.refund_address);
-            self.suicide_balance.append(action.balance);
+            self.suicide_balance.append_option(action.balance.as_deref());
         } else {
             self.suicide_address.append_null();
             self.suicide_refund_address.append_null();

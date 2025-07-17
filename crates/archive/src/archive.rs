@@ -11,6 +11,7 @@ use anyhow::{ensure, Context};
 use prometheus_client::registry::Registry;
 use sqd_data::solana::tables::SolanaChunkBuilder;
 use sqd_data::hyperliquid::tables::HyperliquidChunkBuilder;
+use sqd_data::evm::tables::EvmChunkBuilder;
 use sqd_primitives::BlockNumber;
 use std::time::Duration;
 
@@ -54,6 +55,9 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
         NetworkKind::Hyperliquid => Box::new(
             ChainBuilder::<HyperliquidChunkBuilder>::default(),
         ),
+        NetworkKind::Evm => Box::new(
+            ChainBuilder::<EvmChunkBuilder>::default(),
+        )
     };
 
     let processor = LineProcessor::new(chunk_builder)?;
