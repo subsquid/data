@@ -6,6 +6,7 @@ mod chain_watch;
 mod cmd;
 mod ingest;
 mod util;
+mod data_source;
 
 
 use clap::Parser;

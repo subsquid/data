@@ -1,5 +1,5 @@
 use crate::chain::Chain;
-use sqd_primitives::{Block, BlockNumber, BlockRef};
+use sqd_primitives::{Block, BlockNumber, BlockPtr};
 
 
 pub type ChainReceiver<B> = tokio::sync::watch::Receiver<Chain<B>>;
@@ -28,41 +28,32 @@ impl<B: Block> ChainSender<B> {
         self.inner.borrow()
     }
 
-    pub fn drop(&self, number: BlockNumber, hash: &str) -> Option<BlockRef> {
-        let mut drop_head = None;
+    pub fn mark_stored(&self, number: BlockNumber, hash: &str) {
         self.inner.send_if_modified(|chain| {
-            if !chain.drop(number, hash) {
-                return false
-            }
-            if let Some(ptr) = chain.droppable_head() {
-                drop_head = Some(ptr.to_ref())
-            }
-            let over = chain.len() >= self.max_size;
-            chain.clean();
-            // notify only when max_size threshold has been crossed
-            over && chain.len() < self.max_size
+            chain.mark_stored(number, hash) && chain.clean()
         });
-        drop_head
     }
     
-    pub async fn extend_and_wait(&self, blocks: impl IntoIterator<Item = B>) {
-        if !self.extend(blocks) {
-            self.wait().await;
-        }
+    pub fn finalize(&self, head: BlockPtr) -> anyhow::Result<()> {
+        let mut res = Ok(false);
+        self.inner.send_if_modified(|chain| { 
+            res = chain.finalize(head);
+            res.as_ref().map_or(false, |changed| *changed)
+        });
+        res.map(drop)
     }
     
-    pub fn extend(&self, blocks: impl IntoIterator<Item = B>) -> bool {
+    pub fn push(&self, is_final: bool, block: B) -> anyhow::Result<bool> {
+        let mut res = Ok(());
         let mut size = 0;
-        self.inner.send_if_modified(|chain| {
-            let mut modified = false; 
-            for b in blocks {
-                modified = true;
-                chain.push(b)
-            }
+        self.inner.send_modify(|chain| {
+            res = chain.push(block);
             size = chain.len();
-            modified
+            if is_final && res.is_ok() {
+                chain.finalize_all();
+            }
         });
-        size <= self.max_size
+        res.map(|_| size <= self.max_size)
     }
     
     pub async fn wait(&self) {

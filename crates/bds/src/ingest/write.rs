@@ -11,30 +11,32 @@ use tracing::debug;
 
 pub async fn write_chain<S: Store>(
     store: S,
-    chain_sender: ChainSender<S::Block>,
-    head_sender: tokio::sync::watch::Sender<BlockRef>
+    chain_sender: ChainSender<S::Block>
 ) -> anyhow::Result<()>
 {
     let mut chain_receiver = chain_sender.subscribe();
     let mut writes = FuturesUnordered::new();
-    let mut state = State::new(store.max_pending_writes());
+    let mut state = State::new(5);
     loop {
         state.advance(&mut chain_receiver, |b| {
-            writes.push(store.save(b))
+            writes.push(async { 
+                store.save(&b).await?;
+                Ok::<_, anyhow::Error>(b)
+            })
         });
         select! {
             biased;
             write_result = writes.try_next(), if !writes.is_empty() => {
                 let block = write_result?.expect("empty writes are never polled");
-                debug!(number = block.number(), hash = block.hash(), "block saved");
-                if let Some(head) = chain_sender.drop(block.number(), block.hash()) {
-                    let _ = head_sender.send(head);
-                }
+                debug!(
+                    number = block.number(),
+                    hash = block.hash(),
+                    "block saved"
+                );
+                chain_sender.mark_stored(block.number(), block.hash());
                 state.ready(block);
             },
-            _ = chain_receiver.changed(), if state.is_waiting_new_blocks() => {
-                state.mark_possible_block_arrival();
-            }
+            _ = chain_receiver.changed(), if state.has_capacity() => {}
         }
     }
 }
@@ -59,12 +61,16 @@ impl<B: Block + Clone> State<B> {
         }
     }
     
+    pub fn has_capacity(&self) -> bool {
+        self.pending.len() < self.max_pending
+    }
+    
     pub fn advance(
         &mut self,
         chain_receiver: &mut tokio::sync::watch::Receiver<Chain<B>>,
         mut cb: impl FnMut(B)
     ) {
-        if self.waits_new_block || self.pending.len() >= self.max_pending {
+        if !self.has_capacity() {
             return;
         }
 
@@ -89,7 +95,7 @@ impl<B: Block + Clone> State<B> {
         let mut pos = chain.bisect(self.last_block).min(chain.len() - 1);
 
         loop {
-            if chain.is_droppable(pos) || self.is_pending(&chain[pos]) {
+            if chain.is_stored(pos) || self.is_pending(&chain[pos]) {
                 return pos + 1
             }
             if pos == 0 {
@@ -103,14 +109,6 @@ impl<B: Block + Clone> State<B> {
     fn is_pending(&self, block: &B) -> bool {
         let ptr = block.ptr();
         self.pending.iter().any(|b| b.ptr() == ptr)
-    }
-
-    pub fn mark_possible_block_arrival(&mut self) {
-        self.waits_new_block = false
-    }
-
-    pub fn is_waiting_new_blocks(&self) -> bool {
-        self.waits_new_block
     }
 
     pub fn ready(&mut self, block: B) {

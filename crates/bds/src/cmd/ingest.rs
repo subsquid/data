@@ -1,13 +1,11 @@
 use crate::block::BlockArc;
 use crate::cassandra::CassandraStorage;
-use crate::chain_watch::ChainSender;
-use crate::ingest::{create_data_source, grow_chain, write_chain};
-use anyhow::{bail, Context};
-use futures::future::pending;
+use crate::data_source::create_data_source;
+use crate::ingest::Ingest;
+use anyhow::Context;
 use sqd_data_client::reqwest::ReqwestDataClient;
-use sqd_primitives::{BlockNumber, BlockRef};
+use sqd_primitives::BlockNumber;
 use std::sync::Arc;
-use tokio::select;
 use tracing::debug;
 use url::Url;
 
@@ -35,11 +33,11 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
-        .block_on(ingest(args))
+        .block_on(run_async(args))
 }
 
 
-async fn ingest(args: Args) -> anyhow::Result<()> {
+async fn run_async(args: Args) -> anyhow::Result<()> {
     let cassandra_session = {
         use scylla::client::session_builder::SessionBuilder;
 
@@ -56,82 +54,16 @@ async fn ingest(args: Args) -> anyhow::Result<()> {
         cassandra_session,
         &args.cassandra_keyspace
     ).await?;
-    
+
     debug!("cassandra storage initialized");
 
     let data_source = create_data_source(
         args.data_source.into_iter().map(ReqwestDataClient::from_url).collect()
     );
 
-    let chain_sender = ChainSender::<BlockArc>::new(10, 100);
-    let (head_sender, head_receiver) = tokio::sync::watch::channel(BlockRef::default());
+    let (_, handle) = Ingest::new(storage, data_source)
+        .start()
+        .await?;
 
-    let mut write_task = tokio::spawn(
-        write_chain(storage.clone(), chain_sender.clone(), head_sender)
-    );
-    
-    let mut head_update_task = tokio::spawn(
-        head_update(storage.clone(), head_receiver)
-    );
-
-    let mut ingest_task = tokio::spawn(
-        grow_chain(
-            storage.clone(),
-            args.first_block,
-            args.parent_block_hash,
-            chain_sender,
-            data_source
-        )
-    );
-
-    let res = select! {
-        res = &mut write_task => {
-            task_termination_error("write", res)
-        },
-        res = &mut head_update_task => {
-            task_termination_error("head update", res)
-        },
-        res = &mut ingest_task => {
-            task_termination_error("ingest", res)
-        }
-    };
-
-    write_task.abort();
-    head_update_task.abort();
-    ingest_task.abort();
-
-    res
-}
-
-
-async fn head_update(
-    storage: CassandraStorage,
-    mut head_receiver: tokio::sync::watch::Receiver<BlockRef>
-) -> anyhow::Result<()> 
-{
-    loop {
-        if head_receiver.changed().await.is_err() {
-            pending::<()>().await;
-        }
-        let head = head_receiver.borrow_and_update().clone();
-        storage.set_head(head.number, &head.hash).await?;
-        debug!(
-            number = head.number,
-            hash =% head.hash, 
-            "head updated"
-        );
-    }
-}
-
-
-fn task_termination_error(
-    task_name: &str,
-    res: Result<anyhow::Result<()>, tokio::task::JoinError>
-) -> anyhow::Result<()>
-{
-    match res {
-        Ok(Ok(_)) => bail!("{} task unexpectedly terminated", task_name),
-        Ok(Err(err)) => Err(err.context(format!("{} task failed", task_name))),
-        Err(join_error) => bail!("{} task terminated: {}", task_name, join_error)
-    }
+    handle.await
 }

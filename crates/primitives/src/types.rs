@@ -91,6 +91,7 @@ pub trait Block {
         None
     }
 
+    #[inline]
     fn ptr(&self) -> BlockPtr<'_> {
         BlockPtr {
             number: self.number(),
@@ -98,6 +99,7 @@ pub trait Block {
         }
     }
 
+    #[inline]
     fn parent_ptr(&self) -> BlockPtr<'_> {
         BlockPtr {
             number: self.parent_number(),

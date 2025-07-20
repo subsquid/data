@@ -1,12 +1,15 @@
-use sqd_primitives::{Block, BlockNumber, BlockPtr};
-use std::cmp::Ordering;
+use crate::util::{bisect, compute_fork_base};
+use anyhow::{anyhow, bail, ensure};
+use sqd_primitives::{Block, BlockNumber, BlockPtr, BlockRef};
 use std::collections::VecDeque;
 use std::ops::Index;
 
 
 pub struct Chain<B> {
+    chain: VecDeque<BlockRef>,
+    fin: bool,
     blocks: VecDeque<B>,
-    droppable: VecDeque<bool>,
+    stored: VecDeque<bool>,
     min_size: usize,
 }
 
@@ -14,13 +17,15 @@ pub struct Chain<B> {
 impl <B: Block> Chain<B> {
     pub fn new(min_size: usize) -> Self {
         Self {
+            chain: VecDeque::with_capacity(100),
+            fin: false,
             blocks: VecDeque::with_capacity(min_size + 10),
-            droppable: VecDeque::with_capacity(min_size + 10),
+            stored: VecDeque::with_capacity(min_size + 10),
             min_size
         }
     }
 
-    pub fn base(&self) -> Option<BlockPtr<'_>> {
+    pub fn base(&self) -> Option<BlockPtr> {
         self.first().map(|b| b.parent_ptr())
     }
     
@@ -33,63 +38,56 @@ impl <B: Block> Chain<B> {
     }
     
     pub fn bisect(&self, block_number: BlockNumber) -> usize {
-        let Some(mut end) = self.blocks.len().checked_sub(1) else {
-            return 0
-        };
-
-        let mut beg = match self.blocks[end].number().cmp(&block_number) {
-            Ordering::Less => return end + 1,
-            Ordering::Equal => return end,
-            Ordering::Greater => {
-                let diff = self.blocks[end].number() - block_number;
-                end.saturating_sub(diff as usize)
-            }
-        };
-
-        if self.blocks[beg].number() >= block_number {
-            return beg
-        }
-
-        while end - beg > 1  {
-            let mid = beg + (end - beg) / 2;
-            match self.blocks[mid].number().cmp(&block_number) {
-                Ordering::Less => beg = mid,
-                Ordering::Equal => return mid,
-                Ordering::Greater => end = mid
-            }
-        }
-
-        end
+        bisect(self.blocks.len(), &self.blocks, block_number)
     }
     
-    pub fn is_droppable(&self, idx: usize) -> bool {
-        self.droppable[idx]
+    pub fn is_stored(&self, idx: usize) -> bool {
+        self.stored[idx]
     }
 
-    pub fn push(&mut self, block: B) {
-        self.push_impl(block);
-        self.clean();
-    }
-    
-    fn push_impl(&mut self, block: B) {
+    pub fn push(&mut self, block: B) -> anyhow::Result<()> {
         loop {
-            let Some(prev) = self.blocks.back() else {
+            let Some(prev) = self.chain.back() else {
+                self.chain.push_back(block.ptr().to_ref());
                 self.blocks.push_back(block);
-                self.droppable.push_back(false);
-                return;
+                self.stored.push_back(false);
+                return Ok(());
             };
-            if prev.number() == block.parent_number() && prev.hash() == block.parent_hash() {
+            
+            if prev.number == block.parent_number() && prev.hash == block.parent_hash() {
+                self.chain.push_back(block.ptr().to_ref());
                 self.blocks.push_back(block);
-                self.droppable.push_back(false);
-                return;
-            } else {
-                self.blocks.pop_back();
-                self.droppable.pop_back();
+                self.stored.push_back(false);
+                return Ok(());
             }
+
+            if block.parent_number() > prev.number {
+                bail!(
+                    "block {} is missing between {} and {}",
+                    block.parent_ptr(),
+                    prev,
+                    block.ptr()
+                );
+            }
+
+            if self.fin {
+                ensure!(
+                    self.chain.len() > 1,
+                    "block {} is not based on finalized head {}",
+                    block.ptr(),
+                    prev
+                );
+            } else {
+                assert_eq!(self.chain.len(), self.blocks.len());
+            }
+
+            self.chain.pop_back();
+            self.blocks.pop_back();
+            self.stored.pop_back();
         }
     }
     
-    pub fn drop(&mut self, number: BlockNumber, hash: &str) -> bool {
+    pub fn mark_stored(&mut self, number: BlockNumber, hash: &str) -> bool {
         let pos = self.bisect(number);
         
         let Some(block) = self.blocks.get(pos) else {
@@ -100,16 +98,19 @@ impl <B: Block> Chain<B> {
             return false
         }
         
-        self.droppable[pos] = true;
+        self.stored[pos] = true;
         true
     }
     
     pub fn clean(&mut self) -> bool {
         let mut dropped = false;
         for _ in 0..self.len().saturating_sub(self.min_size) {
-            if self.droppable[0] {
-                self.droppable.pop_front();
+            if self.stored[0] {
+                self.stored.pop_front();
                 self.blocks.pop_front();
+                if !self.fin {
+                    self.chain.pop_front();
+                }
                 dropped = true;
             } else {
                 break
@@ -118,10 +119,70 @@ impl <B: Block> Chain<B> {
         dropped
     }
 
-    pub fn droppable_head(&self) -> Option<BlockPtr<'_>> {
-        match self.droppable.iter().position(|&is_droppable| !is_droppable) {
-            None => self.blocks.back().map(|b| b.ptr()),
-            Some(i) => i.checked_sub(1).map(|i| self.blocks[i].ptr())
+    pub fn finalize(&mut self, head: BlockPtr) -> anyhow::Result<bool> {
+        if self.chain.front().map_or(true, |b| head.number < b.number) {
+            return Ok(false);
+        }
+
+        if self.chain.back().unwrap().number < head.number {
+            return if self.chain.len() > 1 {
+                self.finalize_all();
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+
+        let pos = bisect(self.chain.len(), &self.chain, head.number);
+        if self.chain[pos].ptr() == head {
+            let fin = self.fin;
+            self.fin = true;
+            for _ in 0..pos {
+                self.chain.pop_front();
+            }
+            return Ok(!fin || pos > 0)
+        }
+
+        bail!(
+            "block {} is not part of a chain, its position is occupied by {}",
+            head,
+            self.chain[pos]
+        );
+    }
+
+    pub fn finalize_all(&mut self) {
+        match self.chain.len() {
+            0 => {},
+            1 => {
+                self.fin = true;
+            },
+            _ => {
+                let head = self.chain.pop_back().unwrap();
+                self.chain.clear();
+                self.chain.push_back(head);
+                self.fin = true;
+            }
+        }
+    }
+
+    pub fn stored_head(&self) -> Option<BlockPtr> {
+        match self.stored.iter().position(|&is_stored| !is_stored) {
+            None => self.chain.back().map(|b| b.ptr()),
+            Some(i) => Some(self.blocks[i].parent_ptr())
+        }
+    }
+    
+    pub fn head(&self) -> Option<BlockPtr> {
+        self.chain.back().map(|b| b.ptr())
+    }
+
+    pub fn compute_fork_base(&self, prev: &[BlockRef]) -> anyhow::Result<Option<BlockPtr>> {
+        if let Some(head) = compute_fork_base(self.chain.iter().rev(), prev) {
+            Ok(Some(head))
+        } else if self.fin && !self.chain.is_empty() {
+            Err(anyhow!("rollback below finalized head {}", self.chain[0]))
+        } else {
+            Ok(None)
         }
     }
 
