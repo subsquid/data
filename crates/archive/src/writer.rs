@@ -1,6 +1,9 @@
 use crate::fs::FSRef;
 use crate::layout::DataChunk;
 use crate::metrics;
+use arrow::array::{ArrayRef, Int32Array};
+use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::{EnabledStatistics, WriterProperties};
@@ -9,7 +12,9 @@ use rayon::prelude::*;
 use sqd_data_core::PreparedChunk;
 use sqd_dataset::{DatasetDescriptionRef, TableDescription};
 use std::fs::File;
+use std::ops::Range;
 use std::path::Path;
+use std::sync::Arc;
 
 
 pub struct WriterItem {
@@ -22,12 +27,13 @@ pub struct WriterItem {
 pub struct Writer {
     fs: FSRef,
     chunk_receiver: tokio::sync::mpsc::Receiver<WriterItem>,
+    attach_index_field: bool,
 }
 
 
 impl Writer {
-    pub fn new(fs: FSRef, chunk_receiver: tokio::sync::mpsc::Receiver<WriterItem>) -> Writer {
-        Writer { fs, chunk_receiver }
+    pub fn new(fs: FSRef, chunk_receiver: tokio::sync::mpsc::Receiver<WriterItem>, attach_index_field: bool) -> Writer {
+        Writer { fs, chunk_receiver, attach_index_field }
     }
 
     pub async fn start(&mut self) -> anyhow::Result<()> {
@@ -36,8 +42,9 @@ impl Writer {
 
             let last_block = item.chunk.last_block;
             let target_dir = tempfile::tempdir()?.into_path();
+            let attach_index_field = self.attach_index_field;
             let writer_handle = tokio::task::spawn_blocking(move || {
-                write_chunk(&mut item.data, &item.description, &target_dir)
+                write_chunk(&mut item.data, &item.description, &target_dir, attach_index_field)
             });
 
             let mut files = writer_handle.await??;
@@ -62,17 +69,41 @@ impl Writer {
 }
 
 
+fn add_index_column(batch: &mut RecordBatch, offset: usize) -> anyhow::Result<()> {
+    let num_rows = batch.num_rows();
+    let iter = offset as i32..(offset + num_rows) as i32;
+    let idx_column = Arc::new(Int32Array::from_iter_values(iter));
+
+    let mut new_columns = vec![idx_column as ArrayRef];
+    new_columns.extend_from_slice(batch.columns());
+
+    let mut new_fields = vec![Arc::new(Field::new("_idx", DataType::Int32, false))];
+    new_fields.extend_from_slice(batch.schema().fields());
+
+    let new_schema = Arc::new(Schema::new(new_fields));
+    *batch = RecordBatch::try_new(new_schema, new_columns)?;
+
+    Ok(())
+}
+
+
 fn write_chunk(
     prepared_chunk: &mut PreparedChunk,
     dataset_description: &DatasetDescriptionRef,
     target_dir: &Path,
+    attach_index_field: bool,
 ) -> anyhow::Result<Vec<std::path::PathBuf>> {
     let default_desc = TableDescription::default();
     prepared_chunk
         .tables
         .par_iter_mut()
         .map(|(&name, table)| {
-            let schema = table.schema();
+            let mut schema = table.schema();
+            if attach_index_field && name != "blocks" {
+                let mut new_fields = vec![Arc::new(Field::new("_idx", DataType::Int32, false))];
+                new_fields.extend_from_slice(schema.fields());
+                schema = Arc::new(Schema::new(new_fields));
+            }
             let desc = dataset_description
                 .tables
                 .get(name)
@@ -106,7 +137,10 @@ fn write_chunk(
             let mut offset = 0;
             while offset < table.num_rows() {
                 let len = std::cmp::min(50, table.num_rows() - offset);
-                let batch = table.read_record_batch(offset, len)?;
+                let mut batch = table.read_record_batch(offset, len)?;
+                if attach_index_field && name != "blocks" {
+                    add_index_column(&mut batch, offset)?;
+                }
                 writer.write(&batch)?;
                 offset += len;
             }

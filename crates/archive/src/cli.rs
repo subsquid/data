@@ -57,4 +57,8 @@ pub struct Cli {
     // Interval between attempts to stream new blocks in seconds
     #[arg(long, value_parser = value_parser!(u16).range(1..), default_value_t = 300)]
     pub block_stream_interval: u16,
+
+    /// Whether to attach an index field to each record
+    #[arg(long)]
+    pub attach_idx_field: bool,
 }

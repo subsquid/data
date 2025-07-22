@@ -81,8 +81,9 @@ pub async fn run(args: &Cli) -> anyhow::Result<()> {
         sink.r#loop().await 
     });
 
+    let attach_idx_field = args.attach_idx_field;
     let write_task = tokio::spawn(async move {
-        let mut writer = Writer::new(fs, chunk_receiver);
+        let mut writer = Writer::new(fs, chunk_receiver, attach_idx_field);
         writer.start().await 
     });
     

@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
+arrow = { workspace = true }
 async-stream = { workspace = true }
 async-trait = "0.1.83"
 aws-config = { version = "1.5.9", features = ["behavior-version-latest"] }

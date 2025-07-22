@@ -4574,6 +4574,7 @@ name = "sqd-archive"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrow",
  "async-stream",
  "async-trait",
  "aws-config",
