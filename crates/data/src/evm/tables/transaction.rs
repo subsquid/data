@@ -1,6 +1,6 @@
 use crate::evm::model::{Block, Transaction};
 use crate::evm::tables::common::*;
-use sqd_array::builder::{ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder};
+use sqd_array::builder::{ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder, Int32Builder};
 use sqd_data_core::{struct_builder, table_builder};
 
 use super::common::HexBytesBuilder;
@@ -20,7 +20,7 @@ struct_builder! {
 
 table_builder! {
     TransactionBuilder {
-        block_number: UInt64Builder,
+        block_number: Int32Builder,
         transaction_index: UInt32Builder,
         hash: HexBytesBuilder,
         nonce: UInt64Builder,
@@ -61,7 +61,6 @@ table_builder! {
     }
 
     description(d) {
-        d.downcast.block_number = vec!["block_number"];
         d.downcast.item_index = vec!["transaction_index"];
         d.sort_key = vec!["sighash", "to", "block_number", "transaction_index"];
         d.options.add_stats("block_number");
@@ -78,7 +77,7 @@ table_builder! {
 
 impl TransactionBuilder {
     pub fn push(&mut self, block: &Block, row: &Transaction) {
-        self.block_number.append(block.header.number);
+        self.block_number.append(block.header.number as i32);
         self.transaction_index.append(row.transaction_index);
         self.hash.append(&row.hash);
         self.nonce.append(row.nonce);
