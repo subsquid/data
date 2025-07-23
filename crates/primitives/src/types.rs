@@ -22,6 +22,11 @@ impl BlockRef {
         self.hash.clear();
         self.hash.push_str(hash)
     }
+    
+    pub fn set_ptr(&mut self, ptr: BlockPtr) {
+        self.number = ptr.number;
+        self.set_hash(ptr.hash)
+    }
 
     pub fn ptr(&self) -> BlockPtr<'_> {
         BlockPtr {

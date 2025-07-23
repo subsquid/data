@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use sqd_primitives::BlockNumber;
 use std::borrow::{Borrow, Cow};
 use std::ops::Range;
@@ -72,5 +71,19 @@ impl<'a> sqd_primitives::Block for BlockHeader<'a> {
 
     fn timestamp(&self) -> Option<i64> {
         self.timestamp
+    }
+}
+
+
+impl<'a> BlockHeader<'a> {
+    pub fn to_static(&self) -> BlockHeader<'static> {
+        BlockHeader {
+            number: self.number,
+            hash: self.hash.to_string().into(),
+            parent_number: self.parent_number,
+            parent_hash: self.parent_hash.to_string().into(),
+            timestamp: self.timestamp,
+            is_final: self.is_final
+        }
     }
 }

@@ -5,6 +5,25 @@ use std::collections::VecDeque;
 use std::ops::Index;
 
 
+/// Last blocks of a chain, starting from the highest finalized block
+#[derive(Debug)]
+pub struct HeadChain {
+    pub blocks: Vec<BlockRef>,
+    /// indicates, that the first block in `self.blocks` is final 
+    pub first_finalized: bool
+}
+
+
+impl HeadChain {
+    pub fn empty() -> Self {
+        Self {
+            blocks: Vec::new(),
+            first_finalized: false
+        }
+    }
+}
+
+
 pub struct Chain<B> {
     chain: VecDeque<BlockRef>,
     fin: bool,
@@ -15,10 +34,10 @@ pub struct Chain<B> {
 
 
 impl <B: Block> Chain<B> {
-    pub fn new(min_size: usize) -> Self {
+    pub fn new(chain: HeadChain, min_size: usize) -> Self {
         Self {
-            chain: VecDeque::with_capacity(100),
-            fin: false,
+            chain: chain.blocks.into(),
+            fin: chain.first_finalized,
             blocks: VecDeque::with_capacity(min_size + 10),
             stored: VecDeque::with_capacity(min_size + 10),
             min_size
@@ -171,7 +190,7 @@ impl <B: Block> Chain<B> {
             Some(i) => Some(self.blocks[i].parent_ptr())
         }
     }
-    
+
     pub fn head(&self) -> Option<BlockPtr> {
         self.chain.back().map(|b| b.ptr())
     }

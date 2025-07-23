@@ -62,6 +62,8 @@ async fn run_async(args: Args) -> anyhow::Result<()> {
     );
 
     let (_, handle) = Ingest::new(storage, data_source)
+        .set_first_block(args.first_block)
+        .set_parent_block_hash(args.parent_block_hash)
         .start()
         .await?;
 

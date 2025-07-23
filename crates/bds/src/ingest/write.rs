@@ -60,7 +60,7 @@ impl<B: Block + Clone> State<B> {
             waits_new_block: false
         }
     }
-    
+
     pub fn has_capacity(&self) -> bool {
         self.pending.len() < self.max_pending
     }

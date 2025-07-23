@@ -62,7 +62,7 @@ impl CassandraStorage {
         list_statement.set_page_size((partition_size * 10) as i32);
 
         let mut reversed_list_statement = session.prepare(format!(
-            "SELECT number, hash, parent_number, parent_hash, timestamp, is_final FROM {}.blocks WHERE partition = ? AND number >= ? AND number < ? ORDER BY number DESC",
+            "SELECT number, hash, parent_number, parent_hash, timestamp, is_final FROM {}.blocks WHERE partition = ? AND number >= ? AND number <= ? ORDER BY number DESC",
             keyspace
         )).await?;
         reversed_list_statement.set_consistency(Consistency::One);
