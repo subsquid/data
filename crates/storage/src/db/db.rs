@@ -32,7 +32,8 @@ pub struct DatabaseSettings {
     chunk_cache_size: usize,
     data_cache_size: usize,
     with_rocksdb_stats: bool,
-    direct_io: bool
+    direct_io: bool,
+    cache_index_and_filter_blocks: bool,
 }
 
 
@@ -42,7 +43,8 @@ impl Default for DatabaseSettings {
             chunk_cache_size: 64,
             data_cache_size: 256,
             with_rocksdb_stats: false,
-            direct_io: false
+            direct_io: false,
+            cache_index_and_filter_blocks: false,
         }
     }
 }
@@ -66,6 +68,11 @@ impl DatabaseSettings {
     
     pub fn with_direct_io(mut self, yes: bool) -> Self {
         self.direct_io = yes;
+        self
+    }
+
+    pub fn with_cache_index_and_filter_blocks(mut self, yes: bool) -> Self {
+        self.cache_index_and_filter_blocks = yes;
         self
     }
 
@@ -94,6 +101,8 @@ impl DatabaseSettings {
             block_based_table_factory.disable_cache();
         }
 
+        block_based_table_factory.set_cache_index_and_filter_blocks(self.cache_index_and_filter_blocks);
+
         let mut options = RocksOptions::default();
         options.set_block_based_table_factory(&block_based_table_factory);
         options
@@ -109,9 +118,19 @@ impl DatabaseSettings {
             block_based_table_factory.disable_cache();
         }
 
+        block_based_table_factory.set_cache_index_and_filter_blocks(self.cache_index_and_filter_blocks);
+
         let mut options = RocksOptions::default();
         options.set_block_based_table_factory(&block_based_table_factory);
         options.set_compression_type(rocksdb::DBCompressionType::Lz4);
+        options
+    }
+
+    fn cf_default_options(&self) -> RocksOptions {
+        let mut block_based_table_factory = rocksdb::BlockBasedOptions::default();
+        let mut options = RocksOptions::default();
+        block_based_table_factory.set_cache_index_and_filter_blocks(self.cache_index_and_filter_blocks);
+        options.set_block_based_table_factory(&block_based_table_factory);
         options
     }
     
@@ -119,11 +138,11 @@ impl DatabaseSettings {
         let options = self.db_options();
         
         let db = RocksDB::open_cf_descriptors(&options, path, [
-            ColumnFamilyDescriptor::new(CF_DATASETS, RocksOptions::default()),
+            ColumnFamilyDescriptor::new(CF_DATASETS, self.cf_default_options()),
             ColumnFamilyDescriptor::new(CF_CHUNKS, self.chunks_cf_options()),
             ColumnFamilyDescriptor::new(CF_TABLES, self.tables_cf_options()),
-            ColumnFamilyDescriptor::new(CF_DIRTY_TABLES, RocksOptions::default()),
-            ColumnFamilyDescriptor::new(CF_DELETED_TABLES, RocksOptions::default())
+            ColumnFamilyDescriptor::new(CF_DIRTY_TABLES, self.cf_default_options()),
+            ColumnFamilyDescriptor::new(CF_DELETED_TABLES, self.cf_default_options())
         ])?;
         
         Ok(Database {

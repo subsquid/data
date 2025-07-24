@@ -38,7 +38,10 @@ pub struct CLI {
     pub with_rocksdb_stats: bool,
     
     #[arg(long)]
-    pub with_direct_io: bool
+    pub with_direct_io: bool,
+
+    #[arg(long)]
+    pub cache_index_and_filter_blocks: bool,
 }
 
 
@@ -51,6 +54,7 @@ impl CLI {
             .with_data_cache_size(self.data_cache_size)
             .with_rocksdb_stats(self.with_rocksdb_stats)
             .with_direct_io(self.with_direct_io)
+            .with_cache_index_and_filter_blocks(self.cache_index_and_filter_blocks)
             .open(&self.database_dir)
             .map(Arc::new)
             .context("failed to open rocksdb database")?;
