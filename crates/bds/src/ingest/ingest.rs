@@ -3,13 +3,13 @@ use super::store::Store;
 use super::write::write_chain;
 use crate::chain_watch::{ChainReceiver, ChainSender};
 use crate::util::task_termination_error;
-use anyhow::anyhow;
+use anyhow::{anyhow, ensure, Context};
 use futures::FutureExt;
 use sqd_data_source::DataSource;
 use sqd_primitives::BlockNumber;
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::Poll;
 use tokio::task::JoinHandle;
 use tracing::debug;
 
@@ -39,7 +39,7 @@ where
             max_queue_size: 50
         }
     }
-    
+
     pub fn set_first_block(mut self, first_block: BlockNumber) -> Self {
         self.first_block = first_block;
         self
@@ -78,6 +78,10 @@ where
             head_update_loop(self.store.clone(), chain_receiver.clone())
         );
 
+        let finalize = tokio::spawn(
+            finalize_loop(self.store.clone(), chain_receiver.clone(), self.first_block)
+        );
+
         let ingest = tokio::spawn(
             grow(self.data_source, self.first_block, self.parent_block_hash, chain_sender)
         );
@@ -85,6 +89,7 @@ where
         let handle = IngestHandle {
             write,
             head_update,
+            finalize,
             ingest,
             terminated: false
         };
@@ -125,9 +130,55 @@ async fn head_update_loop<S: Store>(
 }
 
 
+async fn finalize_loop<S: Store>(
+    store: S,
+    mut chain_receiver: ChainReceiver<S::Block>,
+    first_block: BlockNumber
+) -> anyhow::Result<()>
+{
+    let mut prev = chain_receiver
+        .borrow()
+        .stored_finalized_head()
+        .map(|b| b.number);
+
+    loop {
+        chain_receiver.changed().await?;
+
+        let (from, to) = {
+            let chain = chain_receiver.borrow_and_update();
+            let Some(head) = chain.stored_finalized_head() else {
+                continue
+            };
+            if prev.map_or(false, |n| n == head.number) {
+                continue
+            }
+            (
+                prev.unwrap_or(first_block),
+                head.to_ref()
+            )
+        };
+
+        ensure!(from <= to.number);
+
+        store.finalize(from, to.ptr()).await.with_context(|| {
+            format!("failed to finalize blocks from {} to {}", from, to.ptr())
+        })?;
+        
+        debug!(
+            number = to.number,
+            hash = to.hash,
+            "finalized"
+        );
+
+        prev = Some(to.number);
+    }
+}
+
+
 pub struct IngestHandle {
     write: JoinHandle<anyhow::Result<()>>,
     head_update: JoinHandle<anyhow::Result<()>>,
+    finalize: JoinHandle<anyhow::Result<()>>,
     ingest: JoinHandle<anyhow::Result<()>>,
     terminated: bool
 }
@@ -137,6 +188,7 @@ impl IngestHandle {
     pub fn abort(&mut self) {
         self.write.abort();
         self.head_update.abort();
+        self.finalize.abort();
         self.ingest.abort();
         self.terminated = true;
     }
@@ -146,32 +198,27 @@ impl IngestHandle {
 impl Future for IngestHandle {
     type Output = anyhow::Result<()>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         if self.terminated {
             return Poll::Ready(Err(anyhow!("ingest was already terminated")))
         }
 
-        if let Poll::Ready(res) = self.write.poll_unpin(cx) {
-            self.abort();
-            return Poll::Ready(
-                task_termination_error("write", res)
-            )
+        macro_rules! poll_task {
+            ($name:expr, $handle:ident) => {
+                if let Poll::Ready(res) = self.$handle.poll_unpin(cx) {
+                    self.abort();
+                    return Poll::Ready(
+                        task_termination_error($name, res)
+                    )
+                }
+            };
         }
+
+        poll_task!("write", write);
+        poll_task!("head update", head_update);
+        poll_task!("block finalization", finalize);
+        poll_task!("ingest", ingest);
         
-        if let Poll::Ready(res) = self.head_update.poll_unpin(cx) {
-            self.abort();
-            return Poll::Ready(
-                task_termination_error("head update", res)
-            )
-        }
-
-        if let Poll::Ready(res) = self.ingest.poll_unpin(cx) {
-            self.abort();
-            return Poll::Ready(
-                task_termination_error("ingest", res)
-            )
-        }
-
         Poll::Pending
     }
 }

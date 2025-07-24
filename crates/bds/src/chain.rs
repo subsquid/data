@@ -35,6 +35,7 @@ pub struct Chain<B> {
 
 impl <B: Block> Chain<B> {
     pub fn new(chain: HeadChain, min_size: usize) -> Self {
+        assert!(!(chain.first_finalized && chain.blocks.is_empty()));
         Self {
             chain: chain.blocks.into(),
             fin: chain.first_finalized,
@@ -189,6 +190,21 @@ impl <B: Block> Chain<B> {
             None => self.chain.back().map(|b| b.ptr()),
             Some(i) => Some(self.blocks[i].parent_ptr())
         }
+    }
+    
+    pub fn stored_finalized_head(&self) -> Option<BlockPtr> {
+        if !self.fin {
+            return None
+        }
+        if self.chain.len() > self.blocks.len() {
+            return Some(self.chain[0].ptr())
+        }
+        for i in (0..=self.blocks.len() - self.chain.len()).rev() {
+            if self.stored[i] {
+                return Some(self.blocks[i].ptr())
+            }   
+        }
+        None
     }
 
     pub fn head(&self) -> Option<BlockPtr> {

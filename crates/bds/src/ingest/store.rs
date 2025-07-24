@@ -1,7 +1,6 @@
-use std::future::Future;
-use std::process::Output;
-use sqd_primitives::{Block, BlockNumber, BlockPtr};
 use crate::chain::HeadChain;
+use sqd_primitives::{Block, BlockNumber, BlockPtr, BlockRef};
+use std::future::Future;
 
 
 pub trait Store: Clone + Send + Sync + 'static {
@@ -17,5 +16,5 @@ pub trait Store: Clone + Send + Sync + 'static {
 
     fn set_head(&self, head: BlockPtr) -> impl Future<Output = anyhow::Result<()>> + Send;
     
-    async fn finalize(&self, from: BlockNumber, to: BlockPtr<'_>) -> anyhow::Result<()>;
+    fn finalize(&self, from: BlockNumber, to: BlockPtr) -> impl Future<Output = anyhow::Result<()>> + Send;
 }

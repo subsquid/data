@@ -4,10 +4,12 @@ use crate::cassandra::types::WriteState;
 use crate::cassandra::BlockBatch;
 use anyhow::{anyhow, bail, Context};
 use async_stream::try_stream;
-use futures::{Stream, StreamExt};
+use futures::future::BoxFuture;
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use scylla::client::session::Session;
 use scylla::response::query_result::QueryRowsResult;
 use scylla::response::{PagingState, PagingStateResponse};
+use scylla::statement::batch::Batch;
 use scylla::statement::prepared::PreparedStatement;
 use scylla::statement::Consistency;
 use sqd_primitives::{BlockNumber, BlockRef};
@@ -24,6 +26,8 @@ pub struct CassandraStorage {
 struct Inner {
     session: Arc<Session>,
     update_statement: PreparedStatement,
+    delete_statement: PreparedStatement,
+    finalize_statement: PreparedStatement,
     fetch_statement: PreparedStatement,
     list_statement: PreparedStatement,
     reversed_list_statement: PreparedStatement,
@@ -44,6 +48,16 @@ impl CassandraStorage {
             keyspace
         )).await?;
         update_statement.set_consistency(Consistency::One); // FIXME
+
+        let mut delete_statement = session.prepare(format!(
+            "DELETE FROM {}.blocks WHERE partition = ? AND number = ? AND hash = ?",
+            keyspace
+        )).await?;
+
+        let mut finalize_statement = session.prepare(format!(
+            "UPDATE {}.blocks SET is_final = true WHERE partition = ? AND number = ? AND hash = ?",
+            keyspace
+        )).await?;
 
         let mut fetch_statement = session.prepare(format!(
             "SELECT number, hash, parent_number, parent_hash, timestamp, is_final, data FROM {}.blocks WHERE partition = ? AND number >= ? AND number <= ?",
@@ -96,6 +110,8 @@ impl CassandraStorage {
         let inner = Inner {
             session,
             update_statement,
+            delete_statement,
+            finalize_statement,
             fetch_statement,
             list_statement,
             reversed_list_statement,
@@ -196,6 +212,55 @@ impl CassandraStorage {
                 finalized_head
             })
         }).collect()
+    }
+
+    pub async fn finalize(&self, from: BlockNumber, to: BlockRef) -> anyhow::Result<()> {
+        use sqd_primitives::Block;
+
+        let top = to.number;
+
+        self.list_blocks_in_reversed_order(from, top).try_fold(to, |mut expected, par| async move {
+            let mut batch = Batch::default();
+            let mut values = Vec::new();
+
+            for b in par.blocks() {
+                if b.ptr() == expected.ptr() {
+                    expected.set_ptr(b.parent_ptr());
+                    batch.append_statement(self.inner.finalize_statement.clone());
+                    values.push((
+                        par.partition_start() as i64,
+                        b.number as i64,
+                        b.hash()
+                    ));
+                } else {
+                    batch.append_statement(self.inner.delete_statement.clone());
+                    values.push((
+                        par.partition_start() as i64,
+                        b.number as i64,
+                        b.hash()
+                    ));
+                }
+            }
+
+            // The check below is sloppy, because in theory partition could be paginated,
+            // however, we set a large page size and ignore such possibility.
+            //
+            // We could replace it with `par.partition_end() < expected.number`,
+            // but that would open a possibility of block deletions
+            // while the presence of expected blocks have not been checked yet.
+            if par.partition_start() <= expected.number && top <= expected.number {
+                bail!("block {} is missing", expected)
+            }
+
+            if !values.is_empty() {
+                batch.set_consistency(Consistency::One); // FIXME
+                self.inner.session.batch(&batch, values).await?;
+            }
+
+            Ok(expected)
+        }).boxed().await?;
+
+        Ok(())
     }
 
     pub fn fetch_blocks(
@@ -334,4 +399,13 @@ fn split_into_partitions(
             Some(next)
         }
     })
+}
+
+
+fn execute_batch() -> BoxFuture<'static, anyhow::Result<()>> {
+    async move {
+        // let _ = session;
+        // session.batch(&batch, values).await?;
+        Ok(())
+    }.boxed()
 }

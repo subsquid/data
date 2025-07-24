@@ -40,7 +40,8 @@ impl Store for CassandraStorage {
     }
 
     async fn finalize(&self, from: BlockNumber, to: BlockPtr<'_>) -> anyhow::Result<()> {
-        todo!()
+        self.finalize(from, to.to_ref()).await?;
+        self.set_finalized_head(to.number, to.hash).await
     }
 }
 
