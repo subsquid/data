@@ -96,7 +96,15 @@ impl Sink {
                 if chunk_first_block == next_block {
                     if let Some(prev_chunk_hash) = self.chunk_writer.prev_chunk_hash() {
                         let parent_hash = self.processor.last_parent_block_hash();
-                        anyhow::ensure!(prev_chunk_hash == short_hash(parent_hash));
+                        if prev_chunk_hash != short_hash(parent_hash) {
+                            if prev_chunk_hash != fallback_short_hash(parent_hash) {
+                                anyhow::bail!(
+                                    "previous chunk hash {} does not match parent block hash {}",
+                                    prev_chunk_hash,
+                                    parent_hash
+                                );
+                            }
+                        }
                     }
                 }
 
@@ -154,6 +162,12 @@ impl Sink {
     }
 }
 
+
 fn short_hash(value: &str) -> &str {
     &value[value.len().saturating_sub(8)..]
+}
+
+
+fn fallback_short_hash(value: &str) -> &str {
+    &value[2..10]
 }
