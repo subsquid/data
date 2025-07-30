@@ -49,6 +49,10 @@ impl LineProcessor {
         self.state.builder.last_block_number()
     }
 
+    pub fn last_block_timestamp(&self) -> Option<i64> {
+        self.state.builder.last_block_timestamp()
+    }
+
     pub fn last_block_hash(&self) -> &str {
         self.state.builder.last_block_hash()
     }

@@ -15,6 +15,8 @@ pub trait AnyChainBuilder: Send + Sync {
 
     fn last_block_number(&self) -> BlockNumber;
 
+    fn last_block_timestamp(&self) -> Option<i64>;
+
     fn last_block_hash(&self) -> &str;
 
     fn last_parent_block_number(&self) -> BlockNumber;
@@ -26,6 +28,7 @@ pub trait AnyChainBuilder: Send + Sync {
 pub struct ChainBuilder<B> {
     chunk_builder: B,
     last_block_number: BlockNumber,
+    last_block_timestamp: Option<i64>,
     last_block_hash: String,
     last_parent_block_hash: String,
     last_parent_block_number: BlockNumber,
@@ -35,6 +38,7 @@ pub struct ChainBuilder<B> {
 impl<B: Default> ChainBuilder<B> {
     pub fn new(
         base_block_number: BlockNumber,
+        base_block_timestamp: Option<i64>,
         base_block_hash: String,
         base_parent_block_number: BlockNumber,
         base_parent_block_hash: String,
@@ -42,6 +46,7 @@ impl<B: Default> ChainBuilder<B> {
         Self {
             chunk_builder: B::default(),
             last_block_number: base_block_number,
+            last_block_timestamp: base_block_timestamp,
             last_block_hash: base_block_hash,
             last_parent_block_number: base_parent_block_number,
             last_parent_block_hash: base_parent_block_hash,
@@ -52,7 +57,7 @@ impl<B: Default> ChainBuilder<B> {
 
 impl<B: Default> Default for ChainBuilder<B> {
     fn default() -> Self {
-        Self::new(0, String::new(), 0, String::new())
+        Self::new(0, None, String::new(), 0, String::new())
     }
 }
 
@@ -72,6 +77,7 @@ where
         }
         self.chunk_builder.push(&block)?;
         self.last_block_number = block.number();
+        self.last_block_timestamp = block.timestamp();
         self.last_block_hash.clear();
         self.last_block_hash.insert_str(0, block.hash());
         self.last_parent_block_number = block.parent_number();
@@ -93,6 +99,11 @@ where
     #[inline]
     fn last_block_number(&self) -> BlockNumber {
         self.last_block_number
+    }
+
+    #[inline]
+    fn last_block_timestamp(&self) -> Option<i64> {
+        self.last_block_timestamp
     }
 
     #[inline]
@@ -131,6 +142,11 @@ impl AnyChainBuilder for ChainBuilderBox {
     #[inline]
     fn last_block_number(&self) -> BlockNumber {
         self.as_ref().last_block_number()
+    }
+
+    #[inline]
+    fn last_block_timestamp(&self) -> Option<i64> {
+        self.as_ref().last_block_timestamp()
     }
 
     #[inline]
