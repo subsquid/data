@@ -9,7 +9,7 @@ use prometheus_client::metrics::gauge::Atomic;
 use sqd_primitives::BlockNumber;
 use std::num::NonZeroUsize;
 use std::pin::pin;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 use url::Url;
 
 
@@ -124,6 +124,10 @@ impl Sink {
                 data_ingested = true;
                 next_block = self.processor.last_block() + 1;
 
+                let block_timestamp = self.processor.last_block_timestamp()
+                    .map(|v| u64::try_from(v).unwrap()).unwrap_or(0);
+                metrics::LATEST_BLOCK_TIMESTAMP.set(block_timestamp);
+                metrics::LATEST_BLOCK.set(self.processor.last_block());
                 metrics::LAST_BLOCK.inner().set(self.processor.last_block());
             }
         }
@@ -141,7 +145,16 @@ impl Sink {
 
     fn report(&mut self) {
         let speed = self.progress.speed();
+        let block_timestamp = self.processor.last_block_timestamp();
+        let processing_time = block_timestamp.map(|v| {
+            let millis = u64::try_from(v).unwrap();
+            let block_timestamp = UNIX_EPOCH + Duration::from_millis(millis);
+            block_timestamp.elapsed().unwrap().as_secs_f64()
+        }).unwrap_or(0.0);
+
         metrics::PROGRESS.set(speed);
+        metrics::PROCESSING_TIME.set(processing_time);
+
         tracing::info!(
             "last block: {}, progress: {} blocks/sec",
             self.progress.get_current_value(),
