@@ -62,7 +62,8 @@ impl Writer {
             let dest = format!("{}/blocks.parquet", chunk_path);
             self.fs.move_local(&blocks, &dest).await?;
 
-            metrics::LAST_SAVED_BLOCK.set(last_block);
+            metrics::LATEST_SAVED_BLOCK.set(last_block);
+            metrics::LAST_SAVED_BLOCK.inner().set(last_block);
         }
         Ok(())
     }

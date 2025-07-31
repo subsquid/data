@@ -13,9 +13,11 @@ use std::time::{Duration, UNIX_EPOCH};
 
 pub static PROGRESS: LazyLock<Gauge<f64, AtomicU64>> = LazyLock::new(Gauge::default);
 pub static PROCESSING_TIME: LazyLock<Gauge<f64, AtomicU64>> = LazyLock::new(Gauge::default);
-pub static LAST_BLOCK: LazyLock<Gauge<u64, AtomicU64>> = LazyLock::new(Gauge::default);
-pub static LAST_BLOCK_TIMESTAMP: LazyLock<Gauge<u64, AtomicU64>> = LazyLock::new(Gauge::default);
-pub static LAST_SAVED_BLOCK: LazyLock<Gauge<u64, AtomicU64>> = LazyLock::new(Gauge::default);
+pub static LATEST_BLOCK_TIMESTAMP: LazyLock<Gauge<u64, AtomicU64>> = LazyLock::new(Gauge::default);
+pub static LATEST_BLOCK: LazyLock<Gauge<u64, AtomicU64>> = LazyLock::new(Gauge::default);
+pub static LATEST_SAVED_BLOCK: LazyLock<Gauge<u64, AtomicU64>> = LazyLock::new(Gauge::default);
+pub static LAST_BLOCK: LazyLock<Counter> = LazyLock::new(Counter::default);
+pub static LAST_SAVED_BLOCK: LazyLock<Counter> = LazyLock::new(Counter::default);
 
 
 pub fn register_metrics(registry: &mut Registry) {
@@ -32,16 +34,28 @@ pub fn register_metrics(registry: &mut Registry) {
     registry.register(
         "sqd_latest_processed_block_number",
         "Latest processed block number",
-        LAST_BLOCK.clone()
+        LATEST_BLOCK.clone()
     );
     registry.register(
         "sqd_latest_processed_block_timestamp",
         "Latest processed block timestamp",
-        LAST_BLOCK_TIMESTAMP.clone()
+        LATEST_BLOCK_TIMESTAMP.clone()
     );
     registry.register(
         "sqd_latest_saved_block_number",
         "Latest saved block number",
+        LATEST_SAVED_BLOCK.clone()
+    );
+
+    // kept for compatibility with the old metrics
+    registry.register(
+        "sqd_last_block",
+        "Last ingested block",
+        LAST_BLOCK.clone()
+    );
+    registry.register(
+        "sqd_last_saved_block",
+        "Last saved block",
         LAST_SAVED_BLOCK.clone()
     );
 }
