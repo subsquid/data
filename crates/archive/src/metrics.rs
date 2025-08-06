@@ -38,7 +38,7 @@ pub fn register_metrics(registry: &mut Registry) {
     );
     registry.register(
         "sqd_latest_processed_block_timestamp",
-        "Latest processed block timestamp",
+        "Latest processed block timestamp (in seconds)",
         LATEST_BLOCK_TIMESTAMP.clone()
     );
     registry.register(

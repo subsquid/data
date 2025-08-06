@@ -125,7 +125,7 @@ impl Sink {
                 next_block = self.processor.last_block() + 1;
 
                 let block_timestamp = self.processor.last_block_timestamp()
-                    .map(|v| u64::try_from(v).unwrap()).unwrap_or(0);
+                    .map(|v| u64::try_from(v).unwrap() / 1000).unwrap_or(0);
                 metrics::LATEST_BLOCK_TIMESTAMP.set(block_timestamp);
                 metrics::LATEST_BLOCK.set(self.processor.last_block());
                 metrics::LAST_BLOCK.inner().set(self.processor.last_block());
