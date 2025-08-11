@@ -14,7 +14,7 @@ pub struct BlockHeader {
     pub hash: Base58Bytes,
     pub parent_number: BlockNumber,
     pub parent_hash: Base58Bytes,
-    pub height: BlockNumber,
+    pub height: Option<BlockNumber>,
     pub timestamp: Option<i64>,
 }
 
