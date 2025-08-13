@@ -1,12 +1,12 @@
 use super::common::{sighash, HexBytesBuilder, TraceAddressListBuilder};
 use crate::evm::model::{Block, Trace, TraceOp};
-use sqd_array::builder::{StringBuilder, UInt32Builder, UInt64Builder, Int32Builder};
+use sqd_array::builder::{StringBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
 
 table_builder! {
     TraceBuilder {
-        block_number: Int32Builder,
+        block_number: UInt64Builder,
         transaction_index: UInt32Builder,
         trace_address: TraceAddressListBuilder,
         subtraces: UInt32Builder,
@@ -46,6 +46,7 @@ table_builder! {
     }
 
     description(d) {
+        d.downcast.block_number = vec!["block_number"];
         d.downcast.item_index = vec!["transaction_index"];
         d.sort_key = vec!["type", "create_from", "call_sighash", "call_to", "block_number", "transaction_index", "trace_address"];
         d.options.add_stats("block_number");
@@ -67,11 +68,11 @@ table_builder! {
 
 impl TraceBuilder {
     pub fn push(&mut self, block: &Block, row: &Trace) {
-        self.block_number.append(block.header.number as i32);
+        self.block_number.append(block.header.number);
         self.transaction_index.append(row.transaction_index);
 
         for address in &row.trace_address {
-            self.trace_address.values().append(*address as i32);
+            self.trace_address.values().append(*address);
         }
         self.trace_address.append();
 

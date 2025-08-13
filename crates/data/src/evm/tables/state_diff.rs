@@ -1,5 +1,5 @@
 use crate::evm::model::{Block, StateDiff};
-use sqd_array::builder::{StringBuilder, UInt64Builder, UInt32Builder, Int32Builder};
+use sqd_array::builder::{StringBuilder, UInt64Builder, UInt32Builder};
 use sqd_data_core::table_builder;
 
 use super::common::HexBytesBuilder;
@@ -7,7 +7,7 @@ use super::common::HexBytesBuilder;
 
 table_builder! {
     StateDiffBuilder {
-        block_number: Int32Builder,
+        block_number: UInt64Builder,
         transaction_index: UInt32Builder,
         address: HexBytesBuilder,
         key: StringBuilder,
@@ -20,6 +20,7 @@ table_builder! {
     }
 
     description(d) {
+        d.downcast.block_number = vec!["block_number"];
         d.downcast.item_index = vec!["transaction_index"];
         d.sort_key = vec!["address", "block_number", "transaction_index"];
         d.options.add_stats("block_number");
@@ -34,7 +35,7 @@ table_builder! {
 
 impl StateDiffBuilder {
     pub fn push(&mut self, block: &Block, row: &StateDiff) {
-        self.block_number.append(block.header.number as i32);
+        self.block_number.append(block.header.number);
         self.transaction_index.append(row.transaction_index);
         self.address.append(&row.address);
         self.key.append(&row.key);
