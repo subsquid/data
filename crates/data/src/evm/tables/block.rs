@@ -1,12 +1,12 @@
 use crate::evm::model::BlockHeader;
 use crate::evm::tables::common::*;
-use sqd_array::builder::{TimestampSecondBuilder, UInt64Builder};
+use sqd_array::builder::{TimestampSecondBuilder, UInt64Builder, Int32Builder};
 use sqd_data_core::table_builder;
 
 
 table_builder! {
     BlockBuilder {
-        number: UInt64Builder,
+        number: Int32Builder,
         hash: HexBytesBuilder,
         parent_hash: HexBytesBuilder,
         timestamp: TimestampSecondBuilder,
@@ -33,7 +33,6 @@ table_builder! {
     }
 
     description(d) {
-        d.downcast.block_number = vec!["number"];
         d.sort_key = vec!["number"];
         d.options.add_stats("number");
         d.options.row_group_size = 5_000;
@@ -43,7 +42,7 @@ table_builder! {
 
 impl BlockBuilder {
     pub fn push(&mut self, row: &BlockHeader) {
-        self.number.append(row.number);
+        self.number.append(row.number as i32);
         self.hash.append(&row.hash);
         self.parent_hash.append(&row.parent_hash);
         self.timestamp.append(row.timestamp);
