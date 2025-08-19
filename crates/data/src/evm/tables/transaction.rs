@@ -9,7 +9,7 @@ use super::common::HexBytesBuilder;
 type EIP7702AuthorizationListBuilder = ListBuilder<EIP7702AuthorizationBuilder>;
 struct_builder! {
     EIP7702AuthorizationBuilder {
-        chain_id: UInt64Builder,
+        chain_id: HexBytesBuilder,
         address: HexBytesBuilder,
         nonce: UInt64Builder,
         y_parity: UInt8Builder,
@@ -108,7 +108,7 @@ impl TransactionBuilder {
 
         for auth in row.authorization_list.iter().flatten() {
             let item = self.authorization_list.values();
-            item.chain_id.append(auth.chain_id);
+            item.chain_id.append(&auth.chain_id);
             item.address.append(&auth.address);
             item.nonce.append(auth.nonce);
             item.y_parity.append(auth.y_parity);

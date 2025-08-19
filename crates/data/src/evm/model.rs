@@ -33,7 +33,7 @@ pub struct BlockHeader {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EIP7702Authorization {
-    pub chain_id: u64,
+    pub chain_id: HexBytes,
     pub address: HexBytes,
     pub nonce: u64,
     pub y_parity: u8,
