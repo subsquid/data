@@ -5,7 +5,7 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use serde::de::DeserializeOwned;
 use sqd_data_client::reqwest::ReqwestDataClient;
-use sqd_data_source::StandardDataSource;
+use sqd_data_source::{DataSource, StandardDataSource};
 use sqd_primitives::BlockNumber;
 
 
@@ -17,30 +17,24 @@ pub fn ingest<'a, 'b>(
     parent_block_hash: Option<&'a str>
 ) -> BoxFuture<'b, anyhow::Result<()>> 
 {
+    macro_rules! run {
+        ($builder:expr) => {{
+            let mut data_source = StandardDataSource::new(sources, from_json_bytes);
+            data_source.set_position(first_block, parent_block_hash);
+            IngestGeneric::new(
+                data_source,
+                $builder,
+                message_sender
+            ).run().boxed()
+        }};
+    }
+
     match dataset_kind {
         DatasetKind::Evm => {
-            let data_source = StandardDataSource::new(sources, from_json_bytes);
-            let builder = sqd_data::evm::tables::EvmChunkBuilder::new();
-            let ingest = IngestGeneric::new(
-                data_source,
-                builder,
-                first_block,
-                parent_block_hash.map(|s| s.to_string()),
-                message_sender
-            );
-            ingest.run().boxed()
+            run!(sqd_data::evm::tables::EvmChunkBuilder::new())
         },
         DatasetKind::Solana => {
-            let data_source = StandardDataSource::new(sources, from_json_bytes);
-            let builder = sqd_data::solana::tables::SolanaChunkBuilder::new();
-            let ingest = IngestGeneric::new(
-                data_source,
-                builder,
-                first_block,
-                parent_block_hash.map(|s| s.to_string()),
-                message_sender
-            );
-            ingest.run().boxed()
+            run!(sqd_data::solana::tables::SolanaChunkBuilder::new())
         }
     }
 }
