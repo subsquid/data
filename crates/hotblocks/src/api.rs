@@ -1,3 +1,8 @@
+use crate::cli::App;
+use crate::data_service::DataServiceRef;
+use crate::errors::{BlockRangeMissing, Busy, QueryIsAboveTheHead, QueryKindMismatch, UnknownDataset};
+use crate::query::{QueryResponse, QueryServiceRef};
+use crate::types::DBRef;
 use async_stream::try_stream;
 use axum::body::{Body, Bytes};
 use axum::extract::Path;
@@ -7,16 +12,12 @@ use axum::routing::{get, post};
 use axum::{BoxError, Extension, Json, Router};
 use futures::TryStream;
 use serde::Serialize;
-use sqd_node::{DBRef, Node, Query, QueryResponse};
 use sqd_primitives::BlockRef;
+use sqd_query::{Query, UnexpectedBaseBlock};
 use sqd_storage::db::DatasetId;
-use std::sync::Arc;
 
 
-type NodeRef = Arc<Node>;
-
-
-pub fn build_app(node: NodeRef, db: DBRef) -> Router {
+pub fn build_api(app: &App) -> Router {
     Router::new()
         .route("/", get(|| async { "Welcome to SQD hot block data service!" }))
         .route("/rocksdb/stats", get(get_rocks_stats))
@@ -24,13 +25,14 @@ pub fn build_app(node: NodeRef, db: DBRef) -> Router {
         .route("/datasets/{id}/stream", post(stream))
         .route("/datasets/{id}/finalized-head", get(get_finalized_head))
         .route("/datasets/{id}/head", get(get_head))
-        .layer(Extension(node))
-        .layer(Extension(db))
+        .layer(Extension(app.data_service.clone()))
+        .layer(Extension(app.query_service.clone()))
+        .layer(Extension(app.db.clone()))
 }
 
 
 async fn stream(
-    Extension(node): Extension<NodeRef>,
+    Extension(query_service): Extension<QueryServiceRef>,
     Path(dataset_id): Path<DatasetId>,
     Json(query): Json<Query>
 ) -> Response
@@ -39,7 +41,7 @@ async fn stream(
         return (StatusCode::BAD_REQUEST, format!("{}", err)).into_response()
     }
 
-    match node.query(dataset_id, query).await {
+    match query_service.query(dataset_id, query).await {
         Ok(stream) => {
             let mut res = Response::builder()
                 .status(200)
@@ -72,7 +74,7 @@ fn stream_query_response(mut stream: QueryResponse) -> impl TryStream<Ok=Bytes, 
 
 
 fn error_to_response(err: anyhow::Error) -> Response {
-    if let Some(above_the_head) = err.downcast_ref::<sqd_node::error::QueryIsAboveTheHead>() {
+    if let Some(above_the_head) = err.downcast_ref::<QueryIsAboveTheHead>() {
         let mut res = Response::builder().status(204);
         if let Some(head) = above_the_head.finalized_head.as_ref() {
             res = res.header("x-sqd-finalized-head-number", head.number);
@@ -80,28 +82,28 @@ fn error_to_response(err: anyhow::Error) -> Response {
         }
         return res.body(Body::empty()).unwrap()
     }
-    
-    if let Some(fork) = err.downcast_ref::<sqd_node::error::UnexpectedBaseBlock>() {
+
+    if let Some(fork) = err.downcast_ref::<UnexpectedBaseBlock>() {
         return (
-            StatusCode::CONFLICT, 
+            StatusCode::CONFLICT,
             Json(BaseBlockConflict {
                 previous_blocks: &fork.prev_blocks
             })
         ).into_response()
     }
 
-    let status_code = if err.is::<sqd_node::error::UnknownDataset>() {
+    let status_code = if err.is::<UnknownDataset>() {
         StatusCode::NOT_FOUND
-    } else if err.is::<sqd_node::error::QueryKindMismatch>() {
+    } else if err.is::<QueryKindMismatch>() {
         StatusCode::BAD_REQUEST
-    } else if err.is::<sqd_node::error::BlockRangeMissing>() {
+    } else if err.is::<BlockRangeMissing>() {
         StatusCode::BAD_REQUEST
-    } else if err.is::<sqd_node::error::Busy>() {
+    } else if err.is::<Busy>() {
         StatusCode::SERVICE_UNAVAILABLE
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
     };
-    
+
     let message = if status_code == StatusCode::INTERNAL_SERVER_ERROR {
         format!("{:?}", err)
     } else {
@@ -120,11 +122,11 @@ struct BaseBlockConflict<'a> {
 
 
 async fn get_finalized_head(
-    Extension(node): Extension<NodeRef>,
+    Extension(data_service): Extension<DataServiceRef>,
     Path(dataset_id): Path<DatasetId>
 ) -> Response
 {
-    match node.get_finalized_head(dataset_id) {
+    match data_service.get_dataset(dataset_id).map(|ds| ds.get_finalized_head()) {
         Ok(head) => (StatusCode::OK, Json(head)).into_response(),
         Err(err) => (StatusCode::NOT_FOUND, format!("{}", err)).into_response()
     }
@@ -132,11 +134,11 @@ async fn get_finalized_head(
 
 
 async fn get_head(
-    Extension(node): Extension<NodeRef>,
+    Extension(data_service): Extension<DataServiceRef>,
     Path(dataset_id): Path<DatasetId>
 ) -> Response
 {
-    match node.get_head(dataset_id) {
+    match data_service.get_dataset(dataset_id).map(|ds| ds.get_head()) {
         Ok(head) => (StatusCode::OK, Json(head)).into_response(),
         Err(err) => (StatusCode::NOT_FOUND, format!("{}", err)).into_response()
     }
@@ -145,13 +147,13 @@ async fn get_head(
 
 async fn get_rocks_stats(
     Extension(db): Extension<DBRef>
-) -> Response 
+) -> Response
 {
     if let Some(stats) = db.get_statistics() {
         stats.into_response()
     } else {
         (StatusCode::INTERNAL_SERVER_ERROR, "rocksdb stats are not enabled").into_response()
-    }    
+    }
 }
 
 

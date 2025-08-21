@@ -4577,6 +4577,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_yaml"
+version = "0.9.34+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4848,20 +4861,23 @@ name = "sqd-dataset"
 version = "0.1.0"
 
 [[package]]
-name = "sqd-node"
+name = "sqd-hotblocks"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-stream",
+ "axum",
  "bytes",
  "chrono",
+ "clap",
  "either",
  "flate2",
  "futures",
  "ouroboros",
  "parking_lot",
- "scopeguard",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sqd-data",
  "sqd-data-client",
  "sqd-data-core",
@@ -4871,29 +4887,8 @@ dependencies = [
  "sqd-primitives",
  "sqd-query",
  "sqd-storage",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "sqd-node-example"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-stream",
- "axum",
- "clap",
- "futures",
- "serde",
- "serde_json",
- "sqd-data-client",
- "sqd-node",
- "sqd-polars",
- "sqd-primitives",
- "sqd-storage",
  "tikv-jemallocator",
  "tokio",
- "tower-http",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -5451,22 +5446,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tower-http"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "403fa3b783d4b626a8ad51d766ab03cb6d2dbfc46b1c5d4448395e6628dc9697"
-dependencies = [
- "bitflags 2.8.0",
- "bytes",
- "http 1.2.0",
- "http-body 1.0.1",
- "pin-project-lite",
- "tokio",
- "tower-layer",
- "tower-service",
-]
-
-[[package]]
 name = "tower-layer"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5612,6 +5591,12 @@ name = "unicode-width"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fc81956842c57dac11422a97c3b8195a1ff727f06e85c84ed2e8aa277c9a0fd"
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"

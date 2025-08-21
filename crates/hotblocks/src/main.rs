@@ -1,17 +1,19 @@
+mod api;
 mod cli;
+mod data_service;
 mod dataset_config;
-mod app;
+mod dataset_controller;
+mod errors;
+mod query;
+mod types;
 
 
-use crate::app::build_app;
-use crate::cli::CLI;
+use api::build_api;
 use clap::Parser;
-use sqd_node::DBRef;
-use std::io::IsTerminal;
+use cli::CLI;
 use std::time::Duration;
-use tokio::signal;
-use tower_http::timeout::TimeoutLayer;
 use tracing::{debug, error, instrument};
+use types::DBRef;
 
 
 #[global_allocator]
@@ -27,6 +29,32 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    init_tracing();
+    
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let app = args.build_app().await?;
+
+            tokio::spawn(db_cleanup_task(app.db.clone()));
+
+            let api = build_api(&app);
+
+            let listener = tokio::net::TcpListener::bind(("0.0.0.0", args.port)).await?;
+
+            axum::serve(listener, api)
+                .with_graceful_shutdown(shutdown_signal())
+                .await?;
+
+            Ok::<_, anyhow::Error>(())
+        })
+}
+
+
+fn init_tracing() {
+    use std::io::IsTerminal;
+
     let env_filter = tracing_subscriber::EnvFilter::builder().parse_lossy(
         std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
             .unwrap_or("info".to_string()),
@@ -36,7 +64,6 @@ fn main() -> anyhow::Result<()> {
         tracing_subscriber::fmt()
             .with_env_filter(env_filter)
             .compact()
-            .with_target(false)
             .init();
     } else {
         tracing_subscriber::fmt()
@@ -45,40 +72,19 @@ fn main() -> anyhow::Result<()> {
             .with_current_span(false)
             .init();
     }
-    
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            let (node, db) = args.build_node().await?;
-
-            tokio::spawn(db_cleanup_task(db.clone()));
-
-            let app = build_app(node, db).layer(TimeoutLayer::new(Duration::from_secs(10)));
-
-            let listener = tokio::net::TcpListener::bind(("0.0.0.0", args.port)).await?;
-
-            axum::serve(listener, app)
-                .with_graceful_shutdown(shutdown_signal())
-                .await?;
-
-            Ok::<_, anyhow::Error>(())
-        })?;
-    
-    Ok(())
 }
 
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c()
+        tokio::signal::ctrl_c()
             .await
             .expect("failed to install Ctrl+C handler");
     };
 
     #[cfg(unix)]
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .expect("failed to install signal handler")
             .recv()
             .await;

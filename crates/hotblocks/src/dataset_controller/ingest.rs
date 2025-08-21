@@ -1,4 +1,4 @@
-use crate::ingest::ingest_generic::{IngestGeneric, IngestMessage};
+use crate::dataset_controller::ingest_generic::{IngestGeneric, IngestMessage};
 use crate::types::DatasetKind;
 use bytes::Bytes;
 use futures::future::BoxFuture;

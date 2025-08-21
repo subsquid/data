@@ -1,5 +1,5 @@
+use crate::types::{DatasetKind, RetentionStrategy};
 use serde::{Deserialize, Serialize};
-use sqd_node::{DatasetKind, RetentionStrategy};
 use sqd_storage::db::DatasetId;
 use std::collections::BTreeMap;
 use url::Url;
@@ -11,7 +11,7 @@ pub struct DatasetConfig {
     pub kind: DatasetKind,
     pub retention: RetentionStrategy,
     #[serde(default)]
-    pub enable_compaction: bool,
+    pub disable_compaction: bool,
     pub data_sources: Vec<Url>
 }
 
@@ -19,7 +19,7 @@ pub struct DatasetConfig {
 impl DatasetConfig {
     pub fn read_config_file(file: &str) -> anyhow::Result<BTreeMap<DatasetId, DatasetConfig>> {
         let reader = std::io::BufReader::new(std::fs::File::open(file)?);
-        let config = serde_json::from_reader(reader)?;
+        let config = serde_yaml::from_reader(reader)?;
         Ok(config)
     }
 }

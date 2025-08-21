@@ -1,6 +1,4 @@
-pub use super::query::user_error::*;
 use sqd_primitives::{BlockNumber, BlockRef};
-pub use sqd_query::UnexpectedBaseBlock;
 use sqd_storage::db::DatasetId;
 use std::fmt::{Display, Formatter};
 
@@ -11,7 +9,7 @@ pub struct Busy;
 
 impl Display for Busy {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "node is busy")
+        write!(f, "service is busy")
     }
 }
 
@@ -70,3 +68,20 @@ impl Display for QueryIsAboveTheHead {
 
 
 impl std::error::Error for QueryIsAboveTheHead {}
+
+
+#[derive(Debug)]
+pub struct QueryKindMismatch {
+    pub query_kind: sqd_storage::db::DatasetKind,
+    pub dataset_kind: sqd_storage::db::DatasetKind
+}
+
+
+impl Display for QueryKindMismatch {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} query was issued against {} dataset", self.query_kind, self.dataset_kind)
+    }
+}
+
+
+impl std::error::Error for QueryKindMismatch {}

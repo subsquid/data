@@ -1,6 +1,6 @@
-use crate::error::{BlockRangeMissing, QueryIsAboveTheHead};
+use crate::errors::{BlockRangeMissing, QueryIsAboveTheHead};
 use crate::query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot};
-use crate::query::user_error::QueryKindMismatch;
+use crate::errors::QueryKindMismatch;
 use crate::types::{DBRef, DatasetKind};
 use anyhow::{bail, ensure};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -18,7 +18,7 @@ struct LeftOver {
 }
 
 
-pub struct QueryRunner {
+pub struct RunningQuery {
     plan: Plan,
     last_block: Option<BlockNumber>,
     left_over: Option<LeftOver>,
@@ -29,7 +29,7 @@ pub struct QueryRunner {
 }
 
 
-impl QueryRunner {
+impl RunningQuery {
     pub fn new(
         db: DBRef,
         dataset_id: DatasetId,

@@ -1,4 +1,4 @@
-use crate::ingest::write_controller::Rollback;
+use crate::dataset_controller::write_controller::Rollback;
 use anyhow::{anyhow, ensure};
 use chrono::{DateTime, Utc};
 use futures::{SinkExt, StreamExt};

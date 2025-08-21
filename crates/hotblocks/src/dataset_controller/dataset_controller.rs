@@ -1,24 +1,16 @@
-use crate::ingest::ingest::ingest;
-use crate::ingest::ingest_generic::{IngestMessage, NewChunk};
-use crate::ingest::write_controller::WriteController;
-use crate::types::{DBRef, DatasetKind};
-use crate::RetentionStrategy;
-use anyhow::{anyhow, bail, Context};
+use crate::dataset_controller::ingest::ingest;
+use crate::dataset_controller::ingest_generic::{IngestMessage, NewChunk};
+use crate::dataset_controller::write_controller::WriteController;
+use crate::types::{DBRef, DatasetKind, RetentionStrategy};
+use anyhow::{anyhow, Context};
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
-use parking_lot::Mutex;
-use scopeguard::ScopeGuard;
 use sqd_data_client::reqwest::ReqwestDataClient;
-use sqd_polars::prelude::len;
 use sqd_primitives::{BlockNumber, BlockRef};
-use sqd_storage::db::{Chunk, CompactionStatus, Database, DatasetId};
+use sqd_storage::db::{Chunk, CompactionStatus, DatasetId};
 use std::collections::BTreeMap;
-use std::fmt::{Display, Formatter};
-use std::future::pending;
-use std::ops::{Add, DerefMut};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::ops::Add;
 use std::time::Duration;
 use tokio::select;
 use tokio::task::JoinHandle;
@@ -67,8 +59,8 @@ impl DatasetController {
         let (finalized_head_sender, finalized_head_receiver) = tokio::sync::watch::channel(None);
         let (compaction_enabled_sender, compaction_enabled_receiver) = tokio::sync::watch::channel(false);
 
-        head_sender.send(write.head().cloned());
-        finalized_head_sender.send(write.finalized_head().cloned());
+        let _ = head_sender.send(write.head().cloned());
+        let _ = finalized_head_sender.send(write.finalized_head().cloned());
 
         let ctl = Ctl {
             db: db.clone(),
@@ -558,7 +550,7 @@ async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
             result = calls.next() => {
                 match result {
                     None => return last_seen,
-                    Some((Ok((bn)), _)) => {
+                    Some((Ok(bn), _)) => {
                         last_seen = last_seen.max(bn);
                         completed += 1;
                         if completed > clients.len() / 2 {
