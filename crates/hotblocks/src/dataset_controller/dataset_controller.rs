@@ -120,6 +120,10 @@ impl DatasetController {
         self.retention_sender.send(strategy).unwrap()
     }
 
+    pub fn get_retention(&self) -> RetentionStrategy {
+        self.retention_sender.borrow().clone()
+    }
+
     pub fn subscribe_head_updates(&self) -> tokio::sync::watch::Receiver<Option<BlockRef>> {
         self.head_receiver.clone()
     }

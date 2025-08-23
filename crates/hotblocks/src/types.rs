@@ -5,7 +5,6 @@ use sqd_storage::db::Database;
 use std::sync::Arc;
 
 
-pub type Name = &'static str;
 pub type DBRef = Arc<Database>;
 
 

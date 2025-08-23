@@ -1,10 +1,11 @@
 use crate::data_service::{DataService, DataServiceRef};
-use crate::dataset_config::DatasetConfig;
+use crate::dataset_config::{DatasetConfig, RetentionConfig};
 use crate::query::{QueryService, QueryServiceRef};
 use crate::types::DBRef;
 use anyhow::Context;
 use clap::Parser;
-use sqd_storage::db::DatabaseSettings;
+use sqd_storage::db::{DatabaseSettings, DatasetId};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 
@@ -33,7 +34,7 @@ pub struct CLI {
     pub query_urgency: Option<usize>,
 
     /// Max number of queries waiting for new block arrival
-    #[arg(long, value_name = "N", default_value = "64_000")]
+    #[arg(long, value_name = "N", default_value = "64000")]
     pub query_max_data_waiters: usize,
 
     #[arg(long, default_value = "3000")]
@@ -51,7 +52,8 @@ pub struct CLI {
 pub struct App {
     pub db: DBRef,
     pub data_service: DataServiceRef,
-    pub query_service:QueryServiceRef,
+    pub query_service: QueryServiceRef,
+    pub api_controlled_datasets: BTreeSet<DatasetId>
 }
 
 
@@ -67,6 +69,10 @@ impl CLI {
             .open(&self.database_dir)
             .map(Arc::new)
             .context("failed to open rocksdb database")?;
+
+        let api_controlled_datasets = datasets.iter()
+            .filter_map(|(id, cfg)| cfg.retention.eq(&RetentionConfig::Admin).then_some(*id))
+            .collect();
 
         let data_service = DataService::start(db.clone(), datasets)
             .await
@@ -90,7 +96,8 @@ impl CLI {
         Ok(App {
             db,
             data_service,
-            query_service
+            query_service,
+            api_controlled_datasets
         })
     }
 }

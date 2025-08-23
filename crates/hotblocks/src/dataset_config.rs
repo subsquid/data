@@ -1,15 +1,28 @@
-use crate::types::{DatasetKind, RetentionStrategy};
+use crate::types::DatasetKind;
 use serde::{Deserialize, Serialize};
+use sqd_query::BlockNumber;
 use sqd_storage::db::DatasetId;
 use std::collections::BTreeMap;
 use url::Url;
 
 
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub enum RetentionConfig {
+    FromBlock {
+        number: BlockNumber,
+        parent_hash: Option<String>
+    },
+    Head(u64),
+    Admin,
+    None
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 pub struct DatasetConfig {
     pub kind: DatasetKind,
-    pub retention: RetentionStrategy,
+    pub retention: RetentionConfig,
     #[serde(default)]
     pub disable_compaction: bool,
     pub data_sources: Vec<Url>

@@ -1,3 +1,4 @@
+#![allow(unused)]
 mod api;
 mod cli;
 mod data_service;
@@ -39,7 +40,7 @@ fn main() -> anyhow::Result<()> {
 
             tokio::spawn(db_cleanup_task(app.db.clone()));
 
-            let api = build_api(&app);
+            let api = build_api(app);
 
             let listener = tokio::net::TcpListener::bind(("0.0.0.0", args.port)).await?;
 

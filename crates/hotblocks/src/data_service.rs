@@ -1,7 +1,7 @@
-use crate::dataset_config::DatasetConfig;
+use crate::dataset_config::{DatasetConfig, RetentionConfig};
 use crate::dataset_controller::DatasetController;
 use crate::errors::UnknownDataset;
-use crate::types::DBRef;
+use crate::types::{DBRef, RetentionStrategy};
 use anyhow::{anyhow, Context};
 use futures::FutureExt;
 use futures::{StreamExt, TryStreamExt};
@@ -31,12 +31,21 @@ impl DataService {
                     .map(|url| ReqwestDataClient::new(http_client.clone(), url))
                     .collect();
 
+                let retention = match cfg.retention {
+                    RetentionConfig::FromBlock { number, parent_hash } => RetentionStrategy::FromBlock {
+                        number ,
+                        parent_hash
+                    },
+                    RetentionConfig::Head(n) => RetentionStrategy::Head(n),
+                    RetentionConfig::Admin | RetentionConfig::None =>RetentionStrategy::None
+                };
+
                 tokio::task::spawn_blocking(move || {
                     DatasetController::new(
                         db,
                         dataset_id,
                         cfg.kind,
-                        cfg.retention,
+                        retention,
                         data_sources
                     ).map(|c| {
                         c.enable_compaction(!cfg.disable_compaction);

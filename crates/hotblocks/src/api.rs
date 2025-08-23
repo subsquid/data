@@ -1,8 +1,7 @@
 use crate::cli::App;
-use crate::data_service::DataServiceRef;
 use crate::errors::{BlockRangeMissing, Busy, QueryIsAboveTheHead, QueryKindMismatch, UnknownDataset};
-use crate::query::{QueryResponse, QueryServiceRef};
-use crate::types::DBRef;
+use crate::query::QueryResponse;
+use crate::types::RetentionStrategy;
 use async_stream::try_stream;
 use axum::body::{Body, Bytes};
 use axum::extract::Path;
@@ -15,33 +14,50 @@ use serde::Serialize;
 use sqd_primitives::BlockRef;
 use sqd_query::{Query, UnexpectedBaseBlock};
 use sqd_storage::db::DatasetId;
+use std::sync::Arc;
 
 
-pub fn build_api(app: &App) -> Router {
+macro_rules! json_ok {
+    ($json:expr) => {
+        (StatusCode::OK, Json($json)).into_response()
+    };
+}
+
+
+macro_rules! text {
+    ($status:expr, $($arg:tt)+) => {
+        ($status, format!($($arg)*)).into_response()
+    };
+}
+
+
+type AppRef = Arc<App>;
+
+
+pub fn build_api(app: App) -> Router {
     Router::new()
         .route("/", get(|| async { "Welcome to SQD hot block data service!" }))
+        .route("/datasets/{id}/stream", post(stream))
+        .route("/datasets/{id}/head", get(get_head))
+        .route("/datasets/{id}/finalized-head", get(get_finalized_head))
+        .route("/datasets/{id}/retention", get(get_retention).post(set_retention))
         .route("/rocksdb/stats", get(get_rocks_stats))
         .route("/rocksdb/prop/{cf}/{name}", get(get_rocks_prop))
-        .route("/datasets/{id}/stream", post(stream))
-        .route("/datasets/{id}/finalized-head", get(get_finalized_head))
-        .route("/datasets/{id}/head", get(get_head))
-        .layer(Extension(app.data_service.clone()))
-        .layer(Extension(app.query_service.clone()))
-        .layer(Extension(app.db.clone()))
+        .layer(Extension(Arc::new(app)))
 }
 
 
 async fn stream(
-    Extension(query_service): Extension<QueryServiceRef>,
+    Extension(app): Extension<AppRef>,
     Path(dataset_id): Path<DatasetId>,
     Json(query): Json<Query>
 ) -> Response
 {
     if let Err(err) = query.validate() {
-        return (StatusCode::BAD_REQUEST, format!("{}", err)).into_response()
+        return text!(StatusCode::BAD_REQUEST, "{}", err)
     }
 
-    match query_service.query(dataset_id, query).await {
+    match app.query_service.query(dataset_id, query).await {
         Ok(stream) => {
             let mut res = Response::builder()
                 .status(200)
@@ -121,50 +137,90 @@ struct BaseBlockConflict<'a> {
 }
 
 
+
+macro_rules! get_dataset {
+    ($app:expr, $dataset_id:expr) => {
+        match $app.data_service.get_dataset($dataset_id) {
+            Ok(ds) => ds,
+            Err(err) => return text!(StatusCode::NOT_FOUND, "{}", err)
+        }
+    };
+}
+
+
 async fn get_finalized_head(
-    Extension(data_service): Extension<DataServiceRef>,
+    Extension(app): Extension<AppRef>,
     Path(dataset_id): Path<DatasetId>
 ) -> Response
 {
-    match data_service.get_dataset(dataset_id).map(|ds| ds.get_finalized_head()) {
-        Ok(head) => (StatusCode::OK, Json(head)).into_response(),
-        Err(err) => (StatusCode::NOT_FOUND, format!("{}", err)).into_response()
+    json_ok! {
+        get_dataset!(app, dataset_id).get_finalized_head()
     }
 }
 
 
 async fn get_head(
-    Extension(data_service): Extension<DataServiceRef>,
+    Extension(app): Extension<AppRef>,
     Path(dataset_id): Path<DatasetId>
 ) -> Response
 {
-    match data_service.get_dataset(dataset_id).map(|ds| ds.get_head()) {
-        Ok(head) => (StatusCode::OK, Json(head)).into_response(),
-        Err(err) => (StatusCode::NOT_FOUND, format!("{}", err)).into_response()
+    json_ok! {
+        get_dataset!(app, dataset_id).get_head()
+    }
+}
+
+
+async fn get_retention(
+    Extension(app): Extension<AppRef>,
+    Path(dataset_id): Path<DatasetId>
+) -> Response
+{
+    json_ok! {
+        get_dataset!(app, dataset_id).get_retention()
+    }
+}
+
+
+async fn set_retention(
+    Extension(app): Extension<AppRef>,
+    Path(dataset_id): Path<DatasetId>,
+    Json(strategy): Json<RetentionStrategy>
+) -> Response
+{
+    let ds = get_dataset!(app, dataset_id);
+    if app.api_controlled_datasets.contains(&dataset_id) {
+        ds.retain(strategy);
+        text!(StatusCode::OK, "OK")
+    } else {
+        text!(
+            StatusCode::FORBIDDEN,
+            "dataset '{}' is managed via config",
+            dataset_id
+        )
     }
 }
 
 
 async fn get_rocks_stats(
-    Extension(db): Extension<DBRef>
+    Extension(app): Extension<AppRef>
 ) -> Response
 {
-    if let Some(stats) = db.get_statistics() {
+    if let Some(stats) = app.db.get_statistics() {
         stats.into_response()
     } else {
-        (StatusCode::INTERNAL_SERVER_ERROR, "rocksdb stats are not enabled").into_response()
+        text!(StatusCode::INTERNAL_SERVER_ERROR, "rocksdb stats are not enabled")
     }
 }
 
 
 async fn get_rocks_prop(
-    Extension(db): Extension<DBRef>,
+    Extension(app): Extension<AppRef>,
     Path((cf, name)): Path<(String, String)>
 ) -> Response
 {
-    match db.get_property(&cf, &name) {
+    match app.db.get_property(&cf, &name) {
         Ok(Some(s)) => s.into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "property not found").into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{}", err)).into_response()
+        Ok(None) => text!(StatusCode::NOT_FOUND, "property not found"),
+        Err(err) => text!(StatusCode::INTERNAL_SERVER_ERROR, "{}", err)
     }
 }
