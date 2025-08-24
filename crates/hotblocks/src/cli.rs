@@ -53,7 +53,8 @@ pub struct App {
     pub db: DBRef,
     pub data_service: DataServiceRef,
     pub query_service: QueryServiceRef,
-    pub api_controlled_datasets: BTreeSet<DatasetId>
+    pub api_controlled_datasets: BTreeSet<DatasetId>,
+    pub metrics_registry: prometheus_client::registry::Registry
 }
 
 
@@ -69,6 +70,11 @@ impl CLI {
             .open(&self.database_dir)
             .map(Arc::new)
             .context("failed to open rocksdb database")?;
+
+        let metrics_registry = crate::metrics::build_metrics_registry(
+            db.clone(),
+            datasets.keys().copied().collect()
+        );
 
         let api_controlled_datasets = datasets.iter()
             .filter_map(|(id, cfg)| {
@@ -99,7 +105,8 @@ impl CLI {
             db,
             data_service,
             query_service,
-            api_controlled_datasets
+            api_controlled_datasets,
+            metrics_registry
         })
     }
 }

@@ -5,6 +5,7 @@ mod data_service;
 mod dataset_config;
 mod dataset_controller;
 mod errors;
+mod metrics;
 mod query;
 mod types;
 

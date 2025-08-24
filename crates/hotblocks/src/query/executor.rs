@@ -27,6 +27,7 @@ impl QueryExecutor {
             })
         } else {
             self.in_flight.fetch_sub(1, Ordering::SeqCst);
+            crate::metrics::report_query_too_many_tasks_error();
             None
         }
     }

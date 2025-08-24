@@ -149,6 +149,7 @@ impl WaitSlots {
         if previously_waiting < self.limit {
             Some(slot)
         } else {
+            crate::metrics::report_query_too_many_data_waiters_error();
             None
         }
     }

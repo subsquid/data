@@ -42,6 +42,7 @@ pub fn build_api(app: App) -> Router {
         .route("/datasets/{id}/finalized-head", get(get_finalized_head))
         .route("/datasets/{id}/retention", get(get_retention).post(set_retention))
         .route("/datasets/{id}/status", get(get_status))
+        .route("/metrics", get(get_metrics))
         .route("/rocksdb/stats", get(get_rocks_stats))
         .route("/rocksdb/prop/{cf}/{name}", get(get_rocks_prop))
         .layer(Extension(Arc::new(app)))
@@ -245,6 +246,19 @@ async fn get_status(
         Ok(status) => json_ok!(status),
         Err(err) => text!(StatusCode::INTERNAL_SERVER_ERROR, "{:?}", err)
     }
+}
+
+
+async fn get_metrics(
+    Extension(app): Extension<AppRef>
+) -> Response
+{
+    let mut metrics = String::new();
+
+    prometheus_client::encoding::text::encode(&mut metrics, &app.metrics_registry)
+        .expect("String IO is infallible");
+
+    metrics.into_response()
 }
 
 

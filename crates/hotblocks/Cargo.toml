@@ -15,6 +15,7 @@ flate2 = { workspace = true }
 futures = { workspace = true }
 ouroboros = { workspace = true }
 parking_lot = { workspace = true }
+prometheus-client = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
