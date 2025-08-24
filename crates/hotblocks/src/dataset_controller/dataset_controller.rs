@@ -124,16 +124,6 @@ impl DatasetController {
         self.retention_sender.borrow().clone()
     }
 
-    pub fn subscribe_head_updates(&self) -> tokio::sync::watch::Receiver<Option<BlockRef>> {
-        self.head_receiver.clone()
-    }
-
-    pub fn subscribe_finalized_head_updates(
-        &self,
-    ) -> tokio::sync::watch::Receiver<Option<BlockRef>> {
-        self.finalized_head_receiver.clone()
-    }
-
     pub async fn wait_for_block(&self, block_number: BlockNumber) -> BlockNumber {
         let mut recv = self.head_receiver.clone();
         loop {

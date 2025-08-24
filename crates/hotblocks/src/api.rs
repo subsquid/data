@@ -2,6 +2,7 @@ use crate::cli::App;
 use crate::errors::{BlockRangeMissing, Busy, QueryIsAboveTheHead, QueryKindMismatch, UnknownDataset};
 use crate::query::QueryResponse;
 use crate::types::RetentionStrategy;
+use anyhow::bail;
 use async_stream::try_stream;
 use axum::body::{Body, Bytes};
 use axum::extract::Path;
@@ -15,7 +16,6 @@ use sqd_primitives::BlockRef;
 use sqd_query::{Query, UnexpectedBaseBlock};
 use sqd_storage::db::DatasetId;
 use std::sync::Arc;
-
 
 macro_rules! json_ok {
     ($json:expr) => {
@@ -41,6 +41,7 @@ pub fn build_api(app: App) -> Router {
         .route("/datasets/{id}/head", get(get_head))
         .route("/datasets/{id}/finalized-head", get(get_finalized_head))
         .route("/datasets/{id}/retention", get(get_retention).post(set_retention))
+        .route("/datasets/{id}/status", get(get_status))
         .route("/rocksdb/stats", get(get_rocks_stats))
         .route("/rocksdb/prop/{cf}/{name}", get(get_rocks_prop))
         .layer(Extension(Arc::new(app)))
@@ -197,6 +198,52 @@ async fn set_retention(
             "dataset '{}' is managed via config",
             dataset_id
         )
+    }
+}
+
+
+async fn get_status(
+    Extension(app): Extension<AppRef>,
+    Path(dataset_id): Path<DatasetId>
+) -> Response
+{
+    let ctl = get_dataset!(app, dataset_id);
+
+    let read_status = || -> anyhow::Result<_> {
+        let db = app.db.snapshot();
+
+        let Some(label) = db.get_label(dataset_id)? else {
+            bail!("dataset '{}' does not exist in the database", dataset_id)
+        };
+
+        let Some(first_chunk) = db.get_first_chunk(dataset_id)? else {
+            return Ok(serde_json::json! {{
+                "kind": label.kind(),
+                "retentionStrategy": ctl.get_retention(),
+                "data": null
+            }})
+        };
+
+        let Some(last_chunk) = db.get_last_chunk(dataset_id)? else {
+            bail!("inconsistent database read: the first chunk was found, but the last is not")
+        };
+
+        Ok(serde_json::json! {{
+            "kind": label.kind(),
+            "retentionStrategy": ctl.get_retention(),
+            "data": {
+                "firstBlock": first_chunk.first_block(),
+                "lastBlock": last_chunk.last_block(),
+                "lastBlockHash": last_chunk.last_block_hash(),
+                "lastBlockTimestamp": last_chunk.last_block_time(),
+                "finalizedHead": label.finalized_head()
+            }
+        }})
+    };
+
+    match read_status() {
+        Ok(status) => json_ok!(status),
+        Err(err) => text!(StatusCode::INTERNAL_SERVER_ERROR, "{:?}", err)
     }
 }
 
