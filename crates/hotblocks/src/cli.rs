@@ -71,7 +71,9 @@ impl CLI {
             .context("failed to open rocksdb database")?;
 
         let api_controlled_datasets = datasets.iter()
-            .filter_map(|(id, cfg)| cfg.retention.eq(&RetentionConfig::Admin).then_some(*id))
+            .filter_map(|(id, cfg)| {
+                (cfg.retention_strategy == RetentionConfig::Api).then_some(*id)
+            })
             .collect();
 
         let data_service = DataService::start(db.clone(), datasets)

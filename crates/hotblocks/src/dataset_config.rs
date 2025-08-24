@@ -13,7 +13,7 @@ pub enum RetentionConfig {
         parent_hash: Option<String>
     },
     Head(u64),
-    Admin,
+    Api,
     None
 }
 
@@ -22,7 +22,7 @@ pub enum RetentionConfig {
 #[serde(deny_unknown_fields)]
 pub struct DatasetConfig {
     pub kind: DatasetKind,
-    pub retention: RetentionConfig,
+    pub retention_strategy: RetentionConfig,
     #[serde(default)]
     pub disable_compaction: bool,
     pub data_sources: Vec<Url>

@@ -31,13 +31,13 @@ impl DataService {
                     .map(|url| ReqwestDataClient::new(http_client.clone(), url))
                     .collect();
 
-                let retention = match cfg.retention {
+                let retention = match cfg.retention_strategy {
                     RetentionConfig::FromBlock { number, parent_hash } => RetentionStrategy::FromBlock {
                         number ,
                         parent_hash
                     },
                     RetentionConfig::Head(n) => RetentionStrategy::Head(n),
-                    RetentionConfig::Admin | RetentionConfig::None =>RetentionStrategy::None
+                    RetentionConfig::Api | RetentionConfig::None => RetentionStrategy::None
                 };
 
                 tokio::task::spawn_blocking(move || {
