@@ -1,16 +1,11 @@
 use crate::dataset_controller::write_controller::Rollback;
 use anyhow::{anyhow, ensure};
 use chrono::{DateTime, Utc};
-use futures::{SinkExt, StreamExt};
-use parking_lot::Mutex;
-use sqd_data_client::DataClient;
-use sqd_data_core::{BlockChunkBuilder, ChunkProcessor, PreparedChunk, PreparedTable};
+use futures::StreamExt;
+use sqd_data_core::{BlockChunkBuilder, ChunkProcessor, PreparedChunk};
 use sqd_data_source::{DataEvent, DataSource};
-use sqd_primitives::{Block, BlockNumber, BlockRef, DisplayBlockRefOption, Name};
+use sqd_primitives::{Block, BlockNumber, BlockRef, DisplayBlockRefOption};
 use std::fmt::{Display, Formatter};
-use std::ops::DerefMut;
-use std::sync::{Arc, Weak};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::field::valuable;
 use tracing::info;
 
@@ -120,7 +115,7 @@ where
     CB: BlockChunkBuilder<Block = DS::Block> + Send + 'static
 {
     pub fn new(
-        mut data_source: DS,
+        data_source: DS,
         chunk_builder: CB,
         message_sender: tokio::sync::mpsc::Sender<IngestMessage>
     ) -> Self

@@ -1,4 +1,3 @@
-#![allow(unused)]
 mod api;
 mod cli;
 mod data_service;

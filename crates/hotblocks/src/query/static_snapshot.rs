@@ -1,8 +1,7 @@
-use std::ops::Deref;
 use crate::types::DBRef;
 use ouroboros::self_referencing;
 use sqd_primitives::BlockNumber;
-use sqd_storage::db::{Chunk, ChunkReader, Database, DatasetId, DatasetLabel, ReadSnapshot, ReadSnapshotChunkIterator};
+use sqd_storage::db::{Chunk, ChunkReader, DatasetId, DatasetLabel, ReadSnapshot, ReadSnapshotChunkIterator};
 use std::sync::Arc;
 
 
@@ -32,26 +31,12 @@ impl StaticSnapshot {
         }
     }
 
-    pub fn database(&self) -> &Database {
-        self.inner.borrow_db().as_ref()
-    }
-
     pub fn snapshot(&self) -> &ReadSnapshot<'_> {
         self.inner.borrow_snapshot()
     }
 
     pub fn get_label(&self, dataset_id: DatasetId) -> anyhow::Result<Option<DatasetLabel>> {
         self.snapshot().get_label(dataset_id)
-    }
-
-    pub fn list_chunks(
-        &self,
-        dataset_id: DatasetId,
-        from_block: BlockNumber,
-        to_block: Option<BlockNumber>
-    ) -> StaticChunkIterator
-    {
-        StaticChunkIterator::new(self.clone(), dataset_id, from_block, to_block)
     }
 
     pub fn create_chunk_reader(&self, chunk: Chunk) -> StaticChunkReader {

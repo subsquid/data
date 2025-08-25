@@ -1,18 +1,15 @@
 use crate::types::{DBRef, DatasetKind};
 use anyhow::{anyhow, bail, ensure};
-use either::Either;
 use sqd_primitives::{BlockNumber, BlockRef};
-use sqd_storage::db::{Chunk as StorageChunk, Chunk, DatasetId, DatasetUpdate};
-use std::fmt::{Display, Formatter};
+use sqd_storage::db::{Chunk as StorageChunk, Chunk, DatasetId};
 use tracing::field::valuable;
-use tracing::{info, instrument, warn, Level};
+use tracing::{info, instrument, warn};
 
 
 #[derive(Debug)]
 pub struct Rollback {
     pub first_block: BlockNumber,
-    pub parent_block_hash: Option<String>,
-    pub finalized_head: Option<BlockRef>
+    pub parent_block_hash: Option<String>
 }
 
 
@@ -43,7 +40,7 @@ impl WriteController {
         let first_chunk = snapshot.get_first_chunk(dataset_id)?;
         let last_chunk = snapshot.get_last_chunk(dataset_id)?;
         
-        let mut controller = Self {
+        Ok(Self {
             db: db.clone(),
             dataset_id,
             dataset_kind,
@@ -52,13 +49,7 @@ impl WriteController {
             first_chunk_head: first_chunk.as_ref().map(get_chunk_head),
             head: last_chunk.as_ref().map(get_chunk_head),
             finalized_head: label.and_then(|l| l.finalized_head().cloned())
-        };
-        
-        Ok(controller)
-    }
-    
-    pub fn dataset_id(&self) -> DatasetId {
-        self.dataset_id
+        })
     }
     
     pub fn dataset_kind(&self) -> DatasetKind {
@@ -143,23 +134,20 @@ impl WriteController {
                 if b.number == head.last_block() && b.hash == head.last_block_hash() {
                     return Ok(Rollback {
                         first_block: b.number + 1,
-                        parent_block_hash: Some(b.hash.clone()),
-                        finalized_head: label.finalized_head().cloned()
+                        parent_block_hash: Some(b.hash.clone())
                     })
                 }
             } else {
                 return Ok(Rollback {
                     first_block: head.last_block() + 1,
-                    parent_block_hash: Some(head.last_block_hash().to_string()),
-                    finalized_head: label.finalized_head().cloned()
+                    parent_block_hash: Some(head.last_block_hash().to_string())
                 })
             }
         }
 
         Ok(Rollback {
             first_block: self.first_block,
-            parent_block_hash: self.parent_block_hash.clone(),
-            finalized_head: None
+            parent_block_hash: self.parent_block_hash.clone()
         })
     }
 
@@ -383,7 +371,7 @@ impl WriteController {
                 (_, Some(current)) if current.number < chunk.first_block() => {
                     Some(current)
                 },
-                (_, Some(current)) => bail!(            
+                (_, Some(_)) => bail!(
                     "can't fork safely, because fork base is below the current finalized head \
                     and finalized head of the data pack is below the current"
                 ),
