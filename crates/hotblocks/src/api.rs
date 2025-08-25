@@ -16,6 +16,8 @@ use sqd_primitives::BlockRef;
 use sqd_query::{Query, UnexpectedBaseBlock};
 use sqd_storage::db::DatasetId;
 use std::sync::Arc;
+use tracing::error;
+
 
 macro_rules! json_ok {
     ($json:expr) => {
@@ -84,8 +86,21 @@ async fn stream(
 
 fn stream_query_response(mut stream: QueryResponse) -> impl TryStream<Ok=Bytes, Error=BoxError> {
     try_stream! {
-        while let Some(bytes) = stream.next_bytes().await? {
-            yield bytes;
+        while let Some(pack_result) = stream.next_data_pack().await.transpose() {
+            match pack_result {
+                Ok(bytes) => {
+                    yield bytes;
+                },
+                Err(err) => {
+                    if !err.is::<Busy>() {
+                        error!(err =? err, "terminating response stream due to query error");
+                    }
+                    // we can successfully complete the response,
+                    // because `QueryResponse` never produces partial data
+                    yield stream.finish();
+                    return
+                }
+            }
         }
     }
 }
@@ -196,7 +211,7 @@ async fn set_retention(
     } else {
         text!(
             StatusCode::FORBIDDEN,
-            "dataset '{}' is managed via config",
+            "dataset '{}' can't be managed via API",
             dataset_id
         )
     }

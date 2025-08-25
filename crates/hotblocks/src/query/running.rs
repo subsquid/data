@@ -1,6 +1,6 @@
+use crate::errors::QueryKindMismatch;
 use crate::errors::{BlockRangeMissing, QueryIsAboveTheHead};
 use crate::query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot};
-use crate::errors::QueryKindMismatch;
 use crate::types::{DBRef, DatasetKind};
 use anyhow::{bail, ensure};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -22,7 +22,7 @@ pub struct RunningQuery {
     plan: Plan,
     last_block: Option<BlockNumber>,
     left_over: Option<LeftOver>,
-    next_chunk: Option<StorageChunk>,
+    next_chunk: Option<anyhow::Result<StorageChunk>>,
     chunk_iterator: StaticChunkIterator,
     finalized_head: Option<BlockRef>,
     buf: GzEncoder<bytes::buf::Writer<BytesMut>>
@@ -94,12 +94,12 @@ impl RunningQuery {
         } else {
             query.compile()
         };
-        
+
         Ok(Self {
             plan,
             last_block: query.last_block(),
             left_over: None,
-            next_chunk: Some(first_chunk),
+            next_chunk: Some(Ok(first_chunk)),
             chunk_iterator,
             finalized_head,
             buf: GzEncoder::new(
@@ -133,6 +133,9 @@ impl RunningQuery {
         self.next_chunk.is_some() || self.left_over.is_some()
     }
 
+    /// Query the next chunk and write results to buffer.
+    ///
+    /// Everything written to the buffer is always well-formed.
     pub fn write_next_chunk(&mut self) -> anyhow::Result<()> {
         let chunk = if let Some(left_over) = self.left_over.take() {
             self.plan.set_first_block(left_over.next_block);
@@ -184,29 +187,40 @@ impl RunningQuery {
     }
 
     fn next_chunk(&mut self) -> anyhow::Result<StorageChunk> {
-        ensure!(self.next_chunk.is_some(), "no more chunks left");
-        
-        let chunk = self.next_chunk.take().expect("no more chunks left");
+        let Some(chunk) = self.next_chunk.take().transpose()? else {
+            bail!("no more chunks left")
+        };
 
         self.next_chunk = self.chunk_iterator.next()
             .transpose()
-            .map(|maybe_chunk| {
-                let next_chunk = maybe_chunk?;
+            .map(|maybe_next_chunk| {
+                let next_chunk = maybe_next_chunk?;
                 let is_continuous = chunk.last_block() + 1 == next_chunk.first_block();
                 let is_requested = self.last_block.map_or(true, |end| {
                     next_chunk.first_block() <= end
                 });
-                (is_continuous && is_requested).then_some(next_chunk)
-            })?;
+                if is_continuous && is_requested {
+                    Some(next_chunk)
+                } else {
+                    None
+                }
+            })
+            .transpose();
 
         Ok(chunk)
     }
 
+    /// Size of the next chunk (in blocks)
     pub fn next_chunk_size(&self) -> usize {
         self.left_over.as_ref()
-            .map(|lo| lo.chunk.last_block() - lo.chunk.first_block() + 1)
-            .or_else(|| self.next_chunk.as_ref().map(|c| c.last_block() - c.first_block() + 1))
-            .unwrap_or(0)
-            as usize
+            .map(|lo| {
+                lo.chunk.last_block() - lo.chunk.first_block() + 1
+            })
+            .or_else(|| {
+                let chunk = self.next_chunk.as_ref()?.as_ref().ok()?;
+                let size = chunk.last_block() - chunk.first_block() + 1;
+                Some(size)
+            })
+            .unwrap_or(0) as usize
     }
 }

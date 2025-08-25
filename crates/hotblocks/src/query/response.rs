@@ -14,7 +14,6 @@ pub struct QueryResponse {
     executor: QueryExecutor,
     runner: Option<Box<RunningQuery>>,
     start: Instant,
-    next_bytes: Bytes,
     finalized_head: Option<BlockRef>
 }
 
@@ -39,19 +38,10 @@ impl QueryResponse {
             Ok(runner)
         }).await?;
 
-        let finalized_head = runner.take_finalized_head();
-
-        let (next_bytes, runner) = if runner.has_next_chunk() {
-            (runner.take_buffered_bytes(), Some(runner))
-        } else {
-            (runner.finish(), None)
-        };
-
         let response = Self {
             executor,
-            finalized_head,
-            runner,
-            next_bytes,
+            finalized_head: runner.take_finalized_head(),
+            runner: Some(runner),
             start
         };
 
@@ -62,38 +52,48 @@ impl QueryResponse {
         self.finalized_head.as_ref()
     }
 
-    pub async fn next_bytes(&mut self) -> anyhow::Result<Option<Bytes>> {
-        if !self.next_bytes.is_empty() {
-            return Ok(Some(std::mem::take(&mut self.next_bytes)))
-        }
-
-        let runner = match self.runner.take() {
-            None => return Ok(None),
-            Some(runner) => runner
+    pub async fn next_data_pack(&mut self) -> anyhow::Result<Option<Bytes>> {
+        let Some(mut runner) = self.runner.take() else {
+            return Ok(None)
         };
 
-        // never serve (possibly) stale snapshot
         if !runner.has_next_chunk() || self.start.elapsed().as_secs() > 10 {
             return Ok(Some(runner.finish()))
+        }
+
+        if runner.buffered_bytes() > 0 {
+            let bytes = runner.take_buffered_bytes();
+            self.runner = Some(runner);
+            return Ok(Some(bytes))
         }
 
         let Some(slot) = self.executor.get_slot() else {
-            return Ok(Some(runner.finish()))
+            self.runner = Some(runner);
+            bail!(Busy);
         };
 
-        let mut runner = slot.run(move |slot| -> anyhow::Result<_> {
+        let (mut runner, result) = slot.run(move |slot| {
             let mut runner = runner;
-            next_run(&mut runner, slot)?;
-            Ok(runner)
-        }).await?;
+            let result = next_run(&mut runner, slot);
+            (runner, result)
+        }).await;
 
-        if !runner.has_next_chunk() || self.start.elapsed().as_secs() > 10 {
-            return Ok(Some(runner.finish()))
+        if let Err(err) = result {
+            self.runner = Some(runner);
+            return Err(err)
         }
 
-        let bytes = runner.take_buffered_bytes();
-        self.runner = Some(runner);
-        Ok(Some(bytes))
+        if !runner.has_next_chunk() || self.start.elapsed().as_secs() > 10  {
+            Ok(Some(runner.finish()))
+        } else {
+            let bytes = runner.take_buffered_bytes();
+            self.runner = Some(runner);
+            Ok(Some(bytes))
+        }
+    }
+
+    pub fn finish(&mut self) -> Bytes {
+        self.runner.take().map(|runner| runner.finish()).unwrap_or_default()
     }
 }
 
