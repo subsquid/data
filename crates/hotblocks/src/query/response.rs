@@ -107,7 +107,7 @@ fn next_run(runner: &mut RunningQuery, slot: &QuerySlot) -> anyhow::Result<()> {
 
         runner.write_next_chunk()?;
 
-        if !runner.has_next_chunk() || runner.buffered_bytes() > 256 * 1024 {
+        if !runner.has_next_chunk() || runner.buffered_bytes() > 512 * 1024 {
             return Ok(())
         }
 
