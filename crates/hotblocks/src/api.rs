@@ -33,6 +33,16 @@ macro_rules! text {
 }
 
 
+macro_rules! get_dataset {
+    ($app:expr, $dataset_id:expr) => {
+        match $app.data_service.get_dataset($dataset_id) {
+            Ok(ds) => ds,
+            Err(err) => return text!(StatusCode::NOT_FOUND, "{}", err)
+        }
+    };
+}
+
+
 type AppRef = Arc<App>;
 
 
@@ -57,11 +67,13 @@ async fn stream(
     Json(query): Json<Query>
 ) -> Response
 {
+    let dataset = get_dataset!(app, dataset_id);
+
     if let Err(err) = query.validate() {
         return text!(StatusCode::BAD_REQUEST, "{}", err)
     }
 
-    match app.query_service.query(dataset_id, query).await {
+    match app.query_service.query(&dataset, query).await {
         Ok(stream) => {
             let mut res = Response::builder()
                 .status(200)
@@ -69,8 +81,12 @@ async fn stream(
                 .header("content-encoding", "gzip");
 
             if let Some(head) = stream.finalized_head() {
+                let head_block = head.number.max(dataset.get_head_block_number().unwrap_or(0));
+                res = res.header("x-sqd-head-number", head_block);
                 res = res.header("x-sqd-finalized-head-number", head.number);
                 res = res.header("x-sqd-finalized-head-hash", head.hash.as_str());
+            } else if let Some(head_block) = dataset.get_head_block_number() {
+                res = res.header("x-sqd-head-number", head_block);
             }
 
             let body = Body::from_stream(
@@ -151,17 +167,6 @@ fn error_to_response(err: anyhow::Error) -> Response {
 #[serde(rename_all = "camelCase")]
 struct BaseBlockConflict<'a> {
     previous_blocks: &'a [BlockRef]
-}
-
-
-
-macro_rules! get_dataset {
-    ($app:expr, $dataset_id:expr) => {
-        match $app.data_service.get_dataset($dataset_id) {
-            Ok(ds) => ds,
-            Err(err) => return text!(StatusCode::NOT_FOUND, "{}", err)
-        }
-    };
 }
 
 

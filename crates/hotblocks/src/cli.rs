@@ -87,7 +87,7 @@ impl CLI {
             .map(Arc::new)?;
 
         let query_service = {
-            let mut builder = QueryService::builder(db.clone(), data_service.clone());
+            let mut builder = QueryService::builder(db.clone());
             builder.set_max_data_waiters(self.query_max_data_waiters);
 
             if let Some(size) = self.query_task_queue {

@@ -1,11 +1,10 @@
 use super::executor::QueryExecutor;
 use super::response::QueryResponse;
-use crate::data_service::DataServiceRef;
+use crate::dataset_controller::DatasetController;
 use crate::errors::{Busy, QueryIsAboveTheHead, QueryKindMismatch};
 use crate::types::{DBRef, DatasetKind};
 use anyhow::{bail, ensure};
 use sqd_query::Query;
-use sqd_storage::db::DatasetId;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,7 +15,6 @@ pub type QueryServiceRef = Arc<QueryService>;
 
 pub struct QueryServiceBuilder {
     db: DBRef,
-    data_service: DataServiceRef,
     max_data_waiters: usize,
     max_pending_tasks: usize,
     urgency: usize,
@@ -24,10 +22,9 @@ pub struct QueryServiceBuilder {
 
 
 impl QueryServiceBuilder {
-    pub fn new(db: DBRef, data_service: DataServiceRef) -> Self {
+    pub fn new(db: DBRef) -> Self {
         Self {
             db,
-            data_service,
             max_data_waiters: 64_000,
             max_pending_tasks: sqd_polars::POOL.current_num_threads() * 200,
             urgency: 500
@@ -58,7 +55,6 @@ impl QueryServiceBuilder {
     pub fn build(&self) -> QueryService {
         QueryService {
             db: self.db.clone(),
-            data_service: self.data_service.clone(),
             executor: QueryExecutor::new(self.max_pending_tasks, self.urgency),
             wait_slots: WaitSlots {
                 waiters: AtomicUsize::new(0),
@@ -71,29 +67,26 @@ impl QueryServiceBuilder {
 
 pub struct QueryService {
     db: DBRef,
-    data_service: DataServiceRef,
     executor: QueryExecutor,
     wait_slots: WaitSlots
 }
 
 
 impl QueryService {
-    pub fn builder(db: DBRef, data_service: DataServiceRef) -> QueryServiceBuilder {
-        QueryServiceBuilder::new(db, data_service)
+    pub fn builder(db: DBRef) -> QueryServiceBuilder {
+        QueryServiceBuilder::new(db)
     }
 
-    pub async fn query(&self, dataset_id: DatasetId, query: Query) -> anyhow::Result<QueryResponse> {
-        let ds = self.data_service.get_dataset(dataset_id)?;
-
+    pub async fn query(&self, dataset: &DatasetController, query: Query) -> anyhow::Result<QueryResponse> {
         ensure!(
-            ds.dataset_kind() == DatasetKind::from_query(&query),
+            dataset.dataset_kind() == DatasetKind::from_query(&query),
             QueryKindMismatch {
                 query_kind: DatasetKind::from_query(&query).storage_kind(),
-                dataset_kind: ds.dataset_kind().storage_kind()
+                dataset_kind: dataset.dataset_kind().storage_kind()
             }
         );
 
-        let should_wait = match ds.get_head() {
+        let should_wait = match dataset.get_head() {
             Some(head) if head.number >= query.first_block() => false,
             Some(head) if head.number + 1 == query.first_block() => {
                 if let Some(parent_hash) = query.parent_block_hash() {
@@ -116,7 +109,7 @@ impl QueryService {
             };
             tokio::time::timeout(
                 Duration::from_secs(5),
-                ds.wait_for_block(query.first_block())
+                dataset.wait_for_block(query.first_block())
             ).await.map_err(|_| {
                 QueryIsAboveTheHead {
                     finalized_head: None
@@ -127,7 +120,7 @@ impl QueryService {
         QueryResponse::new(
             self.executor.clone(),
             self.db.clone(),
-            dataset_id,
+            dataset.dataset_id(),
             query
         ).await
     }
