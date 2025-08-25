@@ -112,7 +112,7 @@ fn stream_query_response(mut stream: QueryResponse) -> impl TryStream<Ok=Bytes, 
                         error!(err =? err, "terminating response stream due to query error");
                     }
                     // we can successfully complete the response,
-                    // because `QueryResponse` never produces partial data
+                    // because partial data is never produced
                     yield stream.finish();
                     return
                 }
