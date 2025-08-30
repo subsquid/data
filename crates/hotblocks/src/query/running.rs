@@ -1,8 +1,8 @@
-use crate::errors::QueryKindMismatch;
+use crate::errors::{BlockItemIsNotAvailable, QueryKindMismatch};
 use crate::errors::{BlockRangeMissing, QueryIsAboveTheHead};
 use crate::query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot};
 use crate::types::{DBRef, DatasetKind};
-use anyhow::{bail, ensure};
+use anyhow::{anyhow, bail, ensure};
 use bytes::{BufMut, Bytes, BytesMut};
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -152,7 +152,18 @@ impl RunningQuery {
             self.plan.set_last_block(None);
         }
 
-        let query_result = chunk.with_reader(|reader| self.plan.execute(reader));
+        let query_result = chunk
+            .with_reader(|reader| self.plan.execute(reader))
+            .map_err(|err| {
+                if let Some(err) = err.downcast_ref::<sqd_query::TableDoesNotExist>() {
+                    return anyhow!(BlockItemIsNotAvailable {
+                        item_name: err.table_name,
+                        first_block: chunk.first_block(),
+                        last_block: chunk.last_block()
+                    })
+                }
+                err
+            });
 
         // no matter what, we are moving to the next chunk
         self.plan.set_first_block(None);

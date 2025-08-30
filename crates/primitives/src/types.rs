@@ -111,6 +111,31 @@ pub trait Block {
             hash: self.parent_hash()
         }
     }
+
+    fn data_availability_mask(&self) -> DataMask {
+        DataMask::default()
+    }
+
+    fn has_data(_data_availability_mask: DataMask, _name: &str) -> bool {
+        true
+    }
+}
+
+
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub struct DataMask(u32);
+
+
+impl DataMask {
+    pub fn get(&self, i: usize) -> bool {
+        debug_assert!(i < 32);
+        (self.0 & (1 << i)) != 0
+    }
+
+    pub fn set(&mut self, i: usize) {
+        debug_assert!(i < 32);
+        self.0 |= 1 << i
+    }
 }
 
 

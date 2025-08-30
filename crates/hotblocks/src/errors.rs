@@ -85,3 +85,27 @@ impl Display for QueryKindMismatch {
 
 
 impl std::error::Error for QueryKindMismatch {}
+
+
+#[derive(Debug)]
+pub struct BlockItemIsNotAvailable {
+    pub item_name: &'static str,
+    pub first_block: BlockNumber,
+    pub last_block: BlockNumber
+}
+
+
+impl Display for BlockItemIsNotAvailable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "'{}' data is not available for blocks {}..{}",
+            self.item_name,
+            self.first_block,
+            self.last_block
+        )
+    }
+}
+
+
+impl std::error::Error for BlockItemIsNotAvailable {}

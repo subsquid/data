@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use sqd_data_core::{BlockChunkBuilder, ChunkProcessor, PreparedChunk};
 use sqd_data_source::{DataEvent, DataSource};
-use sqd_primitives::{Block, BlockNumber, BlockRef, DisplayBlockRefOption};
+use sqd_primitives::{Block, BlockNumber, BlockRef, DataMask, DisplayBlockRefOption};
 use std::fmt::{Display, Formatter};
 use tracing::field::valuable;
 use tracing::info;
@@ -105,7 +105,8 @@ pub struct IngestGeneric<DC, CB> {
     first_block_time: Option<i64>,
     last_block: BlockNumber,
     last_block_hash: String,
-    last_block_time: Option<i64>
+    last_block_time: Option<i64>,
+    data_mask: DataMask
 }
 
 
@@ -132,7 +133,8 @@ where
             first_block_time: None,
             last_block: 0,
             last_block_hash: String::new(),
-            last_block_time: None
+            last_block_time: None,
+            data_mask: DataMask::default()
         }
     }
 
@@ -148,6 +150,11 @@ where
                     }
                 },
                 DataEvent::Block { block, is_final } => {
+                    let data_mask = block.data_availability_mask();
+                    if self.data_mask != data_mask {
+                        self.flush().await?;
+                        self.data_mask = data_mask
+                    }
                     self.push_block(block, is_final)?;
                     self.maybe_flush().await?
                 },
@@ -249,7 +256,9 @@ where
             "received new chunk"
         );
 
-        let tables = self.with_blocking_builder(|b| b.finish()).await?;
+        let mut tables = self.with_blocking_builder(|b| b.finish()).await?;
+
+        tables.tables.retain(|&name, _| CB::Block::has_data(self.data_mask, name));
 
         self.buffered_blocks = 0;
         self.first_block = last_block + 1;

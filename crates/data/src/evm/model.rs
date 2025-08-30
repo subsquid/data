@@ -1,6 +1,6 @@
 use crate::types::HexBytes;
 use serde::Deserialize;
-use sqd_primitives::{BlockNumber, ItemIndex};
+use sqd_primitives::{BlockNumber, DataMask, ItemIndex};
 
 
 #[derive(Deserialize)]
@@ -220,5 +220,28 @@ impl sqd_primitives::Block for Block {
 
     fn timestamp(&self) -> Option<i64> {
         Some(self.header.timestamp * 1000)
+    }
+
+    fn data_availability_mask(&self) -> DataMask {
+        let mut mask = DataMask::default();
+        if self.logs.is_some() {
+            mask.set(0)
+        }
+        if self.traces.is_some() {
+            mask.set(1)
+        }
+        if self.state_diffs.is_some() {
+            mask.set(2)
+        }
+        mask
+    }
+
+    fn has_data(mask: DataMask, name: &str) -> bool {
+        match name {
+            "logs" => mask.get(0),
+            "traces" => mask.get(1),
+            "statediffs" => mask.get(2),
+            _ => true
+        }
     }
 }

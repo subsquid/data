@@ -50,17 +50,3 @@ impl ChunkProcessor {
 pub struct PreparedChunk {
     pub tables: BTreeMap<Name, PreparedTable>
 }
-
-
-impl PreparedChunk {
-    pub fn into_processor(self) -> anyhow::Result<ChunkProcessor> {
-        self.tables
-            .into_iter()
-            .map(|(name, table)| {
-                let proc = table.into_processor()?;
-                Ok((name, proc))
-            })
-            .collect::<anyhow::Result<_>>()
-            .map(ChunkProcessor::new)
-    }
-}

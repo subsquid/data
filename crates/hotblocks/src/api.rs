@@ -1,5 +1,5 @@
 use crate::cli::App;
-use crate::errors::{BlockRangeMissing, Busy, QueryIsAboveTheHead, QueryKindMismatch, UnknownDataset};
+use crate::errors::{BlockItemIsNotAvailable, BlockRangeMissing, Busy, QueryIsAboveTheHead, QueryKindMismatch, UnknownDataset};
 use crate::query::QueryResponse;
 use crate::types::RetentionStrategy;
 use anyhow::bail;
@@ -146,6 +146,8 @@ fn error_to_response(err: anyhow::Error) -> Response {
     } else if err.is::<QueryKindMismatch>() {
         StatusCode::BAD_REQUEST
     } else if err.is::<BlockRangeMissing>() {
+        StatusCode::BAD_REQUEST
+    } else if err.is::<BlockItemIsNotAvailable>() {
         StatusCode::BAD_REQUEST
     } else if err.is::<Busy>() {
         StatusCode::SERVICE_UNAVAILABLE
