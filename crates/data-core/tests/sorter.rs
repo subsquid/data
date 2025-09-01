@@ -30,7 +30,7 @@ fn sort_ethereum_transactions() -> anyhow::Result<()> {
 
     let mut sorted = sorter.finish()?;
 
-    let mut ref_reader = open_parquet("fixtures/ethereum-transactions.sorted.parquet")?
+    let ref_reader = open_parquet("fixtures/ethereum-transactions.sorted.parquet")?
         .with_batch_size(33)
         .build()?;
 
