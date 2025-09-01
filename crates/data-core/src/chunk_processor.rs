@@ -39,14 +39,8 @@ impl ChunkProcessor {
                 table.finish().map(|table| (name, table))
             })
             .collect::<anyhow::Result<_>>()
-            .map(|tables| PreparedChunk {
-                tables
-            })
     }
 }
 
 
-#[derive(Default)]
-pub struct PreparedChunk {
-    pub tables: BTreeMap<Name, PreparedTable>
-}
+pub type PreparedChunk = BTreeMap<Name, PreparedTable>;

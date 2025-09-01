@@ -258,7 +258,7 @@ where
 
         let mut tables = self.with_blocking_builder(|b| b.finish()).await?;
 
-        tables.tables.retain(|&name, _| CB::Block::has_data(self.data_mask, name));
+        tables.retain(|&name, _| CB::Block::has_data(self.data_mask, name));
 
         self.buffered_blocks = 0;
         self.first_block = last_block + 1;

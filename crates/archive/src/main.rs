@@ -1,25 +1,45 @@
-#![allow(unused)]
 mod archive;
-mod chain_builder;
+mod chunk_writer;
 mod cli;
 mod fs;
 mod ingest;
 mod layout;
 mod metrics;
-mod processor;
+mod proc;
 mod progress;
 mod server;
-mod sink;
 mod writer;
 
 
 fn main() -> anyhow::Result<()> {
     let args = <cli::Cli as clap::Parser>::parse();
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    init_logging(args.json_log);
+
+    tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .build()?;
-    
-    runtime.block_on(archive::run(&args))?;
-    Ok(())
+        .build()?
+        .block_on(archive::run(args))
+}
+
+
+fn init_logging(json: bool) {
+    let env_filter = tracing_subscriber::EnvFilter::builder().parse_lossy(
+        std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
+            .unwrap_or(format!("{}=info", env!("CARGO_CRATE_NAME"))),
+    );
+
+    if json {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .with_target(false)
+            .json()
+            .flatten_event(true)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .with_target(false)
+            .init();
+    }
 }

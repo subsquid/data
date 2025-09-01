@@ -1,19 +1,12 @@
-use crate::sink::Sink;
-use crate::writer::Writer;
-use prometheus_client::metrics::counter::{ConstCounter, Counter};
-use prometheus_client::metrics::gauge::{ConstGauge, Gauge};
+use prometheus_client::metrics::counter::Counter;
+use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::registry::Registry;
-use prometheus_client::collector::Collector;
-use prometheus_client::encoding::{DescriptorEncoder, EncodeMetric};
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicI64, AtomicU64};
 use std::sync::LazyLock;
-use std::fmt::{Formatter, Debug};
-use std::time::{Duration, UNIX_EPOCH};
 
 
 pub static PROGRESS: LazyLock<Gauge<f64, AtomicU64>> = LazyLock::new(Gauge::default);
-pub static PROCESSING_TIME: LazyLock<Gauge<f64, AtomicU64>> = LazyLock::new(Gauge::default);
-pub static LATEST_BLOCK_TIMESTAMP: LazyLock<Gauge<u64, AtomicU64>> = LazyLock::new(Gauge::default);
+pub static LATEST_BLOCK_TIMESTAMP: LazyLock<Gauge<i64, AtomicI64>> = LazyLock::new(Gauge::default);
 pub static LATEST_BLOCK: LazyLock<Gauge<u64, AtomicU64>> = LazyLock::new(Gauge::default);
 pub static LATEST_SAVED_BLOCK: LazyLock<Gauge<u64, AtomicU64>> = LazyLock::new(Gauge::default);
 pub static LAST_BLOCK: LazyLock<Counter> = LazyLock::new(Counter::default);
@@ -25,11 +18,6 @@ pub fn register_metrics(registry: &mut Registry) {
         "sqd_progress_blocks_per_second",
         "Overall block processing speed",
         PROGRESS.clone()
-    );
-    registry.register(
-        "sqd_blocks_processing_time",
-        "Time difference between now and block timestamp (in seconds)",
-        PROCESSING_TIME.clone()
     );
     registry.register(
         "sqd_latest_processed_block_number",

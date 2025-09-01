@@ -174,13 +174,13 @@ impl Layout {
         }
     }
 
-    pub async fn create_chunk_writer(
+    pub async fn create_chunk_tracker(
         &self,
         chunk_check: &dyn Fn(&[String]) -> bool,
         top_dir_size: usize,
         first_block: BlockNumber,
         last_block: Option<BlockNumber>,
-    ) -> anyhow::Result<ChunkWriter>
+    ) -> anyhow::Result<ChunkTracker>
     {
         ensure!(first_block <= last_block.unwrap_or(BlockNumber::MAX));
 
@@ -227,7 +227,7 @@ impl Layout {
             (first_block, vec![], None)
         };
 
-        Ok(ChunkWriter {
+        Ok(ChunkTracker {
             top_dir_size,
             base_chunk_hash: prev_hash,
             last_block_limit: last_block.unwrap_or(BlockNumber::MAX),
@@ -238,7 +238,7 @@ impl Layout {
 }
 
 
-pub struct ChunkWriter {
+pub struct ChunkTracker {
     top_dir_size: usize,
     base_chunk_hash: Option<String>,
     last_block_limit: BlockNumber,
@@ -247,7 +247,7 @@ pub struct ChunkWriter {
 }
 
 
-impl ChunkWriter {
+impl ChunkTracker {
     pub fn prev_chunk_hash(&self) -> Option<&str> {
         self.chunks
             .last()

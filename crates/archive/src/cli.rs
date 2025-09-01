@@ -38,7 +38,7 @@ pub struct Cli {
     #[arg(long, value_name = "MB", default_value_t = 2048)]
     pub chunk_size: usize,
 
-    /// Upper limit on the per file rows
+    /// Upper limit on the per-file rows
     #[arg(long, value_name = "N", default_value_t = 200_000)]
     pub max_num_rows: usize,
 
