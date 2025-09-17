@@ -18,7 +18,7 @@ RUN cargo build -p sqd-hotblocks --release
 
 FROM rust AS hotblocks
 WORKDIR /app
-COPY --from=node-builder /app/target/release/sqd-hotblocks .
+COPY --from=hotblocks-builder /app/target/release/sqd-hotblocks .
 ENTRYPOINT ["/app/sqd-hotblocks"]
 
 
