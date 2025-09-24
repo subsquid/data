@@ -13,5 +13,5 @@ pub use primitives::BlockNumber;
 pub use query::*;
 #[cfg(feature = "parquet")]
 pub use scan::parquet::ParquetChunk;
-pub use scan::Chunk;
+pub use scan::{Chunk, TableDoesNotExist};
 pub use sqd_polars::set_polars_thread_pool_size;

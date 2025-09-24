@@ -12,7 +12,6 @@ use rayon::prelude::*;
 use sqd_data_core::PreparedChunk;
 use sqd_dataset::{DatasetDescriptionRef, TableDescription};
 use std::fs::File;
-use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -96,7 +95,6 @@ fn write_chunk(
 ) -> anyhow::Result<Vec<std::path::PathBuf>> {
     let default_desc = TableDescription::default();
     prepared_chunk
-        .tables
         .par_iter_mut()
         .map(|(&name, table)| {
             let mut schema = table.schema();

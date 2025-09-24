@@ -1,0 +1,25 @@
+[package]
+name = "sqd-bds"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+async-stream = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+flate2 = { workspace = true }
+futures = { workspace = true }
+ouroboros = { workspace = true }
+scylla = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqd-data-client = { path = "../data-client" }
+sqd-data-source = { path = "../data-source" }
+sqd-primitives = { path = "../primitives", features = ["valuable"] }
+tikv-jemallocator = "0.6.0"
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true, features = ["valuable"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json", "valuable"] }
+url = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }

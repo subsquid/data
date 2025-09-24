@@ -2,13 +2,13 @@
 members = [
     "crates/archive",
     "crates/array",
+    "crates/bds",
     "crates/data",
     "crates/data-client",
     "crates/data-core",
     "crates/data-source",
     "crates/dataset",
-    "crates/node",
-    "crates/node-example",
+    "crates/hotblocks",
     "crates/polars",
     "crates/primitives",
     "crates/query",
@@ -22,6 +22,7 @@ anyhow = "1.0.86"
 arrow = { version = "54.1.0", default-features = false }
 arrow-buffer = "54.1.0"
 async-stream = "0.3.6"
+async-trait = "0.1.88"
 axum = "0.8.1"
 borsh = { version = "1.5.1", features = ["derive"] }
 bytes = "1.9.0"
@@ -32,12 +33,15 @@ futures = "0.3.31"
 ouroboros = "0.18.5"
 parking_lot = "0.12.3"
 parquet = "54.1.0"
+prometheus-client = "0.24.0"
 proptest = "1.4.0"
 rayon = "1.10.0"
 reqwest = { git = "https://github.com/subsquid/reqwest.git", rev = "620aa86a", version = "0.12.12" }
-scopeguard = "1.2.0"
+uuid = "1.17.0"
 serde = "1.0.203"
 serde_json = "1.0.118"
+serde_yaml = "0.9.33"
+scylla = "1.1.0"
 tempfile = "3.13.0"
 tokio = "1.42.0"
 tracing = "0.1.41"

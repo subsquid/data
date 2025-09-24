@@ -11,7 +11,7 @@ borsh = { workspace = true }
 parking_lot = { workspace = true }
 rayon = { workspace = true }
 rocksdb = { version = "0.23.0", features = ["jemalloc"] }
-uuid = { version = "1.8.0", features = ["v7", "borsh"] }
+uuid = { workspace = true, features = ["v7", "borsh"] }
 sqd-array = { path = "../array" }
 sqd-primitives = { path = "../primitives", features = ["borsh", "sid", "range"] }
 

@@ -104,7 +104,7 @@ fn compaction_wo_tables_test() {
     validate_chunks(&db, dataset_id, chunks.iter().collect());
 
     while matches!(
-        db.perform_dataset_compaction(dataset_id, Some(100), Some(1.25), None),
+        db.perform_dataset_compaction(dataset_id, Some(100), Some(1.25), Some(10)),
         Ok(CompactionStatus::Ok(_))
     ) {}
 

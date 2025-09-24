@@ -82,25 +82,14 @@ impl TableSorter {
             Ok(chunked)
         }).collect::<anyhow::Result<Vec<_>>>()?;
 
-        let sort_table = AnyTableSlice::new(
-            self.sort_table.iter().map(|c| c.as_slice()).collect()
-        );
-
-        let order = sort_table_to_indexes(
-            &sort_table,
-            &(0..sort_table.num_columns()).collect::<Vec<_>>(),
-        );
-
-        let chunk_tracker = ChunkTracker::new(&self.batch_offsets, &order);
-
         Ok(SortedTable {
+            len: self.sort_table[0].len(),
             data_table,
             data_key: self.data_key,
             sort_table: self.sort_table,
             sort_key: self.sort_key,
             batch_offsets: self.batch_offsets,
-            order,
-            chunk_tracker,
+            order: None,
             data_readers,
         })
     }
@@ -113,9 +102,9 @@ pub struct SortedTable {
     sort_table: Vec<AnyBuilder>,
     sort_key: Vec<usize>,
     batch_offsets: Vec<usize>,
-    order: Vec<usize>,
-    chunk_tracker: ChunkTracker,
+    order: Option<(Vec<usize>, ChunkTracker)>,
     data_readers: Vec<AnyChunkedReader<FileReader>>,
+    len: usize
 }
 
 
@@ -141,7 +130,7 @@ impl SortedTable {
     }
 
     pub fn num_rows(&self) -> usize {
-        self.order.len()
+        self.len
     }
 
     pub fn read_column(
@@ -163,20 +152,39 @@ impl SortedTable {
             return Ok(());
         }
 
+        if self.order.is_none() {
+            self.prepare_order();
+        }
+
         if let Some(pos) = self.sort_key.iter().position(|c| *c == i) {
             self.sort_table[pos].as_slice().write_indexes(
                 dst,
-                self.order[offset..offset + len].iter().copied(),
+                self.order.as_ref().unwrap().0[offset..offset + len].iter().copied(),
             )
         } else {
             let pos = self.data_key.iter().position(|c| *c == i).unwrap();
             let reader = &mut self.data_readers[pos];
-            let (first, middle, last) = self.chunk_tracker.find(offset, len);
+            let (first, middle, last) = self.order.as_mut().unwrap().1.find(offset, len);
             reader.read_chunked_ranges(dst, first.into_iter())?;
             reader.read_chunked_ranges(dst, middle.iter().cloned())?;
             reader.read_chunked_ranges(dst, last.into_iter())?;
             Ok(())
         }
+    }
+
+    fn prepare_order(&mut self) {
+        let sort_table = AnyTableSlice::new(
+            self.sort_table.iter().map(|c| c.as_slice()).collect()
+        );
+
+        let order = sort_table_to_indexes(
+            &sort_table,
+            &(0..sort_table.num_columns()).collect::<Vec<_>>(),
+        );
+
+        let chunk_tracker = ChunkTracker::new(&self.batch_offsets, &order);
+
+        self.order = Some((order, chunk_tracker))
     }
 }
 
