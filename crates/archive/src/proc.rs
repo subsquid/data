@@ -112,6 +112,10 @@ impl<B: BlockChunkBuilder<Block: Block>> Proc<B> {
             self.register_progress()
         }
 
+        if self.blocks_buffered > 0 {
+            self.submit_chunk().await?
+        }
+
         if self.progress.has_news() {
             self.report_progress()
         }
