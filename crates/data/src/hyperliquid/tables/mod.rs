@@ -1,8 +1,8 @@
+mod action;
 mod block;
-mod transaction;
 
+pub use action::*;
 pub use block::*;
-pub use transaction::*;
 
 use super::model::Block;
 use sqd_data_core::chunk_builder;
@@ -11,7 +11,7 @@ use sqd_data_core::chunk_builder;
 chunk_builder! {
     HyperliquidChunkBuilder {
         blocks: BlockBuilder,
-        transactions: TransactionBuilder,
+        actions: ActionBuilder,
     }
 }
 
@@ -20,10 +20,10 @@ impl sqd_data_core::BlockChunkBuilder for HyperliquidChunkBuilder {
     type Block = Block;
 
     fn push(&mut self, block: &Self::Block) -> anyhow::Result<()> {
-        self.blocks.push(&block.header);
+        self.blocks.push(&block.header)?;
 
-        for row in block.transactions.iter() {
-            self.transactions.push(block, row)?;
+        for row in &block.actions {
+            self.actions.push(block, row)?;
         }
 
         Ok(())

@@ -1,33 +1,70 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqd_primitives::{BlockNumber, ItemIndex};
 
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Transaction {
-    pub transaction_index: ItemIndex,
-    pub user: String,
-    pub actions: Vec<serde_json::Value>,
-    pub raw_tx_hash: Option<String>,
-    pub error: Option<String>,
+#[derive(Deserialize, Serialize)]
+pub struct Signature {
+    pub r: String,
+    pub s: String,
+    pub v: u64,
 }
 
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
+pub struct ActionData {
+    pub r#type: String,
+    #[serde(flatten)]
+    pub data: serde_json::Value, // type-specific data
+}
+
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Status {
+    Ok,
+    Err,
+}
+
+
+#[derive(Deserialize, Serialize)]
+pub struct HardforkInfo {
+    pub version: u64,
+    pub round: u64,
+}
+
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Action {
+    pub action_index: ItemIndex,
+    pub signature: Signature,
+    pub action: ActionData,
+    pub nonce: u64,
+    pub vault_address: Option<String>,
+    pub user: Option<String>,
+    pub status: Status,
+    pub response: serde_json::Value,
+}
+
+
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockHeader {
     pub height: BlockNumber,
     pub hash: String,
     pub parent_hash: String,
+    pub round: u64,
+    pub parent_round: u64,
     pub proposer: String,
-    pub block_time: i64,
+    pub time: i64,
+    pub hardfork: HardforkInfo,
 }
 
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Block {
     pub header: BlockHeader,
-    pub transactions: Vec<Transaction>,
+    pub actions: Vec<Action>,
 }
 
 
@@ -49,6 +86,6 @@ impl sqd_primitives::Block for Block {
     }
 
     fn timestamp(&self) -> Option<i64> {
-        Some(self.header.block_time * 1000)
+        Some(self.header.time)
     }
 }
