@@ -257,12 +257,18 @@ impl<'a> DatasetCompaction<'a> {
                 data_continuous = (el.last_block() + 1 == first_block);
             }
             first_block = Some(el.first_block());
+            if tables.len() != last_schema_map.len() {
+                last_schema_map = Default::default();
+                schema_compatible = false;
+            }
             for (key, v) in tables {
                 let reader = self.snapshot.create_table_reader(*v)?;
                 max_rows = max(reader.num_rows(), max_rows);
                 let this_schema = reader.schema();
                 if let Some(last_schema) = last_schema_map.get(key) {
                     schema_compatible &= can_merge_schemas(&this_schema, last_schema);
+                } else {
+                    schema_compatible = false;
                 }
                 last_schema_map.insert(key.to_string(), this_schema);
             }
