@@ -253,11 +253,12 @@ impl<'a> DatasetCompaction<'a> {
             let mut max_rows = 0;
             let mut schema_compatible = true;
             let mut data_continuous = true;
+            let is_last_schema_empty = last_schema_map.is_empty();
             if let Some(first_block) = first_block {
                 data_continuous = (el.last_block() + 1 == first_block);
             }
             first_block = Some(el.first_block());
-            if tables.len() != last_schema_map.len() {
+            if !is_last_schema_empty && tables.len() != last_schema_map.len() {
                 last_schema_map = Default::default();
                 schema_compatible = false;
             }
@@ -267,7 +268,7 @@ impl<'a> DatasetCompaction<'a> {
                 let this_schema = reader.schema();
                 if let Some(last_schema) = last_schema_map.get(key) {
                     schema_compatible &= can_merge_schemas(&this_schema, last_schema);
-                } else {
+                } else if !is_last_schema_empty {
                     schema_compatible = false;
                 }
                 last_schema_map.insert(key.to_string(), this_schema);
