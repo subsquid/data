@@ -33,7 +33,8 @@ impl RunningQuery {
     pub fn new(
         db: DBRef,
         dataset_id: DatasetId,
-        query: &Query
+        query: &Query,
+        only_finalized: bool,
     ) -> anyhow::Result<Self>
     {
         let snapshot = StaticSnapshot::new(db);
@@ -95,9 +96,24 @@ impl RunningQuery {
             query.compile()
         };
 
+        let last_block = if only_finalized {
+            // Cap the query's last_block to the finalized head
+            if let Some(finalized_head) = &finalized_head {
+                let capped_last = query
+                    .last_block()
+                    .map(|end| end.min(finalized_head.number))
+                    .or(Some(finalized_head.number));
+                capped_last
+            } else {
+                anyhow::bail!("Finalized head is not available yet");
+            }
+        } else {
+            query.last_block()
+        };
+
         Ok(Self {
             plan,
-            last_block: query.last_block(),
+            last_block,
             left_over: None,
             next_chunk: Some(Ok(first_chunk)),
             chunk_iterator,
