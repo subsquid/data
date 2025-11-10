@@ -1,0 +1,26 @@
+{
+  "type": "hyperliquidFills",
+  "fromBlock": 748640000,
+  "toBlock": 748640500,
+  "includeAllBlocks": false,
+  "fills": [
+    {
+      "user": [
+        "0x31ca8395cf837de08b24da3f660e77761dfb974b"
+      ]
+    }
+  ],
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "fill": {
+      "fillIndex": true,
+      "user": true,
+      "coin": true,
+      "px": true,
+      "sz": true
+    }
+  }
+}

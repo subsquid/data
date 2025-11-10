@@ -1,0 +1,28 @@
+{
+  "type": "hyperliquidFills",
+  "fromBlock": 748640000,
+  "toBlock": 748640500,
+  "includeAllBlocks": false,
+  "fills": [
+    {
+      "coin": [
+        "BTC"
+      ]
+    }
+  ],
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "fill": {
+      "fillIndex": true,
+      "user": true,
+      "coin": true,
+      "dir": true,
+      "side": true,
+      "px": true,
+      "sz": true
+    }
+  }
+}

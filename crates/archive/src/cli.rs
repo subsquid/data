@@ -6,7 +6,7 @@ use url::Url;
 #[derive(ValueEnum, Clone, Debug)]
 pub enum NetworkKind {
     Solana,
-    Hyperliquid,
+    HyperliquidFills,
     Evm,
 }
 

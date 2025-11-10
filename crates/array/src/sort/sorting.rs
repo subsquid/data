@@ -15,6 +15,8 @@ macro_rules! with_order {
             AnySlice::Int16(s) => dispatch_nulls!(s, $order, $cb),
             AnySlice::Int32(s) => dispatch_nulls!(s, $order, $cb),
             AnySlice::Int64(s) => dispatch_nulls!(s, $order, $cb),
+            AnySlice::Float32(_) => panic!("sorting on f32 is not supported"),
+            AnySlice::Float64(_) => panic!("sorting on f64 is not supported"),
             AnySlice::Binary(s) => dispatch_nulls!(s, $order, $cb),
             AnySlice::FixedSizeBinary(s) => dispatch_nulls!(s, $order, $cb),
             AnySlice::List(list) => {
