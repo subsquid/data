@@ -1,4 +1,4 @@
-use crate::hyperliquid::model::BlockHeader;
+use crate::hyperliquid_fills::model::BlockHeader;
 use sqd_array::builder::{StringBuilder, UInt64Builder, TimestampMillisecondBuilder};
 use sqd_data_core::table_builder;
 

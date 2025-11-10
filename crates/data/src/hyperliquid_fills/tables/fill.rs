@@ -1,4 +1,4 @@
-use crate::hyperliquid::model::{Block, Fill, Side};
+use crate::hyperliquid_fills::model::{Block, Fill, Side};
 use sqd_array::builder::{BooleanBuilder, Float64Builder, StringBuilder, TimestampMillisecondBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
