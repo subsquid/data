@@ -10,11 +10,11 @@ use url::Url;
 pub enum RetentionConfig {
     FromBlock {
         number: BlockNumber,
-        parent_hash: Option<String>
+        parent_hash: Option<String>,
     },
     Head(u64),
     Api,
-    None
+    None,
 }
 
 
@@ -25,14 +25,15 @@ pub struct DatasetConfig {
     pub retention_strategy: RetentionConfig,
     #[serde(default)]
     pub disable_compaction: bool,
-    pub data_sources: Vec<Url>
+    pub data_sources: Vec<Url>,
 }
 
 
 impl DatasetConfig {
     pub fn read_config_file(file: &str) -> anyhow::Result<BTreeMap<DatasetId, DatasetConfig>> {
         let reader = std::io::BufReader::new(std::fs::File::open(file)?);
-        let config = serde_yaml::from_reader(reader)?;
+        let deser = serde_yaml::Deserializer::from_reader(reader);
+        let config = serde_yaml::with::singleton_map_recursive::deserialize(deser)?;
         Ok(config)
     }
 }

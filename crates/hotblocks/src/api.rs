@@ -50,6 +50,7 @@ pub fn build_api(app: App) -> Router {
     Router::new()
         .route("/", get(|| async { "Welcome to SQD hot block data service!" }))
         .route("/datasets/{id}/stream", post(stream))
+        .route("/datasets/{id}/finalized-stream", post(finalized_stream))
         .route("/datasets/{id}/head", get(get_head))
         .route("/datasets/{id}/finalized-head", get(get_finalized_head))
         .route("/datasets/{id}/retention", get(get_retention).post(set_retention))
@@ -67,24 +68,56 @@ async fn stream(
     Json(query): Json<Query>
 ) -> Response
 {
+    stream_internal(app, dataset_id, query, false).await
+}
+
+
+async fn finalized_stream(
+    Extension(app): Extension<AppRef>,
+    Path(dataset_id): Path<DatasetId>,
+    Json(query): Json<Query>
+) -> Response
+{
+    stream_internal(app, dataset_id, query, true).await
+}
+
+
+async fn stream_internal(
+    app: AppRef,
+    dataset_id: DatasetId,
+    query: Query,
+    finalized: bool
+) -> Response
+{
     let dataset = get_dataset!(app, dataset_id);
 
     if let Err(err) = query.validate() {
         return text!(StatusCode::BAD_REQUEST, "{}", err)
     }
 
-    match app.query_service.query(&dataset, query).await {
+    let query_result = if finalized {
+        app.query_service.query_finalized(&dataset, query).await
+    } else {
+        app.query_service.query(&dataset, query).await
+    };
+
+    match query_result {
         Ok(stream) => {
             let mut res = Response::builder()
                 .status(200)
                 .header("content-type", "text/plain")
                 .header("content-encoding", "gzip");
 
-            if let Some(head) = stream.finalized_head() {
-                let head_block = head.number.max(dataset.get_head_block_number().unwrap_or(0));
-                res = res.header("x-sqd-head-number", head_block);
-                res = res.header("x-sqd-finalized-head-number", head.number);
-                res = res.header("x-sqd-finalized-head-hash", head.hash.as_str());
+            if let Some(finalized_head) = stream.finalized_head() {
+                if finalized {
+                    // For finalized stream, use the finalized head as the head
+                    res = res.header("x-sqd-head-number", finalized_head.number);
+                } else {
+                    let head_block = finalized_head.number.max(dataset.get_head_block_number().unwrap_or(0));
+                    res = res.header("x-sqd-head-number", head_block);
+                }
+                res = res.header("x-sqd-finalized-head-number", finalized_head.number);
+                res = res.header("x-sqd-finalized-head-hash", finalized_head.hash.as_str());
             } else if let Some(head_block) = dataset.get_head_block_number() {
                 res = res.header("x-sqd-head-number", head_block);
             }

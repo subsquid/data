@@ -1,6 +1,6 @@
 use crate::evm::model::{Block, Transaction};
 use crate::evm::tables::common::*;
-use sqd_array::builder::{ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder, Int32Builder};
+use sqd_array::builder::{ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder, Int32Builder, Float64Builder};
 use sqd_data_core::{struct_builder, table_builder};
 
 use super::common::HexBytesBuilder;
@@ -53,7 +53,7 @@ table_builder! {
         l1_blob_base_fee: HexBytesBuilder,
         l1_blob_base_fee_scalar: UInt64Builder,
         l1_fee: HexBytesBuilder,
-        l1_fee_scalar: UInt64Builder,
+        l1_fee_scalar: Float64Builder,
         l1_gas_price: HexBytesBuilder,
         l1_gas_used: HexBytesBuilder,
 

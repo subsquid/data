@@ -77,7 +77,28 @@ impl QueryService {
         QueryServiceBuilder::new(db)
     }
 
-    pub async fn query(&self, dataset: &DatasetController, query: Query) -> anyhow::Result<QueryResponse> {
+    pub async fn query(
+        &self,
+        dataset: &DatasetController,
+        query: Query,
+    ) -> anyhow::Result<QueryResponse> {
+        self.query_internal(dataset, query, false).await
+    }
+
+    pub async fn query_finalized(
+        &self,
+        dataset: &DatasetController,
+        query: Query,
+    ) -> anyhow::Result<QueryResponse> {
+        self.query_internal(dataset, query, true).await
+    }
+
+    async fn query_internal(
+        &self,
+        dataset: &DatasetController,
+        query: Query,
+        finalized: bool,
+    ) -> anyhow::Result<QueryResponse> {
         ensure!(
             dataset.dataset_kind() == DatasetKind::from_query(&query),
             QueryKindMismatch {
@@ -86,7 +107,13 @@ impl QueryService {
             }
         );
 
-        let should_wait = match dataset.get_head() {
+        let target_head = if finalized {
+            dataset.get_finalized_head()
+        } else {
+            dataset.get_head()
+        };
+
+        let should_wait = match target_head {
             Some(head) if head.number >= query.first_block() => false,
             Some(head) if head.number + 1 == query.first_block() => {
                 if let Some(parent_hash) = query.parent_block_hash() {
@@ -107,13 +134,16 @@ impl QueryService {
             let Some(_wait_slot) = self.wait_slots.get() else {
                 bail!(Busy)
             };
-            tokio::time::timeout(
-                Duration::from_secs(5),
-                dataset.wait_for_block(query.first_block())
-            ).await.map_err(|_| {
-                QueryIsAboveTheHead {
-                    finalized_head: None
+            tokio::time::timeout(Duration::from_secs(5), async {
+                if finalized {
+                    dataset.wait_for_finalized_block(query.first_block()).await
+                } else {
+                    dataset.wait_for_block(query.first_block()).await
                 }
+            })
+            .await
+            .map_err(|_| QueryIsAboveTheHead {
+                finalized_head: None
             })?;
         }
 
@@ -121,7 +151,8 @@ impl QueryService {
             self.executor.clone(),
             self.db.clone(),
             dataset.dataset_id(),
-            query
+            query,
+            finalized,
         ).await
     }
 }

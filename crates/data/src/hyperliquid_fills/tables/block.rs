@@ -1,4 +1,4 @@
-use crate::hyperliquid::model::BlockHeader;
+use crate::hyperliquid_fills::model::BlockHeader;
 use sqd_array::builder::{StringBuilder, UInt64Builder, TimestampMillisecondBuilder};
 use sqd_data_core::table_builder;
 
@@ -8,8 +8,7 @@ table_builder! {
         number: UInt64Builder,
         hash: StringBuilder,
         parent_hash: StringBuilder,
-        proposer: StringBuilder,
-        block_time: TimestampMillisecondBuilder,
+        timestamp: TimestampMillisecondBuilder,
     }
 
     description(d) {
@@ -23,10 +22,9 @@ table_builder! {
 
 impl BlockBuilder {
     pub fn push(&mut self, block: &BlockHeader) {
-        self.number.append(block.height);
+        self.number.append(block.number);
         self.hash.append(&block.hash);
         self.parent_hash.append(&block.parent_hash);
-        self.proposer.append(&block.proposer);
-        self.block_time.append(block.block_time);
+        self.timestamp.append(block.timestamp);
     }
 }

@@ -24,6 +24,7 @@ impl QueryResponse {
         db: DBRef,
         dataset_id: DatasetId,
         query: Query,
+        only_finalized: bool,
     ) -> anyhow::Result<Self>
     {
         let Some(slot) = executor.get_slot() else {
@@ -33,7 +34,7 @@ impl QueryResponse {
         let start = Instant::now();
 
         let mut runner = slot.run(move |slot| -> anyhow::Result<_> {
-            let mut runner = RunningQuery::new(db, dataset_id, &query).map(Box::new)?;
+            let mut runner = RunningQuery::new(db, dataset_id, &query, only_finalized).map(Box::new)?;
             next_run(&mut runner, slot)?;
             Ok(runner)
         }).await?;

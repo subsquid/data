@@ -77,7 +77,7 @@ pub struct Transaction {
     pub l1_blob_base_fee: Option<HexBytes>,
     pub l1_blob_base_fee_scalar: Option<u64>,
     pub l1_fee: Option<HexBytes>,
-    pub l1_fee_scalar: Option<u64>,
+    pub l1_fee_scalar: Option<f64>,
     pub l1_gas_price: Option<HexBytes>,
     pub l1_gas_used: Option<HexBytes>,
 }

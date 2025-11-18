@@ -135,6 +135,18 @@ impl DatasetController {
             recv.changed().await.unwrap()
         }
     }
+
+    pub async fn wait_for_finalized_block(&self, block_number: BlockNumber) -> BlockNumber {
+        let mut recv = self.finalized_head_receiver.clone();
+        loop {
+            if let Some(block) = recv.borrow_and_update().as_ref() {
+                if block.number >= block_number {
+                    return block.number
+                }
+            }
+            recv.changed().await.unwrap()
+        }
+    }
 }
 
 
