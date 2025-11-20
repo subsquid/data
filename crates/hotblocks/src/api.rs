@@ -55,6 +55,7 @@ pub fn build_api(app: App) -> Router {
         .route("/datasets/{id}/finalized-head", get(get_finalized_head))
         .route("/datasets/{id}/retention", get(get_retention).post(set_retention))
         .route("/datasets/{id}/status", get(get_status))
+        .route("/datasets/{id}/metadata", get(get_metadata))
         .route("/metrics", get(get_metrics))
         .route("/rocksdb/stats", get(get_rocks_stats))
         .route("/rocksdb/prop/{cf}/{name}", get(get_rocks_prop))
@@ -301,6 +302,28 @@ async fn get_status(
         Ok(status) => json_ok!(status),
         Err(err) => text!(StatusCode::INTERNAL_SERVER_ERROR, "{:?}", err)
     }
+}
+
+async fn get_metadata(
+    Extension(app): Extension<AppRef>,
+    Path(dataset_id): Path<DatasetId>
+) -> Response
+{
+    get_dataset!(app, dataset_id);
+
+    let db = app.db.snapshot();
+
+    let first_chunk = match db.get_first_chunk(dataset_id) {
+        Ok(chunk) => chunk,
+        Err(err) => return text!(StatusCode::INTERNAL_SERVER_ERROR, "{:?}", err)
+    };
+
+    json_ok!(serde_json::json! {{
+        "dataset": dataset_id,
+        "aliases": [],
+        "real_time": true,
+        "start_block": first_chunk.map(|chunk| chunk.first_block()),
+    }})
 }
 
 
