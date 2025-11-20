@@ -19,7 +19,7 @@ env:
 jobs:
   publish:
     name: docker-publish
-    runs-on: dev-server
+    runs-on: ubuntu-latest
     steps:
       - name: Docker login
         uses: docker/login-action@v3
