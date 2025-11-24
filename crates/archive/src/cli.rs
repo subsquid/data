@@ -42,6 +42,10 @@ pub struct Cli {
     #[arg(long, value_name = "N", default_value_t = 200_000)]
     pub max_num_rows: usize,
 
+    /// Check if block parent hash matches previous block hash
+    #[arg(long, default_value_t = true)]
+    pub validate_chain_continuity: bool,
+
     /// Network kind
     #[arg(long, value_enum)]
     pub network_kind: NetworkKind,

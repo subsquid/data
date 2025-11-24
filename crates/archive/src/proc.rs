@@ -20,6 +20,7 @@ pub struct Proc<B> {
     chunk_sender: tokio::sync::mpsc::Sender<WriterItem>,
     max_chunk_size_mb: usize,
     max_num_rows: usize,
+    validate_chain_continuity: bool,
     mask: DataMask,
     blocks_buffered: usize,
     first_block: BlockNumber,
@@ -46,6 +47,7 @@ impl<B: BlockChunkBuilder<Block: Block>> Proc<B> {
             chunk_sender,
             max_chunk_size_mb: 4096,
             max_num_rows: 200_000,
+            validate_chain_continuity: true,
             mask: DataMask::default(),
             blocks_buffered: 0,
             first_block,
@@ -65,6 +67,10 @@ impl<B: BlockChunkBuilder<Block: Block>> Proc<B> {
         self.max_num_rows = count;
     }
 
+    pub fn set_validate_chain_continuity(&mut self, value: bool) {
+        self.validate_chain_continuity = value;
+    }
+
     pub async fn run(mut self, block_stream: impl Stream<Item = anyhow::Result<B::Block>>) -> anyhow::Result<()> {
         let mut block_stream = pin!(block_stream);
         let mut start = true;
@@ -82,13 +88,15 @@ impl<B: BlockChunkBuilder<Block: Block>> Proc<B> {
                 );
                 }
             } else {
-                ensure!(
-                    self.last_block_hash == block.parent_hash(),
-                    "parent hash mismatch for block {}: expected {}, but got {}",
-                    block.number(),
-                    self.last_block_hash,
-                    block.parent_hash()
-                );
+                if self.validate_chain_continuity {
+                    ensure!(
+                        self.last_block_hash == block.parent_hash(),
+                        "parent hash mismatch for block {}: expected {}, but got {}",
+                        block.number(),
+                        self.last_block_hash,
+                        block.parent_hash()
+                    );
+                }
             }
 
             if self.mask != block.data_availability_mask() {

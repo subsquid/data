@@ -58,6 +58,7 @@ pub async fn run(args: Cli) -> anyhow::Result<()> {
             let mut proc = Proc::new($chunk_builder, chunk_tracker, chunk_sender)?;
             proc.set_max_chunk_size(args.chunk_size);
             proc.set_max_num_rows(args.max_num_rows);
+            proc.set_validate_chain_continuity(args.validate_chain_continuity);
             tokio::spawn(proc.run(block_stream))
         }};
     }
