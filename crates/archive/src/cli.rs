@@ -43,7 +43,7 @@ pub struct Cli {
     pub max_num_rows: usize,
 
     /// Check if block parent hash matches previous block hash
-    #[arg(long, default_value_t = true)]
+    #[arg(long, num_args=0..=1, default_value_t = true)]
     pub validate_chain_continuity: bool,
 
     /// Network kind
