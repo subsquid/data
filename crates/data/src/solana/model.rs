@@ -59,6 +59,8 @@ pub struct Transaction {
     pub err: Option<JsonValue>,
     #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
     pub compute_units_consumed: Option<u64>,
+    #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
+    pub cost_units: Option<u64>,
     #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
     pub fee: u64,
     pub loaded_addresses: LoadedAddresses,
