@@ -1,0 +1,28 @@
+{
+  "type": "evm",
+  "fromBlock": 17881390,
+  "toBlock": 17881870,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true,
+      "parentHash": true
+    },
+    "trace": {
+      "transactionIndex": true,
+      "traceAddress": true,
+      "type": true,
+      "suicideAddress": true,
+      "suicideRefundAddress": true,
+      "suicideBalance": true
+    }
+  },
+  "traces": [
+    {
+      "suicideAddress": [
+        "0x3cb2b4dcc01c8f32e29e9773ed77eca553d7d77a",
+        "0x7e1ff6beb30ec4586e23dfae0875f3f414aa07d8"
+      ]
+    }
+  ]
+}
