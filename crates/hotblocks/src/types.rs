@@ -13,7 +13,9 @@ pub enum DatasetKind {
     #[serde(rename = "evm")]
     Evm,
     #[serde(rename = "solana")]
-    Solana
+    Solana,
+    #[serde(rename = "hyperliquid-fills")]
+    HyperliquidFills
 }
 
 
@@ -25,14 +27,16 @@ impl DatasetKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             DatasetKind::Evm => "evm",
-            DatasetKind::Solana => "solana"
+            DatasetKind::Solana => "solana",
+            DatasetKind::HyperliquidFills => "hyperliquid-fills"
         }
     }
     
     pub fn dataset_description(&self) -> DatasetDescriptionRef {
         match self {
             DatasetKind::Evm => sqd_data::evm::tables::EvmChunkBuilder::dataset_description(),
-            DatasetKind::Solana => sqd_data::solana::tables::SolanaChunkBuilder::dataset_description()
+            DatasetKind::Solana => sqd_data::solana::tables::SolanaChunkBuilder::dataset_description(),
+            DatasetKind::HyperliquidFills => sqd_data::hyperliquid_fills::tables::HyperliquidChunkBuilder::dataset_description()
         }
     }
     
@@ -40,6 +44,7 @@ impl DatasetKind {
         match query {
             Query::Eth(_) => Self::Evm,
             Query::Solana(_) => Self::Solana,
+            Query::HyperliquidFills(_) => Self::HyperliquidFills,
             _ => unimplemented!()
         }
     }
