@@ -14,7 +14,7 @@ pub enum DatasetKind {
     Evm,
     #[serde(rename = "solana")]
     Solana,
-    #[serde(rename = "hyperliquid-fills")]
+    #[serde(rename = "hl-fills")]
     HyperliquidFills
 }
 
@@ -28,7 +28,7 @@ impl DatasetKind {
         match self {
             DatasetKind::Evm => "evm",
             DatasetKind::Solana => "solana",
-            DatasetKind::HyperliquidFills => "hyperliquid-fills"
+            DatasetKind::HyperliquidFills => "hl-fills"
         }
     }
     
