@@ -257,6 +257,28 @@ impl Database {
         perform_dataset_compaction(&self.db, dataset_id, max_chunk_size, write_amplification_limit, compaction_len_limit)
     }
 
+    pub fn delete_dataset(&self, dataset_id: DatasetId) -> anyhow::Result<()> {
+        Tx::new(&self.db).run(|tx| {
+            let label = tx.find_label_for_update(dataset_id)?;
+            if label.is_none() {
+                return Ok(());
+            }
+
+            let chunks = tx.list_chunks(dataset_id, 0, None);
+            for chunk_result in chunks {
+                let chunk = chunk_result?;
+                tx.delete_chunk(dataset_id, &chunk)?;
+            }
+
+            tx.delete_label(dataset_id)?;
+
+            Ok(())
+        })?;
+
+        self.cleanup()?;
+        Ok(())
+    }
+
     pub fn cleanup(&self) -> anyhow::Result<usize> {
         deleted_deleted_tables(&self.db)
     }
