@@ -397,3 +397,38 @@ fn labels() {
     assert_eq!(label.version(), 3); // 2 succesfull updates, 1 set finalized head
     assert_eq!(label.finalized_head(), Some(&finalized_head));
 }
+
+#[test]
+fn delete_dataset() {
+    let (db, dataset_id) = setup_db();
+
+    let chunk1 = Chunk::V0 {
+        first_block: 0,
+        last_block: 100,
+        last_block_hash: "last_1".to_owned(),
+        parent_block_hash: "base".to_owned(),
+        tables: Default::default(),
+    };
+    let chunk2 = Chunk::V0 {
+        first_block: 101,
+        last_block: 200,
+        last_block_hash: "last_2".to_owned(),
+        parent_block_hash: "last_1".to_owned(),
+        tables: Default::default(),
+    };
+
+    assert!(db.insert_chunk(dataset_id, &chunk1).is_ok());
+    assert!(db.insert_chunk(dataset_id, &chunk2).is_ok());
+
+    let datasets = db.get_all_datasets().unwrap();
+    assert_eq!(datasets.len(), 1);
+    assert_eq!(datasets[0].id, dataset_id);
+    validate_chunks(&db, dataset_id, [&chunk1, &chunk2].to_vec());
+
+    assert!(db.delete_dataset(dataset_id).is_ok());
+
+    let datasets = db.get_all_datasets().unwrap();
+    assert_eq!(datasets.len(), 0);
+
+    validate_chunks(&db, dataset_id, [].to_vec());
+}

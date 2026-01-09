@@ -7,6 +7,7 @@ use futures::FutureExt;
 use futures::{StreamExt, TryStreamExt};
 use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_storage::db::DatasetId;
+use tracing::{error, info};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -21,6 +22,16 @@ pub struct DataService {
 
 impl DataService {
     pub async fn start(db: DBRef, datasets: BTreeMap<DatasetId, DatasetConfig>) -> anyhow::Result<Self> {
+        let all_datasets = db.get_all_datasets()?;
+        for dataset in all_datasets {
+            if !datasets.contains_key(&dataset.id) {
+                info!("deleting unconfigured dataset {}", dataset.id);
+                if let Err(err) = db.delete_dataset(dataset.id) {
+                    error!("failed to delete dataset {}: {}", dataset.id, err);
+                }
+            }
+        }
+
         let mut controllers = futures::stream::iter(datasets.into_iter())
             .map(|(dataset_id, cfg)| {
                 let db = db.clone();
