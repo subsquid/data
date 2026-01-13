@@ -1,6 +1,7 @@
 use crate::errors::{BlockItemIsNotAvailable, QueryKindMismatch};
 use crate::errors::{BlockRangeMissing, QueryIsAboveTheHead};
 use crate::query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot};
+use crate::metrics::{ QUERIED_BYTES, QUERIED_BLOCKS, QUERIED_CHUNKS };
 use crate::types::{DBRef, DatasetKind};
 use anyhow::{anyhow, bail, ensure};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -11,12 +12,35 @@ use sqd_query::{JsonLinesWriter, Plan, Query};
 use sqd_storage::db::{Chunk as StorageChunk, DatasetId};
 use std::io::Write;
 
-
 struct LeftOver {
     chunk: StaticChunkReader,
     next_block: BlockNumber
 }
 
+pub struct RunningQueryStats {
+    pub chunks_read: u64,
+    pub blocks_read: u64,
+    pub total_buffered_bytes: u64,
+}
+
+impl RunningQueryStats {
+    pub fn new() -> Self {
+        Self {
+            chunks_read: 0,
+            blocks_read: 0,
+            total_buffered_bytes: 0,
+        }
+    }
+
+    pub fn report_metrics(&self, dataset_id: &DatasetId) {
+        let labels = vec![("dataset_id".to_owned(), dataset_id.as_str().to_owned())];
+
+        QUERIED_BLOCKS.get_or_create(&labels).observe(self.blocks_read as f64);
+        QUERIED_CHUNKS.get_or_create(&labels).observe(self.chunks_read as f64);
+        QUERIED_BYTES.get_or_create(&labels).observe(self.total_buffered_bytes as f64); 
+    }
+
+}
 
 pub struct RunningQuery {
     plan: Plan,
@@ -25,7 +49,8 @@ pub struct RunningQuery {
     next_chunk: Option<anyhow::Result<StorageChunk>>,
     chunk_iterator: StaticChunkIterator,
     finalized_head: Option<BlockRef>,
-    buf: GzEncoder<bytes::buf::Writer<BytesMut>>
+    buf: GzEncoder<bytes::buf::Writer<BytesMut>>,
+    stats: RunningQueryStats,
 }
 
 
@@ -74,6 +99,9 @@ impl RunningQuery {
                 last_block: first_chunk.first_block() - 1
             }
         );
+
+        let mut stats = RunningQueryStats::new();
+        stats.chunks_read += 1;
         
         let plan = if query.first_block() == first_chunk.first_block() {
             if let Some(parent_hash) = query.parent_block_hash() {
@@ -121,12 +149,17 @@ impl RunningQuery {
             buf: GzEncoder::new(
                 BytesMut::new().writer(),
                 Compression::fast()
-            )
+            ),
+            stats,
         })
     }
 
     pub fn take_finalized_head(&mut self) -> Option<BlockRef> {
         self.finalized_head.take()
+    }
+
+    pub fn stats(&self) -> &RunningQueryStats {
+        &self.stats
     }
 
     pub fn buffered_bytes(&self) -> usize {
@@ -153,12 +186,17 @@ impl RunningQuery {
     ///
     /// Everything written to the buffer is always well-formed.
     pub fn write_next_chunk(&mut self) -> anyhow::Result<()> {
-        let chunk = if let Some(left_over) = self.left_over.take() {
-            self.plan.set_first_block(left_over.next_block);
-            left_over.chunk
+        let (chunk, first_block_queried) = if let Some(left_over) = self.left_over.take() {
+            let first_block = left_over.next_block;
+            self.plan.set_first_block(first_block);
+            (left_over.chunk, first_block)
         } else {
-            let chunk = self.next_chunk()?;
-            self.chunk_iterator.snapshot().create_chunk_reader(chunk)
+            let storage_chunk = self.next_chunk()?;
+            // Increment chunks_downloaded when we fetch a new chunk
+            self.stats.chunks_read += 1;
+            let chunk = self.chunk_iterator.snapshot().create_chunk_reader(storage_chunk);
+            let first_block = chunk.first_block();
+            (chunk, first_block)
         };
 
         if self.last_block.map_or(false, |end| end < chunk.last_block()) {
@@ -184,10 +222,13 @@ impl RunningQuery {
         // no matter what, we are moving to the next chunk
         self.plan.set_first_block(None);
         self.plan.set_parent_block_hash(None);
-        
+
         let Some(mut block_writer) = query_result? else {
             return Ok(())
         };
+
+        let blocks_written = block_writer.last_block() - first_block_queried + 1;
+        self.stats.blocks_read += blocks_written;
 
         if chunk.last_block() > block_writer.last_block()
             && self.last_block.map_or(true, |end| end > block_writer.last_block())
@@ -197,6 +238,8 @@ impl RunningQuery {
                 next_block: block_writer.last_block() + 1
             })
         }
+
+        let bytes_before = self.buf.get_ref().get_ref().len();
 
         let mut json_lines_writer = JsonLinesWriter::new(&mut self.buf);
 
@@ -209,7 +252,10 @@ impl RunningQuery {
             .expect("IO errors are not possible");
 
         self.buf.flush().expect("IO errors are not possible");
-        
+
+        let bytes_after = self.buf.get_ref().get_ref().len();
+        self.stats.total_buffered_bytes += (bytes_after - bytes_before) as u64;
+
         Ok(())
     }
 

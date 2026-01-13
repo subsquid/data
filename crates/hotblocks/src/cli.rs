@@ -7,6 +7,7 @@ use clap::Parser;
 use sqd_storage::db::{DatabaseSettings, DatasetId};
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 
 #[derive(Parser, Debug)]
@@ -100,6 +101,7 @@ impl CLI {
 
             Arc::new(builder.build())
         };
+        query_service.spawn_metrics_reporter(Duration::from_secs(5));
 
         Ok(App {
             db,

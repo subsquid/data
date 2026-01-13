@@ -153,8 +153,13 @@ impl QueryService {
             dataset.dataset_id(),
             query,
             finalized,
+            None
         ).await
     }
+
+    pub fn spawn_metrics_reporter(&self, interval: Duration) {
+        self.executor.spawn_metrics_reporter(interval)
+    } 
 }
 
 
