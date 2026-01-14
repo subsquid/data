@@ -70,8 +70,6 @@ lazy_static::lazy_static! {
     pub static ref STREAM_BLOCKS_PER_SECOND: Family<Labels, Histogram> =
         Family::new_with_constructor(|| Histogram::new(exponential_buckets(1., 3.0, 20)));
 
-    pub static ref QUERIED_BYTES: Family<Labels, Histogram> =
-        Family::new_with_constructor(|| Histogram::new(exponential_buckets(1000., 2.0, 20)));
     pub static ref QUERIED_BLOCKS: Family<Labels, Histogram> =
         Family::new_with_constructor(|| Histogram::new(exponential_buckets(1., 2.0, 30)));
     pub static ref QUERIED_CHUNKS: Family<Labels, Histogram> =
@@ -213,17 +211,17 @@ pub fn build_metrics_registry(db: DBRef, datasets: Vec<DatasetId>) -> Registry {
 
     registry.register(
         "stream_bytes",
-        "Numbers of bytes per stream",
+        "Number of bytes per stream",
         STREAM_BYTES.clone(),
     );
     registry.register(
         "stream_blocks",
-        "Numbers of blocks per stream",
+        "Number of blocks per stream",
         STREAM_BLOCKS.clone(),
     );
     registry.register(
         "stream_chunks",
-        "Numbers of chunks per stream",
+        "Number of chunks per stream",
         STREAM_CHUNKS.clone(),
     );
     registry.register(
@@ -241,20 +239,14 @@ pub fn build_metrics_registry(db: DBRef, datasets: Vec<DatasetId>) -> Registry {
         "Durations of completed streams",
         STREAM_DURATIONS.clone(),
     );
-
-    registry.register(
-        "queried_bytes",
-        "Numbers of bytes queried per running query",
-        QUERIED_BYTES.clone(),
-    );
     registry.register(
         "queried_blocks",
-        "Numbers of blocks per running query",
+        "Number of blocks per running query",
         QUERIED_BLOCKS.clone(),
     );
     registry.register(
         "queried_chunks",
-        "Numbers of chunks per running query",
+        "Number of chunks per running query",
         QUERIED_CHUNKS.clone(),
     );
     registry.register(

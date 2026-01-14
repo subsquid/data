@@ -43,27 +43,32 @@ impl QueryStreamStats {
     }
 
     pub fn add_running_stats(&mut self, running_stats: &RunningQueryStats) {
-        self.response_chunks = self.response_chunks.saturating_add(running_stats.chunks_read);
-        self.response_blocks = self.response_blocks.saturating_add(running_stats.blocks_read);
-        self.response_bytes = self.response_bytes.saturating_add(running_stats.total_buffered_bytes);
+        self.response_chunks = self
+            .response_chunks
+            .saturating_add(running_stats.chunks_read);
+        self.response_blocks = self
+            .response_blocks
+            .saturating_add(running_stats.blocks_read);
     }
 
     fn report_metrics(&self, dataset_id: &DatasetId) {
         let labels = vec![("dataset_id".to_owned(), dataset_id.as_str().to_owned())];
 
         let duration = self.start_time.elapsed().as_secs_f64();
-        let bytes = self.response_bytes;
-        let blocks = self.response_blocks;
-        let chunks = self.response_chunks;
+        let bytes = self.response_bytes as f64;
+        let blocks = self.response_blocks as f64;
+        let chunks = self.response_chunks as f64;
 
         STREAM_DURATIONS.get_or_create(&labels).observe(duration);
-        STREAM_BYTES.get_or_create(&labels).observe(bytes as f64);
-        STREAM_BLOCKS.get_or_create(&labels).observe(blocks as f64);
-        STREAM_CHUNKS.get_or_create(&labels).observe(chunks as f64);
-        STREAM_BYTES_PER_SECOND.observe(bytes as f64 / duration);
-        STREAM_BLOCKS_PER_SECOND
-            .get_or_create(&labels)
-            .observe(blocks as f64 / duration);
+        STREAM_BYTES.get_or_create(&labels).observe(bytes);
+        STREAM_BLOCKS.get_or_create(&labels).observe(blocks);
+        STREAM_CHUNKS.get_or_create(&labels).observe(chunks);
+        if duration > 0.0 {
+            STREAM_BYTES_PER_SECOND.observe(bytes / duration);
+            STREAM_BLOCKS_PER_SECOND
+                .get_or_create(&labels)
+                .observe(blocks / duration);
+        }
     }
 }
 
@@ -113,7 +118,7 @@ impl QueryResponse {
         };
 
         if !runner.has_next_chunk() {
-            return Ok(self.finish_with_runner(runner))
+            return Ok(self.finish_with_runner(runner));
         }
 
         if self.stats.start_time.elapsed() > self.time_limit {
@@ -165,8 +170,9 @@ impl QueryResponse {
     fn finish_with_runner(&mut self, runner: Box<RunningQuery>) -> Option<Bytes> {
         runner.stats().report_metrics(&self.dataset_id);
         self.stats.add_running_stats(runner.stats());
-
-        Some(runner.finish())
+        let bytes = runner.finish();
+        self.stats.response_bytes = self.stats.response_bytes.saturating_add(bytes.len() as u64);
+        Some(bytes)
     }
 
     pub fn finish(&mut self) -> Bytes {

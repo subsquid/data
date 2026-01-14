@@ -1,12 +1,12 @@
 use crate::errors::{BlockItemIsNotAvailable, QueryKindMismatch};
 use crate::errors::{BlockRangeMissing, QueryIsAboveTheHead};
+use crate::metrics::{QUERIED_BLOCKS, QUERIED_CHUNKS};
 use crate::query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot};
-use crate::metrics::{ QUERIED_BYTES, QUERIED_BLOCKS, QUERIED_CHUNKS };
 use crate::types::{DBRef, DatasetKind};
 use anyhow::{anyhow, bail, ensure};
 use bytes::{BufMut, Bytes, BytesMut};
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_query::{JsonLinesWriter, Plan, Query};
 use sqd_storage::db::{Chunk as StorageChunk, DatasetId};
@@ -14,13 +14,12 @@ use std::io::Write;
 
 struct LeftOver {
     chunk: StaticChunkReader,
-    next_block: BlockNumber
+    next_block: BlockNumber,
 }
 
 pub struct RunningQueryStats {
     pub chunks_read: u64,
     pub blocks_read: u64,
-    pub total_buffered_bytes: u64,
 }
 
 impl RunningQueryStats {
@@ -28,18 +27,19 @@ impl RunningQueryStats {
         Self {
             chunks_read: 0,
             blocks_read: 0,
-            total_buffered_bytes: 0,
         }
     }
 
     pub fn report_metrics(&self, dataset_id: &DatasetId) {
         let labels = vec![("dataset_id".to_owned(), dataset_id.as_str().to_owned())];
 
-        QUERIED_BLOCKS.get_or_create(&labels).observe(self.blocks_read as f64);
-        QUERIED_CHUNKS.get_or_create(&labels).observe(self.chunks_read as f64);
-        QUERIED_BYTES.get_or_create(&labels).observe(self.total_buffered_bytes as f64); 
+        QUERIED_BLOCKS
+            .get_or_create(&labels)
+            .observe(self.blocks_read as f64);
+        QUERIED_CHUNKS
+            .get_or_create(&labels)
+            .observe(self.chunks_read as f64);
     }
-
 }
 
 pub struct RunningQuery {
@@ -53,15 +53,13 @@ pub struct RunningQuery {
     stats: RunningQueryStats,
 }
 
-
 impl RunningQuery {
     pub fn new(
         db: DBRef,
         dataset_id: DatasetId,
         query: &Query,
         only_finalized: bool,
-    ) -> anyhow::Result<Self>
-    {
+    ) -> anyhow::Result<Self> {
         let snapshot = StaticSnapshot::new(db);
 
         let finalized_head = match snapshot.get_label(dataset_id)? {
@@ -79,13 +77,9 @@ impl RunningQuery {
             }
         };
 
-        let mut chunk_iterator = StaticChunkIterator::new(
-            snapshot,
-            dataset_id,
-            query.first_block(),
-            None
-        );
-        
+        let mut chunk_iterator =
+            StaticChunkIterator::new(snapshot, dataset_id, query.first_block(), None);
+
         let Some(first_chunk) = chunk_iterator.next().transpose()? else {
             bail!(QueryIsAboveTheHead {
                 finalized_head: None
@@ -102,7 +96,7 @@ impl RunningQuery {
 
         let mut stats = RunningQueryStats::new();
         stats.chunks_read += 1;
-        
+
         let plan = if query.first_block() == first_chunk.first_block() {
             if let Some(parent_hash) = query.parent_block_hash() {
                 ensure!(
@@ -146,10 +140,7 @@ impl RunningQuery {
             next_chunk: Some(Ok(first_chunk)),
             chunk_iterator,
             finalized_head,
-            buf: GzEncoder::new(
-                BytesMut::new().writer(),
-                Compression::fast()
-            ),
+            buf: GzEncoder::new(BytesMut::new().writer(), Compression::fast()),
             stats,
         })
     }
@@ -177,7 +168,7 @@ impl RunningQuery {
             .into_inner()
             .freeze()
     }
-    
+
     pub fn has_next_chunk(&self) -> bool {
         self.next_chunk.is_some() || self.left_over.is_some()
     }
@@ -194,12 +185,18 @@ impl RunningQuery {
             let storage_chunk = self.next_chunk()?;
             // Increment chunks_downloaded when we fetch a new chunk
             self.stats.chunks_read += 1;
-            let chunk = self.chunk_iterator.snapshot().create_chunk_reader(storage_chunk);
+            let chunk = self
+                .chunk_iterator
+                .snapshot()
+                .create_chunk_reader(storage_chunk);
             let first_block = chunk.first_block();
             (chunk, first_block)
         };
 
-        if self.last_block.map_or(false, |end| end < chunk.last_block()) {
+        if self
+            .last_block
+            .map_or(false, |end| end < chunk.last_block())
+        {
             let last_block = self.last_block;
             self.plan.set_last_block(last_block);
         } else {
@@ -214,7 +211,7 @@ impl RunningQuery {
                         item_name: err.table_name,
                         first_block: chunk.first_block(),
                         last_block: chunk.last_block()
-                    })
+                    });
                 }
                 err
             });
@@ -224,22 +221,22 @@ impl RunningQuery {
         self.plan.set_parent_block_hash(None);
 
         let Some(mut block_writer) = query_result? else {
-            return Ok(())
+            return Ok(());
         };
 
         let blocks_written = block_writer.last_block() - first_block_queried + 1;
         self.stats.blocks_read += blocks_written;
 
         if chunk.last_block() > block_writer.last_block()
-            && self.last_block.map_or(true, |end| end > block_writer.last_block())
+            && self
+                .last_block
+                .map_or(true, |end| end > block_writer.last_block())
         {
             self.left_over = Some(LeftOver {
                 chunk,
-                next_block: block_writer.last_block() + 1
+                next_block: block_writer.last_block() + 1,
             })
         }
-
-        let bytes_before = self.buf.get_ref().get_ref().len();
 
         let mut json_lines_writer = JsonLinesWriter::new(&mut self.buf);
 
@@ -253,9 +250,6 @@ impl RunningQuery {
 
         self.buf.flush().expect("IO errors are not possible");
 
-        let bytes_after = self.buf.get_ref().get_ref().len();
-        self.stats.total_buffered_bytes += (bytes_after - bytes_before) as u64;
-
         Ok(())
     }
 
@@ -264,14 +258,16 @@ impl RunningQuery {
             bail!("no more chunks left")
         };
 
-        self.next_chunk = self.chunk_iterator.next()
+        self.next_chunk = self
+            .chunk_iterator
+            .next()
             .transpose()
             .map(|maybe_next_chunk| {
                 let next_chunk = maybe_next_chunk?;
                 let is_continuous = chunk.last_block() + 1 == next_chunk.first_block();
-                let is_requested = self.last_block.map_or(true, |end| {
-                    next_chunk.first_block() <= end
-                });
+                let is_requested = self
+                    .last_block
+                    .map_or(true, |end| next_chunk.first_block() <= end);
                 if is_continuous && is_requested {
                     Some(next_chunk)
                 } else {
@@ -285,10 +281,9 @@ impl RunningQuery {
 
     /// Size of the next chunk (in blocks)
     pub fn next_chunk_size(&self) -> usize {
-        self.left_over.as_ref()
-            .map(|lo| {
-                lo.chunk.last_block() - lo.chunk.first_block() + 1
-            })
+        self.left_over
+            .as_ref()
+            .map(|lo| lo.chunk.last_block() - lo.chunk.first_block() + 1)
             .or_else(|| {
                 let chunk = self.next_chunk.as_ref()?.as_ref().ok()?;
                 let size = chunk.last_block() - chunk.first_block() + 1;
