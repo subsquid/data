@@ -355,7 +355,7 @@ async fn set_retention(
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
         .with_dataset_id(dataset_id.clone())
-        .with_endpoint("/head")
+        .with_endpoint("/retention")
         .with_response(|| {
             let ds = get_dataset!(app, dataset_id);
             if app.api_controlled_datasets.contains(&dataset_id) {
