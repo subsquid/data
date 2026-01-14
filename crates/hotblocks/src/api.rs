@@ -133,7 +133,7 @@ impl ResponseWithMetadata {
     pub fn with_dataset_id(mut self, id: DatasetId) -> Self {
         self.labels
             .0
-            .push(("dataset_id".to_string(), id.as_str().to_owned()));
+            .push(("dataset_name".to_string(), id.as_str().to_owned()));
         self
     }
 
