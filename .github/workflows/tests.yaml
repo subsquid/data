@@ -34,8 +34,6 @@ jobs:
     if: github.event_name == 'push' || !github.event.pull_request.draft
     steps:
       - uses: actions/checkout@v4
-        with:
-          lfs: true
       - uses: dtolnay/rust-toolchain@master
         with:
           components: rustfmt
@@ -47,8 +45,6 @@ jobs:
     if: github.event_name == 'push' || !github.event.pull_request.draft
     steps:
       - uses: actions/checkout@v4
-        with:
-          lfs: true
       - uses: dtolnay/rust-toolchain@master
         with:
           components: clippy
