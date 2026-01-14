@@ -340,7 +340,7 @@ async fn get_retention(
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
         .with_dataset_id(dataset_id.clone())
-        .with_endpoint("/head")
+        .with_endpoint("/retention")
         .with_response(|| {
             json_ok! {
                 get_dataset!(app, dataset_id).get_retention()
