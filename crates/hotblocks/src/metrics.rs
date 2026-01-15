@@ -9,7 +9,6 @@ use prometheus_client::metrics::{
     MetricType,
     counter::Counter,
     family::Family,
-    gauge::Gauge,
     histogram::{Histogram, exponential_buckets},
 };
 use prometheus_client::registry::Registry;
