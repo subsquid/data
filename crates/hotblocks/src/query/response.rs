@@ -123,10 +123,6 @@ impl QueryResponse {
 
         if self.stats.start_time.elapsed() > self.time_limit {
             // Client is expected to retry the query based on the data that they have received
-            tracing::warn!(
-                "terminate query that has been running for more than {} seconds",
-                self.time_limit.as_secs()
-            );
             return Ok(self.finish_with_runner(runner));
         }
 

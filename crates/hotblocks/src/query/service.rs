@@ -3,6 +3,7 @@ use super::response::QueryResponse;
 use crate::dataset_controller::DatasetController;
 use crate::errors::{Busy, QueryIsAboveTheHead, QueryKindMismatch};
 use crate::types::{DBRef, DatasetKind};
+use crate::query::QueryExecutorCollector;
 use anyhow::{bail, ensure};
 use sqd_query::Query;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -157,9 +158,9 @@ impl QueryService {
         ).await
     }
 
-    pub fn spawn_metrics_reporter(&self, interval: Duration) {
-        self.executor.spawn_metrics_reporter(interval)
-    } 
+    pub fn metrics_collector(&self) -> QueryExecutorCollector {
+        self.executor.metrics_collector()
+    }
 }
 
 

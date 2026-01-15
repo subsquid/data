@@ -1,7 +1,6 @@
-use crate::metrics::{ACTIVE_QUERIES, COMPLETED_QUERIES, report_query_too_many_tasks_error};
+use crate::metrics::{COMPLETED_QUERIES, report_query_too_many_tasks_error};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use tokio::time::{self, Duration};
 
 #[derive(Clone)]
 pub struct QueryExecutor {
@@ -35,18 +34,8 @@ impl QueryExecutor {
         }
     }
 
-    pub fn spawn_metrics_reporter(&self, interval: Duration) {
-        let active_count = self.in_flight.clone();
-
-        tokio::spawn(async move {
-            let mut ticker = time::interval(interval);
-
-            loop {
-                ticker.tick().await;
-                let active_queries = active_count.load(Ordering::SeqCst);
-                ACTIVE_QUERIES.set(active_queries as i64);
-            }
-        });
+    pub fn metrics_collector(&self) -> QueryExecutorCollector {
+        QueryExecutorCollector::new(self.in_flight.clone())
     }
 }
 
@@ -86,5 +75,20 @@ impl QuerySlot {
         });
 
         rx.await.expect("task panicked")
+    }
+}
+
+#[derive(Debug)]
+pub struct QueryExecutorCollector {
+    in_flight: Arc<AtomicUsize>,
+}
+
+impl QueryExecutorCollector {
+    pub fn new(in_flight: Arc<AtomicUsize>) -> Self {
+        Self { in_flight }
+    }
+
+    pub fn get_active_queries(&self) -> u64 {
+        self.in_flight.load(Ordering::SeqCst) as u64
     }
 }

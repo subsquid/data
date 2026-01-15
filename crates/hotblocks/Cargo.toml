@@ -11,7 +11,6 @@ bytes = { workspace = true }
 chrono = { workspace = true, features = ["std"] }
 clap =  { workspace = true, features = ["derive"] }
 flate2 = { workspace = true }
-lazy_static = "1.4.0"
 futures = { workspace = true }
 ouroboros = { workspace = true }
 prometheus-client = { workspace = true }

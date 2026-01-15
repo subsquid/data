@@ -1,5 +1,6 @@
 use crate::data_service::{DataService, DataServiceRef};
 use crate::dataset_config::{DatasetConfig, RetentionConfig};
+use crate::metrics::DatasetMetricsCollector;
 use crate::query::{QueryService, QueryServiceRef};
 use crate::types::DBRef;
 use anyhow::Context;
@@ -7,8 +8,6 @@ use clap::Parser;
 use sqd_storage::db::{DatabaseSettings, DatasetId};
 use std::collections::BTreeSet;
 use std::sync::Arc;
-use std::time::Duration;
-
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -23,7 +22,7 @@ pub struct CLI {
 
     #[arg(long, value_name = "MB", default_value = "256")]
     pub data_cache_size: usize,
-    
+
     /// Max number of threads to use for query tasks
     #[arg(long, value_name = "N")]
     pub query_threads: Option<usize>,
@@ -49,15 +48,13 @@ pub struct CLI {
     pub rocksdb_disable_direct_io: bool,
 }
 
-
 pub struct App {
     pub db: DBRef,
     pub data_service: DataServiceRef,
     pub query_service: QueryServiceRef,
     pub api_controlled_datasets: BTreeSet<DatasetId>,
-    pub metrics_registry: prometheus_client::registry::Registry
+    pub metrics_registry: prometheus_client::registry::Registry,
 }
-
 
 impl CLI {
     pub async fn build_app(&self) -> anyhow::Result<App> {
@@ -72,15 +69,15 @@ impl CLI {
             .map(Arc::new)
             .context("failed to open rocksdb database")?;
 
-        let metrics_registry = crate::metrics::build_metrics_registry(
-            db.clone(),
-            datasets.keys().copied().collect()
-        );
+        let mut metrics_registry = crate::metrics::build_metrics_registry();
+        metrics_registry.register_collector(Box::new(DatasetMetricsCollector {
+            db: db.clone(), 
+            datasets: datasets.keys().copied().collect(),
+        }));
 
-        let api_controlled_datasets = datasets.iter()
-            .filter_map(|(id, cfg)| {
-                (cfg.retention_strategy == RetentionConfig::Api).then_some(*id)
-            })
+        let api_controlled_datasets = datasets
+            .iter()
+            .filter_map(|(id, cfg)| (cfg.retention_strategy == RetentionConfig::Api).then_some(*id))
             .collect();
 
         let data_service = DataService::start(db.clone(), datasets)
@@ -98,17 +95,18 @@ impl CLI {
             if let Some(ms) = self.query_urgency {
                 builder.set_urgency(ms);
             }
+            let service = builder.build();
+            metrics_registry.register_collector(Box::new(service.metrics_collector()));
 
-            Arc::new(builder.build())
+            Arc::new(service)
         };
-        query_service.spawn_metrics_reporter(Duration::from_secs(5));
 
         Ok(App {
             db,
             data_service,
             query_service,
             api_controlled_datasets,
-            metrics_registry
+            metrics_registry,
         })
     }
 }

@@ -1,3 +1,4 @@
+use crate::query::QueryExecutorCollector;
 use crate::types::DBRef;
 use anyhow::bail;
 use prometheus_client::collector::Collector;
@@ -14,6 +15,7 @@ use prometheus_client::metrics::{
 use prometheus_client::registry::Registry;
 use sqd_storage::db::{DatasetId, ReadSnapshot};
 use std::fmt::Write;
+use std::sync::LazyLock;
 use std::time::Duration;
 use tracing::error;
 
@@ -47,34 +49,37 @@ fn buckets(start: f64, count: usize) -> impl Iterator<Item = f64> {
         .take(count)
 }
 
-lazy_static::lazy_static! {
-    pub static ref HTTP_STATUS: Family<Labels, Counter> = Default::default();
-    pub static ref HTTP_TTFB: Family<Labels, Histogram> =
-        Family::new_with_constructor(|| Histogram::new(buckets(0.001, 20)));
+pub static HTTP_STATUS: LazyLock<Family<Labels, Counter>> = LazyLock::new(Default::default);
+pub static HTTP_TTFB: LazyLock<Family<Labels, Histogram>> =
+    LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(buckets(0.001, 20))));
 
-    pub static ref QUERY_ERROR_TOO_MANY_TASKS: Counter = Default::default();
-    pub static ref QUERY_ERROR_TOO_MANY_DATA_WAITERS: Counter = Default::default();
+pub static QUERY_ERROR_TOO_MANY_TASKS: LazyLock<Counter> = LazyLock::new(Default::default);
+pub static QUERY_ERROR_TOO_MANY_DATA_WAITERS: LazyLock<Counter> = LazyLock::new(Default::default);
 
-    pub static ref ACTIVE_QUERIES: Gauge = Default::default();
-    pub static ref COMPLETED_QUERIES: Counter = Default::default();
+pub static COMPLETED_QUERIES: LazyLock<Counter> = LazyLock::new(Default::default);
 
-    pub static ref STREAM_DURATIONS: Family<Labels, Histogram> =
-        Family::new_with_constructor(|| Histogram::new(exponential_buckets(0.01, 2.0, 20)));
-    pub static ref STREAM_BYTES: Family<Labels, Histogram> =
-        Family::new_with_constructor(|| Histogram::new(exponential_buckets(1000., 2.0, 20)));
-    pub static ref STREAM_BLOCKS: Family<Labels, Histogram> =
-        Family::new_with_constructor(|| Histogram::new(exponential_buckets(1., 2.0, 30)));
-    pub static ref STREAM_CHUNKS: Family<Labels, Histogram> =
-        Family::new_with_constructor(|| Histogram::new(buckets(1., 20)));
-    pub static ref STREAM_BYTES_PER_SECOND: Histogram = Histogram::new(exponential_buckets(100., 3.0, 20));
-    pub static ref STREAM_BLOCKS_PER_SECOND: Family<Labels, Histogram> =
-        Family::new_with_constructor(|| Histogram::new(exponential_buckets(1., 3.0, 20)));
+pub static STREAM_DURATIONS: LazyLock<Family<Labels, Histogram>> = LazyLock::new(|| {
+    Family::new_with_constructor(|| Histogram::new(exponential_buckets(0.01, 2.0, 20)))
+});
+pub static STREAM_BYTES: LazyLock<Family<Labels, Histogram>> = LazyLock::new(|| {
+    Family::new_with_constructor(|| Histogram::new(exponential_buckets(1000., 2.0, 20)))
+});
+pub static STREAM_BLOCKS: LazyLock<Family<Labels, Histogram>> = LazyLock::new(|| {
+    Family::new_with_constructor(|| Histogram::new(exponential_buckets(1., 2.0, 30)))
+});
+pub static STREAM_CHUNKS: LazyLock<Family<Labels, Histogram>> =
+    LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(buckets(1., 20))));
+pub static STREAM_BYTES_PER_SECOND: LazyLock<Histogram> =
+    LazyLock::new(|| Histogram::new(exponential_buckets(100., 3.0, 20)));
+pub static STREAM_BLOCKS_PER_SECOND: LazyLock<Family<Labels, Histogram>> = LazyLock::new(|| {
+    Family::new_with_constructor(|| Histogram::new(exponential_buckets(1., 3.0, 20)))
+});
 
-    pub static ref QUERIED_BLOCKS: Family<Labels, Histogram> =
-        Family::new_with_constructor(|| Histogram::new(exponential_buckets(1., 2.0, 30)));
-    pub static ref QUERIED_CHUNKS: Family<Labels, Histogram> =
-        Family::new_with_constructor(|| Histogram::new(buckets(1., 20)));
-}
+pub static QUERIED_BLOCKS: LazyLock<Family<Labels, Histogram>> = LazyLock::new(|| {
+    Family::new_with_constructor(|| Histogram::new(exponential_buckets(1., 2.0, 30)))
+});
+pub static QUERIED_CHUNKS: LazyLock<Family<Labels, Histogram>> =
+    LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(buckets(1., 20))));
 
 pub fn report_query_too_many_tasks_error() {
     QUERY_ERROR_TOO_MANY_TASKS.inc();
@@ -92,9 +97,9 @@ pub fn report_http_response(labels: &Vec<(String, String)>, to_first_byte: Durat
 }
 
 #[derive(Debug)]
-struct DatasetMetricsCollector {
-    db: DBRef,
-    datasets: Vec<DatasetId>,
+pub struct DatasetMetricsCollector {
+    pub db: DBRef,
+    pub datasets: Vec<DatasetId>,
 }
 
 impl Collector for DatasetMetricsCollector {
@@ -182,7 +187,7 @@ fn collect_dataset_metrics(
     Ok(())
 }
 
-pub fn build_metrics_registry(db: DBRef, datasets: Vec<DatasetId>) -> Registry {
+pub fn build_metrics_registry() -> Registry {
     let mut top_registry = Registry::default();
     let registry = top_registry.sub_registry_with_prefix("hotblocks");
 
@@ -250,16 +255,26 @@ pub fn build_metrics_registry(db: DBRef, datasets: Vec<DatasetId>) -> Registry {
         QUERIED_CHUNKS.clone(),
     );
     registry.register(
-        "active_queries",
-        "Number of active queries",
-        ACTIVE_QUERIES.clone(),
-    );
-    registry.register(
         "completed_queries",
         "Number of completed queries",
         COMPLETED_QUERIES.clone(),
     );
-    top_registry.register_collector(Box::new(DatasetMetricsCollector { db, datasets }));
 
     top_registry
+}
+
+impl Collector for QueryExecutorCollector {
+    fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), std::fmt::Error> {
+        let active_queries = self.get_active_queries();
+
+        encoder
+            .encode_descriptor(
+                "hotblocks_active_queries",
+                "Number of currently active queries",
+                None,
+                MetricType::Gauge,
+            )?
+            .encode_gauge(&active_queries)?;
+        Ok(())
+    }
 }
