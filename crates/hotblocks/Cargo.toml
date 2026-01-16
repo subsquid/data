@@ -28,6 +28,7 @@ sqd-query = { path = "../query", features = ["storage"] }
 sqd-storage = { path = "../storage" }
 tikv-jemallocator = "0.6.0"
 tokio = { workspace = true, features = ["full"] }
+tower-http = { version = "0.6.1", features = ["request-id", "trace"] }
 tracing = { workspace = true, features = ["valuable"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json", "valuable"] }
 url = { workspace = true, features = ["serde"] }

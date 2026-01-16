@@ -8,11 +8,14 @@ use url::Url;
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum RetentionConfig {
+    // Fixed, starting from the block number
     FromBlock {
         number: BlockNumber,
         parent_hash: Option<String>,
     },
+    // Moving window that keeps up to N blocks
     Head(u64),
+    // Retention is set dynamically from the portal
     Api,
     None,
 }
