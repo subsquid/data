@@ -40,7 +40,7 @@ macro_rules! dataset_label {
     };
 }
 
-type Labels = Vec<(String, String)>;
+type Labels = Vec<(&'static str, String)>;
 
 fn buckets(start: f64, count: usize) -> impl Iterator<Item = f64> {
     std::iter::successors(Some(start), |x| Some(x * 10.))
@@ -88,7 +88,7 @@ pub fn report_query_too_many_data_waiters_error() {
     QUERY_ERROR_TOO_MANY_DATA_WAITERS.inc();
 }
 
-pub fn report_http_response(labels: &Vec<(String, String)>, to_first_byte: Duration) {
+pub fn report_http_response(labels: &Vec<(&'static str, String)>, to_first_byte: Duration) {
     HTTP_STATUS.get_or_create(&labels).inc();
     HTTP_TTFB
         .get_or_create(&labels)

@@ -95,7 +95,7 @@ pub async fn middleware(req: Request, next: axum::middleware::Next) -> impl Into
         .remove::<Labels>()
         .map(|labels| labels.0)
         .unwrap_or(Vec::new());
-    labels.push(("status".to_string(), response.status().as_str().to_owned()));
+    labels.push(("status", response.status().as_str().to_owned()));
 
     span.in_scope(|| {
         tracing::info!(
@@ -115,7 +115,7 @@ pub async fn middleware(req: Request, next: axum::middleware::Next) -> impl Into
 }
 
 #[derive(Clone)]
-pub struct Labels(Vec<(String, String)>);
+pub struct Labels(Vec<(&'static str, String)>);
 
 pub struct ResponseWithMetadata {
     pub labels: Labels,
@@ -131,16 +131,12 @@ impl ResponseWithMetadata {
     }
 
     pub fn with_dataset_id(mut self, id: DatasetId) -> Self {
-        self.labels
-            .0
-            .push(("dataset_name".to_string(), id.as_str().to_owned()));
+        self.labels.0.push(("dataset_name", id.as_str().to_owned()));
         self
     }
 
     pub fn with_endpoint(mut self, endpoint: &str) -> Self {
-        self.labels
-            .0
-            .push(("endpoint".to_string(), endpoint.to_string()));
+        self.labels.0.push(("endpoint", endpoint.to_string()));
         self
     }
 

@@ -52,7 +52,7 @@ impl QueryStreamStats {
     }
 
     fn report_metrics(&self, dataset_id: &DatasetId) {
-        let labels = vec![("dataset_id".to_owned(), dataset_id.as_str().to_owned())];
+        let labels = vec![("dataset_id", dataset_id.as_str().to_owned())];
 
         let duration = self.start_time.elapsed().as_secs_f64();
         let bytes = self.response_bytes as f64;
