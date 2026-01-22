@@ -113,3 +113,17 @@ pub fn or(predicates: Vec<RowPredicateRef>) -> RowPredicateRef {
         )
     }
 }
+
+
+pub fn col_primitive_list_contains_any<T>(name: Name, values: &[T::Native]) -> RowPredicateRef
+where
+    T: arrow::datatypes::ArrowPrimitiveType,
+    T::Native: Eq + std::hash::Hash,
+{
+    make_column_predicate!(name, array_predicate::PrimitiveListContainsAny::<T>::new(values))
+}
+
+
+pub fn col_string_list_contains_any<S: AsRef<str>>(name: Name, values: &[S]) -> RowPredicateRef {
+    make_column_predicate!(name, array_predicate::StringListContainsAny::new(values))
+}

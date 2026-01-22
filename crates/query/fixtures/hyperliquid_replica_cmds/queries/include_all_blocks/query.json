@@ -1,0 +1,18 @@
+{
+  "type": "hyperliquidReplicaCmds",
+  "fromBlock": 748640000,
+  "toBlock": 748640100,
+  "includeAllBlocks": true,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true,
+      "parentHash": true,
+      "round": true,
+      "parentRound": true,
+      "proposer": true,
+      "timestamp": true,
+      "hardfork": true
+    }
+  }
+}

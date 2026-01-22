@@ -7,8 +7,8 @@ pub mod eth;
 pub mod solana;
 pub mod substrate;
 pub mod fuel;
-pub mod hyperliquid;
 pub mod hyperliquid_fills;
+pub mod hyperliquid_replica_cmds;
 mod util;
 
 
@@ -23,10 +23,10 @@ pub enum Query {
     Substrate(substrate::SubstrateQuery),
     #[serde(rename = "fuel")]
     Fuel(fuel::FuelQuery),
-    #[serde(rename = "hyperliquid")]
-    Hyperliquid(hyperliquid::HyperliquidQuery),
     #[serde(rename = "hyperliquidFills")]
     HyperliquidFills(hyperliquid_fills::HyperliquidFillsQuery),
+    #[serde(rename = "hyperliquidReplicaCmds")]
+    HyperliquidReplicaCmds(hyperliquid_replica_cmds::HyperliquidReplicaCmdsQuery),
 }
 
 
@@ -53,8 +53,8 @@ impl Query {
             Query::Solana(q) => q.validate(),
             Query::Substrate(q) => q.validate(),
             Query::Fuel(q) => q.validate(),
-            Query::Hyperliquid(q) => q.validate(),
             Query::HyperliquidFills(q) => q.validate(),
+            Query::HyperliquidReplicaCmds(q) => q.validate(),
         }
     }
     
@@ -64,8 +64,8 @@ impl Query {
             Query::Solana(q) => q.parent_block_hash.as_ref(),
             Query::Substrate(q) => q.parent_block_hash.as_ref(),
             Query::Fuel(q) => q.parent_block_hash.as_ref(),
-            Query::Hyperliquid(q) => q.parent_block_hash.as_ref(),
             Query::HyperliquidFills(q) => q.parent_block_hash.as_ref(),
+            Query::HyperliquidReplicaCmds(q) => q.parent_block_hash.as_ref(),
         }.map(|s| s.as_str())
     }
 
@@ -75,8 +75,8 @@ impl Query {
             Query::Solana(q) => q.from_block,
             Query::Substrate(q) => q.from_block,
             Query::Fuel(q) => q.from_block,
-            Query::Hyperliquid(q) => q.from_block,
             Query::HyperliquidFills(q) => q.from_block,
+            Query::HyperliquidReplicaCmds(q) => q.from_block,
         }
     }
 
@@ -86,8 +86,8 @@ impl Query {
             Query::Solana(q) => q.from_block = block_number,
             Query::Substrate(q) => q.from_block = block_number,
             Query::Fuel(q) => q.from_block = block_number,
-            Query::Hyperliquid(q) => q.from_block = block_number,
             Query::HyperliquidFills(q) => q.from_block = block_number,
+            Query::HyperliquidReplicaCmds(q) => q.from_block = block_number,
         }
     }
 
@@ -97,8 +97,8 @@ impl Query {
             Query::Solana(q) => q.to_block,
             Query::Substrate(q) => q.to_block,
             Query::Fuel(q) => q.to_block,
-            Query::Hyperliquid(q) => q.to_block,
             Query::HyperliquidFills(q) => q.to_block,
+            Query::HyperliquidReplicaCmds(q) => q.to_block,
         }
     }
 
@@ -109,8 +109,8 @@ impl Query {
             Query::Solana(q) => q.to_block = block_number,
             Query::Substrate(q) => q.to_block = block_number,
             Query::Fuel(q) => q.to_block = block_number,
-            Query::Hyperliquid(q) => q.to_block = block_number,
             Query::HyperliquidFills(q) => q.to_block = block_number,
+            Query::HyperliquidReplicaCmds(q) => q.to_block = block_number,
         }
     }
 
@@ -120,8 +120,8 @@ impl Query {
             Query::Solana(q) => q.compile(),
             Query::Substrate(q) => q.compile(),
             Query::Fuel(q) => q.compile(),
-            Query::Hyperliquid(q) => q.compile(),
             Query::HyperliquidFills(q) => q.compile(),
+            Query::HyperliquidReplicaCmds(q) => q.compile(),
         }
     }
 }
