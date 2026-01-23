@@ -20,6 +20,9 @@ struct LeftOver {
 pub struct RunningQueryStats {
     pub chunks_read: u64,
     pub blocks_read: u64,
+    pub chunks_returned: u64,
+    pub blocks_returned: u64
+
 }
 
 impl RunningQueryStats {
@@ -27,6 +30,8 @@ impl RunningQueryStats {
         Self {
             chunks_read: 0,
             blocks_read: 0,
+            chunks_returned: 0,
+            blocks_returned: 0
         }
     }
 
@@ -39,6 +44,8 @@ impl RunningQueryStats {
         QUERIED_CHUNKS
             .get_or_create(&labels)
             .observe(self.chunks_read as f64);
+
+        // blocks_returned and chunks_returned are reported by the streaming part
     }
 }
 
@@ -80,11 +87,14 @@ impl RunningQuery {
         let mut chunk_iterator =
             StaticChunkIterator::new(snapshot, dataset_id, query.first_block(), None);
 
+        let mut stats = RunningQueryStats::new();
         let Some(first_chunk) = chunk_iterator.next().transpose()? else {
             bail!(QueryIsAboveTheHead {
                 finalized_head: None
             })
         };
+        stats.chunks_read += 1;
+        stats.blocks_read += first_chunk.last_block() - first_chunk.first_block() + 1;
 
         ensure!(
             first_chunk.first_block() <= query.first_block(),
@@ -93,9 +103,6 @@ impl RunningQuery {
                 last_block: first_chunk.first_block() - 1
             }
         );
-
-        let mut stats = RunningQueryStats::new();
-        stats.chunks_read += 1;
 
         let plan = if query.first_block() == first_chunk.first_block() {
             if let Some(parent_hash) = query.parent_block_hash() {
@@ -177,20 +184,17 @@ impl RunningQuery {
     ///
     /// Everything written to the buffer is always well-formed.
     pub fn write_next_chunk(&mut self) -> anyhow::Result<()> {
-        let (chunk, first_block_queried) = if let Some(left_over) = self.left_over.take() {
+        let (chunk, is_new_chunk) = if let Some(left_over) = self.left_over.take() {
             let first_block = left_over.next_block;
             self.plan.set_first_block(first_block);
-            (left_over.chunk, first_block)
+            (left_over.chunk, false)
         } else {
             let storage_chunk = self.next_chunk()?;
-            // Increment chunks_downloaded when we fetch a new chunk
-            self.stats.chunks_read += 1;
             let chunk = self
                 .chunk_iterator
                 .snapshot()
                 .create_chunk_reader(storage_chunk);
-            let first_block = chunk.first_block();
-            (chunk, first_block)
+            (chunk, true)
         };
 
         if self
@@ -224,9 +228,11 @@ impl RunningQuery {
             return Ok(());
         };
 
-        let blocks_written = block_writer.last_block() - first_block_queried + 1;
-        self.stats.blocks_read += blocks_written;
-
+        if is_new_chunk {
+            self.stats.chunks_returned += 1;
+        }
+        self.stats.blocks_returned += block_writer.num_blocks() as u64;
+        
         if chunk.last_block() > block_writer.last_block()
             && self
                 .last_block
@@ -264,6 +270,9 @@ impl RunningQuery {
             .transpose()
             .map(|maybe_next_chunk| {
                 let next_chunk = maybe_next_chunk?;
+                self.stats.chunks_read += 1;
+                self.stats.blocks_read += chunk.last_block() - chunk.first_block() + 1;
+                
                 let is_continuous = chunk.last_block() + 1 == next_chunk.first_block();
                 let is_requested = self
                     .last_block
