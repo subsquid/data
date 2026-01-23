@@ -9,7 +9,7 @@ use crate::writer::Writer;
 use anyhow::{ensure, Context};
 use prometheus_client::registry::Registry;
 use sqd_data::evm::tables::EvmChunkBuilder;
-use sqd_data::hyperliquid_fills::tables::HyperliquidChunkBuilder;
+use sqd_data::hyperliquid_fills::tables::HyperliquidFillsChunkBuilder;
 use sqd_data::hyperliquid_replica_cmds::tables::HyperliquidReplicaCmdsChunkBuilder;
 use sqd_data::solana::tables::SolanaChunkBuilder;
 use sqd_primitives::BlockNumber;
@@ -66,7 +66,7 @@ pub async fn run(args: Cli) -> anyhow::Result<()> {
 
     let proc_task = match args.network_kind {
         NetworkKind::Solana => proc!(SolanaChunkBuilder::default()),
-        NetworkKind::HyperliquidFills => proc!(HyperliquidChunkBuilder::default()),
+        NetworkKind::HyperliquidFills => proc!(HyperliquidFillsChunkBuilder::default()),
         NetworkKind::HyperliquidReplicaCmds => proc!(HyperliquidReplicaCmdsChunkBuilder::default()),
         NetworkKind::Evm => proc!(EvmChunkBuilder::default())
     };

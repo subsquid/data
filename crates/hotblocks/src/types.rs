@@ -14,8 +14,10 @@ pub enum DatasetKind {
     Evm,
     #[serde(rename = "solana")]
     Solana,
-    #[serde(rename = "hyperliquidFills")]
-    HyperliquidFills
+    #[serde(rename = "hyperliquid-fills")]
+    HyperliquidFills,
+    #[serde(rename = "hyperliquid-replica-cmds")]
+    HyperliquidReplicaCmds,
 }
 
 
@@ -28,7 +30,8 @@ impl DatasetKind {
         match self {
             DatasetKind::Evm => "evm",
             DatasetKind::Solana => "solana",
-            DatasetKind::HyperliquidFills => "hyperliquidFills"
+            DatasetKind::HyperliquidFills => "hyperliquid-fills",
+            DatasetKind::HyperliquidReplicaCmds => "hyperliquid-replica-cmds",
         }
     }
     
@@ -36,7 +39,8 @@ impl DatasetKind {
         match self {
             DatasetKind::Evm => sqd_data::evm::tables::EvmChunkBuilder::dataset_description(),
             DatasetKind::Solana => sqd_data::solana::tables::SolanaChunkBuilder::dataset_description(),
-            DatasetKind::HyperliquidFills => sqd_data::hyperliquid_fills::tables::HyperliquidChunkBuilder::dataset_description()
+            DatasetKind::HyperliquidFills => sqd_data::hyperliquid_fills::tables::HyperliquidFillsChunkBuilder::dataset_description(),
+            DatasetKind::HyperliquidReplicaCmds => sqd_data::hyperliquid_replica_cmds::tables::HyperliquidReplicaCmdsChunkBuilder::dataset_description(),
         }
     }
     
@@ -45,6 +49,7 @@ impl DatasetKind {
             Query::Eth(_) => Self::Evm,
             Query::Solana(_) => Self::Solana,
             Query::HyperliquidFills(_) => Self::HyperliquidFills,
+            Query::HyperliquidReplicaCmds(_) => Self::HyperliquidReplicaCmds,
             _ => unimplemented!()
         }
     }
