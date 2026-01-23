@@ -43,16 +43,17 @@ impl QueryStreamStats {
     }
 
     pub fn add_running_stats(&mut self, running_stats: &RunningQueryStats) {
+        // We only count chunks/blocks that were actually written in the buffer
         self.response_chunks = self
             .response_chunks
-            .saturating_add(running_stats.chunks_read);
+            .saturating_add(running_stats.chunks_returned);
         self.response_blocks = self
             .response_blocks
-            .saturating_add(running_stats.blocks_read);
+            .saturating_add(running_stats.blocks_returned);
     }
 
     fn report_metrics(&self, dataset_id: &DatasetId) {
-        let labels = vec![("dataset_id", dataset_id.as_str().to_owned())];
+        let labels = vec![("dataset_name", dataset_id.as_str().to_owned())];
 
         let duration = self.start_time.elapsed().as_secs_f64();
         let bytes = self.response_bytes as f64;
