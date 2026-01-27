@@ -37,7 +37,10 @@ pub fn ingest<'a, 'b>(
             run!(sqd_data::solana::tables::SolanaChunkBuilder::new())
         },
         DatasetKind::HyperliquidFills => {
-            run!(sqd_data::hyperliquid_fills::tables::HyperliquidChunkBuilder::new())
+            run!(sqd_data::hyperliquid_fills::tables::HyperliquidFillsChunkBuilder::new())
+        }
+        DatasetKind::HyperliquidReplicaCmds => {
+            run!(sqd_data::hyperliquid_replica_cmds::tables::HyperliquidReplicaCmdsChunkBuilder::new())
         }
     }
 }

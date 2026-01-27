@@ -1,0 +1,28 @@
+{
+  "type": "hyperliquidReplicaCmds",
+  "fromBlock": 748640000,
+  "toBlock": 748640100,
+  "includeAllBlocks": false,
+  "orderActions": [
+    {
+      "containsAsset": [1],
+      "user": ["0x4a1b3580f7ac72bc54175f05b76092eeb7a266aa"]
+    }
+  ],
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "action": {
+      "actionIndex": true,
+      "user": true,
+      "action": true,
+      "signature": true,
+      "nonce": true,
+      "vaultAddress": true,
+      "status": true,
+      "response": true
+    }
+  }
+}
