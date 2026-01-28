@@ -30,8 +30,8 @@ impl DatasetKind {
         match self {
             DatasetKind::Evm => "evm",
             DatasetKind::Solana => "solana",
-            DatasetKind::HyperliquidFills => "hyperliquid-fills",
-            DatasetKind::HyperliquidReplicaCmds => "hyperliquid-replica-cmds",
+            DatasetKind::HyperliquidFills => "hl-fills",
+            DatasetKind::HyperliquidReplicaCmds => "hl-replica-cmds",
         }
     }
     
