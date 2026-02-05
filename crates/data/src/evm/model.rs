@@ -97,7 +97,7 @@ pub struct Log {
 #[serde(rename_all = "camelCase")]
 pub struct TraceActionCreate {
     pub from: HexBytes,
-    pub value: HexBytes,
+    pub value: Option<HexBytes>,
     pub gas: HexBytes,
     pub init: HexBytes,
     pub creation_method: Option<String>
