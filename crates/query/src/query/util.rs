@@ -1,6 +1,7 @@
 use crate::primitives::Name;
-use crate::scan::{and, bloom_filter, col_eq, col_gt_eq, col_in_list, col_lt_eq, IntoArrowArray, IntoArrowScalar, RowPredicateRef};
+use crate::scan::{and, bloom_filter, col_eq, col_gt_eq, col_in_list, col_lt_eq, col_primitive_list_contains_any, col_string_list_contains_any, IntoArrowArray, IntoArrowScalar, RowPredicateRef};
 use arrow::array::StringArray;
+use arrow::datatypes::ArrowPrimitiveType;
 use std::hash::Hash;
 
 
@@ -171,6 +172,42 @@ impl PredicateBuilder {
     
     pub fn add(&mut self, condition: RowPredicateRef) -> &mut Self {
         self.conditions.push(condition);
+        self
+    }
+
+    pub fn col_primitive_list_contains_any<T>(
+        &mut self,
+        name: Name,
+        maybe_list: Option<&[T::Native]>,
+    ) -> &mut Self
+    where
+        T: ArrowPrimitiveType,
+        T::Native: Eq + Hash,
+    {
+        if let Some(list) = maybe_list {
+            if list.is_empty() {
+                self.is_never = true;
+            } else {
+                let predicate = col_primitive_list_contains_any::<T>(name, list);
+                self.conditions.push(predicate);
+            }
+        }
+        self
+    }
+
+    pub fn col_string_list_contains_any<S: AsRef<str>>(
+        &mut self,
+        name: Name,
+        maybe_list: Option<&[S]>,
+    ) -> &mut Self {
+        if let Some(list) = maybe_list {
+            if list.is_empty() {
+                self.is_never = true;
+            } else {
+                let predicate = col_string_list_contains_any(name, list);
+                self.conditions.push(predicate);
+            }
+        }
         self
     }
 

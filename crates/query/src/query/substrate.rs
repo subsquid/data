@@ -469,6 +469,58 @@ impl GearUserMessageSentRequest {
 
 
 request! {
+    pub struct ReviveContractEmittedRequest {
+        pub contract: Option<Vec<Bytes>>,
+        pub topic0: Option<Vec<Bytes>>,
+        pub topic1: Option<Vec<Bytes>>,
+        pub topic2: Option<Vec<Bytes>>,
+        pub topic3: Option<Vec<Bytes>>,
+        pub extrinsic: bool,
+        pub call: bool,
+        pub stack: bool,
+    }
+}
+
+
+impl ReviveContractEmittedRequest {
+    fn predicate(&self, p: &mut PredicateBuilder) {
+        p.col_eq("name", Some("Revive.ContractEmitted"));
+        p.col_in_list("_revive_contract", self.contract.as_deref());
+        p.col_in_list("_revive_topic0", self.topic0.as_deref());
+        p.col_in_list("_revive_topic1", self.topic1.as_deref());
+        p.col_in_list("_revive_topic2", self.topic2.as_deref());
+        p.col_in_list("_revive_topic3", self.topic3.as_deref());
+    }
+
+    fn relations(&self, scan: &mut ScanBuilder) {
+        if self.extrinsic {
+            scan.join(
+                "extrinsics",
+                vec!["block_number", "index"],
+                vec!["block_number", "extrinsic_index"]
+            );
+        }
+
+        if self.call {
+            scan.join(
+                "calls",
+                vec!["block_number", "extrinsic_index", "address"],
+                vec!["block_number", "extrinsic_index", "call_address"]
+            );
+        }
+
+        if self.stack {
+            scan.include_foreign_parents(
+                "calls",
+                vec!["block_number", "extrinsic_index", "address"],
+                vec!["block_number", "extrinsic_index", "call_address"]
+            );
+        }
+    }
+}
+
+
+request! {
     pub struct SubstrateQuery {
         pub from_block: BlockNumber,
         pub parent_block_hash: Option<String>,
@@ -482,6 +534,7 @@ request! {
         pub contracts_events: Vec<ContractsContractEmittedRequest>,
         pub gear_messages_enqueued: Vec<GearMessageEnqueuedRequest>,
         pub gear_user_messages_sent: Vec<GearUserMessageSentRequest>,
+        pub revive_contract_emitted: Vec<ReviveContractEmittedRequest>,
     }
 }
 
@@ -497,7 +550,8 @@ impl SubstrateQuery {
             contracts_events,
             gear_messages_enqueued,
             gear_user_messages_sent,
-            evm_logs
+            evm_logs,
+            revive_contract_emitted
         );
         Ok(())
     }
@@ -515,6 +569,7 @@ impl SubstrateQuery {
             <gear_messages_enqueued: events>,
             <gear_user_messages_sent: events>,
             <evm_logs: events>,
+            <revive_contract_emitted: events>,
         )
     }
 }

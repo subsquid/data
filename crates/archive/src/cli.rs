@@ -7,6 +7,7 @@ use url::Url;
 pub enum NetworkKind {
     Solana,
     HyperliquidFills,
+    HyperliquidReplicaCmds,
     Evm,
 }
 
@@ -41,6 +42,10 @@ pub struct Cli {
     /// Upper limit on the per-file rows
     #[arg(long, value_name = "N", default_value_t = 200_000)]
     pub max_num_rows: usize,
+
+    /// Check if block parent hash matches previous block hash
+    #[arg(long, require_equals = false, num_args = 0..=1, default_value_t = true)]
+    pub validate_chain_continuity: bool,
 
     /// Network kind
     #[arg(long, value_enum)]

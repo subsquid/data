@@ -642,6 +642,8 @@ request! {
         pub post_owner: Option<Vec<Bytes>>,
         pub transaction: bool,
         pub transaction_instructions: bool,
+        pub transaction_balances: bool,
+        pub transaction_token_balances: bool,
     }
 }
 
@@ -670,6 +672,20 @@ impl TokenBalanceRequest {
                 "instructions",
                 vec!["block_number", "transaction_index"],
                 vec!["block_number", "transaction_index"]
+            );
+        }
+        if self.transaction_balances {
+            scan.join(
+                "balances",
+                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"],
+            );
+        }
+        if self.transaction_token_balances {
+            scan.join(
+                "token_balances",
+                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"],
             );
         }
     }

@@ -41,6 +41,7 @@ table_builder! {
         signatures: SignatureListBuilder,
         err: JsonBuilder,
         compute_units_consumed: UInt64Builder,
+        cost_units: UInt64Builder,
         fee: UInt64Builder,
         loaded_addresses: LoadedAddressBuilder,
         has_dropped_log_messages: BooleanBuilder,
@@ -116,6 +117,7 @@ impl TransactionBuilder {
         }
        
         self.compute_units_consumed.append_option(row.compute_units_consumed);
+        self.cost_units.append_option(row.cost_units);
         self.fee.append(row.fee);
 
         for address in &row.loaded_addresses.readonly {

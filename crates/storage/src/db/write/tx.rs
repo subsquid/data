@@ -110,6 +110,11 @@ impl <'a> Tx<'a> {
         Ok(())
     }
 
+    pub fn delete_label(&self, dataset_id: DatasetId) -> anyhow::Result<()> {
+        self.transaction.delete_cf(self.cf_handle(CF_DATASETS), dataset_id)?;
+        Ok(())
+    }
+
     pub fn write_chunk(&self, dataset_id: DatasetId, chunk: &Chunk) -> anyhow::Result<()> {
         self.transaction.put_cf(
             self.cf_handle(CF_CHUNKS),

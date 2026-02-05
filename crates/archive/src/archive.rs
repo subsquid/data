@@ -9,7 +9,8 @@ use crate::writer::Writer;
 use anyhow::{ensure, Context};
 use prometheus_client::registry::Registry;
 use sqd_data::evm::tables::EvmChunkBuilder;
-use sqd_data::hyperliquid_fills::tables::HyperliquidChunkBuilder;
+use sqd_data::hyperliquid_fills::tables::HyperliquidFillsChunkBuilder;
+use sqd_data::hyperliquid_replica_cmds::tables::HyperliquidReplicaCmdsChunkBuilder;
 use sqd_data::solana::tables::SolanaChunkBuilder;
 use sqd_primitives::BlockNumber;
 use std::time::Duration;
@@ -58,13 +59,15 @@ pub async fn run(args: Cli) -> anyhow::Result<()> {
             let mut proc = Proc::new($chunk_builder, chunk_tracker, chunk_sender)?;
             proc.set_max_chunk_size(args.chunk_size);
             proc.set_max_num_rows(args.max_num_rows);
+            proc.set_validate_chain_continuity(args.validate_chain_continuity);
             tokio::spawn(proc.run(block_stream))
         }};
     }
 
     let proc_task = match args.network_kind {
         NetworkKind::Solana => proc!(SolanaChunkBuilder::default()),
-        NetworkKind::HyperliquidFills => proc!(HyperliquidChunkBuilder::default()),
+        NetworkKind::HyperliquidFills => proc!(HyperliquidFillsChunkBuilder::default()),
+        NetworkKind::HyperliquidReplicaCmds => proc!(HyperliquidReplicaCmdsChunkBuilder::default()),
         NetworkKind::Evm => proc!(EvmChunkBuilder::default())
     };
 

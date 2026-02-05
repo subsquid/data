@@ -81,7 +81,7 @@ impl TraceBuilder {
         if let TraceOp::Create { action, result } = &row.op {
             self.r#type.append("create");
             self.create_from.append(&action.from);
-            self.create_value.append(&action.value);
+            self.create_value.append_option(action.value.as_deref());
             self.create_gas.append(&action.gas);
             self.create_init.append(&action.init);
             self.create_init_size.append(action.init.len() as u64);

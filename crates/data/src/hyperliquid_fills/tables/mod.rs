@@ -9,14 +9,14 @@ use sqd_data_core::chunk_builder;
 
 
 chunk_builder! {
-    HyperliquidChunkBuilder {
+    HyperliquidFillsChunkBuilder {
         blocks: BlockBuilder,
         fills: FillBuilder,
     }
 }
 
 
-impl sqd_data_core::BlockChunkBuilder for HyperliquidChunkBuilder {
+impl sqd_data_core::BlockChunkBuilder for HyperliquidFillsChunkBuilder {
     type Block = Block;
 
     fn push(&mut self, block: &Self::Block) -> anyhow::Result<()> {

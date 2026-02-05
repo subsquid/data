@@ -4,6 +4,7 @@ use arrow::array::{Array, ArrayRef, AsArray, BooleanArray, Datum, PrimitiveArray
 use arrow::buffer::{BooleanBuffer, Buffer};
 use arrow::compute::{cast_with_options, CastOptions};
 use arrow::datatypes::{ArrowNativeType, ArrowNativeTypeOp, ArrowPrimitiveType, DataType, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
+use std::collections::HashSet;
 use std::hash::Hash;
 use std::ops::BitAnd;
 use std::sync::Arc;
@@ -526,6 +527,106 @@ impl ArrayPredicate for BloomFilter {
         };
 
         Ok(BooleanArray::new(mask, arr.nulls().cloned()))
+    }
+}
+
+
+pub struct PrimitiveListContainsAny<T: ArrowPrimitiveType> {
+    values: HashSet<T::Native>,
+}
+
+
+impl<T: ArrowPrimitiveType> PrimitiveListContainsAny<T>
+where
+    T::Native: std::cmp::Eq + Hash,
+{
+    pub fn new(values: &[T::Native]) -> Self {
+        Self {
+            values: values.iter().copied().collect(),
+        }
+    }
+}
+
+
+impl<T: ArrowPrimitiveType> ArrayPredicate for PrimitiveListContainsAny<T>
+where
+    T::Native: std::cmp::Eq + Hash,
+{
+    fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
+        let list_array = arr.as_list_opt::<i32>().ok_or_else(|| {
+            anyhow!("expected List array, but got {}", arr.data_type())
+        })?;
+
+        let values_array = list_array.values().as_primitive_opt::<T>().ok_or_else(|| {
+            anyhow!(
+                "expected List of primitive values, but got List of {}",
+                list_array.values().data_type()
+            )
+        })?;
+
+        let offsets = list_array.offsets();
+        let mask = BooleanBuffer::collect_bool(list_array.len(), |i| {
+            if list_array.is_null(i) {
+                return false;
+            }
+            let start = offsets[i].as_usize();
+            let end = offsets[i + 1].as_usize();
+            for j in start..end {
+                if self.values.contains(&values_array.value(j)) {
+                    return true;
+                }
+            }
+            false
+        });
+
+        Ok(BooleanArray::from(mask))
+    }
+}
+
+
+pub struct StringListContainsAny {
+    values: HashSet<String>,
+}
+
+
+impl StringListContainsAny {
+    pub fn new<S: AsRef<str>>(values: &[S]) -> Self {
+        Self {
+            values: values.iter().map(|s| s.as_ref().to_string()).collect(),
+        }
+    }
+}
+
+
+impl ArrayPredicate for StringListContainsAny {
+    fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
+        let list_array = arr.as_list_opt::<i32>().ok_or_else(|| {
+            anyhow!("expected List array, but got {}", arr.data_type())
+        })?;
+
+        let values_array = list_array.values().as_string_opt::<i32>().ok_or_else(|| {
+            anyhow!(
+                "expected List of string values, but got List of {}",
+                list_array.values().data_type()
+            )
+        })?;
+
+        let offsets = list_array.offsets();
+        let mask = BooleanBuffer::collect_bool(list_array.len(), |i| {
+            if list_array.is_null(i) {
+                return false;
+            }
+            let start = offsets[i].as_usize();
+            let end = offsets[i + 1].as_usize();
+            for j in start..end {
+                if self.values.contains(values_array.value(j)) {
+                    return true;
+                }
+            }
+            false
+        });
+
+        Ok(BooleanArray::from(mask))
     }
 }
 
