@@ -111,7 +111,6 @@ impl sqd_primitives::Block for Block {
         self.header.number
     }
 
-    // TODO: Inspect the usage
     fn hash(&self) -> &str {
         &self.header.hash
     }
