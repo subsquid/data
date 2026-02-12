@@ -68,7 +68,7 @@ pub struct TransactionInputCoinbase {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "type")]
+#[serde(untagged)]
 pub enum TransactionInput {
     #[serde(rename = "tx")]
     Tx(TransactionInputTx),
