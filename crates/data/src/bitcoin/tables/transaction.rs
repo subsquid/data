@@ -1,6 +1,6 @@
 use crate::bitcoin::model::{Block, Transaction};
 use crate::bitcoin::tables::common::*;
-use sqd_array::builder::{Int32Builder, UInt32Builder, UInt64Builder};
+use sqd_array::builder::{UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
 
@@ -14,7 +14,7 @@ table_builder! {
         size: UInt64Builder,
         vsize: UInt64Builder,
         weight: UInt64Builder,
-        version: Int32Builder,
+        version: UInt32Builder,
         locktime: UInt32Builder,
     }
 

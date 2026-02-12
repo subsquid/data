@@ -1,7 +1,7 @@
 use crate::bitcoin::model::BlockHeader;
 use crate::bitcoin::tables::common::*;
 use sqd_array::builder::{
-    Float64Builder, Int32Builder, TimestampSecondBuilder, UInt32Builder, UInt64Builder,
+    Float64Builder, TimestampSecondBuilder, UInt32Builder, UInt64Builder,
 };
 use sqd_data_core::table_builder;
 
@@ -12,7 +12,7 @@ table_builder! {
         hash: HexBytesBuilder,
         parent_hash: HexBytesBuilder,
         timestamp: TimestampSecondBuilder,
-        version: Int32Builder,
+        version: UInt32Builder,
         merkle_root: HexBytesBuilder,
         nonce: UInt32Builder,
         target: HexBytesBuilder,
