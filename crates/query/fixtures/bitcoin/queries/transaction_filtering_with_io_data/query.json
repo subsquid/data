@@ -1,0 +1,65 @@
+{
+  "type": "bitcoin",
+  "fromBlock": 401050,
+  "toBlock": 401060,
+  "transactions": [
+    {
+      "txid": [
+        "3e72a17bc00be833c3d38aa84dd5bd8b28df4bf073bc1cbc33f3e9dfb382ef75",
+        "88dd785d46da34beb0e588a788cc9b15c0221dfa3ab664c09e9f654bac3aa200",
+        "4b16851e3a6f8907e4d950f07e903e6d82dbff5c27eedfb71debdec37f3a8bb3"
+      ],
+      "inputs": true,
+      "outputs": true
+    }
+  ],
+  "fields": {
+    "block": {
+      "timestamp": true,
+      "number": true,
+      "hash": true,
+      "parentHash": true
+    },
+    "transaction": {
+        "transactionIndex": true,
+        "hex": true,
+        "txid": true,
+        "hash": true,
+        "size": true,
+        "vsize": true,
+        "weight": true,
+        "version": true,
+        "locktime": true
+    },
+    "input": {
+        "transactionIndex": true,
+        "inputIndex": true,
+        "type": true,
+        "txid": true,
+        "vout": true,
+        "scriptSigHex": true,
+        "scriptSigAsm": true,
+        "sequence": true,
+        "coinbase": true,
+        "txInWitness": true,
+        "prevoutGenerated": true,
+        "prevoutHeight": true,
+        "prevoutValue": true,
+        "prevoutScriptPubKeyHex": true,
+        "prevoutScriptPubKeyAsm": true,
+        "prevoutScriptPubKeyDesc": true,
+        "prevoutScriptPubKeyType": true,
+        "prevoutScriptPubKeyAddress": true
+    },
+    "output": {
+        "transactionIndex": true,
+        "outputIndex": true,
+        "value": true,
+        "scriptPubKeyHex": true,
+        "scriptPubKeyAsm": true,
+        "scriptPubKeyDesc": true,
+        "scriptPubKeyType": true,
+        "scriptPubKeyAddress": true
+    }
+  }
+}

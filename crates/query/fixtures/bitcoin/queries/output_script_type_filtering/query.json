@@ -1,0 +1,30 @@
+{
+  "type": "bitcoin",
+  "fromBlock": 401050,
+  "toBlock": 401060,
+  "outputs": [
+    {
+      "scriptPubKeyType": [
+        "pubkey"
+      ]
+    }
+  ],
+  "fields": {
+    "block": {
+      "timestamp": true,
+      "number": true,
+      "hash": true,
+      "parentHash": true
+    },
+    "output": {
+        "transactionIndex": true,
+        "outputIndex": true,
+        "value": true,
+        "scriptPubKeyHex": true,
+        "scriptPubKeyAsm": true,
+        "scriptPubKeyDesc": true,
+        "scriptPubKeyType": true,
+        "scriptPubKeyAddress": true
+    }
+  }
+}

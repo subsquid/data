@@ -9,6 +9,7 @@ pub struct BlockHeader {
     pub hash: HexBytes,
     pub parent_hash: HexBytes,
     pub timestamp: u32,
+    pub median_time: u32,
     pub version: u32,
     pub merkle_root: HexBytes,
     pub nonce: u32,

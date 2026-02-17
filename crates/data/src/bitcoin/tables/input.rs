@@ -34,9 +34,16 @@ table_builder! {
     description(d) {
         d.downcast.block_number = vec!["block_number", "prevout_height"];
         d.downcast.item_index = vec!["transaction_index", "input_index"];
-        d.sort_key = vec!["block_number", "transaction_index", "input_index"];
+        d.sort_key = vec!["prevout_script_pub_key_address", "block_number", "transaction_index", "input_index"];
         d.options.add_stats("block_number");
         d.options.add_stats("transaction_index");
+        d.options.add_stats("type");
+        d.options.add_stats("prevout_script_pub_key_address");
+        d.options.add_stats("prevout_script_pub_key_type");
+        d.options.add_stats("prevout_generated");
+        d.options.use_dictionary("type");
+        d.options.use_dictionary("prevout_script_pub_key_type");
+        d.options.use_dictionary("prevout_script_pub_key_address");
         d.options.row_group_size = 10_000;
     }
 }

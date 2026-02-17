@@ -12,6 +12,7 @@ table_builder! {
         hash: HexBytesBuilder,
         parent_hash: HexBytesBuilder,
         timestamp: TimestampSecondBuilder,
+        median_time: TimestampSecondBuilder,
         version: UInt32Builder,
         merkle_root: HexBytesBuilder,
         nonce: UInt32Builder,
@@ -39,6 +40,7 @@ impl BlockBuilder {
         self.hash.append(&row.hash);
         self.parent_hash.append(&row.parent_hash);
         self.timestamp.append(row.timestamp as i64);
+        self.median_time.append(row.median_time as i64);
         self.version.append(row.version);
         self.merkle_root.append(&row.merkle_root);
         self.nonce.append(row.nonce);

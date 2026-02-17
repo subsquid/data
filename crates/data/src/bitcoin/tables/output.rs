@@ -20,9 +20,13 @@ table_builder! {
     description(d) {
         d.downcast.block_number = vec!["block_number"];
         d.downcast.item_index = vec!["transaction_index", "output_index"];
-        d.sort_key = vec!["block_number", "transaction_index", "output_index"];
+        d.sort_key = vec!["script_pub_key_address", "block_number", "transaction_index", "output_index"];
         d.options.add_stats("block_number");
         d.options.add_stats("transaction_index");
+        d.options.add_stats("script_pub_key_address");
+        d.options.add_stats("script_pub_key_type");
+        d.options.use_dictionary("script_pub_key_type");
+        d.options.use_dictionary("script_pub_key_address");
         d.options.row_group_size = 10_000;
     }
 }
