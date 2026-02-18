@@ -8,6 +8,7 @@ use crate::server::run_server;
 use crate::writer::Writer;
 use anyhow::{ensure, Context};
 use prometheus_client::registry::Registry;
+use sqd_data::bitcoin::tables::BitcoinChunkBuilder;
 use sqd_data::evm::tables::EvmChunkBuilder;
 use sqd_data::hyperliquid_fills::tables::HyperliquidFillsChunkBuilder;
 use sqd_data::hyperliquid_replica_cmds::tables::HyperliquidReplicaCmdsChunkBuilder;
@@ -65,6 +66,7 @@ pub async fn run(args: Cli) -> anyhow::Result<()> {
     }
 
     let proc_task = match args.network_kind {
+        NetworkKind::Bitcoin => proc!(BitcoinChunkBuilder::default()),
         NetworkKind::Solana => proc!(SolanaChunkBuilder::default()),
         NetworkKind::HyperliquidFills => proc!(HyperliquidFillsChunkBuilder::default()),
         NetworkKind::HyperliquidReplicaCmds => proc!(HyperliquidReplicaCmdsChunkBuilder::default()),

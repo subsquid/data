@@ -1,0 +1,25 @@
+{
+  "type": "bitcoin",
+  "fromBlock": 401050,
+  "toBlock": 401060,
+  "includeAllBlocks": true,
+  "fields": {
+    "block": {
+        "number": true,
+        "hash": true,
+        "parentHash": true,
+        "timestamp": true,
+        "medianTime": true,
+        "version": true,
+        "merkleRoot": true,
+        "nonce": true,
+        "target": true,
+        "bits": true,
+        "difficulty": true,
+        "chainWork": true,
+        "strippedSize": true,
+        "size": true,
+        "weight": true
+    }
+  }
+}
