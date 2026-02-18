@@ -4918,6 +4918,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqd-hotblocks-sidecar"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "bytes",
+ "clap",
+ "futures",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqd-primitives",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "sqd-polars"
 version = "0.1.0"
 dependencies = [
@@ -5479,6 +5500,7 @@ dependencies = [
  "http 1.2.0",
  "http-body 1.0.1",
  "pin-project-lite",
+ "tower",
  "tower-layer",
  "tower-service",
  "tracing",
