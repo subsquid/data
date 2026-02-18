@@ -188,7 +188,6 @@ type Bytes = String;
 
 request! {
     pub struct TransactionRequest {
-        pub txid: Option<Vec<Bytes>>,
         pub inputs: bool,
         pub outputs: bool,
     }
@@ -196,8 +195,7 @@ request! {
 
 
 impl TransactionRequest {
-    fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_in_list("txid", self.txid.as_deref());
+    fn predicate(&self, _p: &mut PredicateBuilder) {
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
