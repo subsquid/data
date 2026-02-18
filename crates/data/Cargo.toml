@@ -14,3 +14,6 @@ sqd-bloom-filter = { path = "../bloom-filter" }
 sqd-data-core = { path = "../data-core" }
 sqd-dataset = { path = "../dataset" }
 sqd-primitives = { path = "../primitives" }
+
+[lints]
+workspace = true

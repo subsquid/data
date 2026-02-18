@@ -56,3 +56,6 @@ _bench_query = [
 [[bench]]
 name = "main"
 harness = false
+
+[lints]
+workspace = true 

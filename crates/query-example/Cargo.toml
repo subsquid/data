@@ -8,3 +8,6 @@ anyhow = { workspace = true }
 flate2 = { workspace = true }
 sqd-query = { path = "../query", features = ["parquet"] }
 sqd-polars = { path = "../polars" }
+
+[lints]
+workspace = true

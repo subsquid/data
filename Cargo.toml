@@ -50,10 +50,3 @@ url = "2.5.4"
 valuable = "0.1.1"
 
 [workspace.lints.clippy]
-correctness = "deny"
-suspicious = "warn"
-perf = "warn"
-cast_lossless = "warn"
-manual_string_new = "warn"
-
-len_without_is_empty = "allow
