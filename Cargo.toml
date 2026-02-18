@@ -53,4 +53,7 @@ valuable = "0.1.1"
 correctness = "deny"
 suspicious = "warn"
 perf = "warn"
+cast_lossless = "warn"
+manual_string_new = "warn"
 
+len_without_is_empty = "allow
