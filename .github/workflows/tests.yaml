@@ -1,0 +1,42 @@
+name: Rust Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: dsherret/rust-toolchain-file@v1
+      - uses: Swatinem/rust-cache@v2
+      - name: Fetch LFS files
+        run: git lfs fetch --all && git lfs checkout
+      - name: Run tests
+        run: cargo test --all-features
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dsherret/rust-toolchain-file@v1
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --all-features -- -D clippy::correctness

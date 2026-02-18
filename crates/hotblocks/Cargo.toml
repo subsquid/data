@@ -32,3 +32,6 @@ tower-http = { version = "0.6.1", features = ["request-id", "trace"] }
 tracing = { workspace = true, features = ["valuable"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json", "valuable"] }
 url = { workspace = true, features = ["serde"] }
+
+[lints]
+workspace = true 
