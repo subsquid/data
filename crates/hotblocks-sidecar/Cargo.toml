@@ -5,17 +5,13 @@ edition = "2024"
 
 [dependencies]
 anyhow = { workspace = true }
-axum = { workspace = true }
-bytes = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
-futures = { workspace = true }
 reqwest = { workspace = true, features = ["gzip", "json", "stream"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 sqd-primitives = { path = "../primitives" }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
-tower-http = { version = "0.6", features = ["request-id", "util"] }
-uuid = { workspace = true, features = ["v4"] }
 url = { workspace = true }

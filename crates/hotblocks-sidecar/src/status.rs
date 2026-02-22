@@ -1,3 +1,4 @@
+use crate::types::DatasetId;
 use serde::Deserialize;
 use sqd_primitives::BlockNumber;
 
@@ -8,7 +9,7 @@ pub struct SchedulingStatus {
 
 #[derive(Debug, Deserialize)]
 pub struct DatasetStatus {
-    pub id: String,
+    pub id: DatasetId,
     pub height: Option<BlockNumber>,
 }
 
