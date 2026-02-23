@@ -22,6 +22,16 @@ COPY --from=hotblocks-builder /app/target/release/sqd-hotblocks .
 ENTRYPOINT ["/app/sqd-hotblocks"]
 
 
+FROM builder AS hotblocks-sidecar-builder
+RUN cargo build -p sqd-hotblocks-sidecar --release
+
+
+FROM rust AS hotblocks-sidecar
+WORKDIR /app
+COPY --from=hotblocks-sidecar-builder /app/target/release/sqd-hotblocks-sidecar .
+ENTRYPOINT ["/app/sqd-hotblocks-sidecar"]
+
+
 FROM builder AS archive-builder
 RUN cargo build -p sqd-archive --release
 
