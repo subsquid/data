@@ -1,8 +1,10 @@
+use std::path::PathBuf;
+
 use clap::Parser;
 use url::Url;
 
 #[derive(Parser, Debug)]
-#[command(version, about = "Hotblocks sidecar service", long_about = None)]
+#[command(version, about = "Hotblocks retain service", long_about = None)]
 pub struct Cli {
     /// URL of the Hotblocks service to send dataset information to
     #[arg(long)]
@@ -12,9 +14,9 @@ pub struct Cli {
     #[arg(long)]
     pub status_url: Url,
 
-    /// Dataset identifiers to track (can be specified multiple times)
-    #[arg(long = "dataset")]
-    pub dataset: Vec<String>,
+    /// Path to the YAML config file listing datasets to track
+    #[arg(long)]
+    pub datasets_config: PathBuf,
 
     /// URL of the datasets YAML file listing available network datasets
     #[arg(long)]

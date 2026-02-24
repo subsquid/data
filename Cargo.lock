@@ -4918,7 +4918,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sqd-hotblocks-sidecar"
+name = "sqd-hotblocks-retain"
 version = "0.1.0"
 dependencies = [
  "anyhow",

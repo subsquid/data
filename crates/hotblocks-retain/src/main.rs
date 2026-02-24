@@ -10,11 +10,18 @@ use cli::Cli;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::Instant;
-use types::DatasetId;
+use types::{DatasetConfig, DatasetId, DatasetsConfig};
 use url::Url;
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
+
+    let datasets_config: DatasetsConfig = {
+        let contents = std::fs::read_to_string(&args.datasets_config)
+            .with_context(|| format!("failed to read {}", args.datasets_config.display()))?;
+        serde_yaml::from_str(&contents)
+            .with_context(|| format!("failed to parse {}", args.datasets_config.display()))?
+    };
 
     init_tracing();
 
@@ -22,11 +29,11 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .build()?
         .block_on(
-            Sidecar::new(
+            HotblocksRetain::new(
                 args.hotblocks_url,
                 args.status_url,
                 args.datasets_url,
-                args.dataset,
+                datasets_config.datasets,
                 Duration::from_secs(args.poll_interval_secs),
                 Duration::from_secs(args.datasets_update_interval_secs),
             )
@@ -36,24 +43,24 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-struct Sidecar {
+struct HotblocksRetain {
     client: reqwest::Client,
     hotblocks_url: Url,
     status_url: Url,
     datasets_url: Url,
-    datasets: Vec<String>,
+    datasets: Vec<DatasetConfig>,
     poll_interval: Duration,
     datasets_update_interval: Duration,
     name_to_id: HashMap<String, DatasetId>,
     last_datasets_refresh: Instant,
 }
 
-impl Sidecar {
+impl HotblocksRetain {
     fn new(
         hotblocks_url: Url,
         status_url: Url,
         datasets_url: Url,
-        datasets: Vec<String>,
+        datasets: Vec<DatasetConfig>,
         poll_interval: Duration,
         datasets_update_interval: Duration,
     ) -> Self {
@@ -110,26 +117,31 @@ impl Sidecar {
             .collect::<HashMap<_, _>>();
 
         for dataset in &self.datasets {
-            let dataset_id = match self.name_to_id.get(dataset) {
-                Some(name) => name,
-                None => {
-                    tracing::warn!(dataset, "dataset not found in manifest, skipping");
-                    continue;
+            let dataset_name = dataset.name.as_str();
+            let dataset_id = if let Some(id) = &dataset.id {
+                id.as_str()
+            } else {
+                match self.name_to_id.get(dataset_name) {
+                    Some(id) => id.as_str(),
+                    None => {
+                        tracing::warn!(dataset = dataset_name, "dataset not found in manifest, skipping");
+                        continue;
+                    }
                 }
             };
 
             match statuses.get(dataset_id) {
                 Some(Some(height)) => {
-                    hotblocks::set_retention(&self.client, &self.hotblocks_url, dataset, *height)
+                    hotblocks::set_retention(&self.client, &self.hotblocks_url, dataset_name, *height)
                         .await
-                        .with_context(|| format!("failed to update retention for {dataset}"))?;
-                    tracing::info!(dataset, height, "updated retention policy");
+                        .with_context(|| format!("failed to update retention for {dataset_name}"))?;
+                    tracing::info!(dataset = dataset_name, height, "updated retention policy");
                 }
                 Some(None) => {
-                    tracing::info!(dataset, "dataset has no reported height yet");
+                    tracing::info!(dataset = dataset_name, "dataset has no reported height yet");
                 }
                 None => {
-                    tracing::warn!(dataset, "dataset not found in status json");
+                    tracing::warn!(dataset = dataset_name, "dataset not found in status json");
                 }
             }
         }
