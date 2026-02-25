@@ -69,7 +69,7 @@ pub struct Transaction {
 
     pub contract_address: Option<HexBytes>,
     pub cumulative_gas_used: HexBytes,
-    pub effective_gas_price: HexBytes,
+    pub effective_gas_price: Option<HexBytes>,
     pub gas_used: HexBytes,
     pub status: Option<u8>,
 
