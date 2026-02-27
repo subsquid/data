@@ -121,7 +121,7 @@ impl TransactionBuilder {
 
         self.contract_address.append_option(row.contract_address.as_deref());
         self.cumulative_gas_used.append(&row.cumulative_gas_used);
-        self.effective_gas_price.append(&row.effective_gas_price);
+        self.effective_gas_price.append_option(row.effective_gas_price.as_deref());
         self.gas_used.append(&row.gas_used);
         self.sighash.append_option(sighash(&row.input));
         self.status.append_option(row.status);
