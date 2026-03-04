@@ -34,7 +34,7 @@ fn main() -> anyhow::Result<()> {
                 args.status_url,
                 args.datasets_url,
                 datasets_config.datasets,
-                Duration::from_secs(args.poll_interval_secs),
+                Duration::from_secs(args.retain_delay_secs),
                 Duration::from_secs(args.datasets_update_interval_secs),
             )
             .run(),
@@ -49,7 +49,7 @@ struct HotblocksRetain {
     status_url: Url,
     datasets_url: Url,
     datasets: Vec<DatasetConfig>,
-    poll_interval: Duration,
+    retain_delay: Duration,
     datasets_update_interval: Duration,
     name_to_id: HashMap<String, DatasetId>,
     last_datasets_refresh: Instant,
@@ -61,7 +61,7 @@ impl HotblocksRetain {
         status_url: Url,
         datasets_url: Url,
         datasets: Vec<DatasetConfig>,
-        poll_interval: Duration,
+        retain_delay: Duration,
         datasets_update_interval: Duration,
     ) -> Self {
         Self {
@@ -70,7 +70,7 @@ impl HotblocksRetain {
             status_url,
             datasets_url,
             datasets,
-            poll_interval,
+            retain_delay,
             datasets_update_interval,
             name_to_id: HashMap::new(),
             last_datasets_refresh: Instant::now() - datasets_update_interval,
@@ -78,15 +78,25 @@ impl HotblocksRetain {
     }
 
     async fn run(&mut self) -> anyhow::Result<()> {
-        let mut interval = tokio::time::interval(self.poll_interval);
-
         loop {
-            interval.tick().await;
             self.maybe_refresh_datasets().await;
 
-            if let Err(err) = self.poll_once().await {
-                tracing::warn!(error = ?err, "failed to refresh retention settings");
-            }
+            let status = match status::get_status(&self.client, self.status_url.as_str()).await {
+                Ok(status) => status,
+                Err(err) => {
+                    tracing::warn!(error = ?err, "failed to fetch status");
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
+
+            tracing::info!(
+                delay_secs = self.retain_delay.as_secs(),
+                "fetched status, waiting before applying retention"
+            );
+            tokio::time::sleep(self.retain_delay).await;
+
+            self.apply_retention(&status).await;
         }
     }
 
@@ -107,13 +117,11 @@ impl HotblocksRetain {
         }
     }
 
-    async fn poll_once(&self) -> anyhow::Result<()> {
-        let status = status::get_status(&self.client, self.status_url.as_str()).await?;
-
+    async fn apply_retention(&self, status: &status::SchedulingStatus) {
         let statuses = status
             .datasets
-            .into_iter()
-            .map(|dataset| (dataset.id, dataset.height))
+            .iter()
+            .map(|dataset| (dataset.id.as_str(), dataset.height))
             .collect::<HashMap<_, _>>();
 
         for dataset in &self.datasets {
@@ -124,7 +132,10 @@ impl HotblocksRetain {
                 match self.name_to_id.get(dataset_name) {
                     Some(id) => id.as_str(),
                     None => {
-                        tracing::warn!(dataset = dataset_name, "dataset not found in manifest, skipping");
+                        tracing::warn!(
+                            dataset = dataset_name,
+                            "dataset not found in manifest, skipping"
+                        );
                         continue;
                     }
                 }
@@ -132,21 +143,39 @@ impl HotblocksRetain {
 
             match statuses.get(dataset_id) {
                 Some(Some(height)) => {
-                    hotblocks::set_retention(&self.client, &self.hotblocks_url, dataset_name, *height)
-                        .await
-                        .with_context(|| format!("failed to update retention for {dataset_name}"))?;
-                    tracing::info!(dataset = dataset_name, height, "updated retention policy");
+                    match hotblocks::set_retention(
+                        &self.client,
+                        &self.hotblocks_url,
+                        dataset_name,
+                        *height,
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            tracing::info!(
+                                dataset = dataset_name,
+                                height,
+                                "applied retention policy"
+                            );
+                        }
+                        Err(err) => {
+                            tracing::warn!(
+                                dataset = dataset_name,
+                                height,
+                                error = ?err,
+                                "failed to apply retention"
+                            );
+                        }
+                    }
                 }
                 Some(None) => {
                     tracing::info!(dataset = dataset_name, "dataset has no reported height yet");
                 }
                 None => {
-                    tracing::warn!(dataset = dataset_name, "dataset not found in status json");
+                    tracing::warn!(dataset = dataset_name, "dataset not found in status");
                 }
             }
         }
-
-        Ok(())
     }
 }
 
