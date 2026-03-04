@@ -10,13 +10,13 @@ use cli::Cli;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::Instant;
-use types::{DatasetConfig, DatasetId, DatasetsConfig};
+use types::{DatasetId, DatasetsConfig};
 use url::Url;
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
 
-    let datasets_config: DatasetsConfig = {
+    let datasets: DatasetsConfig = {
         let contents = std::fs::read_to_string(&args.datasets_config)
             .with_context(|| format!("failed to read {}", args.datasets_config.display()))?;
         serde_yaml::from_str(&contents)
@@ -33,7 +33,7 @@ fn main() -> anyhow::Result<()> {
                 args.hotblocks_url,
                 args.status_url,
                 args.datasets_url,
-                datasets_config.datasets,
+                datasets,
                 Duration::from_secs(args.retain_delay_secs),
                 Duration::from_secs(args.datasets_update_interval_secs),
             )
@@ -48,7 +48,7 @@ struct HotblocksRetain {
     hotblocks_url: Url,
     status_url: Url,
     datasets_url: Url,
-    datasets: Vec<DatasetConfig>,
+    datasets: DatasetsConfig,
     retain_delay: Duration,
     datasets_update_interval: Duration,
     name_to_id: HashMap<String, DatasetId>,
@@ -60,7 +60,7 @@ impl HotblocksRetain {
         hotblocks_url: Url,
         status_url: Url,
         datasets_url: Url,
-        datasets: Vec<DatasetConfig>,
+        datasets: DatasetsConfig,
         retain_delay: Duration,
         datasets_update_interval: Duration,
     ) -> Self {
@@ -124,18 +124,14 @@ impl HotblocksRetain {
             .map(|dataset| (dataset.id.as_str(), dataset.height))
             .collect::<HashMap<_, _>>();
 
-        for dataset in &self.datasets {
-            let dataset_name = dataset.name.as_str();
-            let dataset_id = if let Some(id) = &dataset.id {
-                id.as_str()
+        for (dataset, props) in &self.datasets {
+            let dataset_id = if let Some(id) = props.as_ref().and_then(|p| p.id.as_deref()) {
+                id
             } else {
-                match self.name_to_id.get(dataset_name) {
+                match self.name_to_id.get(dataset) {
                     Some(id) => id.as_str(),
                     None => {
-                        tracing::warn!(
-                            dataset = dataset_name,
-                            "dataset not found in manifest, skipping"
-                        );
+                        tracing::warn!(dataset, "dataset not found in manifest, skipping");
                         continue;
                     }
                 }
@@ -146,33 +142,24 @@ impl HotblocksRetain {
                     match hotblocks::set_retention(
                         &self.client,
                         &self.hotblocks_url,
-                        dataset_name,
+                        dataset,
                         *height,
                     )
                     .await
                     {
                         Ok(()) => {
-                            tracing::info!(
-                                dataset = dataset_name,
-                                height,
-                                "applied retention policy"
-                            );
+                            tracing::info!(dataset, height, "applied retention policy");
                         }
                         Err(err) => {
-                            tracing::warn!(
-                                dataset = dataset_name,
-                                height,
-                                error = ?err,
-                                "failed to apply retention"
-                            );
+                            tracing::warn!(dataset, height, error = ?err, "failed to apply retention");
                         }
                     }
                 }
                 Some(None) => {
-                    tracing::info!(dataset = dataset_name, "dataset has no reported height yet");
+                    tracing::info!(dataset, "dataset has no reported height yet");
                 }
                 None => {
-                    tracing::warn!(dataset = dataset_name, "dataset not found in status");
+                    tracing::warn!(dataset, "dataset not found in status");
                 }
             }
         }

@@ -1,15 +1,11 @@
 use serde::Deserialize;
+use std::collections::HashMap;
 
 pub type DatasetId = String; // s3://<bucket-name>
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct DatasetConfig {
-    pub name: String,
-    #[serde(default)]
+pub struct DatasetProps {
     pub id: Option<DatasetId>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct DatasetsConfig {
-    pub datasets: Vec<DatasetConfig>,
-}
+pub type DatasetsConfig = HashMap<String, Option<DatasetProps>>;
