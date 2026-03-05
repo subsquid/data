@@ -1,0 +1,40 @@
+{
+  "type": "evm",
+  "fromBlock": 6000208,
+  "toBlock": 6000208,
+  "transactions": [
+    {
+      "from": [
+        "0x90b68902916580b64f1b80ed3ae6a21180601dbf"
+      ]
+    }
+  ],
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "transaction": {
+      "transactionIndex": true,
+      "hash": true,
+      "type": true,
+      "from": true,
+      "to": true,
+      "nonce": true,
+      "gas": true,
+      "gasUsed": true,
+      "status": true,
+      "calls": true,
+      "nonceKey": true,
+      "signature": true,
+      "feeToken": true,
+      "feePayerV": true,
+      "feePayerR": true,
+      "feePayerS": true,
+      "validBefore": true,
+      "validAfter": true,
+      "aaAuthorizationList": true,
+      "keyAuthorization": true
+    }
+  }
+}
