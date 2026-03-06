@@ -162,10 +162,10 @@ fn push_prim_sig(b: &mut TempoPrimSigBuilder, sig: &TempoPrimitiveSignature) {
             b.s.append(s);
             b.y_parity.append_option(*y_parity);
             b.v.append_option(*v);
-            b.pub_key_x.append_option(None);
-            b.pub_key_y.append_option(None);
+            b.pub_key_x.append_null();
+            b.pub_key_y.append_null();
             b.pre_hash.append_option(None);
-            b.webauthn_data.append_option(None);
+            b.webauthn_data.append_null();
         }
         TempoPrimitiveSignature::P256 { r, s, pub_key_x, pub_key_y, pre_hash } => {
             b.sig_type.append("p256");
@@ -176,7 +176,7 @@ fn push_prim_sig(b: &mut TempoPrimSigBuilder, sig: &TempoPrimitiveSignature) {
             b.pub_key_x.append(pub_key_x);
             b.pub_key_y.append(pub_key_y);
             b.pre_hash.append(*pre_hash);
-            b.webauthn_data.append_option(None);
+            b.webauthn_data.append_null();
         }
         TempoPrimitiveSignature::WebAuthn { r, s, pub_key_x, pub_key_y, webauthn_data } => {
             b.sig_type.append("webAuthn");
@@ -199,10 +199,10 @@ fn push_prim_sig_null(b: &mut TempoPrimSigBuilder) {
     b.s.append_null();
     b.y_parity.append_option(None);
     b.v.append_option(None);
-    b.pub_key_x.append_option(None);
-    b.pub_key_y.append_option(None);
+    b.pub_key_x.append_null();
+    b.pub_key_y.append_null();
     b.pre_hash.append_option(None);
-    b.webauthn_data.append_option(None);
+    b.webauthn_data.append_null();
     b.append_null();
 }
 
@@ -210,7 +210,7 @@ fn push_tempo_sig(b: &mut TempoSigBuilder, sig: &TempoSignature) {
     match sig {
         TempoSignature::Primitive(prim) => {
             push_prim_sig(&mut b.primitive, prim);
-            b.user_address.append_option(None);
+            b.user_address.append_null();
             b.version.append_null();
         }
         TempoSignature::Keychain(TempoKeychainSignature { user_address, signature, version }) => {
@@ -224,7 +224,7 @@ fn push_tempo_sig(b: &mut TempoSigBuilder, sig: &TempoSignature) {
 
 fn push_tempo_sig_null(b: &mut TempoSigBuilder) {
     push_prim_sig_null(&mut b.primitive);
-    b.user_address.append_option(None);
+    b.user_address.append_null();
     b.version.append_null();
     b.append_null();
 }
@@ -296,8 +296,8 @@ impl TransactionBuilder {
             self.fee_payer_s.append(&sig.s);
         } else {
             self.fee_payer_v.append_option(None);
-            self.fee_payer_r.append_option(None);
-            self.fee_payer_s.append_option(None);
+            self.fee_payer_r.append_null();
+            self.fee_payer_s.append_null();
         }
 
         self.valid_before.append_option(row.valid_before.as_deref());
@@ -334,10 +334,10 @@ impl TransactionBuilder {
             b.append_valid();
         } else {
             let b = &mut self.key_authorization;
-            b.chain_id.append_option(None);
+            b.chain_id.append_null();
             b.key_type.append_null();
-            b.key_id.append_option(None);
-            b.expiry.append_option(None);
+            b.key_id.append_null();
+            b.expiry.append_null();
             b.limits.append();
             push_prim_sig_null(&mut b.signature);
             b.append_null();
