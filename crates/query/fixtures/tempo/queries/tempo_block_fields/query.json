@@ -1,0 +1,18 @@
+{
+  "type": "evm",
+  "fromBlock": 6000141,
+  "toBlock": 6000145,
+  "includeAllBlocks": true,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true,
+      "timestamp": true,
+      "gasLimit": true,
+      "gasUsed": true,
+      "mainBlockGeneralGasLimit": true,
+      "sharedGasLimit": true,
+      "timestampMillisPart": true
+    }
+  }
+}
