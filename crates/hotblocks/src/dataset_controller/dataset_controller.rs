@@ -363,7 +363,13 @@ impl Ctl {
                 State::Init { head: None }
             },
             RetentionStrategy::Head(n) => State::Init { head: Some(n) },
-            RetentionStrategy::None => State::Idle
+            RetentionStrategy::None => {
+                if write.write.head().is_some() {
+                    State::Init { head: None }
+                } else {
+                    State::Idle
+                }
+            }
         };
 
         loop {
