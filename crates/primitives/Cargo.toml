@@ -11,3 +11,6 @@ valuable = { workspace = true, optional = true, features = ["derive"] }
 [features]
 range = []
 sid = []
+
+[lints]
+workspace = true
