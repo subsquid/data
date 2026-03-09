@@ -4,7 +4,8 @@ use crate::scan::parquet::metadata::ParquetMetadata;
 use crate::scan::reader::TableReader;
 use crate::scan::row_predicate::{RowPredicate, RowPredicateRef};
 use crate::scan::util::{add_row_index, build_row_index_array};
-use arrow::array::RecordBatch;
+use arrow::array::{new_null_array, RecordBatch};
+use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder, RowSelection, RowSelector};
 use parquet::arrow::ProjectionMask;
 use parquet::file::metadata::RowGroupMetaData;
@@ -13,7 +14,6 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ops::Not;
 use std::sync::Arc;
-use arrow::datatypes::SchemaRef;
 
 
 #[derive(Clone)]
@@ -45,14 +45,43 @@ impl ParquetFile {
 
 
 impl TableReader for ParquetFile {
+    /// Reads record batches from the parquet file with optional filtering and projection.
+    ///
+    /// The read proceeds in several stages:
+    ///
+    /// 1. **Row group stats pruning**: If the predicate supports stats evaluation,
+    ///    row group-level min/max statistics are checked to skip entire row groups
+    ///    that can't contain matching rows. The result is intersected with any
+    ///    existing row_selection.
+    ///
+    /// 2. **Page stats pruning**: Within selected row groups, page-level statistics
+    ///    are checked to further narrow down which pages need to be read.
+    ///
+    /// 3. **Projection resolution**: The requested `projection` columns and any
+    ///    additional columns needed by the `predicate` are resolved to parquet
+    ///    schema field indices. Predicate-only columns (not in the projection)
+    ///    are tracked separately so they can be stripped from the output after
+    ///    predicate evaluation.
+    ///
+    ///    Columns listed in `default_null_columns` that are missing from the
+    ///    parquet schema are skipped during projection resolution. After reading,
+    ///    NullArray columns are injected for them so that predicates and callers
+    ///    see them as all-null.
+    ///
+    /// 4. **Parallel row group reading**: Selected row groups are read in parallel.
+    ///    Each row group read applies the projection mask, row selection, and
+    ///    optionally adds a row_index column. After reading, the predicate is
+    ///    evaluated and predicate-only columns are removed from the output.
     fn read(
         &self,
         predicate: Option<RowPredicateRef>,
         projection: Option<&HashSet<Name>>,
         row_selection: Option<&RowRangeList>,
-        with_row_index: bool
+        with_row_index: bool,
+        default_null_columns: Option<&HashSet<Name>>
     ) -> anyhow::Result<Vec<RecordBatch>>
     {
+        // Stage 1: Row group stats pruning
         let mut maybe_new_row_selection = None;
 
         if let Some(predicate) = predicate.as_ref() {
@@ -88,6 +117,7 @@ impl TableReader for ParquetFile {
                 .collect()
         };
 
+        // Stage 2: Page stats pruning
         if let Some(predicate) = predicate.as_ref() {
             if predicate.can_evaluate_stats() {
                 for (row_group_idx, sel_ptr) in row_groups.iter_mut() {
@@ -107,6 +137,13 @@ impl TableReader for ParquetFile {
             }
         }
 
+        // Stage 3: Projection resolution — map column names to parquet field indices.
+        // Predicate columns not already in the projection are tracked separately
+        // so they can be stripped from the output after predicate evaluation.
+        // Columns in default_null_columns that are missing from the parquet schema
+        // are skipped here and injected as NullArrays after reading.
+        let mut missing_null_columns: Vec<Name> = Vec::new();
+
         let (projection_mask, predicate_columns) = if let Some(columns) = projection {
             let predicate_columns = predicate.as_ref()
                 .map_or([].as_slice(), |p| p.projection())
@@ -123,12 +160,18 @@ impl TableReader for ParquetFile {
             let fields = self.metadata.metadata().parquet_schema().root_schema().get_fields();
 
             for name in columns.iter().chain(predicate_columns.iter()).copied() {
-                let idx = fields.iter()
-                    .position(|f| f.name() == name)
-                    .ok_or_else(|| {
-                        anyhow::format_err!("column '{}' is not found in {}", name, self.filename)
-                    })?;
-                indices.push(idx);
+                match fields.iter().position(|f| f.name() == name) {
+                    Some(idx) => {
+                        indices.push(idx);
+                    }
+                    None => {
+                        if default_null_columns.map_or(false, |dnc| dnc.contains(name)) {
+                            missing_null_columns.push(name);
+                        } else {
+                            anyhow::bail!("column '{}' is not found in {}", name, self.filename);
+                        }
+                    }
+                }
             }
 
             let projection_mask = ProjectionMask::roots(
@@ -147,6 +190,7 @@ impl TableReader for ParquetFile {
             })
         });
 
+        // Stage 4: Parallel row group reading
         let results: Vec<_> = row_groups.into_par_iter().map(|(row_group_idx, maybe_row_selection)| {
             read_row_group(
                 self.io.clone(),
@@ -167,7 +211,23 @@ impl TableReader for ParquetFile {
         for r in results {
             record_batches.extend(r?)
         }
-        
+
+        // Inject NullArray columns for default-null columns missing from parquet
+        if !missing_null_columns.is_empty() {
+            record_batches = record_batches.into_iter().map(|batch| {
+                let num_rows = batch.num_rows();
+                let mut fields: Vec<_> = batch.schema().fields().iter().cloned().collect();
+                let mut arrays: Vec<_> = batch.columns().to_vec();
+
+                for col_name in missing_null_columns.iter() {
+                    fields.push(Arc::new(Field::new(*col_name, DataType::Null, true)));
+                    arrays.push(new_null_array(&DataType::Null, num_rows));
+                }
+
+                RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)
+            }).collect::<Result<Vec<_>, _>>()?;
+        }
+
         Ok(record_batches)
     }
 

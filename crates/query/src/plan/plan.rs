@@ -28,6 +28,7 @@ struct Output {
     table: Name,
     key: &'static [Name],
     projection: HashSet<Name>,
+    default_null_columns: HashSet<Name>,
     weight_per_row: RowWeight,
     weight_columns: Vec<Name>,
     exp: Exp,
@@ -75,6 +76,13 @@ struct PlanExecution<'a> {
 
 
 impl <'a> PlanExecution<'a> {
+    /// Executes the full query plan against a data chunk.
+    ///
+    /// The plan operates across multiple tables (one per output).
+    /// Execution proceeds in three phases:
+    /// 1. Scans - find matching row indexes in each table (parallel per scan)
+    /// 2. Relations - propagate row selections across related tables (e.g. join, children)
+    /// 3. Output - read actual data for selected rows from each table and build the result
     fn execute(&self) -> anyhow::Result<Option<BlockWriter>> {
         self.check_parent_block()?;
 
@@ -171,6 +179,12 @@ impl <'a> PlanExecution<'a> {
         }
     }
 
+    /// Phase 1: Execute predicate scans to collect matching row indexes.
+    ///
+    /// Each scan targets a single table and collects row indexes that match
+    /// its predicate. These row indexes are distributed to relation inputs
+    /// (for cross-table joins in phase 2) and/or output inputs (for direct
+    /// data reading in phase 3). Scans run in parallel.
     fn execute_scans(
         &self,
         relation_inputs: &Vec<RowList>,
@@ -197,6 +211,12 @@ impl <'a> PlanExecution<'a> {
         })
     }
 
+    /// Phase 2: Propagate row selections through relations.
+    ///
+    /// Relations link rows between tables (e.g. join, children, parents).
+    /// For each relation, the matched rows from phase 1 are used to find
+    /// corresponding rows in the relation's output table, adding them
+    /// to that table's output inputs. Relations run in parallel.
     fn execute_relations(
         &self,
         relation_inputs: Vec<RowList>,
@@ -214,6 +234,18 @@ impl <'a> PlanExecution<'a> {
         })
     }
 
+    /// Phase 3: Read actual column data and build the output.
+    ///
+    /// Each output corresponds to a single table (outputs[0] is always the
+    /// block header table). For each table independently:
+    /// 1. First pass: read key + weight columns to compute per-block weights
+    ///    and determine which blocks fit in the ~20MB output budget
+    /// 2. Second pass: read the full projection for selected rows and build
+    ///    DataItem encoders for JSON serialization
+    ///
+    /// Columns missing from the parquet file are handled gracefully if they
+    /// have a default value of Null (via default_null_columns) — they are
+    /// replaced with NullArrays so the encoder outputs "null" for them.
     fn execute_output(&self, output_inputs: Vec<RowList>) -> anyhow::Result<Option<BlockWriter>> {
         use sqd_polars::prelude::*;
 
@@ -383,11 +415,16 @@ impl <'a> PlanExecution<'a> {
                 row_index.column("row_index").unwrap().u32()?.into_no_null_iter()
             );
 
-            let records = self.data_chunk
+            let mut scan = self.data_chunk
                 .scan_table(output.table)?
                 .with_row_selection(row_selection)
-                .with_projection(output.projection.clone())
-                .execute()?;
+                .with_projection(output.projection.clone());
+
+            if !output.default_null_columns.is_empty() {
+                scan = scan.with_default_null_columns(output.default_null_columns.clone());
+            }
+
+            let records = scan.execute()?;
 
             let data_item = DataItem::new(
                 output.item_name,
@@ -450,6 +487,7 @@ impl PlanBuilder{
                     table: table.name,
                     key: &table.primary_key,
                     projection: HashSet::new(),
+                    default_null_columns: HashSet::new(),
                     weight_per_row: 0,
                     weight_columns: Vec::new(),
                     exp: Exp::Object(vec![]),
@@ -527,6 +565,8 @@ impl PlanBuilder{
             output.exp.for_each_column(&mut |name| {
                 output.projection.insert(name);
             });
+
+            output.default_null_columns = table.default_null_columns();
 
             let mut per_row = 0;
             let mut weight_columns = Vec::new();

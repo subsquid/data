@@ -218,6 +218,16 @@ fn eval_object(array: &dyn Array, props: &Vec<(Name, Exp)>) -> Result<EncoderObj
 }
 
 
+struct AllNullEncoder;
+
+
+impl Encoder for AllNullEncoder {
+    fn encode(&mut self, _idx: usize, out: &mut Vec<u8>) {
+        out.extend_from_slice(b"null")
+    }
+}
+
+
 fn eval_prop(array: &dyn Array, name: Name, exp: &Exp) -> Result<EncoderObject, SchemaError> {
     let array: &StructArray = array.as_any().downcast_ref().ok_or_else(|| {
         schema_error!("expected a StructArray, but got {}", array.data_type())
@@ -226,6 +236,15 @@ fn eval_prop(array: &dyn Array, name: Name, exp: &Exp) -> Result<EncoderObject, 
     let column_array = array.column_by_name(name).ok_or_else(|| {
         schema_error!("column `{}` not found", name)
     })?;
+
+    if column_array.data_type() == &DataType::Null {
+        let encoder: EncoderObject = Box::new(AllNullEncoder);
+        if let Some(nulls) = array.nulls() {
+            return Ok(Box::new(NullableEncoder::new(encoder, nulls.clone())))
+        } else {
+            return Ok(encoder)
+        }
+    }
 
     let encoder = exp.eval(column_array).map_err(|err| err.at(name))?;
 
