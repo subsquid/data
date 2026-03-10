@@ -23,3 +23,6 @@ tracing = { workspace = true, features = ["valuable"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json", "valuable"] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
+
+[lints]
+workspace = true
