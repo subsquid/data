@@ -12,12 +12,14 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
 
     tables.add_table("blocks", vec![
         "number"
-    ]);
+    ])
+    .set_nullable(BlockFieldSelection::columns());
 
     tables.add_table("fills", vec![
         "block_number",
         "fill_index"
-    ]);
+    ])
+    .set_nullable(FillFieldSelection::columns());
 
     tables
 });

@@ -13,27 +13,31 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     tables.add_table("blocks", vec![
         "number"
     ])
-    .set_weight("digest", 32 * 4);
+    .set_weight("digest", 32 * 4)
+    .set_nullable(BlockFieldSelection::columns());
 
     tables.add_table("events", vec![
         "block_number",
         "index"
     ])
-    .set_weight_column("args", "args_size");
+    .set_weight_column("args", "args_size")
+    .set_nullable(EventFieldSelection::columns());
 
     tables.add_table("calls", vec![
         "block_number",
         "extrinsic_index",
         "address"
     ])
-    .set_weight_column("args", "args_size");
+    .set_weight_column("args", "args_size")
+    .set_nullable(CallFieldSelection::columns());
 
     tables.add_table("extrinsics", vec![
         "block_number",
         "index"
     ])
     .add_child("calls", vec!["block_number", "extrinsic_index"])
-    .set_weight("signature", 4 * 32);
+    .set_weight("signature", 4 * 32)
+    .set_nullable(ExtrinsicFieldSelection::columns());
 
     tables
 });

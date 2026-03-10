@@ -12,7 +12,8 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
 
     tables.add_table("blocks", vec![
         "number"
-    ]);
+    ])
+    .set_nullable(BlockFieldSelection::columns());
 
     tables.add_table("transactions", vec![
         "block_number",
@@ -24,14 +25,16 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     .set_weight_column("storage_slots", "storage_slots_size")
     .set_weight_column("proof_set", "proof_set_size")
     .set_weight_column("script_data", "script_data_size")
-    .set_weight_column("raw_payload", "raw_payload_size");
+    .set_weight_column("raw_payload", "raw_payload_size")
+    .set_nullable(TransactionFieldSelection::columns());
 
     tables.add_table("receipts", vec![
         "block_number",
         "transaction_index",
         "index"
     ])
-    .set_weight_column("data", "data_size");
+    .set_weight_column("data", "data_size")
+    .set_nullable(ReceiptFieldSelection::columns());
 
     tables.add_table("inputs", vec![
         "block_number",
@@ -39,13 +42,15 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
         "index"
     ])
     .set_weight_column("coin_predicate", "coin_predicate_size")
-    .set_weight_column("message_predicate", "message_predicate_size");
+    .set_weight_column("message_predicate", "message_predicate_size")
+    .set_nullable(InputFieldSelection::columns());
 
     tables.add_table("outputs", vec![
         "block_number",
         "transaction_index",
         "index"
-    ]);
+    ])
+    .set_nullable(OutputFieldSelection::columns());
 
     tables
 });

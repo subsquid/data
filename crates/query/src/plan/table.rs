@@ -44,6 +44,13 @@ impl Table {
         self
     }
 
+    pub fn set_nullable(&mut self, columns: &[Name]) -> &mut Self {
+        for col in columns {
+            self.column_defaults.insert(col, ColumnDefault::Null);
+        }
+        self
+    }
+
     pub fn default_null_columns(&self) -> HashSet<Name> {
         self.column_defaults.iter()
             .filter_map(|(name, default)| match default {

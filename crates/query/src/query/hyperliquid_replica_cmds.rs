@@ -13,14 +13,16 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
 
     tables.add_table("blocks", vec![
         "number"
-    ]);
+    ])
+    .set_nullable(BlockFieldSelection::columns());
 
     tables.add_table("actions", vec![
         "block_number",
         "action_index"
     ])
     .set_weight_column("action", "action_size")
-    .set_weight_column("response", "response_size");
+    .set_weight_column("response", "response_size")
+    .set_nullable(ActionFieldSelection::columns());
 
     tables
 });
