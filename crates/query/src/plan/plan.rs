@@ -127,76 +127,48 @@ impl<'a> PlanExecution<'a> {
 
         let block_scan = self.chunk.scan_table(self.plan.outputs[0].table)?;
 
-        let mut refs: Vec<_> = if block_scan
+        let has_parent_number = block_scan
             .schema()
             .column_with_name("parent_number")
-            .is_some()
-        {
-            // this is Solana with possible gaps in block numbers
-            let df = block_scan
-                .with_column("parent_number")
-                .with_column("parent_hash")
-                .with_predicate(col_between(
-                    "parent_number",
-                    block_number.saturating_sub(100),
-                    block_number.saturating_sub(1),
-                ))
-                .to_lazy_df()?
-                .collect()?;
+            .is_some();
 
-            let numbers = df
-                .column("parent_number")?
-                .cast(&sqd_polars::prelude::DataType::UInt64)?;
-            let numbers = numbers.u64()?;
-
-            let hashes = df.column("parent_hash")?;
-            let hashes = hashes.str()?;
-
-            (0..df.shape().0)
-                .map(|i| {
-                    let number = numbers
-                        .get(i)
-                        .expect("block number can't be null according to the predicate applied");
-                    let hash = hashes.get(i).unwrap_or("");
-                    BlockRef {
-                        number,
-                        hash: hash.to_string(),
-                    }
-                })
-                .collect()
+        let (number_col, predicate_upper) = if has_parent_number {
+            ("parent_number", block_number.saturating_sub(1))
         } else {
-            let df = block_scan
-                .with_column("number")
-                .with_column("parent_hash")
-                .with_predicate(col_between(
-                    "number",
-                    block_number.saturating_sub(100),
-                    block_number,
-                ))
-                .to_lazy_df()?
-                .collect()?;
-
-            let numbers = df
-                .column("number")?
-                .cast(&sqd_polars::prelude::DataType::UInt64)?;
-            let numbers = numbers.u64()?;
-
-            let hashes = df.column("parent_hash")?;
-            let hashes = hashes.str()?;
-
-            (0..df.shape().0)
-                .map(|i| {
-                    let number = numbers
-                        .get(i)
-                        .expect("block number can't be null according to the predicate applied");
-                    let hash = hashes.get(i).unwrap_or("");
-                    BlockRef {
-                        number: number.saturating_sub(1),
-                        hash: hash.to_string(),
-                    }
-                })
-                .collect()
+            ("number", block_number)
         };
+
+        let df = block_scan
+            .with_column(number_col)
+            .with_column("parent_hash")
+            .with_predicate(col_between(
+                number_col,
+                block_number.saturating_sub(100),
+                predicate_upper,
+            ))
+            .to_lazy_df()?
+            .collect()?;
+
+        let numbers = df
+            .column(number_col)?
+            .cast(&sqd_polars::prelude::DataType::UInt64)?;
+        let numbers = numbers.u64()?;
+
+        let hashes = df.column("parent_hash")?;
+        let hashes = hashes.str()?;
+
+        let mut refs: Vec<_> = (0..df.shape().0)
+            .map(|i| {
+                let number = numbers
+                    .get(i)
+                    .expect("block number can't be null according to the predicate applied");
+                let hash = hashes.get(i).unwrap_or("");
+                BlockRef {
+                    number: if has_parent_number { number } else { number.saturating_sub(1) },
+                    hash: hash.to_string(),
+                }
+            })
+            .collect();
 
         refs.sort_by(|a, b| a.number.cmp(&b.number));
 
