@@ -19,3 +19,6 @@ sqd-primitives = { path = "../primitives", features = ["borsh", "sid", "range"] 
 proptest = { workspace = true }
 tempfile = { workspace = true }
 rand = "0.9.0"
+
+[lints]
+workspace = true
