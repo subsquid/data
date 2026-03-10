@@ -6,7 +6,7 @@ pub mod parquet;
 mod reader;
 mod row_predicate;
 mod row_predicate_dsl;
-mod scan;
+pub(crate) mod scan;
 #[cfg(feature = "storage")]
 mod storage;
 mod util;
