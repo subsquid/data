@@ -4967,6 +4967,7 @@ dependencies = [
  "sqd-storage",
  "tempfile",
  "tikv-jemallocator",
+ "tracing",
 ]
 
 [[package]]

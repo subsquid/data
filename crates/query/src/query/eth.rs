@@ -27,7 +27,10 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     .add_child("traces", vec!["block_number", "transaction_index"])
     .add_child("statediffs", vec!["block_number", "transaction_index"])
     .set_weight_column("input", "input_size")
-    .set_nullable(TransactionFieldSelection::columns());
+    .set_nullable(&TransactionFieldSelection::columns().iter()
+        .filter(|c| **c != "authorization_list")
+        .copied()
+        .collect::<Vec<_>>());
 
     tables.add_table("logs", vec![
         "block_number",
