@@ -20,8 +20,10 @@ fn test_fixture(chunk: &dyn Chunk,  query_file: PathBuf) {
     let case_dir = query_file.parent().unwrap();
     let result_file = case_dir.join("result.json");
 
-    let actual_bytes = execute_query(chunk, &query_file).unwrap();
-    let actual: serde_json::Value = serde_json::from_slice(&actual_bytes).unwrap();
+    let actual: serde_json::Value = match execute_query(chunk, &query_file) {
+        Ok(bytes) => serde_json::from_slice(&bytes).unwrap(),
+        Err(err) => serde_json::Value::String(err.to_string()),
+    };
 
     let expected: serde_json::Value = match std::fs::read(&result_file) {
         Ok(expected_bytes) => serde_json::from_slice(&expected_bytes).unwrap(),
