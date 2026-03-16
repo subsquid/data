@@ -15,8 +15,7 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
 
     tables.add_table("blocks", vec![
         "number"
-    ])
-    .set_nullable(BlockFieldSelection::columns());
+    ]); 
 
     tables.add_table("transactions", vec![
         "block_number",
@@ -28,8 +27,7 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     .set_weight_column("account_keys", "account_keys_size")
     .set_weight_column("address_table_lookups", "address_table_lookups_size")
     .set_weight_column("signatures", "signatures_size")
-    .set_weight_column("loaded_addresses", "loaded_addresses_size")
-    .set_nullable(TransactionFieldSelection::columns());
+    .set_weight_column("loaded_addresses", "loaded_addresses_size");
 
     tables.add_table("instructions", vec![
         "block_number",
@@ -53,37 +51,32 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     .set_weight("a13", 0)
     .set_weight("a14", 0)
     .set_weight("a15", 0)
-    .set_weight("rest_accounts", 0)
-    .set_nullable(InstructionFieldSelection::columns());
+    .set_weight("rest_accounts", 0);
 
     tables.add_table("logs", vec![
         "block_number",
         "transaction_index",
         "log_index"
     ])
-    .set_weight_column("message", "message_size")
-    .set_nullable(LogFieldSelection::columns());
+    .set_weight_column("message", "message_size");
 
     tables.add_table("balances", vec![
         "block_number",
         "transaction_index",
         "account"
-    ])
-    .set_nullable(BalanceFieldSelection::columns());
+    ]);
 
     tables.add_table("token_balances", vec![
         "block_number",
         "transaction_index",
         "account"
-    ])
-    .set_nullable(TokenBalanceFieldSelection::columns());
+    ]);
 
     tables.add_table("rewards", vec![
         "block_number",
         "pubkey",
         "reward_type"
-    ])
-    .set_nullable(RewardFieldSelection::columns());
+    ]);
 
     tables
 });

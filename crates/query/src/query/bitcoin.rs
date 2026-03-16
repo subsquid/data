@@ -12,30 +12,26 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
 
     tables.add_table("blocks", vec![
         "number"
-    ])
-    .set_nullable(BlockFieldSelection::columns());
+    ]);
 
     tables.add_table("transactions", vec![
         "block_number",
         "transaction_index"
     ])
     .add_child("inputs", vec!["block_number", "transaction_index"])
-    .add_child("outputs", vec!["block_number", "transaction_index"])
-    .set_nullable(TransactionFieldSelection::columns());
+    .add_child("outputs", vec!["block_number", "transaction_index"]);
 
     tables.add_table("inputs", vec![
         "block_number",
         "transaction_index",
         "input_index"
-    ])
-    .set_nullable(InputFieldSelection::columns());
+    ]);
 
     tables.add_table("outputs", vec![
         "block_number",
         "transaction_index",
         "output_index"
-    ])
-    .set_nullable(OutputFieldSelection::columns());
+    ]);
 
     tables
 });

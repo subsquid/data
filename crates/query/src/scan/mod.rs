@@ -9,10 +9,12 @@ mod row_predicate_dsl;
 pub(crate) mod scan;
 #[cfg(feature = "storage")]
 mod storage;
+mod errors;
 mod util;
 
 
 pub use arrow::*;
 pub use chunk::*;
+pub use errors::*;
 pub use row_predicate::RowPredicateRef;
 pub use row_predicate_dsl::*;

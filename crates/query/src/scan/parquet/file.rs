@@ -4,6 +4,7 @@ use crate::scan::parquet::metadata::ParquetMetadata;
 use crate::scan::reader::TableReader;
 use crate::scan::row_predicate::{RowPredicate, RowPredicateRef};
 use crate::scan::util::{add_row_index, build_row_index_array};
+use crate::ColumnDoesNotExist;
 use arrow::array::{new_null_array, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use parquet::arrow::arrow_reader::{
@@ -171,7 +172,7 @@ impl TableReader for ParquetFile {
                             missing_null_columns.push(name);
                         } else {
                             tracing::error!("column '{}' is not found in {}", name, self.filename);
-                            anyhow::bail!("column '{}' is not found in {}", name, self.filename);
+                            anyhow::bail!(ColumnDoesNotExist::new(self.filename.to_string(), name));
                         }
                     }
                 }
