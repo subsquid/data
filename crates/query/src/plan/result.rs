@@ -170,13 +170,21 @@ pub struct UnexpectedBaseBlock {
 
 impl Display for UnexpectedBaseBlock {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f, 
-            "unexpected base block: expected {}, but got {}#{}", 
-            self.expected_hash,
-            self.prev_blocks[0].number,
-            self.prev_blocks[0].hash
-        )
+        if let Some(last_block) = self.prev_blocks.last() {
+            write!(
+                f,
+                "unexpected base block: expected {}, but got {}#{}",
+                self.expected_hash,
+                last_block.number,
+                last_block.hash
+            )
+        } else {
+            write!(
+                f,
+                "unexpected base block: expected {}, but got empty prev_blocks",
+                self.expected_hash
+            )
+        }
     }
 }
 
