@@ -15,7 +15,7 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
 
     tables.add_table("blocks", vec![
         "number"
-    ]);
+    ]); 
 
     tables.add_table("transactions", vec![
         "block_number",

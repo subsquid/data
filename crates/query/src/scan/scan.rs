@@ -13,7 +13,8 @@ pub struct Scan<'a> {
     predicate: Option<RowPredicateRef>,
     projection: Option<HashSet<Name>>,
     row_selection: Option<RowRangeList>,
-    row_index: bool
+    row_index: bool,
+    default_null_columns: Option<HashSet<Name>>
 }
 
 
@@ -24,10 +25,11 @@ impl <'a> Scan<'a> {
             predicate: None,
             projection: None,
             row_selection: None,
-            row_index: false
+            row_index: false,
+            default_null_columns: None
         }
     }
-    
+
     pub fn schema(&self) -> SchemaRef {
         self.reader.schema()
     }
@@ -67,12 +69,18 @@ impl <'a> Scan<'a> {
         self
     }
 
+    pub fn with_default_null_columns(mut self, columns: HashSet<Name>) -> Self {
+        self.default_null_columns = Some(columns);
+        self
+    }
+
     pub fn execute(&self) -> anyhow::Result<Vec<RecordBatch>> {
         self.reader.read(
             self.predicate.clone(),
             self.projection.as_ref(),
             self.row_selection.as_ref(),
-            self.row_index
+            self.row_index,
+            self.default_null_columns.as_ref()
         )
     }
 

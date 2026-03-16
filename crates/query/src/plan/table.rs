@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::primitives::{Name, RowWeight};
 
 
@@ -8,10 +8,16 @@ pub enum ColumnWeight {
 }
 
 
+pub enum ColumnDefault {
+    Null
+}
+
+
 pub struct Table {
     pub name: Name,
     pub primary_key: Vec<Name>,
     pub column_weights: HashMap<Name, ColumnWeight>,
+    pub column_defaults: HashMap<Name, ColumnDefault>,
     pub result_item_name: Name,
     pub children: HashMap<Name, Vec<Name>>
 }
@@ -31,6 +37,26 @@ impl Table {
     pub fn set_result_item_name(&mut self, name: Name) -> &mut Self {
         self.result_item_name = name;
         self
+    }
+
+    pub fn set_column_default(&mut self, column: Name, default: ColumnDefault) -> &mut Self {
+        self.column_defaults.insert(column, default);
+        self
+    }
+
+    pub fn set_nullable(&mut self, columns: &[Name]) -> &mut Self {
+        for col in columns {
+            self.column_defaults.insert(col, ColumnDefault::Null);
+        }
+        self
+    }
+
+    pub fn default_null_columns(&self) -> HashSet<Name> {
+        self.column_defaults.iter()
+            .filter_map(|(name, default)| match default {
+                ColumnDefault::Null => Some(*name)
+            })
+            .collect()
     }
 
     pub fn add_child(&mut self, name: Name, key: Vec<Name>) -> &mut Self {
@@ -88,6 +114,7 @@ impl TableSet {
             name,
             primary_key: pk,
             column_weights: HashMap::new(),
+            column_defaults: HashMap::new(),
             result_item_name: name,
             children: HashMap::new()
         });

@@ -1,0 +1,28 @@
+{
+  "type": "fuel",
+  "fromBlock": 9025510,
+  "toBlock": 9025549,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "receipt": {
+      "receiptType": true,
+      "contract": true,
+      "index": true,
+      "transactionIndex": true
+    },
+    "transaction": {
+      "index": true,
+      "hash": true,
+      "upgradePurpose": true
+    }
+  },
+  "receipts": [
+    {
+      "type": ["LOG_DATA"],
+      "transaction": true
+    }
+  ]
+}
