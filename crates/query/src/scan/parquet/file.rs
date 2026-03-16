@@ -17,20 +17,25 @@ use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ops::Not;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ParquetFile {
     io: MmapIO,
     metadata: Arc<ParquetMetadata>,
-    filename: Arc<String>,
+    table_name: String,
 }
 
 impl ParquetFile {
-    pub fn open<P: Into<String>>(file: P) -> anyhow::Result<Self> {
-        let filename = file.into();
+    pub fn open(file: impl Into<PathBuf>) -> anyhow::Result<Self> {
+        let path = file.into();
 
-        let io = MmapIO::open(&filename)?;
+        let table_name = path.file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+
+        let io = MmapIO::open(&path)?;
 
         let metadata =
             ArrowReaderMetadata::load(&io, ArrowReaderOptions::new().with_page_index(true))?;
@@ -38,7 +43,7 @@ impl ParquetFile {
         Ok(Self {
             io,
             metadata: Arc::new(ParquetMetadata::new(metadata)),
-            filename: Arc::new(filename),
+            table_name,
         })
     }
 }
@@ -171,8 +176,8 @@ impl TableReader for ParquetFile {
                         if default_null_columns.map_or(false, |dnc| dnc.contains(name)) {
                             missing_null_columns.push(name);
                         } else {
-                            tracing::error!("column '{}' is not found in {}", name, self.filename);
-                            anyhow::bail!(ColumnDoesNotExist::new(self.filename.to_string(), name));
+                            tracing::error!("column '{}' is not found in {}", name, self.table_name);
+                            anyhow::bail!(ColumnDoesNotExist::new(self.table_name.to_string(), name));
                         }
                     }
                 }

@@ -6,10 +6,7 @@
     "block": {
       "number": true,
       "hash": true,
-      "eventInboxRoot": true,
-      "consensusParametersVersion": true,
-      "stateTransitionBytecodeVersion": true,
-      "messageOutboxRoot": true
+      "consensusParametersVersion": true
     }
   },
   "includeAllBlocks": false

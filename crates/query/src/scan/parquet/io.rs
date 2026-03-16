@@ -13,7 +13,7 @@ pub struct MmapIO {
 
 
 impl MmapIO {
-    pub fn open(filename: &str) -> std::io::Result<Self> {
+    pub fn open(filename: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
         let file = std::fs::File::open(filename)?;
         let mmap = unsafe {
             MmapOptions::new().map(&file)
