@@ -28,6 +28,10 @@ table_builder! {
         blob_gas_used: HexBytesBuilder,
         excess_blob_gas: HexBytesBuilder,
         l1_block_number: UInt64Builder,
+        // Tempo-specific block header fields
+        main_block_general_gas_limit: HexBytesBuilder,
+        shared_gas_limit: HexBytesBuilder,
+        timestamp_millis_part: HexBytesBuilder,
 
         extra_data_size: UInt64Builder,
     }
@@ -64,6 +68,9 @@ impl BlockBuilder {
         self.blob_gas_used.append_option(row.blob_gas_used.as_deref());
         self.excess_blob_gas.append_option(row.excess_blob_gas.as_deref());
         self.l1_block_number.append_option(row.l1_block_number);
+        self.main_block_general_gas_limit.append_option(row.main_block_general_gas_limit.as_deref());
+        self.shared_gas_limit.append_option(row.shared_gas_limit.as_deref());
+        self.timestamp_millis_part.append_option(row.timestamp_millis_part.as_deref());
 
         self.extra_data_size.append(row.extra_data.len() as u64);
     }

@@ -20,3 +20,6 @@ features = [
     "lazy",
     "semi_anti_join"
 ]
+
+[lints]
+workspace = true

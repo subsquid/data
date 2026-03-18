@@ -1,3 +1,4 @@
+pub mod bitcoin;
 pub mod evm;
 pub mod hyperliquid_fills;
 pub mod hyperliquid_replica_cmds;

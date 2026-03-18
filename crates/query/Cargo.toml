@@ -24,6 +24,7 @@ sqd-bloom-filter = { path = "../bloom-filter" }
 sqd-polars = { path = "../polars" }
 sqd-primitives = { path = "../primitives", features = ["range"] }
 sqd-storage = { path = "../storage", optional = true }
+tracing = "0.1.40"
 
 [dev-dependencies]
 glob = "0.3.1"
@@ -37,6 +38,9 @@ sqd-dataset = { path = "../dataset" }
 tikv-jemallocator = "0.6"
 
 [features]
+max_level_trace = ["tracing/max_level_trace"]
+max_level_debug = ["tracing/max_level_debug"]
+max_level_info = ["tracing/max_level_info"]
 parquet = [
     "dep:parquet",
     "dep:memmap2"
@@ -56,3 +60,6 @@ _bench_query = [
 [[bench]]
 name = "main"
 harness = false
+
+[lints]
+workspace = true 

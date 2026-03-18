@@ -24,6 +24,10 @@ macro_rules! item_field_selection {
                 let $fields = self;
                 $projection.into()
             }
+
+            pub fn columns() -> &'static [crate::primitives::Name] {
+                &[$(stringify!($field)),*]
+            }
         }
     };
 }

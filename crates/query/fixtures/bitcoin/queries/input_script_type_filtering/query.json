@@ -1,0 +1,40 @@
+{
+  "type": "bitcoin",
+  "fromBlock": 401050,
+  "toBlock": 401060,
+  "inputs": [
+    {
+      "prevoutScriptPubKeyType": [
+        "scripthash"
+      ]
+    }
+  ],
+  "fields": {
+    "block": {
+      "timestamp": true,
+      "number": true,
+      "hash": true,
+      "parentHash": true
+    },
+    "input": {
+        "transactionIndex": true,
+        "inputIndex": true,
+        "type": true,
+        "txid": true,
+        "vout": true,
+        "scriptSigHex": true,
+        "scriptSigAsm": true,
+        "sequence": true,
+        "coinbase": true,
+        "txInWitness": true,
+        "prevoutGenerated": true,
+        "prevoutHeight": true,
+        "prevoutValue": true,
+        "prevoutScriptPubKeyHex": true,
+        "prevoutScriptPubKeyAsm": true,
+        "prevoutScriptPubKeyDesc": true,
+        "prevoutScriptPubKeyType": true,
+        "prevoutScriptPubKeyAddress": true
+    }
+  }
+}

@@ -15,7 +15,8 @@ impl <'a> TableReader for SnapshotTableReader<'a> {
         predicate: Option<RowPredicateRef>,
         projection: Option<&HashSet<Name>>,
         row_selection: Option<&RowRangeList>,
-        with_row_index: bool
+        with_row_index: bool,
+        _default_null_columns: Option<&HashSet<Name>>
     ) -> anyhow::Result<Vec<RecordBatch>>
     {
         let mut maybe_new_row_selection = None;

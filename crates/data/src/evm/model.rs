@@ -28,6 +28,10 @@ pub struct BlockHeader {
     pub blob_gas_used: Option<HexBytes>,
     pub excess_blob_gas: Option<HexBytes>,
     pub l1_block_number: Option<BlockNumber>,
+    // Tempo-specific block header fields
+    pub main_block_general_gas_limit: Option<HexBytes>,
+    pub shared_gas_limit: Option<HexBytes>,
+    pub timestamp_millis_part: Option<HexBytes>,
 }
 
 #[derive(Deserialize)]
@@ -35,8 +39,95 @@ pub struct BlockHeader {
 pub struct EIP7702Authorization {
     pub chain_id: HexBytes,
     pub address: HexBytes,
+    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
     pub nonce: u64,
     pub y_parity: u8,
+    pub r: HexBytes,
+    pub s: HexBytes,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TempoCall {
+    pub to: Option<HexBytes>,
+    pub value: HexBytes,
+    pub input: HexBytes,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+pub enum TempoPrimitiveSignature {
+    #[serde(rename = "secp256k1", rename_all = "camelCase")]
+    Secp256k1 {
+        r: HexBytes,
+        s: HexBytes,
+        y_parity: Option<u8>,
+        v: Option<u8>,
+    },
+    #[serde(rename = "p256", rename_all = "camelCase")]
+    P256 {
+        r: HexBytes,
+        s: HexBytes,
+        pub_key_x: HexBytes,
+        pub_key_y: HexBytes,
+        pre_hash: bool,
+    },
+    #[serde(rename = "webAuthn", rename_all = "camelCase")]
+    WebAuthn {
+        r: HexBytes,
+        s: HexBytes,
+        pub_key_x: HexBytes,
+        pub_key_y: HexBytes,
+        webauthn_data: HexBytes,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TempoKeychainSignature {
+    pub user_address: HexBytes,
+    pub signature: TempoPrimitiveSignature,
+    pub version: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum TempoSignature {
+    Keychain(TempoKeychainSignature),
+    Primitive(TempoPrimitiveSignature),
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TempoSignedAuthorization {
+    pub chain_id: HexBytes,
+    pub address: HexBytes,
+    pub nonce: u64,
+    pub signature: TempoSignature,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TempoTokenLimit {
+    pub token: HexBytes,
+    pub limit: HexBytes,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TempoSignedKeyAuthorization {
+    pub chain_id: HexBytes,
+    pub key_type: String,
+    pub key_id: HexBytes,
+    pub expiry: Option<HexBytes>,
+    pub limits: Option<Vec<TempoTokenLimit>>,
+    pub signature: TempoPrimitiveSignature,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TempoFeePayerSignature {
+    pub v: u8,
     pub r: HexBytes,
     pub s: HexBytes,
 }
@@ -49,8 +140,10 @@ pub struct Transaction {
     pub nonce: u64,
     pub from: HexBytes,
     pub to: Option<HexBytes>,
-    pub input: HexBytes,
-    pub value: HexBytes,
+    // Optional for Tempo 0x76 transactions which use batched `calls` instead
+    pub input: Option<HexBytes>,
+    // Optional for Tempo 0x76 transactions which use batched `calls`
+    pub value: Option<HexBytes>,
     #[serde(rename = "type")]
     pub r#type: Option<u64>,
     pub gas: HexBytes,
@@ -67,9 +160,20 @@ pub struct Transaction {
     pub blob_versioned_hashes: Option<Vec<HexBytes>>,
     pub authorization_list: Option<Vec<EIP7702Authorization>>,
 
+    // Tempo 0x76 transaction fields
+    pub calls: Option<Vec<TempoCall>>,
+    pub nonce_key: Option<HexBytes>,
+    pub fee_token: Option<HexBytes>,
+    pub fee_payer_signature: Option<TempoFeePayerSignature>,
+    pub signature: Option<TempoSignature>,
+    pub valid_before: Option<HexBytes>,
+    pub valid_after: Option<HexBytes>,
+    pub aa_authorization_list: Option<Vec<TempoSignedAuthorization>>,
+    pub key_authorization: Option<TempoSignedKeyAuthorization>,
+
     pub contract_address: Option<HexBytes>,
     pub cumulative_gas_used: HexBytes,
-    pub effective_gas_price: HexBytes,
+    pub effective_gas_price: Option<HexBytes>,
     pub gas_used: HexBytes,
     pub status: Option<u8>,
 

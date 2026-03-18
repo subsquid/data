@@ -1,0 +1,13 @@
+{
+  "type": "fuel",
+  "fromBlock": 9000000,
+  "toBlock": 9000003,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true,
+      "consensusParametersVersion": true
+    }
+  },
+  "includeAllBlocks": false
+}
