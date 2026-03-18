@@ -20,7 +20,7 @@ impl <'de, T: FromStr> serde::de::Visitor<'de> for StringParser<T> {
     type Value = T;
 
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "a string literal representing {}", std::any::type_name::<T>())
+        write!(f, "a string or number representing {}", std::any::type_name::<T>())
     }
 
     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
@@ -28,6 +28,39 @@ impl <'de, T: FromStr> serde::de::Visitor<'de> for StringParser<T> {
         E: serde::de::Error,
     {
         T::from_str(v).map_err(|_| {
+            serde::de::Error::custom(
+                format!("failed to deserialize `{}` as {}", v, std::any::type_name::<T>())
+            )
+        })
+    }
+
+    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        T::from_str(&v.to_string()).map_err(|_| {
+            serde::de::Error::custom(
+                format!("failed to deserialize `{}` as {}", v, std::any::type_name::<T>())
+            )
+        })
+    }
+
+    fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        T::from_str(&v.to_string()).map_err(|_| {
+            serde::de::Error::custom(
+                format!("failed to deserialize `{}` as {}", v, std::any::type_name::<T>())
+            )
+        })
+    }
+
+    fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        T::from_str(&v.to_string()).map_err(|_| {
             serde::de::Error::custom(
                 format!("failed to deserialize `{}` as {}", v, std::any::type_name::<T>())
             )
@@ -54,7 +87,7 @@ impl <'de, T: FromStr> serde::de::Visitor<'de> for StringOptionParser<T> {
     type Value = Option<T>;
 
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "an optional string literal representing {}", std::any::type_name::<T>())
+        write!(f, "an optional string or number representing {}", std::any::type_name::<T>())
     }
 
     fn visit_none<E>(self) -> Result<Self::Value, E>
@@ -68,7 +101,7 @@ impl <'de, T: FromStr> serde::de::Visitor<'de> for StringOptionParser<T> {
     where
         D: serde::Deserializer<'de>,
     {
-        deserializer.deserialize_str(StringParser::<T>::new()).map(Some)
+        deserializer.deserialize_any(StringParser::<T>::new()).map(Some)
     }
 }
 
@@ -77,7 +110,7 @@ pub fn decode_string<'de, T, D>(deserializer: D) -> Result<T, D::Error>
 where D: serde::Deserializer<'de>,
       T: FromStr
 {
-    deserializer.deserialize_str(StringParser::<T>::new())
+    deserializer.deserialize_any(StringParser::<T>::new())
 }
 
 
