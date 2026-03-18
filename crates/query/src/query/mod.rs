@@ -7,6 +7,7 @@ pub mod bitcoin;
 pub mod eth;
 pub mod solana;
 pub mod substrate;
+pub mod starknet;
 pub mod fuel;
 pub mod hyperliquid_fills;
 pub mod hyperliquid_replica_cmds;
@@ -24,6 +25,8 @@ pub enum Query {
     Solana(solana::SolanaQuery),
     #[serde(rename = "substrate")]
     Substrate(substrate::SubstrateQuery),
+    #[serde(rename = "starknet")]
+    Starknet(starknet::StarknetQuery),
     #[serde(rename = "fuel")]
     Fuel(fuel::FuelQuery),
     #[serde(rename = "hyperliquidFills")]
@@ -56,6 +59,7 @@ impl Query {
             Query::Eth(q) => q.validate(),
             Query::Solana(q) => q.validate(),
             Query::Substrate(q) => q.validate(),
+            Query::Starknet(q) => q.validate(),
             Query::Fuel(q) => q.validate(),
             Query::HyperliquidFills(q) => q.validate(),
             Query::HyperliquidReplicaCmds(q) => q.validate(),
@@ -80,6 +84,7 @@ impl Query {
             Query::Eth(q) => q.from_block,
             Query::Solana(q) => q.from_block,
             Query::Substrate(q) => q.from_block,
+            Query::Starknet(q) => q.from_block,
             Query::Fuel(q) => q.from_block,
             Query::HyperliquidFills(q) => q.from_block,
             Query::HyperliquidReplicaCmds(q) => q.from_block,
@@ -92,6 +97,7 @@ impl Query {
             Query::Eth(q) => q.from_block = block_number,
             Query::Solana(q) => q.from_block = block_number,
             Query::Substrate(q) => q.from_block = block_number,
+            Query::Starknet(q) => q.from_block = block_number,
             Query::Fuel(q) => q.from_block = block_number,
             Query::HyperliquidFills(q) => q.from_block = block_number,
             Query::HyperliquidReplicaCmds(q) => q.from_block = block_number,
@@ -104,6 +110,7 @@ impl Query {
             Query::Eth(q) => q.to_block,
             Query::Solana(q) => q.to_block,
             Query::Substrate(q) => q.to_block,
+            Query::Starknet(q) => q.to_block,
             Query::Fuel(q) => q.to_block,
             Query::HyperliquidFills(q) => q.to_block,
             Query::HyperliquidReplicaCmds(q) => q.to_block,
@@ -117,6 +124,7 @@ impl Query {
             Query::Eth(q) => q.to_block = block_number,
             Query::Solana(q) => q.to_block = block_number,
             Query::Substrate(q) => q.to_block = block_number,
+            Query::Starknet(q) => q.to_block = block_number,
             Query::Fuel(q) => q.to_block = block_number,
             Query::HyperliquidFills(q) => q.to_block = block_number,
             Query::HyperliquidReplicaCmds(q) => q.to_block = block_number,
@@ -129,6 +137,7 @@ impl Query {
             Query::Eth(q) => q.compile(),
             Query::Solana(q) => q.compile(),
             Query::Substrate(q) => q.compile(),
+            Query::Starknet(q) => q.compile(),
             Query::Fuel(q) => q.compile(),
             Query::HyperliquidFills(q) => q.compile(),
             Query::HyperliquidReplicaCmds(q) => q.compile(),
