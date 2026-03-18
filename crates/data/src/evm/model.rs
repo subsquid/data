@@ -39,6 +39,7 @@ pub struct BlockHeader {
 pub struct EIP7702Authorization {
     pub chain_id: HexBytes,
     pub address: HexBytes,
+    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
     pub nonce: u64,
     pub y_parity: u8,
     pub r: HexBytes,
