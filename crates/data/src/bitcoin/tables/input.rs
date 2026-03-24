@@ -40,7 +40,6 @@ table_builder! {
         d.options.add_stats("type");
         d.options.add_stats("prevout_script_pub_key_address");
         d.options.add_stats("prevout_script_pub_key_type");
-        d.options.add_stats("prevout_generated");
         d.options.use_dictionary("type");
         d.options.use_dictionary("prevout_script_pub_key_type");
         d.options.use_dictionary("prevout_script_pub_key_address");
