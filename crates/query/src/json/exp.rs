@@ -1,6 +1,6 @@
 use crate::json::encoder::factory::{extract_nulls, make_encoder, make_nullable_encoder};
 use crate::json::encoder::util::json_close;
-use crate::json::encoder::{Encoder, EncoderObject, HexEncode, HexEncoder, JsonEncoder, ListSpreadEncoder, NullableEncoder, PrimitiveEncoder, PrimitiveEncode, SafeStringEncoder, StructEncoder, StructField, TimestampEncoder};
+use crate::json::encoder::{Encoder, EncoderObject, HexEncode, HexEncoder, JsonEncoder, ListEncoder, ListSpreadEncoder, NullableEncoder, PrimitiveEncoder, PrimitiveEncode, SafeStringEncoder, StructEncoder, StructField, TimestampEncoder};
 use crate::primitives::{schema_error, Name, SchemaError};
 use arrow::array::{Array, AsArray, PrimitiveArray, StringArray, StructArray};
 use arrow::buffer::{NullBuffer, ScalarBuffer};
@@ -20,6 +20,7 @@ pub enum Exp {
     TimestampMillisecond,
     Object(Vec<(Name, Exp)>),
     Prop(Name, Box<Exp>),
+    List(Box<Exp>),
     Roll {
         columns: Vec<Name>,
         exp: Box<Exp>
@@ -51,6 +52,7 @@ impl Exp {
                     exp.for_each_column(f);
                 })
             },
+            Exp::List(_) |
             Exp::Value |
             Exp::Json |
             Exp::BigNum |
@@ -72,6 +74,7 @@ impl Exp {
             Exp::TimestampMillisecond => eval_timestamp(array, TimeUnit::Millisecond),
             Exp::Object(props) => eval_object(array, props),
             Exp::Prop(name, exp) => eval_prop(array, name, exp),
+            Exp::List(exp) => eval_list(array, exp),
             Exp::Roll { columns, exp } => eval_roll(array, columns, exp),
             Exp::Enum { tag_column, variants } => eval_enum(array, tag_column, variants)
         }
@@ -215,6 +218,14 @@ fn eval_object(array: &dyn Array, props: &Vec<(Name, Exp)>) -> Result<EncoderObj
     }
     let struct_encoder = StructEncoder::new(fields);
     Ok(make_nullable_encoder(struct_encoder, nulls))
+}
+
+
+fn eval_list(array: &dyn Array, exp: &Exp) -> Result<EncoderObject, SchemaError> {
+    let array = array.as_list::<i32>();
+    let (_, offsets, values, nulls) = array.clone().into_parts();
+    let item_encoder = exp.eval(&values).map_err(|err| err.at("item"))?;
+    Ok(make_nullable_encoder(ListEncoder::new(item_encoder, offsets), nulls))
 }
 
 
