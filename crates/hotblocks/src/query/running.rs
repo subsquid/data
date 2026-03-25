@@ -7,6 +7,7 @@ use anyhow::{anyhow, bail, ensure};
 use bytes::{BufMut, Bytes, BytesMut};
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use zstd::stream::write::Encoder as ZstdEncoder;
 use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_query::{JsonLinesWriter, Plan, Query};
 use sqd_storage::db::{Chunk as StorageChunk, DatasetId};
@@ -49,6 +50,60 @@ impl RunningQueryStats {
     }
 }
 
+use crate::encoding::ContentEncoding;
+
+enum Compressor {
+    Gzip(GzEncoder<bytes::buf::Writer<BytesMut>>),
+    Zstd(ZstdEncoder<'static, bytes::buf::Writer<BytesMut>>),
+}
+
+impl Write for Compressor {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Compressor::Gzip(e) => e.write(buf),
+            Compressor::Zstd(e) => e.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Compressor::Gzip(e) => e.flush(),
+            Compressor::Zstd(e) => e.flush(),
+        }
+    }
+}
+
+impl Compressor {
+    fn new(encoding: ContentEncoding) -> anyhow::Result<Self> {
+        let writer = BytesMut::new().writer();
+        Ok(match encoding {
+            ContentEncoding::Gzip => Compressor::Gzip(GzEncoder::new(writer, Compression::fast())),
+            ContentEncoding::Zstd => Compressor::Zstd(ZstdEncoder::new(writer, 1)?),
+        })
+    }
+
+    fn get_ref(&self) -> &BytesMut {
+        match self {
+            Compressor::Gzip(e) => e.get_ref().get_ref(),
+            Compressor::Zstd(e) => e.get_ref().get_ref(),
+        }
+    }
+
+    fn get_mut(&mut self) -> &mut BytesMut {
+        match self {
+            Compressor::Gzip(e) => e.get_mut().get_mut(),
+            Compressor::Zstd(e) => e.get_mut().get_mut(),
+        }
+    }
+
+    fn finish(self) -> BytesMut {
+        match self {
+            Compressor::Gzip(e) => e.finish().expect("IO errors are not possible").into_inner(),
+            Compressor::Zstd(e) => e.finish().expect("IO errors are not possible").into_inner(),
+        }
+    }
+}
+
 pub struct RunningQuery {
     plan: Plan,
     last_block: Option<BlockNumber>,
@@ -56,7 +111,8 @@ pub struct RunningQuery {
     next_chunk: Option<anyhow::Result<StorageChunk>>,
     chunk_iterator: StaticChunkIterator,
     finalized_head: Option<BlockRef>,
-    buf: GzEncoder<bytes::buf::Writer<BytesMut>>,
+    encoding: ContentEncoding,
+    buf: Compressor,
     stats: RunningQueryStats,
 }
 
@@ -66,6 +122,7 @@ impl RunningQuery {
         dataset_id: DatasetId,
         query: &Query,
         only_finalized: bool,
+        encoding: ContentEncoding,
     ) -> anyhow::Result<Self> {
         let snapshot = StaticSnapshot::new(db);
 
@@ -147,7 +204,8 @@ impl RunningQuery {
             next_chunk: Some(Ok(first_chunk)),
             chunk_iterator,
             finalized_head,
-            buf: GzEncoder::new(BytesMut::new().writer(), Compression::fast()),
+            encoding,
+            buf: Compressor::new(encoding)?,
             stats,
         })
     }
@@ -160,20 +218,20 @@ impl RunningQuery {
         &self.stats
     }
 
+    pub fn encoding(&self) -> ContentEncoding {
+        self.encoding
+    }
+
     pub fn buffered_bytes(&self) -> usize {
-        self.buf.get_ref().get_ref().len()
+        self.buf.get_ref().len()
     }
 
     pub fn take_buffered_bytes(&mut self) -> Bytes {
-        self.buf.get_mut().get_mut().split().freeze()
+        self.buf.get_mut().split().freeze()
     }
 
     pub fn finish(self) -> Bytes {
-        self.buf
-            .finish()
-            .expect("IO errors are not possible")
-            .into_inner()
-            .freeze()
+        self.buf.finish().freeze()
     }
 
     pub fn has_next_chunk(&self) -> bool {
