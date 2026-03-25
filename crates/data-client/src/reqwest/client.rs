@@ -19,7 +19,7 @@ pub fn default_http_client() -> Client {
     Client::builder()
         .read_timeout(Duration::from_secs(20))
         .connect_timeout(Duration::from_secs(20))
-        .gzip(true)
+        .zstd(true)
         .build()
         .unwrap()
 }
