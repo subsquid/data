@@ -59,10 +59,9 @@ macro_rules! table_builder {
                 &DESC
             }
 
-            pub fn new_table_processor(&self) -> anyhow::Result<sqd_data_core::TableProcessor> {
-                use sqd_data_core::{TableProcessor, Downcast};
+            pub fn new_table_processor(&self, downcast: sqd_data_core::Downcast) -> anyhow::Result<sqd_data_core::TableProcessor> {
                 let desc = Self::table_description();
-                TableProcessor::new(Downcast::new(), self.schema(), desc)
+                sqd_data_core::TableProcessor::new(downcast, self.schema(), desc)
             }
             
             #[inline]
