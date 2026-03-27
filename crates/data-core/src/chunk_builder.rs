@@ -80,11 +80,12 @@ macro_rules! chunk_builder {
             }
 
             pub fn new_chunk_processor(&self) -> anyhow::Result<sqd_data_core::ChunkProcessor> {
+                let downcast = sqd_data_core::Downcast::new();
                 let mut tables = std::collections::BTreeMap::new();
                 $(
                 tables.insert(
                     stringify!($table),
-                    self.$table.new_table_processor()?
+                    self.$table.new_table_processor(downcast.clone())?
                 );
                 )*
                 Ok(sqd_data_core::ChunkProcessor::new(tables))
