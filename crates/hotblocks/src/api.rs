@@ -5,7 +5,7 @@ use crate::errors::{
     UnknownDataset,
 };
 use crate::query::QueryResponse;
-use crate::types::RetentionStrategy;
+use crate::types::{ClientId, RetentionStrategy};
 use anyhow::bail;
 use async_stream::try_stream;
 use axum::body::{Body, Bytes};
@@ -24,6 +24,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tower_http::request_id::{MakeRequestUuid, RequestId, SetRequestIdLayer};
 use tracing::{Instrument, error};
+
+const DEFAULT_CLIENT_ID: &str = "unknown";
 
 macro_rules! json_ok {
     ($json:expr) => {
@@ -73,11 +75,21 @@ pub fn build_api(app: App) -> Router {
         .layer(Extension(Arc::new(app)))
 }
 
-pub async fn middleware(req: Request, next: axum::middleware::Next) -> impl IntoResponse {
+pub async fn middleware(mut req: Request, next: axum::middleware::Next) -> impl IntoResponse {
     let method = req.method().to_string();
     let path = req.uri().path().to_string();
     let version = req.version();
     let start = Instant::now();
+
+    let client_id = req
+        .headers()
+        .get("x-client-id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(DEFAULT_CLIENT_ID)
+        .to_string();
+
+    req.extensions_mut().insert(ClientId::new(client_id));
+
     let request_id = req
         .extensions()
         .get::<RequestId>()
@@ -130,6 +142,13 @@ impl ResponseWithMetadata {
         }
     }
 
+    pub fn with_client_id(mut self, client_id: &ClientId) -> Self {
+        self.labels
+            .0
+            .push(("client_id", client_id.as_str().to_owned()));
+        self
+    }
+
     pub fn with_dataset_id(mut self, id: DatasetId) -> Self {
         self.labels.0.push(("dataset_name", id.as_str().to_owned()));
         self
@@ -159,11 +178,13 @@ impl IntoResponse for ResponseWithMetadata {
 
 async fn stream(
     Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
     Json(query): Json<Query>,
 ) -> impl IntoResponse {
-    let response = stream_internal(app, dataset_id, query, false).await;
+    let response = stream_internal(app, dataset_id, query, false, client_id.clone()).await;
     ResponseWithMetadata::new()
+        .with_client_id(&client_id)
         .with_dataset_id(dataset_id)
         .with_endpoint("/stream")
         .with_response(|| response)
@@ -171,11 +192,13 @@ async fn stream(
 
 async fn finalized_stream(
     Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
     Json(query): Json<Query>,
 ) -> impl IntoResponse {
-    let response = stream_internal(app, dataset_id, query, true).await;
+    let response = stream_internal(app, dataset_id, query, true, client_id.clone()).await;
     ResponseWithMetadata::new()
+        .with_client_id(&client_id)
         .with_dataset_id(dataset_id)
         .with_endpoint("/finalized_stream")
         .with_response(|| response)
@@ -186,6 +209,7 @@ async fn stream_internal(
     dataset_id: DatasetId,
     query: Query,
     finalized: bool,
+    client_id: ClientId,
 ) -> Response {
     let dataset = get_dataset!(app, dataset_id);
 
@@ -194,9 +218,11 @@ async fn stream_internal(
     }
 
     let query_result = if finalized {
-        app.query_service.query_finalized(&dataset, query).await
+        app.query_service
+            .query_finalized(&dataset, query, client_id)
+            .await
     } else {
-        app.query_service.query(&dataset, query).await
+        app.query_service.query(&dataset, query, client_id).await
     };
 
     match query_result {
@@ -304,9 +330,11 @@ struct BaseBlockConflict<'a> {
 
 async fn get_finalized_head(
     Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
+        .with_client_id(&client_id)
         .with_dataset_id(dataset_id.clone())
         .with_endpoint("/finalized_head")
         .with_response(|| {
@@ -318,9 +346,11 @@ async fn get_finalized_head(
 
 async fn get_head(
     Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
+        .with_client_id(&client_id)
         .with_dataset_id(dataset_id.clone())
         .with_endpoint("/head")
         .with_response(|| {
@@ -332,9 +362,11 @@ async fn get_head(
 
 async fn get_retention(
     Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
+        .with_client_id(&client_id)
         .with_dataset_id(dataset_id.clone())
         .with_endpoint("/retention")
         .with_response(|| {
@@ -346,10 +378,12 @@ async fn get_retention(
 
 async fn set_retention(
     Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
     Json(strategy): Json<RetentionStrategy>,
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
+        .with_client_id(&client_id)
         .with_dataset_id(dataset_id.clone())
         .with_endpoint("/retention")
         .with_response(|| {
@@ -369,6 +403,7 @@ async fn set_retention(
 
 async fn get_status(
     Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
 ) -> impl IntoResponse {
     let read_status = |ctl: Arc<DatasetController>| -> anyhow::Result<_> {
@@ -404,6 +439,7 @@ async fn get_status(
     };
 
     ResponseWithMetadata::new()
+        .with_client_id(&client_id)
         .with_dataset_id(dataset_id.clone())
         .with_endpoint("/status")
         .with_response(|| {
@@ -417,9 +453,11 @@ async fn get_status(
 
 async fn get_metadata(
     Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
+        .with_client_id(&client_id)
         .with_dataset_id(dataset_id.clone())
         .with_endpoint("/metadata")
         .with_response(|| {
@@ -441,19 +479,27 @@ async fn get_metadata(
         })
 }
 
-async fn get_metrics(Extension(app): Extension<AppRef>) -> impl IntoResponse {
+async fn get_metrics(
+    Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
+) -> impl IntoResponse {
     let mut metrics = String::new();
 
     prometheus_client::encoding::text::encode(&mut metrics, &app.metrics_registry)
         .expect("String IO is infallible");
 
     ResponseWithMetadata::new()
+        .with_client_id(&client_id)
         .with_endpoint("/metrics")
         .with_response(|| metrics.into_response())
 }
 
-async fn get_rocks_stats(Extension(app): Extension<AppRef>) -> impl IntoResponse {
+async fn get_rocks_stats(
+    Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
+) -> impl IntoResponse {
     ResponseWithMetadata::new()
+        .with_client_id(&client_id)
         .with_endpoint("/rocks_stats")
         .with_response(|| {
             if let Some(stats) = app.db.get_statistics() {
@@ -469,9 +515,11 @@ async fn get_rocks_stats(Extension(app): Extension<AppRef>) -> impl IntoResponse
 
 async fn get_rocks_prop(
     Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
     Path((cf, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
+        .with_client_id(&client_id)
         .with_endpoint("/rocks_prop")
         .with_response(|| match app.db.get_property(&cf, &name) {
             Ok(Some(s)) => s.into_response(),
@@ -480,8 +528,9 @@ async fn get_rocks_prop(
         })
 }
 
-async fn handle_404(uri: Uri) -> impl IntoResponse {
+async fn handle_404(Extension(client_id): Extension<ClientId>, uri: Uri) -> impl IntoResponse {
     ResponseWithMetadata::new()
+        .with_client_id(&client_id)
         .with_endpoint("404_fallback")
         .with_response(|| text!(StatusCode::NOT_FOUND, "Not found: {}", uri.path()))
 }
