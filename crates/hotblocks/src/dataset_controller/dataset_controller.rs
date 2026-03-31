@@ -485,11 +485,12 @@ impl Ctl {
                 number,
                 parent_hash,
             } => {
-                let will_erase_head = write.write.head().map_or(false, |h| h.number < number);
+                let will_erase_head = write.write.head().map_or(false, |h| h.number < number) || // FromBlock is greater than current head, so everything is cleared
+                    write.write.start_block() > number; // FromBlock is less than current front, dropping everything by design
                 blocking_write!(write, write.retain(number, parent_hash))?;
                 match state {
-                    State::Ingest { .. } if !will_erase_head => {}
-                    _ => *state = State::Init { head: None },
+                    State::Ingest { .. } if !will_erase_head => {} // Keep ingesting, head is valid
+                    _ => *state = State::Init { head: None },      // New ingest needed
                 }
             }
             RetentionStrategy::Head(n) => match state {
