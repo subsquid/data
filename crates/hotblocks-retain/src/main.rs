@@ -88,27 +88,25 @@ impl HotblocksRetain {
                 }
             };
 
+            if self.last_effective_from == Some(status.effective_from) {
+                tracing::info!("effective_from unchanged, re-checking in 5 minutes");
+                tokio::time::sleep(Duration::from_secs(300)).await;
+                continue;
+            }
+
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
 
             if now < status.effective_from {
-                if self.last_effective_from == Some(status.effective_from) {
-                    tracing::info!("effective_from unchanged, re-checking in 5 minutes");
-                    tokio::time::sleep(Duration::from_secs(300)).await;
-                    continue;
-                }
-
-                self.last_effective_from = Some(status.effective_from);
                 let wait_secs = status.effective_from - now;
                 tracing::info!(wait_secs, effective_from = status.effective_from, "waiting for effective time");
                 tokio::time::sleep(Duration::from_secs(wait_secs)).await;
-            } else {
-                self.last_effective_from = Some(status.effective_from);
             }
 
             self.apply_retention(&status).await;
+            self.last_effective_from = Some(status.effective_from);
         }
     }
 
