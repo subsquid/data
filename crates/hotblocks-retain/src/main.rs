@@ -105,8 +105,11 @@ impl HotblocksRetain {
                 tokio::time::sleep(Duration::from_secs(wait_secs)).await;
             }
 
-            self.apply_retention(&status).await;
-            self.last_effective_from = Some(status.effective_from);
+            if self.apply_retention(&status).await {
+                self.last_effective_from = Some(status.effective_from);
+            } else {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
         }
     }
 
@@ -127,12 +130,14 @@ impl HotblocksRetain {
         }
     }
 
-    async fn apply_retention(&self, status: &status::SchedulingStatus) {
+    async fn apply_retention(&self, status: &status::SchedulingStatus) -> bool {
         let statuses = status
             .datasets
             .iter()
             .map(|dataset| (dataset.id.as_str(), dataset.height))
             .collect::<HashMap<_, _>>();
+
+        let mut all_success = true;
 
         for (dataset, props) in &self.datasets {
             let dataset_id = if let Some(id) = props.as_ref().and_then(|p| p.id.as_deref()) {
@@ -161,6 +166,7 @@ impl HotblocksRetain {
                             tracing::info!(dataset, height, "applied retention policy");
                         }
                         Err(err) => {
+                            all_success = false;
                             tracing::warn!(dataset, height, error = ?err, "failed to apply retention");
                         }
                     }
@@ -173,6 +179,8 @@ impl HotblocksRetain {
                 }
             }
         }
+
+        all_success
     }
 }
 
