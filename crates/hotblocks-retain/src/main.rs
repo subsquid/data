@@ -8,7 +8,7 @@ use anyhow::Context;
 use clap::Parser;
 use cli::Cli;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::Instant;
 use types::{DatasetId, DatasetsConfig};
 use url::Url;
@@ -34,7 +34,6 @@ fn main() -> anyhow::Result<()> {
                 args.status_url,
                 args.datasets_url,
                 datasets,
-                Duration::from_secs(args.retain_delay_secs),
                 Duration::from_secs(args.datasets_update_interval_secs),
             )
             .run(),
@@ -49,10 +48,10 @@ struct HotblocksRetain {
     status_url: Url,
     datasets_url: Url,
     datasets: DatasetsConfig,
-    retain_delay: Duration,
     datasets_update_interval: Duration,
     name_to_id: HashMap<String, DatasetId>,
     last_datasets_refresh: Instant,
+    last_effective_from: Option<u64>,
 }
 
 impl HotblocksRetain {
@@ -61,7 +60,6 @@ impl HotblocksRetain {
         status_url: Url,
         datasets_url: Url,
         datasets: DatasetsConfig,
-        retain_delay: Duration,
         datasets_update_interval: Duration,
     ) -> Self {
         Self {
@@ -70,10 +68,10 @@ impl HotblocksRetain {
             status_url,
             datasets_url,
             datasets,
-            retain_delay,
             datasets_update_interval,
             name_to_id: HashMap::new(),
             last_datasets_refresh: Instant::now() - datasets_update_interval,
+            last_effective_from: None,
         }
     }
 
@@ -90,11 +88,25 @@ impl HotblocksRetain {
                 }
             };
 
-            tracing::info!(
-                delay_secs = self.retain_delay.as_secs(),
-                "fetched status, waiting before applying retention"
-            );
-            tokio::time::sleep(self.retain_delay).await;
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            if now < status.effective_from {
+                if self.last_effective_from == Some(status.effective_from) {
+                    tracing::info!("effective_from unchanged, re-checking in 5 minutes");
+                    tokio::time::sleep(Duration::from_secs(300)).await;
+                    continue;
+                }
+
+                self.last_effective_from = Some(status.effective_from);
+                let wait_secs = status.effective_from - now;
+                tracing::info!(wait_secs, effective_from = status.effective_from, "waiting for effective time");
+                tokio::time::sleep(Duration::from_secs(wait_secs)).await;
+            } else {
+                self.last_effective_from = Some(status.effective_from);
+            }
 
             self.apply_retention(&status).await;
         }

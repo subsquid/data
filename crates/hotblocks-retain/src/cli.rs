@@ -25,8 +25,4 @@ pub struct Cli {
     /// Interval in seconds between refreshing the datasets list
     #[arg(long, default_value = "3600", value_parser = clap::value_parser!(u64).range(1..))]
     pub datasets_update_interval_secs: u64,
-
-    /// Delay in seconds between fetching dataset heights and applying retention
-    #[arg(long, default_value = "300", value_parser = clap::value_parser!(u64).range(1..))]
-    pub retain_delay_secs: u64,
 }

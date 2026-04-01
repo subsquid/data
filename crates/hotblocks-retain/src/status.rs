@@ -5,6 +5,7 @@ use sqd_primitives::BlockNumber;
 #[derive(Debug, Deserialize)]
 pub struct SchedulingStatus {
     pub datasets: Vec<DatasetStatus>,
+    pub effective_from: u64,
 }
 
 #[derive(Debug, Deserialize)]
