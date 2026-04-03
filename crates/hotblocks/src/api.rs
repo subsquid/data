@@ -81,10 +81,16 @@ pub async fn middleware(mut req: Request, next: axum::middleware::Next) -> impl 
     let version = req.version();
     let start = Instant::now();
 
+    let app = req
+        .extensions()
+        .get::<Arc<App>>()
+        .expect("App extension should be set");
+
     let client_id = req
         .headers()
-        .get("x-client-id")
+        .get("x-sqd-client-id")
         .and_then(|v| v.to_str().ok())
+        .filter(|v| app.known_clients.contains(*v))
         .unwrap_or(DEFAULT_CLIENT_ID)
         .to_string();
 
