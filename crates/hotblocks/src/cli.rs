@@ -6,7 +6,7 @@ use crate::types::DBRef;
 use anyhow::Context;
 use clap::Parser;
 use sqd_storage::db::{DatabaseSettings, DatasetId};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 
 #[derive(Parser, Debug)]
@@ -46,6 +46,11 @@ pub struct CLI {
 
     #[arg(long)]
     pub rocksdb_disable_direct_io: bool,
+
+    /// Known client IDs for metrics labeling. Client IDs not in this list
+    /// will be reported as "other" to prevent metrics cardinality abuse.
+    #[arg(long = "known-client", value_name = "ID")]
+    pub known_clients: Vec<String>,
 }
 
 pub struct App {
@@ -54,6 +59,7 @@ pub struct App {
     pub query_service: QueryServiceRef,
     pub api_controlled_datasets: BTreeSet<DatasetId>,
     pub metrics_registry: prometheus_client::registry::Registry,
+    pub known_clients: HashSet<String>,
 }
 
 impl CLI {
@@ -101,12 +107,15 @@ impl CLI {
             Arc::new(service)
         };
 
+        let known_clients: HashSet<String> = self.known_clients.iter().cloned().collect();
+
         Ok(App {
             db,
             data_service,
             query_service,
             api_controlled_datasets,
             metrics_registry,
+            known_clients,
         })
     }
 }
