@@ -3,6 +3,7 @@ mod cli;
 mod data_service;
 mod dataset_config;
 mod dataset_controller;
+mod encoding;
 mod errors;
 mod metrics;
 mod query;

@@ -81,6 +81,7 @@ impl QueryResponse {
         query: Query,
         only_finalized: bool,
         time_limit: Option<Duration>,
+        encoding: crate::encoding::ContentEncoding,
     ) -> anyhow::Result<Self> {
         let Some(slot) = executor.get_slot() else {
             bail!(Busy)
@@ -90,7 +91,7 @@ impl QueryResponse {
         let mut runner = slot
             .run(move |slot| -> anyhow::Result<_> {
                 let mut runner =
-                    RunningQuery::new(db, dataset_id, &query, only_finalized).map(Box::new)?;
+                    RunningQuery::new(db, dataset_id, &query, only_finalized, encoding).map(Box::new)?;
                 next_run(&mut runner, slot)?;
                 Ok(runner)
             })

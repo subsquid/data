@@ -160,9 +160,11 @@ impl IntoResponse for ResponseWithMetadata {
 async fn stream(
     Extension(app): Extension<AppRef>,
     Path(dataset_id): Path<DatasetId>,
+    headers: HeaderMap,
     Json(query): Json<Query>,
 ) -> impl IntoResponse {
-    let response = stream_internal(app, dataset_id, query, false).await;
+    let encoding = encoding_from_headers(&headers);
+    let response = stream_internal(app, dataset_id, query, false, encoding).await;
     ResponseWithMetadata::new()
         .with_dataset_id(dataset_id)
         .with_endpoint("/stream")
@@ -172,13 +174,26 @@ async fn stream(
 async fn finalized_stream(
     Extension(app): Extension<AppRef>,
     Path(dataset_id): Path<DatasetId>,
+    headers: HeaderMap,
     Json(query): Json<Query>,
 ) -> impl IntoResponse {
-    let response = stream_internal(app, dataset_id, query, true).await;
+    let encoding = encoding_from_headers(&headers);
+    let response = stream_internal(app, dataset_id, query, true, encoding).await;
     ResponseWithMetadata::new()
         .with_dataset_id(dataset_id)
         .with_endpoint("/finalized_stream")
         .with_response(|| response)
+}
+
+use axum::http::HeaderMap;
+use crate::encoding::ContentEncoding;
+
+fn encoding_from_headers(headers: &HeaderMap) -> ContentEncoding {
+    let accept = headers
+        .get("accept-encoding")
+        .and_then(|v| v.to_str().ok());
+    ContentEncoding::from_accept_encoding(accept)
+        .unwrap_or(ContentEncoding::Gzip)
 }
 
 async fn stream_internal(
@@ -186,6 +201,7 @@ async fn stream_internal(
     dataset_id: DatasetId,
     query: Query,
     finalized: bool,
+    encoding: ContentEncoding,
 ) -> Response {
     let dataset = get_dataset!(app, dataset_id);
 
@@ -194,9 +210,9 @@ async fn stream_internal(
     }
 
     let query_result = if finalized {
-        app.query_service.query_finalized(&dataset, query).await
+        app.query_service.query_finalized(&dataset, query, encoding).await
     } else {
-        app.query_service.query(&dataset, query).await
+        app.query_service.query(&dataset, query, encoding).await
     };
 
     match query_result {
@@ -204,7 +220,8 @@ async fn stream_internal(
             let mut res = Response::builder()
                 .status(200)
                 .header("content-type", "text/plain")
-                .header("content-encoding", "gzip");
+                .header("content-encoding", encoding.as_str())
+                .header("vary", "Accept-Encoding");
 
             if let Some(finalized_head) = stream.finalized_head() {
                 if finalized {

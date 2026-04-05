@@ -82,16 +82,18 @@ impl QueryService {
         &self,
         dataset: &DatasetController,
         query: Query,
+        encoding: crate::encoding::ContentEncoding,
     ) -> anyhow::Result<QueryResponse> {
-        self.query_internal(dataset, query, false).await
+        self.query_internal(dataset, query, false, encoding).await
     }
 
     pub async fn query_finalized(
         &self,
         dataset: &DatasetController,
         query: Query,
+        encoding: crate::encoding::ContentEncoding,
     ) -> anyhow::Result<QueryResponse> {
-        self.query_internal(dataset, query, true).await
+        self.query_internal(dataset, query, true, encoding).await
     }
 
     async fn query_internal(
@@ -99,6 +101,7 @@ impl QueryService {
         dataset: &DatasetController,
         query: Query,
         finalized: bool,
+        encoding: crate::encoding::ContentEncoding,
     ) -> anyhow::Result<QueryResponse> {
         ensure!(
             dataset.dataset_kind() == DatasetKind::from_query(&query),
@@ -154,7 +157,8 @@ impl QueryService {
             dataset.dataset_id(),
             query,
             finalized,
-            None
+            None,
+            encoding,
         ).await
     }
 
