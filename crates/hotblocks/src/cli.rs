@@ -48,7 +48,7 @@ pub struct CLI {
     pub rocksdb_disable_direct_io: bool,
 
     /// Known client IDs for metrics labeling. Client IDs not in this list
-    /// will be reported as "other" to prevent metrics cardinality abuse.
+    /// will be reported as "unknown" to prevent metrics cardinality abuse.
     #[arg(long = "known-client", value_name = "ID")]
     pub known_clients: Vec<String>,
 }
