@@ -35,6 +35,7 @@ fn main() -> anyhow::Result<()> {
                 args.datasets_url,
                 datasets,
                 Duration::from_secs(args.datasets_update_interval_secs),
+                Duration::from_secs(args.retain_delay_secs),
             )
             .run(),
         )?;
@@ -49,6 +50,7 @@ struct HotblocksRetain {
     datasets_url: Url,
     datasets: DatasetsConfig,
     datasets_update_interval: Duration,
+    retain_delay: Duration,
     name_to_id: HashMap<String, DatasetId>,
     last_datasets_refresh: Instant,
     last_effective_from: Option<u64>,
@@ -61,6 +63,7 @@ impl HotblocksRetain {
         datasets_url: Url,
         datasets: DatasetsConfig,
         datasets_update_interval: Duration,
+        retain_delay: Duration,
     ) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -69,6 +72,7 @@ impl HotblocksRetain {
             datasets_url,
             datasets,
             datasets_update_interval,
+            retain_delay,
             name_to_id: HashMap::new(),
             last_datasets_refresh: Instant::now() - datasets_update_interval,
             last_effective_from: None,
@@ -99,9 +103,15 @@ impl HotblocksRetain {
                 .unwrap()
                 .as_secs();
 
-            if now < status.effective_from {
-                let wait_secs = status.effective_from - now;
-                tracing::info!(wait_secs, effective_from = status.effective_from, "waiting for effective time");
+            let apply_at = status.effective_from + self.retain_delay.as_secs();
+            if now < apply_at {
+                let wait_secs = apply_at - now;
+                tracing::info!(
+                    wait_secs,
+                    effective_from = status.effective_from,
+                    retain_delay_secs = self.retain_delay.as_secs(),
+                    "waiting for effective time + retain delay"
+                );
                 tokio::time::sleep(Duration::from_secs(wait_secs)).await;
             }
 
