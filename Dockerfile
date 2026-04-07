@@ -22,6 +22,16 @@ COPY --from=hotblocks-builder /app/target/release/sqd-hotblocks .
 ENTRYPOINT ["/app/sqd-hotblocks"]
 
 
+FROM builder AS hotblocks-retain-builder
+RUN cargo build -p sqd-hotblocks-retain --release
+
+
+FROM rust AS hotblocks-retain
+WORKDIR /app
+COPY --from=hotblocks-retain-builder /app/target/release/sqd-hotblocks-retain .
+ENTRYPOINT ["/app/sqd-hotblocks-retain"]
+
+
 FROM builder AS archive-builder
 RUN cargo build -p sqd-archive --release
 
