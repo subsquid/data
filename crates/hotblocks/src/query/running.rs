@@ -2,7 +2,7 @@ use crate::errors::{BlockItemIsNotAvailable, QueryKindMismatch};
 use crate::errors::{BlockRangeMissing, QueryIsAboveTheHead};
 use crate::metrics::{QUERIED_BLOCKS, QUERIED_CHUNKS};
 use crate::query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot};
-use crate::types::{DBRef, DatasetKind};
+use crate::types::{ClientId, DBRef, DatasetKind};
 use anyhow::{anyhow, bail, ensure};
 use bytes::{BufMut, Bytes, BytesMut};
 use flate2::Compression;
@@ -22,7 +22,6 @@ pub struct RunningQueryStats {
     pub blocks_read: u64,
     pub chunks_returned: u64,
     pub blocks_returned: u64
-
 }
 
 impl RunningQueryStats {
@@ -35,8 +34,11 @@ impl RunningQueryStats {
         }
     }
 
-    pub fn report_metrics(&self, dataset_id: &DatasetId) {
-        let labels = vec![("dataset_id", dataset_id.as_str().to_owned())];
+    pub fn report_metrics(&self, dataset_id: &DatasetId, client_id: &ClientId) {
+        let labels = vec![
+            ("client_id", client_id.as_str().to_owned()),
+            ("dataset_id", dataset_id.as_str().to_owned()),
+        ];
 
         QUERIED_BLOCKS
             .get_or_create(&labels)

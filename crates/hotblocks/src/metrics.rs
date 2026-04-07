@@ -68,8 +68,9 @@ pub static STREAM_BLOCKS: LazyLock<Family<Labels, Histogram>> = LazyLock::new(||
 });
 pub static STREAM_CHUNKS: LazyLock<Family<Labels, Histogram>> =
     LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(buckets(1., 20))));
-pub static STREAM_BYTES_PER_SECOND: LazyLock<Histogram> =
-    LazyLock::new(|| Histogram::new(exponential_buckets(100., 3.0, 20)));
+pub static STREAM_BYTES_PER_SECOND: LazyLock<Family<Labels, Histogram>> = LazyLock::new(|| {
+    Family::new_with_constructor(|| Histogram::new(exponential_buckets(100., 3.0, 20)))
+});
 pub static STREAM_BLOCKS_PER_SECOND: LazyLock<Family<Labels, Histogram>> = LazyLock::new(|| {
     Family::new_with_constructor(|| Histogram::new(exponential_buckets(1., 3.0, 20)))
 });

@@ -5,6 +5,7 @@ use crate::metrics::{
     STREAM_BLOCKS, STREAM_BLOCKS_PER_SECOND, STREAM_BYTES, STREAM_BYTES_PER_SECOND, STREAM_CHUNKS,
     STREAM_DURATIONS,
 };
+use crate::types::ClientId;
 use crate::types::DBRef;
 use anyhow::bail;
 use bytes::Bytes;
@@ -21,6 +22,7 @@ pub struct QueryResponse {
     runner: Option<Box<RunningQuery>>,
     finalized_head: Option<BlockRef>,
     dataset_id: DatasetId,
+    client_id: ClientId,
     stats: QueryStreamStats,
     time_limit: Duration,
 }
@@ -52,8 +54,11 @@ impl QueryStreamStats {
             .saturating_add(running_stats.blocks_returned);
     }
 
-    fn report_metrics(&self, dataset_id: &DatasetId) {
-        let labels = vec![("dataset_name", dataset_id.as_str().to_owned())];
+    fn report_metrics(&self, dataset_id: &DatasetId, client_id: &ClientId) {
+        let labels = vec![
+            ("client_id", client_id.as_str().to_owned()),
+            ("dataset_name", dataset_id.as_str().to_owned()),
+        ];
 
         let duration = self.start_time.elapsed().as_secs_f64();
         let bytes = self.response_bytes as f64;
@@ -65,7 +70,9 @@ impl QueryStreamStats {
         STREAM_BLOCKS.get_or_create(&labels).observe(blocks);
         STREAM_CHUNKS.get_or_create(&labels).observe(chunks);
         if duration > 0.0 {
-            STREAM_BYTES_PER_SECOND.observe(bytes / duration);
+            STREAM_BYTES_PER_SECOND
+                .get_or_create(&labels)
+                .observe(bytes / duration);
             STREAM_BLOCKS_PER_SECOND
                 .get_or_create(&labels)
                 .observe(blocks / duration);
@@ -81,6 +88,7 @@ impl QueryResponse {
         query: Query,
         only_finalized: bool,
         time_limit: Option<Duration>,
+        client_id: ClientId,
     ) -> anyhow::Result<Self> {
         let Some(slot) = executor.get_slot() else {
             bail!(Busy)
@@ -103,6 +111,7 @@ impl QueryResponse {
             runner: Some(runner),
             stats,
             dataset_id,
+            client_id,
             time_limit,
         };
 
@@ -165,8 +174,9 @@ impl QueryResponse {
     }
 
     fn finish_with_runner(&mut self, runner: Box<RunningQuery>) -> Option<Bytes> {
-        runner.stats().report_metrics(&self.dataset_id);
-        self.stats.add_running_stats(runner.stats());
+        let stats = runner.stats();
+        stats.report_metrics(&self.dataset_id, &self.client_id);
+        self.stats.add_running_stats(stats);
         let bytes = runner.finish();
         self.stats.response_bytes = self.stats.response_bytes.saturating_add(bytes.len() as u64);
         Some(bytes)
@@ -182,7 +192,7 @@ impl QueryResponse {
 
 impl Drop for QueryResponse {
     fn drop(&mut self) {
-        self.stats.report_metrics(&self.dataset_id)
+        self.stats.report_metrics(&self.dataset_id, &self.client_id)
     }
 }
 
