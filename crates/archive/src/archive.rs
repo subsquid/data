@@ -13,6 +13,7 @@ use sqd_data::evm::tables::EvmChunkBuilder;
 use sqd_data::hyperliquid_fills::tables::HyperliquidFillsChunkBuilder;
 use sqd_data::hyperliquid_replica_cmds::tables::HyperliquidReplicaCmdsChunkBuilder;
 use sqd_data::solana::tables::SolanaChunkBuilder;
+use sqd_data::tron::tables::TronChunkBuilder;
 use sqd_primitives::BlockNumber;
 use std::time::Duration;
 
@@ -70,7 +71,8 @@ pub async fn run(args: Cli) -> anyhow::Result<()> {
         NetworkKind::Solana => proc!(SolanaChunkBuilder::default()),
         NetworkKind::HyperliquidFills => proc!(HyperliquidFillsChunkBuilder::default()),
         NetworkKind::HyperliquidReplicaCmds => proc!(HyperliquidReplicaCmdsChunkBuilder::default()),
-        NetworkKind::Evm => proc!(EvmChunkBuilder::default())
+        NetworkKind::Evm => proc!(EvmChunkBuilder::default()),
+        NetworkKind::Tron => proc!(TronChunkBuilder::default())
     };
 
     let attach_idx_field = args.attach_idx_field;
