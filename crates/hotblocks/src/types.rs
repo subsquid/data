@@ -20,6 +20,8 @@ pub enum DatasetKind {
     HyperliquidFills,
     #[serde(rename = "hyperliquid-replica-cmds")]
     HyperliquidReplicaCmds,
+    #[serde(rename = "tron")]
+    Tron
 }
 
 
@@ -35,6 +37,7 @@ impl DatasetKind {
             DatasetKind::Bitcoin => "bitcoin",
             DatasetKind::HyperliquidFills => "hl-fills",
             DatasetKind::HyperliquidReplicaCmds => "hl-replica-cmds",
+            DatasetKind::Tron => "tron",
         }
     }
     
@@ -45,6 +48,7 @@ impl DatasetKind {
             DatasetKind::Bitcoin => sqd_data::bitcoin::tables::BitcoinChunkBuilder::dataset_description(),
             DatasetKind::HyperliquidFills => sqd_data::hyperliquid_fills::tables::HyperliquidFillsChunkBuilder::dataset_description(),
             DatasetKind::HyperliquidReplicaCmds => sqd_data::hyperliquid_replica_cmds::tables::HyperliquidReplicaCmdsChunkBuilder::dataset_description(),
+            DatasetKind::Tron => sqd_data::tron::tables::TronChunkBuilder::dataset_description(),
         }
     }
     
@@ -55,6 +59,7 @@ impl DatasetKind {
             Query::Bitcoin(_) => Self::Bitcoin,
             Query::HyperliquidFills(_) => Self::HyperliquidFills,
             Query::HyperliquidReplicaCmds(_) => Self::HyperliquidReplicaCmds,
+            Query::Tron(_) => Self::Tron,
             _ => unimplemented!()
         }
     }

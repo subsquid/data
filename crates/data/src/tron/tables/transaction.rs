@@ -21,7 +21,7 @@ table_builder! {
         ref_block_hash: HexBytesBuilder,
         fee_limit: Int64Builder,
         expiration: TimestampMillisecondBuilder,
-        timestamp: Int64Builder,
+        timestamp: TimestampMillisecondBuilder,
         raw_data_hex: HexBytesBuilder,
 
         // info
