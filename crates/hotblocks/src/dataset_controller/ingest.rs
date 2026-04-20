@@ -45,6 +45,9 @@ pub fn ingest<'a, 'b>(
         DatasetKind::HyperliquidReplicaCmds => {
             run!(sqd_data::hyperliquid_replica_cmds::tables::HyperliquidReplicaCmdsChunkBuilder::new())
         }
+        DatasetKind::Tron => {
+            run!(sqd_data::tron::tables::TronChunkBuilder::new())
+        }
     }
 }
 
