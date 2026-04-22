@@ -1,0 +1,25 @@
+{
+  "type": "starknet",
+  "fromBlock": 0,
+  "fields": {
+    "block": {
+      "parentHash": true,
+      "timestamp": true
+    },
+    "transaction": {
+      "transactionHash": true,
+      "signature": true
+    },
+    "event": {
+      "keys": true,
+      "data": true
+    }
+  },
+  "events": [
+    {
+      "fromAddress": ["0x22e45d94d5c6c477d9efd440aad71b2c02a5cd5bed9a4d6da10bb7c19fd93ba"],
+      "key0": ["0xe316f0d9d2a3affa97de1d99bb2aac0538e2666d0d8545545ead241ef0ccab"],
+      "transaction": true
+    }
+  ]
+}
