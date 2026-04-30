@@ -1,6 +1,7 @@
 use crate::evm::model::BlockHeader;
 use crate::evm::tables::common::*;
 use sqd_array::builder::{ListBuilder, TimestampSecondBuilder, UInt64Builder, Int32Builder};
+use sqd_data_core::{struct_builder, table_builder};
 
 
 type WithdrawalListBuilder = ListBuilder<WithdrawalBuilder>;
