@@ -4920,6 +4920,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqd-hotblocks-retain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sqd-primitives",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "sqd-polars"
 version = "0.1.0"
 dependencies = [

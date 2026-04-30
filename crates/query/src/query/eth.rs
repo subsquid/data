@@ -16,7 +16,8 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
         "number"
     ])
     .set_weight("logs_bloom", 512)
-    .set_weight_column("extra_data", "extra_data_size");
+    .set_weight_column("extra_data", "extra_data_size")
+    .set_weight_column("withdrawals", "withdrawals_size");
 
     tables.add_table("transactions", vec![
         "block_number",
@@ -25,7 +26,9 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     .add_child("logs", vec!["block_number", "transaction_index"])
     .add_child("traces", vec!["block_number", "transaction_index"])
     .add_child("statediffs", vec!["block_number", "transaction_index"])
-    .set_weight_column("input", "input_size");
+    .set_weight("logs_bloom", 512)
+    .set_weight_column("input", "input_size")
+    .set_weight_column("access_list", "access_list_size");
 
     tables.add_table("logs", vec![
         "block_number",
@@ -87,8 +90,13 @@ item_field_selection! {
         difficulty,
         total_difficulty,
         base_fee_per_gas,
+        uncles,
+        withdrawals,
+        withdrawals_root,
         blob_gas_used,
         excess_blob_gas,
+        parent_beacon_block_root,
+        requests_hash,
         l1_block_number,
         main_block_general_gas_limit,
         shared_gas_limit,
@@ -115,8 +123,13 @@ item_field_selection! {
         [this.difficulty]: Value,
         [this.total_difficulty]: Value,
         [this.base_fee_per_gas]: Value,
+        [this.uncles]: Value,
+        [this.withdrawals]: Value,
+        [this.withdrawals_root]: Value,
         [this.blob_gas_used]: Value,
         [this.excess_blob_gas]: Value,
+        [this.parent_beacon_block_root]: Value,
+        [this.requests_hash]: Value,
         [this.l1_block_number]: Value,
         [this.main_block_general_gas_limit]: Value,
         [this.shared_gas_limit]: Value,
@@ -142,14 +155,18 @@ item_field_selection! {
         r,
         s,
         y_parity,
+        access_list,
         chain_id,
         sighash,
         contract_address,
         gas_used,
+        logs_bloom,
         cumulative_gas_used,
         effective_gas_price,
         r#type,
         status,
+        blob_gas_used,
+        blob_gas_price,
         max_fee_per_blob_gas,
         blob_versioned_hashes,
         authorization_list,
@@ -190,14 +207,18 @@ item_field_selection! {
             this.r,
             this.s,
             this.y_parity,
+            this.access_list,
             this.chain_id,
             this.sighash,
             this.contract_address,
             this.gas_used,
+            this.logs_bloom,
             this.cumulative_gas_used,
             this.effective_gas_price,
             this.r#type,
             this.status,
+            this.blob_gas_used,
+            this.blob_gas_price,
             this.max_fee_per_blob_gas,
             this.blob_versioned_hashes,
         },

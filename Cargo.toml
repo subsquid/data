@@ -9,6 +9,7 @@ members = [
     "crates/data-source",
     "crates/dataset",
     "crates/hotblocks",
+    "crates/hotblocks-retain",
     "crates/polars",
     "crates/primitives",
     "crates/query",

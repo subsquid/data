@@ -3,8 +3,6 @@ use crate::evm::tables::common::*;
 use sqd_array::builder::{BooleanBuilder, ListBuilder, StringBuilder, UInt32Builder, UInt64Builder, UInt8Builder, Int32Builder, Float64Builder};
 use sqd_data_core::{struct_builder, table_builder};
 
-use super::common::HexBytesBuilder;
-
 
 type EIP7702AuthorizationListBuilder = ListBuilder<EIP7702AuthorizationBuilder>;
 struct_builder! {
@@ -82,6 +80,14 @@ struct_builder! {
     }
 }
 
+type AccessListBuilder = ListBuilder<AccessListItemBuilder>;
+struct_builder! {
+    AccessListItemBuilder {
+        address: HexBytesBuilder,
+        storage_keys: StorageKeyListBuilder,
+    }
+}
+
 
 table_builder! {
     TransactionBuilder {
@@ -102,6 +108,7 @@ table_builder! {
         r: HexBytesBuilder,
         s: HexBytesBuilder,
         y_parity: UInt8Builder,
+        access_list: AccessListBuilder,
         chain_id: UInt64Builder,
         max_fee_per_blob_gas: HexBytesBuilder,
         blob_versioned_hashes: BlobHashesListBuilder,
@@ -124,8 +131,11 @@ table_builder! {
         cumulative_gas_used: HexBytesBuilder,
         effective_gas_price: HexBytesBuilder,
         gas_used: HexBytesBuilder,
+        logs_bloom: HexBytesBuilder,
         sighash: HexBytesBuilder,
         status: UInt8Builder,
+        blob_gas_used: HexBytesBuilder,
+        blob_gas_price: HexBytesBuilder,
 
         l1_base_fee_scalar: UInt64Builder,
         l1_blob_base_fee: HexBytesBuilder,
@@ -136,6 +146,7 @@ table_builder! {
         l1_gas_used: HexBytesBuilder,
 
         input_size: UInt64Builder,
+        access_list_size: UInt64Builder,
     }
 
     description(d) {
@@ -148,6 +159,7 @@ table_builder! {
         d.options.add_stats("sighash");
         d.options.use_dictionary("to");
         d.options.use_dictionary("sighash");
+        d.options.use_dictionary("access_list.list.element.address");
         d.options.row_group_size = 10_000;
     }
 }
@@ -248,6 +260,20 @@ impl TransactionBuilder {
         self.r.append_option(row.r.as_deref());
         self.s.append_option(row.s.as_deref());
         self.y_parity.append_option(row.y_parity);
+
+        for acces_list_item in row.access_list.iter().flatten() {
+            let item = self.access_list.values();
+            item.address.append(&acces_list_item.address);
+
+            for key in acces_list_item.storage_keys.iter() {
+                item.storage_keys.values().append(&key);
+            }
+            item.storage_keys.append();
+
+            item.append_valid();
+        }
+        self.access_list.append();
+
         self.chain_id.append_option(row.chain_id);
         self.max_fee_per_blob_gas.append_option(row.max_fee_per_blob_gas.as_deref());
 
@@ -346,8 +372,11 @@ impl TransactionBuilder {
         self.cumulative_gas_used.append(&row.cumulative_gas_used);
         self.effective_gas_price.append_option(row.effective_gas_price.as_deref());
         self.gas_used.append(&row.gas_used);
+        self.logs_bloom.append(&row.logs_bloom);
         self.sighash.append_option(row.input.as_deref().and_then(sighash));
         self.status.append_option(row.status);
+        self.blob_gas_used.append_option(row.blob_gas_used.as_deref());
+        self.blob_gas_price.append_option(row.blob_gas_price.as_deref());
 
         self.l1_base_fee_scalar.append_option(row.l1_base_fee_scalar);
         self.l1_blob_base_fee.append_option(row.l1_blob_base_fee.as_deref());
@@ -358,5 +387,12 @@ impl TransactionBuilder {
         self.l1_gas_used.append_option(row.l1_gas_used.as_deref());
 
         self.input_size.append(row.input.as_ref().map_or(0, |i| i.len() as u64));
+
+        let access_list_size = row.access_list.as_ref().map_or(0, |val| {
+            let keys_size: usize = val.iter().map(|item| item.storage_keys.len() * 64).sum();
+            let item_size = 40 + keys_size;
+            val.len() * item_size
+        });
+        self.access_list_size.append(access_list_size as u64);
     }
 }

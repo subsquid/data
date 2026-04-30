@@ -2,6 +2,14 @@ use crate::types::HexBytes;
 use serde::Deserialize;
 use sqd_primitives::{BlockNumber, DataMask, ItemIndex};
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Withdrawal {
+    pub address: HexBytes,
+    pub amount: HexBytes,
+    pub index: HexBytes,
+    pub validator_index: HexBytes,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,8 +33,13 @@ pub struct BlockHeader {
     pub difficulty: Option<HexBytes>,
     pub total_difficulty: Option<HexBytes>,
     pub base_fee_per_gas: Option<HexBytes>,
+    pub uncles: Option<Vec<HexBytes>>,
+    pub withdrawals: Option<Vec<Withdrawal>>,
+    pub withdrawals_root: Option<HexBytes>,
     pub blob_gas_used: Option<HexBytes>,
     pub excess_blob_gas: Option<HexBytes>,
+    pub parent_beacon_block_root: Option<HexBytes>,
+    pub requests_hash: Option<HexBytes>,
     pub l1_block_number: Option<BlockNumber>,
     // Tempo-specific block header fields
     pub main_block_general_gas_limit: Option<HexBytes>,
@@ -134,6 +147,13 @@ pub struct TempoFeePayerSignature {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AccessListItem {
+    pub address: HexBytes,
+    pub storage_keys: Vec<HexBytes>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Transaction {
     pub transaction_index: ItemIndex,
     pub hash: HexBytes,
@@ -154,6 +174,7 @@ pub struct Transaction {
     pub r: Option<HexBytes>,
     pub s: Option<HexBytes>,
     pub y_parity: Option<u8>,
+    pub access_list: Option<Vec<AccessListItem>>,
     pub chain_id: Option<u64>,
     pub max_fee_per_blob_gas: Option<HexBytes>,
 
@@ -175,7 +196,10 @@ pub struct Transaction {
     pub cumulative_gas_used: HexBytes,
     pub effective_gas_price: Option<HexBytes>,
     pub gas_used: HexBytes,
+    pub logs_bloom: HexBytes,
     pub status: Option<u8>,
+    pub blob_gas_used: Option<HexBytes>,
+    pub blob_gas_price: Option<HexBytes>,
 
     pub l1_base_fee_scalar: Option<u64>,
     pub l1_blob_base_fee: Option<HexBytes>,

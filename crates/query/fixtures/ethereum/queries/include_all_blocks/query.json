@@ -14,6 +14,11 @@
       "gasUsed": true,
       "timestamp": true,
       "nonce": true,
+      "uncles": true,
+      "withdrawals": true,
+      "withdrawalsRoot": true,
+      "parentBeaconBlockRoot": true,
+      "requestsHash": true,
       "parentHash": true
     },
     "transaction": {

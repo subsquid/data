@@ -10,6 +10,7 @@ pub enum NetworkKind {
     HyperliquidFills,
     HyperliquidReplicaCmds,
     Evm,
+    Tron
 }
 
 
