@@ -692,6 +692,18 @@ impl EthQuery {
         Ok(())
     }
 
+    pub fn requires_traces(&self) -> bool {
+        !self.traces.is_empty()
+            || self.transactions.iter().any(|t| t.traces)
+            || self.logs.iter().any(|l| l.transaction_traces)
+    }
+
+    pub fn requires_statediffs(&self) -> bool {
+        !self.statediffs.is_empty()
+            || self.transactions.iter().any(|t| t.state_diffs)
+            || self.logs.iter().any(|l| l.transaction_state_diffs)
+    }
+
     pub fn compile(&self) -> Plan {
         compile_plan!(self, &TABLES,
             [blocks: self.fields.block.project()],
