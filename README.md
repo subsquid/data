@@ -38,10 +38,11 @@ This repo contains Rust crates for blockchain data processing, indexing, and que
 | [`sqd-archive`](crates/archive/) | Archive service for ingesting and storing data to S3 with layout management, progress tracking, and Prometheus metrics |
 | [`sqd-bds`](crates/bds/) | Big Data Service (WIP) - Cassandra-based data storage |
 | [`sqd-hotblocks`](crates/hotblocks/) | Hotblocks database with portal-like API |
+| [`sqd-hotblocks-retain`](crates/hotblocks-retain/) | Retention coordinator that applies Hotblocks retain points based on scheduling status updates |
 
 ## Building Docker image
 
 The ["docker"](/.github/workflows/docker.yaml) workflow should be triggered manually with the following inputs:
-- `target` — either `hotblocks` or `sqd-archive`.
+- `target` — one of `hotblocks`, `hotblocks-retain`, or `sqd-archive`.
 - `tag` — a 8-byte hash of the commit. This will be the published docker tag.
 - `platforms` — platforms to build for. Using only `linux/amd64` instead of default values can save a lot of building time.
