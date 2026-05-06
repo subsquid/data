@@ -150,13 +150,22 @@ impl HotblocksRetain {
         let mut all_success = true;
 
         for (dataset, props) in &self.datasets {
+            let network_dataset = props
+                .as_ref()
+                .and_then(|p| p.network_dataset.as_deref())
+                .unwrap_or(dataset.as_str());
+
             let dataset_id = if let Some(id) = props.as_ref().and_then(|p| p.id.as_deref()) {
                 id
             } else {
-                match self.name_to_id.get(dataset) {
+                match self.name_to_id.get(network_dataset) {
                     Some(id) => id.as_str(),
                     None => {
-                        tracing::warn!(dataset, "dataset not found in manifest, skipping");
+                        tracing::warn!(
+                            dataset,
+                            network_dataset,
+                            "dataset not found in manifest, skipping"
+                        );
                         continue;
                     }
                 }
