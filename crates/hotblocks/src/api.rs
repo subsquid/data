@@ -186,9 +186,9 @@ async fn stream(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
-    Json(query): Json<Query>,
+    body: Bytes,
 ) -> impl IntoResponse {
-    let response = stream_internal(app, dataset_id, query, false, client_id.clone()).await;
+    let response = stream_internal(app, dataset_id, body, false, client_id.clone()).await;
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
         .with_dataset_id(dataset_id)
@@ -200,9 +200,9 @@ async fn finalized_stream(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
-    Json(query): Json<Query>,
+    body: Bytes,
 ) -> impl IntoResponse {
-    let response = stream_internal(app, dataset_id, query, true, client_id.clone()).await;
+    let response = stream_internal(app, dataset_id, body, true, client_id.clone()).await;
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
         .with_dataset_id(dataset_id)
@@ -213,11 +213,16 @@ async fn finalized_stream(
 async fn stream_internal(
     app: AppRef,
     dataset_id: DatasetId,
-    query: Query,
+    body: Bytes,
     finalized: bool,
     client_id: ClientId,
 ) -> Response {
     let dataset = get_dataset!(app, dataset_id);
+
+    let query: Query = match Json::<Query>::from_bytes(&body) {
+        Ok(Json(q)) => q,
+        Err(rejection) => return rejection.into_response(),
+    };
 
     if let Err(err) = query.validate() {
         return text!(StatusCode::BAD_REQUEST, "{}", err);
@@ -258,7 +263,7 @@ async fn stream_internal(
 
             res.body(body).unwrap()
         }
-        Err(err) => error_to_response(err),
+        Err(err) => error_to_response(err, &body),
     }
 }
 
@@ -285,7 +290,7 @@ fn stream_query_response(
     }
 }
 
-fn error_to_response(err: anyhow::Error) -> Response {
+fn error_to_response(err: anyhow::Error, body: &Bytes) -> Response {
     if let Some(above_the_head) = err.downcast_ref::<QueryIsAboveTheHead>() {
         let mut res = Response::builder().status(204);
         if let Some(head) = above_the_head.finalized_head.as_ref() {
@@ -316,6 +321,11 @@ fn error_to_response(err: anyhow::Error) -> Response {
     } else if err.is::<Busy>() {
         StatusCode::SERVICE_UNAVAILABLE
     } else {
+        error!(
+            err = ?err,
+            query = %String::from_utf8_lossy(body),
+            "unhandled error, returning 500"
+        );
         StatusCode::INTERNAL_SERVER_ERROR
     };
 
