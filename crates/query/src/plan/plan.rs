@@ -726,7 +726,10 @@ impl PlanBuilder {
             .enumerate()
             .filter(|(idx, _)| is_full_rel[*idx])
         {
-            let table = rel.output_table();
+            // The new scan must read the relation's *input* table, since
+            // execute_scans feeds scan rows into relation_inputs[rel_idx],
+            // which eval_join etc. interpret as row indexes of input_table.
+            let table = rel.input_table();
             let scan = new_scans.entry(table).or_insert_with(|| Scan {
                 table,
                 predicate: None,
