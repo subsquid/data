@@ -1,0 +1,24 @@
+{
+  "type": "evm",
+  "fromBlock": 17881390,
+  "toBlock": 17881390,
+  "traces": [
+    { "transactionLogs": true }
+  ],
+  "fields": {
+    "trace": {
+      "transactionIndex": true,
+      "traceAddress": true,
+      "type": true
+    },
+    "log": {
+      "logIndex": true,
+      "transactionIndex": true,
+      "address": true
+    },
+    "block": {
+      "number": true,
+      "hash": true
+    }
+  }
+}

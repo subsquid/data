@@ -51,6 +51,16 @@ impl Rel {
         }
     }
 
+    pub fn input_table(&self) -> Name {
+        match self {
+            Rel::Join { input_table, .. } => input_table,
+            Rel::ForeignChildren { input_table, .. } => input_table,
+            Rel::ForeignParents { input_table, .. } => input_table,
+            Rel::Children { table, .. } => table,
+            Rel::Parents { table, .. } => table
+        }
+    }
+
     pub fn eval(
         &self,
         chunk: &dyn Chunk,
