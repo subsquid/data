@@ -739,7 +739,32 @@ impl PlanBuilder {
             scan.relations.push(idx);
         }
 
-        self.scans.extend(new_scans.into_values())
+        self.scans.extend(new_scans.into_values());
+
+        self.assert_scan_relation_invariant();
+    }
+
+    /// Verifies that every scan's relations have an `input_table` matching the
+    /// scan's table. This is the contract `execute_scans` relies on: rows read
+    /// from `scan.table` are pushed into `relation_inputs[rel_idx]` and later
+    /// interpreted by `rel.eval` as row indexes of `rel.input_table()`. A
+    /// mismatch produces silently wrong row selections that surface as
+    /// out-of-bounds reads on whichever column is read first.
+    fn assert_scan_relation_invariant(&self) {
+        for scan in self.scans.iter() {
+            for &rel_idx in scan.relations.iter() {
+                let rel = &self.relations[rel_idx];
+                assert_eq!(
+                    rel.input_table(),
+                    scan.table,
+                    "plan invariant violated: scan on {:?} owns relation {} \
+                     whose input_table is {:?}",
+                    scan.table,
+                    rel_idx,
+                    rel.input_table()
+                );
+            }
+        }
     }
 
     fn remove_relations(&mut self, remove_mask: &[bool]) {
@@ -882,5 +907,180 @@ impl<'a> ScanBuilder<'a> {
 
     fn scan_mut(&mut self) -> &mut Scan {
         &mut self.plan.scans[self.scan_idx]
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scan::col_gt_eq;
+    use std::sync::OnceLock;
+
+    /// Tables with a `transactions` parent and `logs` child, plus an explicit
+    /// `add_child("logs", ...)` registration on transactions. The logs side has
+    /// no children of its own — so a `logs -> transactions` join is *not* a
+    /// "full rel" (logs.primary_key != input_key, and logs.children is empty),
+    /// which is exactly the shape that triggered the production bug.
+    fn evm_like_tables() -> &'static TableSet {
+        static TABLES: OnceLock<TableSet> = OnceLock::new();
+        TABLES.get_or_init(|| {
+            let mut t = TableSet::new();
+            t.add_table("blocks", vec!["number"]);
+            t.add_table(
+                "transactions",
+                vec!["block_number", "transaction_index"],
+            )
+            .add_child("logs", vec!["block_number", "transaction_index"]);
+            t.add_table("logs", vec!["block_number", "log_index"]);
+            t
+        })
+    }
+
+    /// Tables where logs is a child of transactions AND transactions is a child
+    /// of logs with a matching key. With that, a `logs -> transactions` join
+    /// where input_key == logs.primary_key would be a "full rel". Used by the
+    /// full-rel-removal test.
+    fn full_rel_tables() -> &'static TableSet {
+        static TABLES: OnceLock<TableSet> = OnceLock::new();
+        TABLES.get_or_init(|| {
+            let mut t = TableSet::new();
+            t.add_table("blocks", vec!["number"]);
+            t.add_table("transactions", vec!["block_number", "transaction_index"]);
+            t.add_table("logs", vec!["block_number", "log_index"])
+                .add_child("transactions", vec!["block_number", "log_index"]);
+            t
+        })
+    }
+
+    /// Reproducer for the original bug. A predicate-less log selector with a
+    /// `transaction: true` join (modelled as `add_scan("logs").join("transactions", ...)`)
+    /// must end up attached to a logs-table scan after simplification — never
+    /// to the transactions-table scan. Pre-fix, simplify() keyed the new scan
+    /// by `rel.output_table()`, so the join was reattached to a transactions
+    /// scan and execute_scans fed transactions row indexes into a logs-input
+    /// slot.
+    #[test]
+    fn simplify_attaches_surviving_relations_to_input_table_scan() {
+        let mut builder = PlanBuilder::new(evm_like_tables());
+        builder
+            .add_scan("logs")
+            .join(
+                "transactions",
+                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"],
+            );
+
+        let plan = builder.build();
+
+        assert_eq!(plan.relations.len(), 1, "join relation must survive");
+        let rel = &plan.relations[0];
+        assert_eq!(rel.input_table(), "logs");
+        assert_eq!(rel.output_table(), "transactions");
+
+        let owning_scan = plan
+            .scans
+            .iter()
+            .find(|s| s.relations.contains(&0))
+            .expect("some scan must own the surviving relation");
+        assert_eq!(
+            owning_scan.table, "logs",
+            "relation with input_table=logs must be attached to a logs-scan, not a {}-scan",
+            owning_scan.table
+        );
+    }
+
+    /// When the relation IS a "full rel" (input fully populated implies output
+    /// fully populated), simplify() must drop it entirely and replace it with
+    /// a direct full scan on the output table. No relation should survive.
+    #[test]
+    fn simplify_drops_full_rel_and_replaces_with_direct_scan() {
+        let mut builder = PlanBuilder::new(full_rel_tables());
+        builder
+            .add_scan("logs")
+            .join(
+                "transactions",
+                vec!["block_number", "log_index"],
+                vec!["block_number", "log_index"],
+            );
+
+        let plan = builder.build();
+
+        assert!(
+            plan.relations.is_empty(),
+            "full rel must be removed during simplification, got {:?} relations",
+            plan.relations.len()
+        );
+        // Both outputs should still be populated by direct scans, with no relations.
+        for table in ["logs", "transactions"] {
+            assert!(
+                plan.scans.iter().any(|s| s.table == table && s.relations.is_empty()),
+                "expected a relation-less scan for {}; scans = {:?}",
+                table,
+                plan.scans.iter().map(|s| s.table).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    /// Mixed plan: one predicate-less log scan and one predicated log scan that
+    /// joins to transactions. The predicate-less scan goes through the
+    /// "is_full" path, while the predicated scan must keep its join. The whole
+    /// plan must still satisfy the input-table invariant.
+    #[test]
+    fn simplify_preserves_invariant_with_mixed_predicated_and_unpredicated_scans() {
+        let mut builder = PlanBuilder::new(evm_like_tables());
+        // Predicate-less logs scan.
+        builder.add_scan("logs");
+        // Predicated logs scan with a join.
+        builder
+            .add_scan("logs")
+            .with_predicate(col_gt_eq("block_number", 0u64))
+            .join(
+                "transactions",
+                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"],
+            );
+
+        let plan = builder.build();
+
+        // The surviving join must still be attached to a logs scan that owns
+        // it; the surviving logs scan with a predicate is the natural owner.
+        let join_idx = plan
+            .relations
+            .iter()
+            .position(|r| r.input_table() == "logs" && r.output_table() == "transactions")
+            .expect("logs->transactions join must survive");
+        let owning_scan = plan
+            .scans
+            .iter()
+            .find(|s| s.relations.contains(&join_idx))
+            .expect("some scan must own the join");
+        assert_eq!(owning_scan.table, "logs");
+    }
+
+    /// Direct guard test: assemble a PlanBuilder whose scan owns a relation
+    /// with a mismatched input_table and confirm the invariant assertion fires.
+    /// This is the safety net that turns every future planning code path into
+    /// an implicit verifier of the input-table contract.
+    #[test]
+    #[should_panic(expected = "plan invariant violated")]
+    fn assert_scan_relation_invariant_panics_on_input_table_mismatch() {
+        let mut builder = PlanBuilder::new(evm_like_tables());
+        // Manually construct a malformed plan: a scan on `transactions` that
+        // owns a `logs -> transactions` join. This is the exact shape produced
+        // by the pre-fix simplify() and is what must be rejected.
+        builder.relations.push(Rel::Join {
+            input_table: "logs",
+            input_key: vec!["block_number", "transaction_index"],
+            output_table: "transactions",
+            output_key: vec!["block_number", "transaction_index"],
+        });
+        builder.scans.push(Scan {
+            table: "transactions",
+            predicate: None,
+            relations: vec![0],
+            output: None,
+        });
+        builder.assert_scan_relation_invariant();
     }
 }
