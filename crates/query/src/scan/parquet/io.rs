@@ -1,36 +1,27 @@
-use std::io::Cursor;
-use std::sync::Arc;
+use std::{io::Cursor, sync::Arc};
 
 use bytes::Bytes;
 use memmap2::{Mmap, MmapOptions};
 use parquet::file::reader::{ChunkReader, Length};
-
 
 #[derive(Clone)]
 pub struct MmapIO {
     mmap: Arc<Mmap>
 }
 
-
 impl MmapIO {
     pub fn open(filename: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
         let file = std::fs::File::open(filename)?;
-        let mmap = unsafe {
-            MmapOptions::new().map(&file)
-        }?;
-        Ok(MmapIO {
-            mmap: Arc::new(mmap)
-        })
+        let mmap = unsafe { MmapOptions::new().map(&file) }?;
+        Ok(MmapIO { mmap: Arc::new(mmap) })
     }
 }
-
 
 impl AsRef<[u8]> for MmapIO {
     fn as_ref(&self) -> &[u8] {
         self.mmap.as_ref()
     }
 }
-
 
 impl ChunkReader for MmapIO {
     type T = Cursor<Self>;
@@ -47,7 +38,6 @@ impl ChunkReader for MmapIO {
         Ok(Bytes::copy_from_slice(&self.as_ref()[beg..end]))
     }
 }
-
 
 impl Length for MmapIO {
     fn len(&self) -> u64 {

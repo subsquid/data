@@ -1,6 +1,6 @@
+mod chunk;
+mod file;
 mod io;
 mod metadata;
-mod file;
-mod chunk;
 
 pub use chunk::*;

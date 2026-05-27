@@ -1,29 +1,32 @@
-use crate::cli::App;
-use crate::dataset_controller::DatasetController;
-use crate::errors::{
-    BlockItemIsNotAvailable, BlockRangeMissing, Busy, QueryIsAboveTheHead, QueryKindMismatch,
-    UnknownDataset,
-};
-use crate::query::QueryResponse;
-use crate::types::{ClientId, RetentionStrategy};
+use std::{sync::Arc, time::Instant};
+
 use anyhow::bail;
 use async_stream::try_stream;
-use axum::body::{Body, Bytes};
-use axum::extract::{Path, Request};
-use axum::http::StatusCode;
-use axum::http::Uri;
-use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
-use axum::{BoxError, Extension, Json, Router};
+use axum::{
+    BoxError, Extension, Json, Router,
+    body::{Body, Bytes},
+    extract::{Path, Request},
+    http::{StatusCode, Uri},
+    response::{IntoResponse, Response},
+    routing::{get, post}
+};
 use futures::TryStream;
 use serde::Serialize;
 use sqd_primitives::BlockRef;
 use sqd_query::{Query, UnexpectedBaseBlock};
 use sqd_storage::db::DatasetId;
-use std::sync::Arc;
-use std::time::Instant;
 use tower_http::request_id::{MakeRequestUuid, RequestId, SetRequestIdLayer};
 use tracing::{Instrument, error};
+
+use crate::{
+    cli::App,
+    dataset_controller::DatasetController,
+    errors::{
+        BlockItemIsNotAvailable, BlockRangeMissing, Busy, QueryIsAboveTheHead, QueryKindMismatch, UnknownDataset
+    },
+    query::QueryResponse,
+    types::{ClientId, RetentionStrategy}
+};
 
 const DEFAULT_CLIENT_ID: &str = "unknown";
 
@@ -43,7 +46,7 @@ macro_rules! get_dataset {
     ($app:expr, $dataset_id:expr) => {
         match $app.data_service.get_dataset($dataset_id) {
             Ok(ds) => ds,
-            Err(err) => return text!(StatusCode::NOT_FOUND, "{}", err),
+            Err(err) => return text!(StatusCode::NOT_FOUND, "{}", err)
         }
     };
 }
@@ -52,18 +55,12 @@ type AppRef = Arc<App>;
 
 pub fn build_api(app: App) -> Router {
     Router::new()
-        .route(
-            "/",
-            get(|| async { "Welcome to SQD hot block data service!" }),
-        )
+        .route("/", get(|| async { "Welcome to SQD hot block data service!" }))
         .route("/datasets/{id}/stream", post(stream))
         .route("/datasets/{id}/finalized-stream", post(finalized_stream))
         .route("/datasets/{id}/head", get(get_head))
         .route("/datasets/{id}/finalized-head", get(get_finalized_head))
-        .route(
-            "/datasets/{id}/retention",
-            get(get_retention).post(set_retention),
-        )
+        .route("/datasets/{id}/retention", get(get_retention).post(set_retention))
         .route("/datasets/{id}/status", get(get_status))
         .route("/datasets/{id}/metadata", get(get_metadata))
         .route("/metrics", get(get_metrics))
@@ -81,10 +78,7 @@ pub async fn middleware(mut req: Request, next: axum::middleware::Next) -> impl 
     let version = req.version();
     let start = Instant::now();
 
-    let app = req
-        .extensions()
-        .get::<Arc<App>>()
-        .expect("App extension should be set");
+    let app = req.extensions().get::<Arc<App>>().expect("App extension should be set");
 
     let client_id = req
         .headers()
@@ -137,21 +131,19 @@ pub struct Labels(Vec<(&'static str, String)>);
 
 pub struct ResponseWithMetadata {
     pub labels: Labels,
-    pub response: Option<Response>,
+    pub response: Option<Response>
 }
 
 impl ResponseWithMetadata {
     fn new() -> Self {
         Self {
             labels: Labels(vec![]),
-            response: None,
+            response: None
         }
     }
 
     pub fn with_client_id(mut self, client_id: &ClientId) -> Self {
-        self.labels
-            .0
-            .push(("client_id", client_id.as_str().to_owned()));
+        self.labels.0.push(("client_id", client_id.as_str().to_owned()));
         self
     }
 
@@ -167,7 +159,7 @@ impl ResponseWithMetadata {
 
     pub fn with_response<F>(mut self, clause: F) -> Self
     where
-        F: FnOnce() -> Response,
+        F: FnOnce() -> Response
     {
         self.response = Some(clause());
         self
@@ -186,7 +178,7 @@ async fn stream(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
-    body: Bytes,
+    body: Bytes
 ) -> impl IntoResponse {
     let response = stream_internal(app, dataset_id, body, false, client_id.clone()).await;
     ResponseWithMetadata::new()
@@ -200,7 +192,7 @@ async fn finalized_stream(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
-    body: Bytes,
+    body: Bytes
 ) -> impl IntoResponse {
     let response = stream_internal(app, dataset_id, body, true, client_id.clone()).await;
     ResponseWithMetadata::new()
@@ -215,13 +207,13 @@ async fn stream_internal(
     dataset_id: DatasetId,
     body: Bytes,
     finalized: bool,
-    client_id: ClientId,
+    client_id: ClientId
 ) -> Response {
     let dataset = get_dataset!(app, dataset_id);
 
     let query: Query = match Json::<Query>::from_bytes(&body) {
         Ok(Json(q)) => q,
-        Err(rejection) => return rejection.into_response(),
+        Err(rejection) => return rejection.into_response()
     };
 
     if let Err(err) = query.validate() {
@@ -229,9 +221,7 @@ async fn stream_internal(
     }
 
     let query_result = if finalized {
-        app.query_service
-            .query_finalized(&dataset, query, client_id)
-            .await
+        app.query_service.query_finalized(&dataset, query, client_id).await
     } else {
         app.query_service.query(&dataset, query, client_id).await
     };
@@ -248,9 +238,7 @@ async fn stream_internal(
                     // For finalized stream, use the finalized head as the head
                     res = res.header("x-sqd-head-number", finalized_head.number);
                 } else {
-                    let head_block = finalized_head
-                        .number
-                        .max(dataset.get_head_block_number().unwrap_or(0));
+                    let head_block = finalized_head.number.max(dataset.get_head_block_number().unwrap_or(0));
                     res = res.header("x-sqd-head-number", head_block);
                 }
                 res = res.header("x-sqd-finalized-head-number", finalized_head.number);
@@ -263,13 +251,11 @@ async fn stream_internal(
 
             res.body(body).unwrap()
         }
-        Err(err) => error_to_response(err, &body),
+        Err(err) => error_to_response(err, &body)
     }
 }
 
-fn stream_query_response(
-    mut stream: QueryResponse,
-) -> impl TryStream<Ok = Bytes, Error = BoxError> {
+fn stream_query_response(mut stream: QueryResponse) -> impl TryStream<Ok = Bytes, Error = BoxError> {
     try_stream! {
         while let Some(pack_result) = stream.next_data_pack().await.transpose() {
             match pack_result {
@@ -304,8 +290,8 @@ fn error_to_response(err: anyhow::Error, body: &Bytes) -> Response {
         return (
             StatusCode::CONFLICT,
             Json(BaseBlockConflict {
-                previous_blocks: &fork.prev_blocks,
-            }),
+                previous_blocks: &fork.prev_blocks
+            })
         )
             .into_response();
     }
@@ -341,13 +327,13 @@ fn error_to_response(err: anyhow::Error, body: &Bytes) -> Response {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BaseBlockConflict<'a> {
-    previous_blocks: &'a [BlockRef],
+    previous_blocks: &'a [BlockRef]
 }
 
 async fn get_finalized_head(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
-    Path(dataset_id): Path<DatasetId>,
+    Path(dataset_id): Path<DatasetId>
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
@@ -363,7 +349,7 @@ async fn get_finalized_head(
 async fn get_head(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
-    Path(dataset_id): Path<DatasetId>,
+    Path(dataset_id): Path<DatasetId>
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
@@ -379,7 +365,7 @@ async fn get_head(
 async fn get_retention(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
-    Path(dataset_id): Path<DatasetId>,
+    Path(dataset_id): Path<DatasetId>
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
@@ -396,7 +382,7 @@ async fn set_retention(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
-    Json(strategy): Json<RetentionStrategy>,
+    Json(strategy): Json<RetentionStrategy>
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
@@ -420,7 +406,7 @@ async fn set_retention(
 async fn get_status(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
-    Path(dataset_id): Path<DatasetId>,
+    Path(dataset_id): Path<DatasetId>
 ) -> impl IntoResponse {
     let read_status = |ctl: Arc<DatasetController>| -> anyhow::Result<_> {
         let db = app.db.snapshot();
@@ -462,7 +448,7 @@ async fn get_status(
             let ctl = get_dataset!(app, dataset_id);
             match read_status(ctl) {
                 Ok(status) => json_ok!(status),
-                Err(err) => text!(StatusCode::INTERNAL_SERVER_ERROR, "{:?}", err),
+                Err(err) => text!(StatusCode::INTERNAL_SERVER_ERROR, "{:?}", err)
             }
         })
 }
@@ -470,7 +456,7 @@ async fn get_status(
 async fn get_metadata(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
-    Path(dataset_id): Path<DatasetId>,
+    Path(dataset_id): Path<DatasetId>
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
@@ -483,7 +469,7 @@ async fn get_metadata(
 
             let first_chunk = match db.get_first_chunk(dataset_id) {
                 Ok(chunk) => chunk,
-                Err(err) => return text!(StatusCode::INTERNAL_SERVER_ERROR, "{:?}", err),
+                Err(err) => return text!(StatusCode::INTERNAL_SERVER_ERROR, "{:?}", err)
             };
 
             json_ok!(serde_json::json! {{
@@ -497,12 +483,11 @@ async fn get_metadata(
 
 async fn get_metrics(
     Extension(app): Extension<AppRef>,
-    Extension(client_id): Extension<ClientId>,
+    Extension(client_id): Extension<ClientId>
 ) -> impl IntoResponse {
     let mut metrics = String::new();
 
-    prometheus_client::encoding::text::encode(&mut metrics, &app.metrics_registry)
-        .expect("String IO is infallible");
+    prometheus_client::encoding::text::encode(&mut metrics, &app.metrics_registry).expect("String IO is infallible");
 
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
@@ -512,7 +497,7 @@ async fn get_metrics(
 
 async fn get_rocks_stats(
     Extension(app): Extension<AppRef>,
-    Extension(client_id): Extension<ClientId>,
+    Extension(client_id): Extension<ClientId>
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
@@ -521,10 +506,7 @@ async fn get_rocks_stats(
             if let Some(stats) = app.db.get_statistics() {
                 stats.into_response()
             } else {
-                text!(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "rocksdb stats are not enabled"
-                )
+                text!(StatusCode::INTERNAL_SERVER_ERROR, "rocksdb stats are not enabled")
             }
         })
 }
@@ -532,7 +514,7 @@ async fn get_rocks_stats(
 async fn get_rocks_prop(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
-    Path((cf, name)): Path<(String, String)>,
+    Path((cf, name)): Path<(String, String)>
 ) -> impl IntoResponse {
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
@@ -540,7 +522,7 @@ async fn get_rocks_prop(
         .with_response(|| match app.db.get_property(&cf, &name) {
             Ok(Some(s)) => s.into_response(),
             Ok(None) => text!(StatusCode::NOT_FOUND, "property not found"),
-            Err(err) => text!(StatusCode::INTERNAL_SERVER_ERROR, "{}", err),
+            Err(err) => text!(StatusCode::INTERNAL_SERVER_ERROR, "{}", err)
         })
 }
 

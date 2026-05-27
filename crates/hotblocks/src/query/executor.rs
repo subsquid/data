@@ -1,6 +1,9 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering}
+};
+
 use crate::metrics::{COMPLETED_QUERIES, report_query_too_many_tasks_error};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Clone)]
 pub struct QueryExecutor {
@@ -8,7 +11,7 @@ pub struct QueryExecutor {
     in_flight: Arc<AtomicUsize>,
     // limit for concurrent queries
     max_pending_tasks: usize,
-    urgency: usize,
+    urgency: usize
 }
 
 impl QueryExecutor {
@@ -16,7 +19,7 @@ impl QueryExecutor {
         Self {
             in_flight: Arc::new(AtomicUsize::new(0)),
             max_pending_tasks,
-            urgency,
+            urgency
         }
     }
 
@@ -25,7 +28,7 @@ impl QueryExecutor {
         if active_queries < self.max_pending_tasks {
             Some(QuerySlot {
                 in_flight: self.in_flight.clone(),
-                urgency: self.urgency,
+                urgency: self.urgency
             })
         } else {
             self.in_flight.fetch_sub(1, Ordering::SeqCst);
@@ -41,7 +44,7 @@ impl QueryExecutor {
 
 pub struct QuerySlot {
     in_flight: Arc<AtomicUsize>,
-    urgency: usize,
+    urgency: usize
 }
 
 impl Drop for QuerySlot {
@@ -64,7 +67,7 @@ impl QuerySlot {
     pub async fn run<R, F>(self, task: F) -> R
     where
         F: FnOnce(&Self) -> R + Send + 'static,
-        R: Send + 'static,
+        R: Send + 'static
     {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
@@ -80,7 +83,7 @@ impl QuerySlot {
 
 #[derive(Debug)]
 pub struct QueryExecutorCollector {
-    in_flight: Arc<AtomicUsize>,
+    in_flight: Arc<AtomicUsize>
 }
 
 impl QueryExecutorCollector {

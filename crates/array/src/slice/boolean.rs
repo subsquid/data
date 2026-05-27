@@ -1,12 +1,13 @@
-use crate::access::Access;
-use crate::index::RangeList;
-use crate::slice::bitmask::BitmaskSlice;
-use crate::slice::nullmask::NullmaskSlice;
-use crate::slice::Slice;
-use crate::writer::ArrayWriter;
-use arrow::array::BooleanArray;
 use std::ops::Range;
 
+use arrow::array::BooleanArray;
+
+use crate::{
+    access::Access,
+    index::RangeList,
+    slice::{bitmask::BitmaskSlice, nullmask::NullmaskSlice, Slice},
+    writer::ArrayWriter
+};
 
 #[derive(Clone)]
 pub struct BooleanSlice<'a> {
@@ -14,26 +15,21 @@ pub struct BooleanSlice<'a> {
     values: BitmaskSlice<'a>
 }
 
-
-impl <'a> BooleanSlice<'a> {
+impl<'a> BooleanSlice<'a> {
     pub fn new(values: BitmaskSlice<'a>, nulls: Option<BitmaskSlice<'a>>) -> Self {
         Self {
             nulls: NullmaskSlice::new(values.len(), nulls),
             values
         }
     }
-    
+
     pub fn with_nullmask(values: BitmaskSlice<'a>, nulls: NullmaskSlice<'a>) -> Self {
         assert_eq!(values.len(), nulls.len());
-        Self {
-            nulls,
-            values
-        }
+        Self { nulls, values }
     }
 }
 
-
-impl <'a> Slice for BooleanSlice<'a> {
+impl<'a> Slice for BooleanSlice<'a> {
     fn num_buffers(&self) -> usize {
         2
     }
@@ -69,18 +65,16 @@ impl <'a> Slice for BooleanSlice<'a> {
     }
 
     fn write_indexes(
-        &self, 
-        dst: &mut impl ArrayWriter, 
-        indexes: impl Iterator<Item=usize> + Clone
-    ) -> anyhow::Result<()> 
-    {
+        &self,
+        dst: &mut impl ArrayWriter,
+        indexes: impl Iterator<Item = usize> + Clone
+    ) -> anyhow::Result<()> {
         self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
         self.values.write_indexes(dst.bitmask(1), indexes)
     }
 }
 
-
-impl <'a> From<&'a BooleanArray> for BooleanSlice<'a> {
+impl<'a> From<&'a BooleanArray> for BooleanSlice<'a> {
     fn from(value: &'a BooleanArray) -> Self {
         Self {
             nulls: NullmaskSlice::from_array(value),
@@ -89,8 +83,7 @@ impl <'a> From<&'a BooleanArray> for BooleanSlice<'a> {
     }
 }
 
-
-impl <'a> Access for BooleanSlice<'a> {
+impl<'a> Access for BooleanSlice<'a> {
     type Value = bool;
 
     #[inline]

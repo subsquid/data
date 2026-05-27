@@ -1,13 +1,15 @@
-use crate::fs::{FSRef, Fs};
-use async_trait::async_trait;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc
+};
 
+use async_trait::async_trait;
+
+use crate::fs::{FSRef, Fs};
 
 pub struct LocalFs {
-    root: PathBuf,
+    root: PathBuf
 }
-
 
 impl LocalFs {
     pub fn new(root: impl Into<PathBuf>) -> LocalFs {
@@ -15,13 +17,10 @@ impl LocalFs {
     }
 }
 
-
 #[async_trait]
 impl Fs for LocalFs {
     fn cd(&self, path: &str) -> FSRef {
-        Arc::new(Self::new(
-            self.root.join(path)
-        ))
+        Arc::new(Self::new(self.root.join(path)))
     }
 
     async fn ls(&self) -> anyhow::Result<Vec<String>> {

@@ -1,9 +1,14 @@
-use crate::primitives::Name;
-use crate::scan::{and, bloom_filter, col_eq, col_gt_eq, col_in_list, col_lt_eq, col_primitive_list_contains_any, col_string_list_contains_any, IntoArrowArray, IntoArrowScalar, RowPredicateRef};
-use arrow::array::StringArray;
-use arrow::datatypes::ArrowPrimitiveType;
 use std::hash::Hash;
 
+use arrow::{array::StringArray, datatypes::ArrowPrimitiveType};
+
+use crate::{
+    primitives::Name,
+    scan::{
+        and, bloom_filter, col_eq, col_gt_eq, col_in_list, col_lt_eq, col_primitive_list_contains_any,
+        col_string_list_contains_any, IntoArrowArray, IntoArrowScalar, RowPredicateRef
+    }
+};
 
 macro_rules! item_field_selection {
     (
@@ -33,7 +38,6 @@ macro_rules! item_field_selection {
 }
 pub(crate) use item_field_selection;
 
-
 macro_rules! field_selection {
     (
         $($item_name:ident: $field_selection:ty ,)*
@@ -50,11 +54,9 @@ macro_rules! field_selection {
 }
 pub(crate) use field_selection;
 
-
 pub fn is_default<T: Default + Eq>(value: &T) -> bool {
     value.eq(&T::default())
 }
-
 
 macro_rules! request {
     ($(
@@ -79,7 +81,6 @@ macro_rules! request {
 }
 pub(crate) use request;
 
-
 macro_rules! ensure_block_range {
     ($query:ident) => {
         if let Some(to_block) = $query.to_block {
@@ -89,7 +90,6 @@ macro_rules! ensure_block_range {
     };
 }
 pub(crate) use ensure_block_range;
-
 
 macro_rules! ensure_item_count {
     ($query:ident, $i:ident $(, $is:ident)*) => {{
@@ -103,12 +103,10 @@ macro_rules! ensure_item_count {
 }
 pub(crate) use ensure_item_count;
 
-
 pub struct PredicateBuilder {
     conditions: Vec<RowPredicateRef>,
     is_never: bool
 }
-
 
 impl PredicateBuilder {
     pub fn new() -> Self {
@@ -127,7 +125,8 @@ impl PredicateBuilder {
     }
 
     pub fn col_in_list<L>(&mut self, name: Name, maybe_list: Option<L>) -> &mut Self
-        where L: IntoArrowArray
+    where
+        L: IntoArrowArray
     {
         if let Some(list) = maybe_list {
             let values = list.into_array();
@@ -157,13 +156,12 @@ impl PredicateBuilder {
     }
 
     pub fn bloom_filter<T: Hash>(
-        &mut self, 
+        &mut self,
         name: Name,
         byte_size: usize,
         num_hashes: usize,
         maybe_list: Option<&[T]>
-    ) -> &mut Self
-    {
+    ) -> &mut Self {
         if let Some(list) = maybe_list {
             if list.len() == 0 {
                 self.is_never = true
@@ -173,20 +171,16 @@ impl PredicateBuilder {
         }
         self
     }
-    
+
     pub fn add(&mut self, condition: RowPredicateRef) -> &mut Self {
         self.conditions.push(condition);
         self
     }
 
-    pub fn col_primitive_list_contains_any<T>(
-        &mut self,
-        name: Name,
-        maybe_list: Option<&[T::Native]>,
-    ) -> &mut Self
+    pub fn col_primitive_list_contains_any<T>(&mut self, name: Name, maybe_list: Option<&[T::Native]>) -> &mut Self
     where
         T: ArrowPrimitiveType,
-        T::Native: Eq + Hash,
+        T::Native: Eq + Hash
     {
         if let Some(list) = maybe_list {
             if list.is_empty() {
@@ -199,11 +193,7 @@ impl PredicateBuilder {
         self
     }
 
-    pub fn col_string_list_contains_any<S: AsRef<str>>(
-        &mut self,
-        name: Name,
-        maybe_list: Option<&[S]>,
-    ) -> &mut Self {
+    pub fn col_string_list_contains_any<S: AsRef<str>>(&mut self, name: Name, maybe_list: Option<&[S]>) -> &mut Self {
         if let Some(list) = maybe_list {
             if list.is_empty() {
                 self.is_never = true;
@@ -218,11 +208,11 @@ impl PredicateBuilder {
     pub fn is_never(&self) -> bool {
         self.is_never
     }
-    
+
     pub fn mark_as_never(&mut self) {
         self.is_never = true
     }
-    
+
     pub fn build(self) -> Option<RowPredicateRef> {
         if self.conditions.len() > 0 {
             Some(and(self.conditions))
@@ -231,7 +221,6 @@ impl PredicateBuilder {
         }
     }
 }
-
 
 macro_rules! compile_plan {
     (
@@ -279,27 +268,25 @@ macro_rules! compile_plan {
 }
 pub(crate) use compile_plan;
 
-
 pub fn check_hex(s: &str) -> Result<(), &'static str> {
     if !s.starts_with("0x") {
-        return Err("binary hex string should start with '0x'")
+        return Err("binary hex string should start with '0x'");
     }
     if s.len() % 2 != 0 {
-        return Err("binary hex string should have an even length")
+        return Err("binary hex string should have an even length");
     }
     if !faster_hex::hex_check(s[2..].as_bytes()) {
-        return Err("contains non-hex character")
+        return Err("contains non-hex character");
     }
     Ok(())
 }
 
-
 pub fn parse_hex(s: &str) -> Option<Vec<u8>> {
     if !s.starts_with("0x") {
-        return None
+        return None;
     }
     if s.len() % 2 != 0 {
-        return None
+        return None;
     }
     let mut bytes = vec![0; s.len() / 2 - 1];
     faster_hex::hex_decode(s[2..].as_bytes(), &mut bytes)
@@ -307,13 +294,12 @@ pub fn parse_hex(s: &str) -> Option<Vec<u8>> {
         .map(|_| bytes)
 }
 
-
 pub fn parse_static_hex<const N: usize>(s: &str) -> Option<[u8; N]> {
     if !s.starts_with("0x") {
-        return None
+        return None;
     }
     if s.len() != 2 + N * 2 {
-        return None
+        return None;
     }
     let mut bytes: [u8; N] = [0; N];
     faster_hex::hex_decode(s[2..].as_bytes(), &mut bytes)
@@ -321,11 +307,7 @@ pub fn parse_static_hex<const N: usize>(s: &str) -> Option<[u8; N]> {
         .map(|_| bytes)
 }
 
-
 pub fn to_lowercase_list(list: &Option<Vec<String>>) -> Option<StringArray> {
-    list.as_ref().map(|v| {
-        StringArray::from_iter_values(
-            v.iter().map(|s| s.to_ascii_lowercase())
-        )
-    })
+    list.as_ref()
+        .map(|v| StringArray::from_iter_values(v.iter().map(|s| s.to_ascii_lowercase())))
 }

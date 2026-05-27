@@ -1,2 +1,2 @@
-mod reader;
 mod chunk;
+mod reader;

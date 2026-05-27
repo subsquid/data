@@ -1,11 +1,14 @@
-use crate::index::RangeList;
-use crate::slice::Slice;
-use crate::writer::{ArrayWriter, NativeWriter};
-use arrow_buffer::ArrowNativeType;
 use std::ops::Range;
 
+use arrow_buffer::ArrowNativeType;
 
-impl <'a, T: ArrowNativeType> Slice for &'a [T] {
+use crate::{
+    index::RangeList,
+    slice::Slice,
+    writer::{ArrayWriter, NativeWriter}
+};
+
+impl<'a, T: ArrowNativeType> Slice for &'a [T] {
     #[inline]
     fn num_buffers(&self) -> usize {
         1
@@ -42,12 +45,7 @@ impl <'a, T: ArrowNativeType> Slice for &'a [T] {
     }
 
     #[inline]
-    fn write_indexes(
-        &self, 
-        dst: &mut impl ArrayWriter, 
-        indexes: impl Iterator<Item=usize>
-    ) -> anyhow::Result<()> 
-    {
+    fn write_indexes(&self, dst: &mut impl ArrayWriter, indexes: impl Iterator<Item = usize>) -> anyhow::Result<()> {
         dst.native(0).write_slice_indexes(self, indexes)
     }
 }

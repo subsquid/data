@@ -1,21 +1,21 @@
-use crate::dataset_controller::ingest::ingest;
-use crate::dataset_controller::ingest_generic::{IngestMessage, NewChunk};
-use crate::dataset_controller::write_controller::WriteController;
-use crate::types::{DBRef, DatasetKind, RetentionStrategy};
+use std::{collections::BTreeMap, ops::Add, time::Duration};
+
 use anyhow::{Context, anyhow};
-use futures::future::BoxFuture;
-use futures::stream::FuturesUnordered;
-use futures::{FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_storage::db::{Chunk, CompactionStatus, DatasetId};
-use std::collections::BTreeMap;
-use std::ops::Add;
-use std::time::Duration;
-use tokio::select;
-use tokio::task::JoinHandle;
-use tokio::time::Instant;
+use tokio::{select, task::JoinHandle, time::Instant};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
+
+use crate::{
+    dataset_controller::{
+        ingest::ingest,
+        ingest_generic::{IngestMessage, NewChunk},
+        write_controller::WriteController
+    },
+    types::{DBRef, DatasetKind, RetentionStrategy}
+};
 
 pub struct DatasetController {
     dataset_id: DatasetId,
@@ -25,7 +25,7 @@ pub struct DatasetController {
     finalized_head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
     compaction_enabled_sender: tokio::sync::watch::Sender<bool>,
     task: JoinHandle<()>,
-    compaction_task: JoinHandle<()>,
+    compaction_task: JoinHandle<()>
 }
 
 impl Drop for DatasetController {
@@ -42,23 +42,18 @@ impl DatasetController {
         dataset_id: DatasetId,
         dataset_kind: DatasetKind,
         retention: RetentionStrategy,
-        data_sources: Vec<ReqwestDataClient>,
+        data_sources: Vec<ReqwestDataClient>
     ) -> anyhow::Result<Self> {
         let mut write = WriteController::new(db.clone(), dataset_id, dataset_kind)?;
 
-        if let RetentionStrategy::FromBlock {
-            number,
-            parent_hash,
-        } = &retention
-        {
+        if let RetentionStrategy::FromBlock { number, parent_hash } = &retention {
             write.init_retention(*number, parent_hash.clone())?;
         }
 
         let (retention_sender, retention_recv) = tokio::sync::watch::channel(retention);
         let (head_sender, head_receiver) = tokio::sync::watch::channel(None);
         let (finalized_head_sender, finalized_head_receiver) = tokio::sync::watch::channel(None);
-        let (compaction_enabled_sender, compaction_enabled_receiver) =
-            tokio::sync::watch::channel(false);
+        let (compaction_enabled_sender, compaction_enabled_receiver) = tokio::sync::watch::channel(false);
 
         let _ = head_sender.send(write.head().cloned());
         let _ = finalized_head_sender.send(write.finalized_head().cloned());
@@ -70,14 +65,13 @@ impl DatasetController {
             data_sources,
             retention_recv,
             head_sender,
-            finalized_head_sender,
+            finalized_head_sender
         };
 
         let task = tokio::spawn(ctl.run(write).in_current_span());
 
-        let compaction_task = tokio::spawn(
-            compaction_loop(db, dataset_id, compaction_enabled_receiver).in_current_span(),
-        );
+        let compaction_task =
+            tokio::spawn(compaction_loop(db, dataset_id, compaction_enabled_receiver).in_current_span());
 
         Ok(Self {
             dataset_id,
@@ -87,7 +81,7 @@ impl DatasetController {
             finalized_head_receiver,
             compaction_enabled_sender,
             task,
-            compaction_task,
+            compaction_task
         })
     }
 
@@ -152,7 +146,7 @@ struct WriteCtx {
     db: DBRef,
     write: WriteController,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
-    finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
+    finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>
 }
 
 impl WriteCtx {
@@ -179,7 +173,7 @@ impl WriteCtx {
             }
             IngestMessage::Fork {
                 prev_blocks,
-                rollback_sender,
+                rollback_sender
             } => {
                 self.write.compute_rollback(&prev_blocks).map(|rollback| {
                     let _ = rollback_sender.send(rollback);
@@ -216,18 +210,13 @@ impl WriteCtx {
             last_block_hash: new_chunk.last_block_hash,
             first_block_time: new_chunk.first_block_time,
             last_block_time: new_chunk.last_block_time,
-            tables,
+            tables
         };
 
-        self.write
-            .new_chunk(new_chunk.finalized_head.as_ref(), &chunk)
+        self.write.new_chunk(new_chunk.finalized_head.as_ref(), &chunk)
     }
 
-    fn retain(
-        &mut self,
-        from_block: BlockNumber,
-        parent_hash: Option<String>,
-    ) -> anyhow::Result<()> {
+    fn retain(&mut self, from_block: BlockNumber, parent_hash: Option<String>) -> anyhow::Result<()> {
         self.write.retain(from_block, parent_hash)?;
         self.notify_finalized_head();
         self.notify_head();
@@ -239,10 +228,7 @@ impl WriteCtx {
     }
 
     fn notify_finalized_head(&self) {
-        send_if_new(
-            &self.finalized_head_sender,
-            self.write.finalized_head().cloned(),
-        )
+        send_if_new(&self.finalized_head_sender, self.write.finalized_head().cloned())
     }
 
     fn starts_at(&self, block_number: BlockNumber, parent_hash: &Option<String>) -> bool {
@@ -265,25 +251,25 @@ fn send_if_new<T: Eq>(sender: &tokio::sync::watch::Sender<T>, value: T) {
 enum State {
     Idle,
     Init {
-        head: Option<u64>,
+        head: Option<u64>
     },
     HeadProbe {
         future: BoxFuture<'static, BlockNumber>,
-        head: u64,
+        head: u64
     },
     Ingest {
         handle: IngestHandle,
-        head: Option<u64>,
+        head: Option<u64>
     },
     IngestPause {
         until: Instant,
-        head: Option<u64>,
-    },
+        head: Option<u64>
+    }
 }
 
 struct IngestHandle {
     msg_recv: tokio::sync::mpsc::Receiver<IngestMessage>,
-    task: JoinHandle<anyhow::Result<()>>,
+    task: JoinHandle<anyhow::Result<()>>
 }
 
 impl Drop for IngestHandle {
@@ -299,7 +285,7 @@ struct Ctl {
     data_sources: Vec<ReqwestDataClient>,
     retention_recv: tokio::sync::watch::Receiver<RetentionStrategy>,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
-    finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
+    finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>
 }
 
 macro_rules! warn_on_tx_restart {
@@ -356,10 +342,7 @@ impl Ctl {
         // need this variable to please the compiler
         let retention = self.retention_recv.borrow_and_update().clone();
         let mut state = match retention {
-            RetentionStrategy::FromBlock {
-                number,
-                parent_hash,
-            } => {
+            RetentionStrategy::FromBlock { number, parent_hash } => {
                 if !write.starts_at(number, &parent_hash) {
                     blocking! {
                         write.retain(number, parent_hash)
@@ -386,12 +369,12 @@ impl Ctl {
                     state = if let Some(n) = head {
                         State::HeadProbe {
                             future: fetch_chain_top(self.data_sources.clone()).boxed(),
-                            head: *n,
+                            head: *n
                         }
                     } else {
                         State::Ingest {
                             handle: self.spawn_ingest(&write),
-                            head: None,
+                            head: None
                         }
                     }
                 }
@@ -473,32 +456,25 @@ impl Ctl {
         }
     }
 
-    async fn handle_retention_change(
-        &mut self,
-        state: &mut State,
-        mut write: WriteCtx,
-    ) -> anyhow::Result<WriteCtx> {
+    async fn handle_retention_change(&mut self, state: &mut State, mut write: WriteCtx) -> anyhow::Result<WriteCtx> {
         // need this variable to please the compiler
         let retention = self.retention_recv.borrow_and_update().clone();
         match retention {
-            RetentionStrategy::FromBlock {
-                number,
-                parent_hash,
-            } => {
+            RetentionStrategy::FromBlock { number, parent_hash } => {
                 let will_erase_head = write.write.head().map_or(false, |h| h.number < number) || // FromBlock is greater than current head, so everything is cleared
                     write.write.start_block() > number; // FromBlock is less than current front, dropping everything by design
                 blocking_write!(write, write.retain(number, parent_hash))?;
                 match state {
                     State::Ingest { .. } if !will_erase_head => {} // Keep ingesting, head is valid
-                    _ => *state = State::Init { head: None },      // New ingest needed
+                    _ => *state = State::Init { head: None }       // New ingest needed
                 }
             }
             RetentionStrategy::Head(n) => match state {
                 State::HeadProbe { head, .. } => *head = n,
                 State::Ingest { head, .. } if head.is_some() => *head = Some(n),
-                _ => *state = State::Init { head: Some(n) },
+                _ => *state = State::Init { head: Some(n) }
             },
-            RetentionStrategy::None => *state = State::Idle,
+            RetentionStrategy::None => *state = State::Idle
         }
         Ok(write)
     }
@@ -514,18 +490,15 @@ impl Ctl {
                 self.data_sources.clone(),
                 self.dataset_kind,
                 write.write.next_block(),
-                write.write.head_hash(),
+                write.write.head_hash()
             )
-            .instrument(ingest_span),
+            .instrument(ingest_span)
         );
 
         IngestHandle { msg_recv, task }
     }
 
-    async fn new_write_ctx(
-        &self,
-        maybe_write: Option<WriteController>,
-    ) -> anyhow::Result<WriteCtx> {
+    async fn new_write_ctx(&self, maybe_write: Option<WriteController>) -> anyhow::Result<WriteCtx> {
         let db = self.db.clone();
         let dataset_id = self.dataset_id;
         let dataset_kind = self.dataset_kind;
@@ -546,15 +519,13 @@ impl Ctl {
             db: self.db.clone(),
             write,
             head_sender: self.head_sender.clone(),
-            finalized_head_sender: self.finalized_head_sender.clone(),
+            finalized_head_sender: self.finalized_head_sender.clone()
         })
     }
 }
 
 async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
-    let mut calls: FuturesUnordered<_> = (0..clients.len())
-        .map(|i| call_client(&clients, i, false))
-        .collect();
+    let mut calls: FuturesUnordered<_> = (0..clients.len()).map(|i| call_client(&clients, i, false)).collect();
 
     let mut completed = 0;
     let mut last_seen = 0;
@@ -605,7 +576,7 @@ async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
     async fn call_client(
         clients: &[ReqwestDataClient],
         idx: usize,
-        backoff: bool,
+        backoff: bool
     ) -> (anyhow::Result<BlockNumber>, usize) {
         if backoff {
             tokio::time::sleep(Duration::from_secs(5)).await;
@@ -621,11 +592,7 @@ async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
 }
 
 #[instrument(name = "compaction", skip_all)]
-async fn compaction_loop(
-    db: DBRef,
-    dataset_id: DatasetId,
-    mut enabled: tokio::sync::watch::Receiver<bool>,
-) {
+async fn compaction_loop(db: DBRef, dataset_id: DatasetId, mut enabled: tokio::sync::watch::Receiver<bool>) {
     let mut skips = 0;
     let skip_pause = [1, 2, 3, 4, 5, 10, 20, 30, 60];
     loop {
@@ -642,7 +609,7 @@ async fn compaction_loop(
             .await
             {
                 Ok(res) => res,
-                Err(err) => Err(anyhow!("failed to await compaction task - {}", err)),
+                Err(err) => Err(anyhow!("failed to await compaction task - {}", err))
             };
 
             match result {

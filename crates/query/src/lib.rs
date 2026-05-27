@@ -1,11 +1,10 @@
 #![allow(dead_code)]
-mod plan;
-mod primitives;
-mod scan;
 mod json;
 mod json_writer;
+mod plan;
+mod primitives;
 mod query;
-
+mod scan;
 
 pub use json_writer::*;
 pub use plan::{BlockWriter, Plan, UnexpectedBaseBlock};
@@ -13,5 +12,5 @@ pub use primitives::BlockNumber;
 pub use query::*;
 #[cfg(feature = "parquet")]
 pub use scan::parquet::ParquetChunk;
-pub use scan::{Chunk, TableDoesNotExist, ColumnDoesNotExist};
+pub use scan::{Chunk, ColumnDoesNotExist, TableDoesNotExist};
 pub use sqd_polars::set_polars_thread_pool_size;

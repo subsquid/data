@@ -1,18 +1,22 @@
-use crate::builder::memory_writer::MemoryWriter;
-use crate::builder::nullmask::NullmaskBuilder;
-use crate::builder::ArrayBuilder;
-use crate::slice::{AsSlice, FixedSizeListSlice};
-use crate::util::invalid_buffer_access;
-use crate::writer::{ArrayWriter, Writer};
-use arrow::array::{ArrayRef, FixedSizeBinaryArray};
-use arrow::datatypes::DataType;
-use arrow_buffer::MutableBuffer;
 use std::sync::Arc;
+
+use arrow::{
+    array::{ArrayRef, FixedSizeBinaryArray},
+    datatypes::DataType
+};
+use arrow_buffer::MutableBuffer;
+
+use crate::{
+    builder::{memory_writer::MemoryWriter, nullmask::NullmaskBuilder, ArrayBuilder},
+    slice::{AsSlice, FixedSizeListSlice},
+    util::invalid_buffer_access,
+    writer::{ArrayWriter, Writer}
+};
 
 pub struct FixedSizeBinaryBuilder {
     size: usize,
     nulls: NullmaskBuilder,
-    values: MutableBuffer,
+    values: MutableBuffer
 }
 
 impl FixedSizeBinaryBuilder {
@@ -20,7 +24,7 @@ impl FixedSizeBinaryBuilder {
         Self {
             size,
             nulls: NullmaskBuilder::new(item_capacity),
-            values: MutableBuffer::new(item_capacity * size),
+            values: MutableBuffer::new(item_capacity * size)
         }
     }
 
@@ -106,11 +110,7 @@ impl AsSlice for FixedSizeBinaryBuilder {
     type Slice<'a> = FixedSizeListSlice<'a, &'a [u8]>;
 
     fn as_slice(&self) -> Self::Slice<'_> {
-        FixedSizeListSlice::new(
-            self.size,
-            self.values.as_slice(),
-            self.nulls.as_slice().bitmask(),
-        )
+        FixedSizeListSlice::new(self.size, self.values.as_slice(), self.nulls.as_slice().bitmask())
     }
 }
 

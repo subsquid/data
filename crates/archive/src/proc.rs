@@ -1,18 +1,17 @@
-use crate::chunk_writer::ChunkWriter;
-use crate::layout::ChunkTracker;
-use crate::metrics;
-use crate::progress::Progress;
-use crate::writer::WriterItem;
+use std::{
+    num::NonZeroUsize,
+    pin::pin,
+    time::{Duration, Instant}
+};
+
 use anyhow::ensure;
 use futures::{Stream, TryStreamExt};
 use prometheus_client::metrics::gauge::Atomic;
 use sqd_data_core::BlockChunkBuilder;
 use sqd_primitives::{Block, BlockNumber, DataMask};
-use std::num::NonZeroUsize;
-use std::pin::pin;
-use std::time::{Duration, Instant};
 use tracing::{enabled, info, Level};
 
+use crate::{chunk_writer::ChunkWriter, layout::ChunkTracker, metrics, progress::Progress, writer::WriterItem};
 
 pub struct Proc<B> {
     chunk_writer: ChunkWriter<B>,
@@ -31,14 +30,12 @@ pub struct Proc<B> {
     last_progress_report: Instant
 }
 
-
 impl<B: BlockChunkBuilder<Block: Block>> Proc<B> {
     pub fn new(
         chunk_builder: B,
         chunk_tracker: ChunkTracker,
         chunk_sender: tokio::sync::mpsc::Sender<WriterItem>
-    ) -> anyhow::Result<Self>
-    {
+    ) -> anyhow::Result<Self> {
         let chunk_writer = ChunkWriter::new(chunk_builder)?;
         let first_block = chunk_tracker.next_block();
         Ok(Self {
@@ -80,12 +77,12 @@ impl<B: BlockChunkBuilder<Block: Block>> Proc<B> {
                 start = false;
                 if let Some(hash) = self.chunk_tracker.prev_chunk_hash() {
                     ensure!(
-                    hash == short_hash(block.parent_hash()) || hash == fallback_short_hash(block.parent_hash()),
-                    "previous chunk hash {} does not match parent hash {} of block {}",
-                    hash,
-                    block.parent_hash(),
-                    block.number()
-                );
+                        hash == short_hash(block.parent_hash()) || hash == fallback_short_hash(block.parent_hash()),
+                        "previous chunk hash {} does not match parent hash {} of block {}",
+                        hash,
+                        block.parent_hash(),
+                        block.number()
+                    );
                 }
             } else {
                 if self.validate_chain_continuity {
@@ -133,7 +130,7 @@ impl<B: BlockChunkBuilder<Block: Block>> Proc<B> {
 
     async fn submit_chunk(&mut self) -> anyhow::Result<()> {
         if self.blocks_buffered == 0 {
-            return Ok(())
+            return Ok(());
         }
 
         let mut data = self.chunk_writer.finish()?;
@@ -145,13 +142,13 @@ impl<B: BlockChunkBuilder<Block: Block>> Proc<B> {
             short_hash(&self.last_block_hash).to_string()
         );
 
-        self.chunk_sender.send(
-            WriterItem {
+        self.chunk_sender
+            .send(WriterItem {
                 data,
                 chunk,
                 description: self.chunk_writer.dataset_description()
-            }
-        ).await?;
+            })
+            .await?;
 
         self.blocks_buffered = 0;
         self.first_block = self.last_block + 1;
@@ -179,12 +176,10 @@ impl<B: BlockChunkBuilder<Block: Block>> Proc<B> {
     }
 }
 
-
 fn short_hash(value: &str) -> &str {
     let offset = value.len().saturating_sub(8);
     value.get(offset..).unwrap_or_default()
 }
-
 
 fn fallback_short_hash(value: &str) -> &str {
     value.get(2..10).unwrap_or_default()

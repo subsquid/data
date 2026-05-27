@@ -1,13 +1,16 @@
-use crate::builder::memory_writer::MemoryWriter;
-use crate::builder::nullmask::NullmaskBuilder;
-use crate::builder::{AnyBuilder, ArrayBuilder};
-use crate::slice::{AnyStructSlice, AsSlice};
-use crate::util::{bisect_offsets, build_field_offsets, invalid_buffer_access};
-use crate::writer::{ArrayWriter, Writer};
-use arrow::array::{ArrayRef, StructArray};
-use arrow::datatypes::{DataType, Fields};
 use std::sync::Arc;
 
+use arrow::{
+    array::{ArrayRef, StructArray},
+    datatypes::{DataType, Fields}
+};
+
+use crate::{
+    builder::{memory_writer::MemoryWriter, nullmask::NullmaskBuilder, AnyBuilder, ArrayBuilder},
+    slice::{AnyStructSlice, AsSlice},
+    util::{bisect_offsets, build_field_offsets, invalid_buffer_access},
+    writer::{ArrayWriter, Writer}
+};
 
 pub struct AnyStructBuilder {
     fields: Fields,
@@ -16,15 +19,12 @@ pub struct AnyStructBuilder {
     columns: Vec<AnyBuilder>
 }
 
-
 impl AnyStructBuilder {
     pub fn new(fields: Fields) -> Self {
         let column_offsets = build_field_offsets(1, &fields);
-        
-        let columns = fields.iter()
-            .map(|f| AnyBuilder::new(f.data_type()))
-            .collect();
-        
+
+        let columns = fields.iter().map(|f| AnyBuilder::new(f.data_type())).collect();
+
         Self {
             fields,
             column_offsets,
@@ -32,7 +32,7 @@ impl AnyStructBuilder {
             columns
         }
     }
-    
+
     pub fn finish(self) -> StructArray {
         StructArray::new(
             self.fields,
@@ -40,7 +40,7 @@ impl AnyStructBuilder {
             self.nulls.finish()
         )
     }
-    
+
     pub unsafe fn finish_unchecked(self) -> StructArray {
         StructArray::new_unchecked(
             self.fields,
@@ -48,7 +48,7 @@ impl AnyStructBuilder {
             self.nulls.finish()
         )
     }
-    
+
     fn find_column(&self, buf: usize) -> (usize, usize) {
         if let Some(col) = bisect_offsets(&self.column_offsets, buf) {
             (col, buf - self.column_offsets[col])
@@ -57,7 +57,6 @@ impl AnyStructBuilder {
         }
     }
 }
-
 
 impl ArrayWriter for AnyStructBuilder {
     type Writer = MemoryWriter;
@@ -87,7 +86,6 @@ impl ArrayWriter for AnyStructBuilder {
     }
 }
 
-
 impl AsSlice for AnyStructBuilder {
     type Slice<'a> = AnyStructSlice<'a>;
 
@@ -98,7 +96,6 @@ impl AsSlice for AnyStructBuilder {
         )
     }
 }
-
 
 impl ArrayBuilder for AnyStructBuilder {
     fn data_type(&self) -> DataType {

@@ -1,7 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use sqd_bloom_filter::BloomFilter;
 
-
 fn bloom_filter_benchmark(c: &mut Criterion) {
     let mut bloom = BloomFilter::new(64, 7);
     c.bench_function("insert solana accounts", |bench| {
@@ -12,7 +11,6 @@ fn bloom_filter_benchmark(c: &mut Criterion) {
         })
     });
 }
-
 
 criterion_group!(benches, bloom_filter_benchmark);
 criterion_main!(benches);

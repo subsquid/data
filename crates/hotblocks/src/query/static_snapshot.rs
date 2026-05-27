@@ -1,34 +1,32 @@
-use crate::types::DBRef;
+use std::sync::Arc;
+
 use ouroboros::self_referencing;
 use sqd_primitives::BlockNumber;
 use sqd_storage::db::{Chunk, ChunkReader, DatasetId, DatasetLabel, ReadSnapshot, ReadSnapshotChunkIterator};
-use std::sync::Arc;
 
+use crate::types::DBRef;
 
 #[self_referencing]
 struct StaticSnapshotInner {
     db: DBRef,
     #[borrows(db)]
     #[covariant]
-    snapshot: ReadSnapshot<'this>,
+    snapshot: ReadSnapshot<'this>
 }
-
 
 #[derive(Clone)]
 pub struct StaticSnapshot {
     inner: Arc<StaticSnapshotInner>
 }
 
-
 impl StaticSnapshot {
     pub fn new(db: DBRef) -> Self {
         let inner = StaticSnapshotInnerBuilder {
             db,
             snapshot_builder: |db: &DBRef| db.snapshot()
-        }.build();
-        Self {
-            inner: Arc::new(inner)
         }
+        .build();
+        Self { inner: Arc::new(inner) }
     }
 
     pub fn snapshot(&self) -> &ReadSnapshot<'_> {
@@ -44,7 +42,6 @@ impl StaticSnapshot {
     }
 }
 
-
 #[self_referencing]
 struct StaticChunkIteratorInner {
     snapshot: StaticSnapshot,
@@ -53,11 +50,9 @@ struct StaticChunkIteratorInner {
     iter: ReadSnapshotChunkIterator<'this>
 }
 
-
 pub struct StaticChunkIterator {
     inner: StaticChunkIteratorInner
 }
-
 
 impl StaticChunkIterator {
     pub fn new(
@@ -65,22 +60,19 @@ impl StaticChunkIterator {
         dataset_id: DatasetId,
         from_block: BlockNumber,
         to_block: Option<BlockNumber>
-    ) -> Self
-    {
+    ) -> Self {
         let inner = StaticChunkIteratorInnerBuilder {
             snapshot,
             iter_builder: |snapshot| snapshot.snapshot().list_chunks(dataset_id, from_block, to_block)
-        }.build();
-        Self {
-            inner
         }
+        .build();
+        Self { inner }
     }
 
     pub fn snapshot(&self) -> &StaticSnapshot {
         self.inner.borrow_snapshot()
     }
 }
-
 
 impl Iterator for StaticChunkIterator {
     type Item = anyhow::Result<Chunk>;
@@ -90,7 +82,6 @@ impl Iterator for StaticChunkIterator {
     }
 }
 
-
 #[self_referencing]
 struct StaticChunkReaderInner {
     snapshot: StaticSnapshot,
@@ -99,22 +90,19 @@ struct StaticChunkReaderInner {
     reader: ChunkReader<'this>
 }
 
-
 #[derive(Clone)]
 pub struct StaticChunkReader {
     inner: Arc<StaticChunkReaderInner>
 }
-
 
 impl StaticChunkReader {
     pub fn new(snapshot: StaticSnapshot, chunk: Chunk) -> Self {
         let inner = StaticChunkReaderInnerBuilder {
             snapshot,
             reader_builder: |snapshot| snapshot.snapshot().create_chunk_reader(chunk)
-        }.build();
-        Self {
-            inner: Arc::new(inner)
         }
+        .build();
+        Self { inner: Arc::new(inner) }
     }
 
     pub fn with_reader<R, F>(&self, cb: F) -> R

@@ -1,15 +1,13 @@
 mod builder;
 mod serde;
 
-
-use arrow::array::ArrayRef;
-use arrow::datatypes::{DataType, TimeUnit};
+use arrow::{
+    array::ArrayRef,
+    datatypes::{DataType, TimeUnit}
+};
 use arrow_buffer::OffsetBuffer;
-
-
 pub use builder::*;
 pub use serde::*;
-
 
 #[derive(Clone)]
 pub struct Stats {
@@ -17,7 +15,6 @@ pub struct Stats {
     pub min: ArrayRef,
     pub max: ArrayRef
 }
-
 
 pub fn can_have_stats(data_type: &DataType) -> bool {
     match data_type {

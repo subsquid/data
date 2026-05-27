@@ -1,9 +1,7 @@
-pub mod prelude;
 pub mod arrow;
-
+pub mod prelude;
 
 pub use polars_core::POOL;
-
 
 /// Safety: Call it in the main at the very beginning.
 /// See https://doc.rust-lang.org/std/env/fn.set_var.html for more details

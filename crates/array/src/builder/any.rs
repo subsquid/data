@@ -1,11 +1,19 @@
-use crate::builder::memory_writer::MemoryWriter;
-use crate::builder::r#struct::AnyStructBuilder;
-use crate::builder::{ArrayBuilder, BinaryBuilder, BooleanBuilder, ListBuilder, PrimitiveBuilder, StringBuilder, FixedSizeBinaryBuilder};
-use crate::slice::{AnySlice, AsSlice};
-use crate::writer::{ArrayWriter, Writer};
-use arrow::array::ArrayRef;
-use arrow::datatypes::{DataType, Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, TimeUnit, TimestampMillisecondType, TimestampSecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type};
+use arrow::{
+    array::ArrayRef,
+    datatypes::{
+        DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit,
+        TimestampMillisecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type
+    }
+};
 
+use crate::{
+    builder::{
+        memory_writer::MemoryWriter, r#struct::AnyStructBuilder, ArrayBuilder, BinaryBuilder, BooleanBuilder,
+        FixedSizeBinaryBuilder, ListBuilder, PrimitiveBuilder, StringBuilder
+    },
+    slice::{AnySlice, AsSlice},
+    writer::{ArrayWriter, Writer}
+};
 
 pub enum AnyBuilder {
     Boolean(BooleanBuilder),
@@ -27,7 +35,6 @@ pub enum AnyBuilder {
     List(Box<ListBuilder<AnyBuilder>>),
     Struct(AnyStructBuilder)
 }
-
 
 impl ArrayWriter for AnyBuilder {
     type Writer = MemoryWriter;
@@ -51,7 +58,7 @@ impl ArrayWriter for AnyBuilder {
             AnyBuilder::FixedSizeBinary(b) => b.bitmask(buf),
             AnyBuilder::String(b) => b.bitmask(buf),
             AnyBuilder::List(b) => b.bitmask(buf),
-            AnyBuilder::Struct(b) => b.bitmask(buf),
+            AnyBuilder::Struct(b) => b.bitmask(buf)
         }
     }
 
@@ -74,7 +81,7 @@ impl ArrayWriter for AnyBuilder {
             AnyBuilder::FixedSizeBinary(b) => b.nullmask(buf),
             AnyBuilder::String(b) => b.nullmask(buf),
             AnyBuilder::List(b) => b.nullmask(buf),
-            AnyBuilder::Struct(b) => b.nullmask(buf),
+            AnyBuilder::Struct(b) => b.nullmask(buf)
         }
     }
 
@@ -97,7 +104,7 @@ impl ArrayWriter for AnyBuilder {
             AnyBuilder::FixedSizeBinary(b) => b.native(buf),
             AnyBuilder::String(b) => b.native(buf),
             AnyBuilder::List(b) => b.native(buf),
-            AnyBuilder::Struct(b) => b.native(buf),
+            AnyBuilder::Struct(b) => b.native(buf)
         }
     }
 
@@ -120,11 +127,10 @@ impl ArrayWriter for AnyBuilder {
             AnyBuilder::FixedSizeBinary(b) => b.offset(buf),
             AnyBuilder::String(b) => b.offset(buf),
             AnyBuilder::List(b) => b.offset(buf),
-            AnyBuilder::Struct(b) => b.offset(buf),
+            AnyBuilder::Struct(b) => b.offset(buf)
         }
     }
 }
-
 
 impl AsSlice for AnyBuilder {
     type Slice<'a> = AnySlice<'a>;
@@ -148,11 +154,10 @@ impl AsSlice for AnyBuilder {
             AnyBuilder::FixedSizeBinary(b) => b.as_slice().into(),
             AnyBuilder::String(b) => b.as_slice().into(),
             AnyBuilder::List(b) => b.as_slice().into(),
-            AnyBuilder::Struct(b) => b.as_slice().into(),
+            AnyBuilder::Struct(b) => b.as_slice().into()
         }
     }
 }
-
 
 impl ArrayBuilder for AnyBuilder {
     fn data_type(&self) -> DataType {
@@ -174,7 +179,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::FixedSizeBinary(b) => b.data_type(),
             AnyBuilder::String(b) => b.data_type(),
             AnyBuilder::List(b) => b.data_type(),
-            AnyBuilder::Struct(b) => b.data_type(),
+            AnyBuilder::Struct(b) => b.data_type()
         }
     }
 
@@ -197,7 +202,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::FixedSizeBinary(b) => b.len(),
             AnyBuilder::String(b) => b.len(),
             AnyBuilder::List(b) => b.len(),
-            AnyBuilder::Struct(b) => b.len(),
+            AnyBuilder::Struct(b) => b.len()
         }
     }
 
@@ -220,7 +225,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::FixedSizeBinary(b) => b.byte_size(),
             AnyBuilder::String(b) => b.byte_size(),
             AnyBuilder::List(b) => b.byte_size(),
-            AnyBuilder::Struct(b) => b.byte_size(),
+            AnyBuilder::Struct(b) => b.byte_size()
         }
     }
 
@@ -243,7 +248,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::FixedSizeBinary(b) => b.clear(),
             AnyBuilder::String(b) => b.clear(),
             AnyBuilder::List(b) => b.clear(),
-            AnyBuilder::Struct(b) => b.clear(),
+            AnyBuilder::Struct(b) => b.clear()
         }
     }
 
@@ -266,7 +271,7 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::FixedSizeBinary(b) => ArrayBuilder::finish(b),
             AnyBuilder::String(b) => ArrayBuilder::finish(b),
             AnyBuilder::List(b) => ArrayBuilder::finish(*b),
-            AnyBuilder::Struct(b) => ArrayBuilder::finish(b),
+            AnyBuilder::Struct(b) => ArrayBuilder::finish(b)
         }
     }
 
@@ -289,18 +294,16 @@ impl ArrayBuilder for AnyBuilder {
             AnyBuilder::FixedSizeBinary(b) => ArrayBuilder::finish_unchecked(b),
             AnyBuilder::String(b) => ArrayBuilder::finish_unchecked(b),
             AnyBuilder::List(b) => ArrayBuilder::finish_unchecked(*b),
-            AnyBuilder::Struct(b) => ArrayBuilder::finish_unchecked(b),
+            AnyBuilder::Struct(b) => ArrayBuilder::finish_unchecked(b)
         }
     }
 }
-
 
 impl From<BooleanBuilder> for AnyBuilder {
     fn from(value: BooleanBuilder) -> Self {
         AnyBuilder::Boolean(value)
     }
 }
-
 
 macro_rules! impl_from_primitive {
     ($kind:ident, $ty:ident) => {
@@ -324,13 +327,11 @@ impl_from_primitive!(Float64, Float64Type);
 impl_from_primitive!(TimestampSecond, TimestampSecondType);
 impl_from_primitive!(TimestampMillisecond, TimestampMillisecondType);
 
-
 impl From<BinaryBuilder> for AnyBuilder {
     fn from(value: BinaryBuilder) -> Self {
         AnyBuilder::Binary(value)
     }
 }
-
 
 impl From<StringBuilder> for AnyBuilder {
     fn from(value: StringBuilder) -> Self {
@@ -338,13 +339,11 @@ impl From<StringBuilder> for AnyBuilder {
     }
 }
 
-
 impl From<FixedSizeBinaryBuilder> for AnyBuilder {
     fn from(value: FixedSizeBinaryBuilder) -> Self {
         AnyBuilder::FixedSizeBinary(value)
     }
 }
-
 
 impl From<ListBuilder<AnyBuilder>> for AnyBuilder {
     fn from(value: ListBuilder<AnyBuilder>) -> Self {
@@ -352,13 +351,11 @@ impl From<ListBuilder<AnyBuilder>> for AnyBuilder {
     }
 }
 
-
 impl From<AnyStructBuilder> for AnyBuilder {
     fn from(value: AnyStructBuilder) -> Self {
         AnyBuilder::Struct(value)
     }
 }
-
 
 impl AnyBuilder {
     pub fn new(data_type: &DataType) -> Self {
@@ -374,22 +371,14 @@ impl AnyBuilder {
             DataType::UInt64 => PrimitiveBuilder::<UInt64Type>::new(0).into(),
             DataType::Float32 => PrimitiveBuilder::<Float32Type>::new(0).into(),
             DataType::Float64 => PrimitiveBuilder::<Float64Type>::new(0).into(),
-            DataType::Timestamp(TimeUnit::Second, _) => {
-                PrimitiveBuilder::<TimestampSecondType>::new(0).into()
-            },
+            DataType::Timestamp(TimeUnit::Second, _) => PrimitiveBuilder::<TimestampSecondType>::new(0).into(),
             DataType::Timestamp(TimeUnit::Millisecond, _) => {
                 PrimitiveBuilder::<TimestampMillisecondType>::new(0).into()
-            },
+            }
             DataType::Binary => BinaryBuilder::new(0, 0).into(),
             DataType::FixedSizeBinary(size) => FixedSizeBinaryBuilder::new(*size as usize, 0).into(),
             DataType::Utf8 => StringBuilder::new(0, 0).into(),
-            DataType::List(f) => {
-                ListBuilder::new(
-                    0, 
-                    Self::new(f.data_type()), 
-                    Some(f.name().to_string())
-                ).into()
-            },
+            DataType::List(f) => ListBuilder::new(0, Self::new(f.data_type()), Some(f.name().to_string())).into(),
             DataType::Struct(fields) => AnyStructBuilder::new(fields.iter().cloned().collect()).into(),
             ty => panic!("unsupported arrow type - {}", ty)
         }

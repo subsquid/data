@@ -1,8 +1,10 @@
-use crate::tron::model::{Block, InternalTransaction};
-use crate::tron::tables::common::*;
 use sqd_array::builder::{BooleanBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
+use crate::tron::{
+    model::{Block, InternalTransaction},
+    tables::common::*
+};
 
 table_builder! {
     InternalTransactionBuilder {
@@ -37,7 +39,6 @@ table_builder! {
     }
 }
 
-
 impl InternalTransactionBuilder {
     pub fn push(&mut self, block: &Block, row: &InternalTransaction) {
         self.block_number.append(block.header.height);
@@ -45,7 +46,8 @@ impl InternalTransactionBuilder {
         self.internal_transaction_index.append(row.internal_transaction_index);
         self.hash.append(&row.hash);
         self.caller_address.append(&row.caller_address);
-        self.transfer_to_address.append_option(row.transfer_to_address.as_deref());
+        self.transfer_to_address
+            .append_option(row.transfer_to_address.as_deref());
 
         let call_value_info = serde_json::to_string(&row.call_value_info).unwrap();
         self.call_value_info.append(&call_value_info);

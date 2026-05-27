@@ -1,20 +1,18 @@
-use crate::schema_metadata::{print_sort_key, SQD_SORT_KEY};
-use arrow::datatypes::{DataType, Field, FieldRef, Schema, SchemaRef};
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
+use arrow::datatypes::{DataType, Field, FieldRef, Schema, SchemaRef};
+
+use crate::schema_metadata::{print_sort_key, SQD_SORT_KEY};
 
 struct NewSchema {
     fields: Vec<FieldRef>,
     metadata: HashMap<String, String>
 }
 
-
 pub struct SchemaPatch {
     original: SchemaRef,
     new_schema: Option<NewSchema>
 }
-
 
 impl SchemaPatch {
     pub fn new(schema: SchemaRef) -> Self {
@@ -39,13 +37,12 @@ impl SchemaPatch {
     }
 
     pub fn find_by_name(&self, name: &str) -> Option<(usize, FieldRef)> {
-        self.fields().iter()
+        self.fields()
+            .iter()
             .enumerate()
-            .find_map(|(i, f)| {
-                (f.name() == name).then_some((i, f.clone()))
-            })
+            .find_map(|(i, f)| (f.name() == name).then_some((i, f.clone())))
     }
-    
+
     pub fn metadata_mut(&mut self) -> &mut HashMap<String, String> {
         &mut self.new_schema_mut().metadata
     }
@@ -55,14 +52,10 @@ impl SchemaPatch {
         if field.data_type() == &ty {
             return;
         }
-        let new_field = Field::new(
-            field.name(),
-            ty,
-            field.is_nullable()
-        );
+        let new_field = Field::new(field.name(), ty, field.is_nullable());
         self.set_field(index, Arc::new(new_field))
     }
-    
+
     pub fn insert_metadata(&mut self, key: impl ToString, val: impl ToString) {
         let key = key.to_string();
         let val = val.to_string();
@@ -96,12 +89,11 @@ impl SchemaPatch {
     }
 
     pub fn finish(self) -> SchemaRef {
-        self.new_schema.map(|new_schema| {
-            let schema = Schema::new_with_metadata(
-                new_schema.fields,
-                new_schema.metadata
-            );
-            Arc::new(schema)
-        }).unwrap_or(self.original)
+        self.new_schema
+            .map(|new_schema| {
+                let schema = Schema::new_with_metadata(new_schema.fields, new_schema.metadata);
+                Arc::new(schema)
+            })
+            .unwrap_or(self.original)
     }
 }

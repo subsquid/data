@@ -1,22 +1,25 @@
-use crate::cli::{Cli, NetworkKind};
-use crate::fs::create_fs;
-use crate::ingest::ingest_from_service;
-use crate::layout::Layout;
-use crate::metrics;
-use crate::proc::Proc;
-use crate::server::run_server;
-use crate::writer::Writer;
-use anyhow::{ensure, Context};
-use prometheus_client::registry::Registry;
-use sqd_data::bitcoin::tables::BitcoinChunkBuilder;
-use sqd_data::evm::tables::EvmChunkBuilder;
-use sqd_data::hyperliquid_fills::tables::HyperliquidFillsChunkBuilder;
-use sqd_data::hyperliquid_replica_cmds::tables::HyperliquidReplicaCmdsChunkBuilder;
-use sqd_data::solana::tables::SolanaChunkBuilder;
-use sqd_data::tron::tables::TronChunkBuilder;
-use sqd_primitives::BlockNumber;
 use std::time::Duration;
 
+use anyhow::{ensure, Context};
+use prometheus_client::registry::Registry;
+use sqd_data::{
+    bitcoin::tables::BitcoinChunkBuilder, evm::tables::EvmChunkBuilder,
+    hyperliquid_fills::tables::HyperliquidFillsChunkBuilder,
+    hyperliquid_replica_cmds::tables::HyperliquidReplicaCmdsChunkBuilder, solana::tables::SolanaChunkBuilder,
+    tron::tables::TronChunkBuilder
+};
+use sqd_primitives::BlockNumber;
+
+use crate::{
+    cli::{Cli, NetworkKind},
+    fs::create_fs,
+    ingest::ingest_from_service,
+    layout::Layout,
+    metrics,
+    proc::Proc,
+    server::run_server,
+    writer::Writer
+};
 
 pub async fn run(args: Cli) -> anyhow::Result<()> {
     ensure!(
@@ -27,12 +30,9 @@ pub async fn run(args: Cli) -> anyhow::Result<()> {
     let fs = create_fs(&args.dest).await?;
     let layout = Layout::new(fs.clone());
 
-    let chunk_tracker = layout.create_chunk_tracker(
-        &chunk_check,
-        args.top_dir_size,
-        args.first_block,
-        args.last_block
-    ).await?;
+    let chunk_tracker = layout
+        .create_chunk_tracker(&chunk_check, args.top_dir_size, args.first_block, args.last_block)
+        .await?;
 
     if let Some(last_block) = args.last_block {
         if chunk_tracker.next_block() > last_block {
@@ -78,26 +78,25 @@ pub async fn run(args: Cli) -> anyhow::Result<()> {
     let attach_idx_field = args.attach_idx_field;
     let write_task = tokio::spawn(async move {
         let mut writer = Writer::new(fs, chunk_receiver, attach_idx_field);
-        writer.start().await 
+        writer.start().await
     });
-    
+
     match write_task.await.context("write task panicked") {
         Ok(Ok(_)) => {
             proc_task.await.context("processing task panicked")??;
-        },
+        }
         Ok(Err(err)) => {
             proc_task.abort();
-            return Err(err)
-        },
+            return Err(err);
+        }
         Err(err) => {
             proc_task.abort();
-            return Err(err)
+            return Err(err);
         }
     }
 
     Ok(())
 }
-
 
 fn chunk_check(filelist: &[String]) -> bool {
     for file in filelist {

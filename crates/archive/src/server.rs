@@ -1,12 +1,15 @@
-use axum::http::header::CONTENT_TYPE;
-use axum::http::HeaderMap;
-use axum::response::IntoResponse;
-use axum::routing::get;
-use axum::{Extension, Router};
-use prometheus_client::registry::Registry;
-use std::net::SocketAddr;
-use std::sync::{Arc, LazyLock};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, LazyLock}
+};
 
+use axum::{
+    http::{header::CONTENT_TYPE, HeaderMap},
+    response::IntoResponse,
+    routing::get,
+    Extension, Router
+};
+use prometheus_client::registry::Registry;
 
 async fn get_metrics(Extension(registry): Extension<Arc<Registry>>) -> impl IntoResponse {
     static HEADERS: LazyLock<HeaderMap> = LazyLock::new(|| {
@@ -15,7 +18,7 @@ async fn get_metrics(Extension(registry): Extension<Arc<Registry>>) -> impl Into
             CONTENT_TYPE,
             "application/openmetrics-text; version=1.0.0; charset=utf-8"
                 .parse()
-                .unwrap(),
+                .unwrap()
         );
         headers
     });
@@ -24,7 +27,6 @@ async fn get_metrics(Extension(registry): Extension<Arc<Registry>>) -> impl Into
     prometheus_client::encoding::text::encode(&mut buffer, &registry).unwrap();
     (HEADERS.clone(), buffer)
 }
-
 
 pub async fn run_server(registry: Registry, port: u16) -> anyhow::Result<()> {
     let app = Router::new()

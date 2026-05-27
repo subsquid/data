@@ -1,5 +1,6 @@
-use serde::Deserialize;
 use std::collections::HashMap;
+
+use serde::Deserialize;
 
 pub type DatasetId = String; // s3://<bucket-name>
 
@@ -7,7 +8,7 @@ pub type DatasetId = String; // s3://<bucket-name>
 pub struct DatasetProps {
     pub id: Option<DatasetId>,
     #[serde(rename = "name", alias = "network_dataset")]
-    pub network_dataset: Option<String>,
+    pub network_dataset: Option<String>
 }
 
 pub type DatasetsConfig = HashMap<String, Option<DatasetProps>>;

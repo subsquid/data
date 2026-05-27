@@ -1,13 +1,19 @@
-use crate::data_service::{DataService, DataServiceRef};
-use crate::dataset_config::{DatasetConfig, RetentionConfig};
-use crate::metrics::DatasetMetricsCollector;
-use crate::query::{QueryService, QueryServiceRef};
-use crate::types::DBRef;
+use std::{
+    collections::{BTreeSet, HashSet},
+    sync::Arc
+};
+
 use anyhow::Context;
 use clap::Parser;
 use sqd_storage::db::{DatabaseSettings, DatasetId};
-use std::collections::{BTreeSet, HashSet};
-use std::sync::Arc;
+
+use crate::{
+    data_service::{DataService, DataServiceRef},
+    dataset_config::{DatasetConfig, RetentionConfig},
+    metrics::DatasetMetricsCollector,
+    query::{QueryService, QueryServiceRef},
+    types::DBRef
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -50,7 +56,7 @@ pub struct CLI {
     /// Known client IDs for metrics labeling. Client IDs not in this list
     /// will be reported as "unknown" to prevent metrics cardinality abuse.
     #[arg(long = "known-client", value_name = "ID")]
-    pub known_clients: Vec<String>,
+    pub known_clients: Vec<String>
 }
 
 pub struct App {
@@ -59,13 +65,12 @@ pub struct App {
     pub query_service: QueryServiceRef,
     pub api_controlled_datasets: BTreeSet<DatasetId>,
     pub metrics_registry: prometheus_client::registry::Registry,
-    pub known_clients: HashSet<String>,
+    pub known_clients: HashSet<String>
 }
 
 impl CLI {
     pub async fn build_app(&self) -> anyhow::Result<App> {
-        let datasets = DatasetConfig::read_config_file(&self.datasets)
-            .context("failed to read datasets config")?;
+        let datasets = DatasetConfig::read_config_file(&self.datasets).context("failed to read datasets config")?;
 
         let db = DatabaseSettings::default()
             .with_data_cache_size(self.data_cache_size)
@@ -77,8 +82,8 @@ impl CLI {
 
         let mut metrics_registry = crate::metrics::build_metrics_registry();
         metrics_registry.register_collector(Box::new(DatasetMetricsCollector {
-            db: db.clone(), 
-            datasets: datasets.keys().copied().collect(),
+            db: db.clone(),
+            datasets: datasets.keys().copied().collect()
         }));
 
         let api_controlled_datasets = datasets
@@ -86,9 +91,7 @@ impl CLI {
             .filter_map(|(id, cfg)| (cfg.retention_strategy == RetentionConfig::Api).then_some(*id))
             .collect();
 
-        let data_service = DataService::start(db.clone(), datasets)
-            .await
-            .map(Arc::new)?;
+        let data_service = DataService::start(db.clone(), datasets).await.map(Arc::new)?;
 
         let query_service = {
             let mut builder = QueryService::builder(db.clone());
@@ -115,7 +118,7 @@ impl CLI {
             query_service,
             api_controlled_datasets,
             metrics_registry,
-            known_clients,
+            known_clients
         })
     }
 }

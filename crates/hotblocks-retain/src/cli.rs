@@ -28,5 +28,5 @@ pub struct Cli {
 
     /// Additional delay in seconds after effective_from before applying retention
     #[arg(long, default_value = "0")]
-    pub retain_delay_secs: u64,
+    pub retain_delay_secs: u64
 }

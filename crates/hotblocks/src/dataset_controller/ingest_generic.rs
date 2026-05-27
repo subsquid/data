@@ -1,14 +1,14 @@
-use crate::dataset_controller::write_controller::Rollback;
+use std::fmt::{Display, Formatter};
+
 use anyhow::{anyhow, ensure};
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use sqd_data_core::{BlockChunkBuilder, ChunkProcessor, PreparedChunk};
 use sqd_data_source::{DataEvent, DataSource};
 use sqd_primitives::{Block, BlockNumber, BlockRef, DataMask, DisplayBlockRefOption};
-use std::fmt::{Display, Formatter};
-use tracing::field::valuable;
-use tracing::info;
+use tracing::{field::valuable, info};
 
+use crate::dataset_controller::write_controller::Rollback;
 
 pub enum IngestMessage {
     FinalizedHead(BlockRef),
@@ -18,7 +18,6 @@ pub enum IngestMessage {
         rollback_sender: tokio::sync::oneshot::Sender<Rollback>
     }
 }
-
 
 pub struct NewChunk {
     pub finalized_head: Option<BlockRef>,
@@ -31,26 +30,23 @@ pub struct NewChunk {
     pub tables: PreparedChunk
 }
 
-
 impl Display for NewChunk {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
-            f, 
+            f,
             "{}-{}-{} with finalized_head = {}",
-            self.first_block, 
-            self.last_block, 
+            self.first_block,
+            self.last_block,
             &self.last_block_hash,
             DisplayBlockRefOption(self.finalized_head.as_ref())
         )
     }
 }
 
-
 struct DataBuilder<CB> {
     builder: CB,
     processor: Option<ChunkProcessor>
 }
-
 
 impl<CB: BlockChunkBuilder> DataBuilder<CB> {
     pub fn new(builder: CB) -> Self {
@@ -93,7 +89,6 @@ impl<CB: BlockChunkBuilder> DataBuilder<CB> {
     }
 }
 
-
 pub struct IngestGeneric<DC, CB> {
     message_sender: tokio::sync::mpsc::Sender<IngestMessage>,
     data_source: DC,
@@ -109,18 +104,12 @@ pub struct IngestGeneric<DC, CB> {
     data_mask: DataMask
 }
 
-
 impl<DS, CB> IngestGeneric<DS, CB>
 where
     DS: DataSource,
     CB: BlockChunkBuilder<Block = DS::Block> + Send + 'static
 {
-    pub fn new(
-        data_source: DS,
-        chunk_builder: CB,
-        message_sender: tokio::sync::mpsc::Sender<IngestMessage>
-    ) -> Self
-    {
+    pub fn new(data_source: DS, chunk_builder: CB, message_sender: tokio::sync::mpsc::Sender<IngestMessage>) -> Self {
         let first_block = data_source.get_next_block();
         Self {
             message_sender,
@@ -144,11 +133,9 @@ where
                 DataEvent::FinalizedHead(head) => {
                     self.set_finalized_head(head.number, &head.hash);
                     if head.number < self.first_block {
-                        self.message_sender.send(
-                            IngestMessage::FinalizedHead(head)
-                        ).await?;
+                        self.message_sender.send(IngestMessage::FinalizedHead(head)).await?;
                     }
-                },
+                }
                 DataEvent::Block { block, is_final } => {
                     let data_mask = block.data_availability_mask();
                     if self.data_mask != data_mask {
@@ -157,13 +144,9 @@ where
                     }
                     self.push_block(block, is_final)?;
                     self.maybe_flush().await?
-                },
-                DataEvent::Fork(prev_blocks) => {
-                    self.handle_fork(prev_blocks).await?
-                },
-                DataEvent::MaybeOnHead => {
-                    self.flush().await?
                 }
+                DataEvent::Fork(prev_blocks) => self.handle_fork(prev_blocks).await?,
+                DataEvent::MaybeOnHead => self.flush().await?
             }
         }
         Ok(())
@@ -174,14 +157,16 @@ where
 
         let (rollback_sender, rollback_recv) = tokio::sync::oneshot::channel();
 
-        self.message_sender.send(IngestMessage::Fork {
-            prev_blocks,
-            rollback_sender
-        }).await?;
+        self.message_sender
+            .send(IngestMessage::Fork {
+                prev_blocks,
+                rollback_sender
+            })
+            .await?;
 
         self.with_blocking_builder(|b| b.clear()).await;
         let rollback = rollback_recv.await?;
-        
+
         info!(
             block_number = rollback.first_block,
             parent_block_hash =? rollback.parent_block_hash,
@@ -191,8 +176,9 @@ where
         self.buffered_blocks = 0;
         self.finalized_head = None;
         self.first_block = rollback.first_block;
-        self.data_source.set_position(rollback.first_block, rollback.parent_block_hash.as_deref());
-        
+        self.data_source
+            .set_position(rollback.first_block, rollback.parent_block_hash.as_deref());
+
         Ok(())
     }
 
@@ -233,7 +219,7 @@ where
 
     async fn flush(&mut self) -> anyhow::Result<()> {
         if self.buffered_blocks == 0 {
-            return Ok(())
+            return Ok(());
         }
 
         let parent_block_hash = self.parent_block_hash.clone();
@@ -241,11 +227,8 @@ where
         let last_block = self.last_block;
         let last_block_hash = self.last_block_hash.clone();
 
-        let last_block_time = DateTime::<Utc>::from_timestamp_millis(
-            self.last_block_time.unwrap_or(0)
-        ).ok_or_else(|| {
-            anyhow!("block time is out of range")
-        })?;
+        let last_block_time = DateTime::<Utc>::from_timestamp_millis(self.last_block_time.unwrap_or(0))
+            .ok_or_else(|| anyhow!("block time is out of range"))?;
 
         info!(
             first_block = first_block,
@@ -263,16 +246,18 @@ where
         self.buffered_blocks = 0;
         self.first_block = last_block + 1;
 
-        self.message_sender.send(IngestMessage::NewChunk(NewChunk {
-            finalized_head: self.finalized_head.clone(),
-            parent_block_hash,
-            first_block,
-            last_block,
-            last_block_hash,
-            first_block_time: self.first_block_time,
-            last_block_time: self.last_block_time,
-            tables
-        })).await?;
+        self.message_sender
+            .send(IngestMessage::NewChunk(NewChunk {
+                finalized_head: self.finalized_head.clone(),
+                parent_block_hash,
+                first_block,
+                last_block,
+                last_block_hash,
+                first_block_time: self.first_block_time,
+                last_block_time: self.last_block_time,
+                tables
+            }))
+            .await?;
 
         Ok(())
     }
@@ -287,7 +272,9 @@ where
         let (result, builder) = tokio::task::spawn_blocking(move || {
             let result = cb(&mut builder);
             (result, builder)
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
 
         self.builder = Some(builder);
 

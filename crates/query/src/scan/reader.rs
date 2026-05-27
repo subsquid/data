@@ -1,9 +1,11 @@
-use crate::primitives::{Name, RowRangeList};
-use crate::scan::RowPredicateRef;
-use arrow::array::RecordBatch;
-use arrow::datatypes::SchemaRef;
 use std::collections::HashSet;
 
+use arrow::{array::RecordBatch, datatypes::SchemaRef};
+
+use crate::{
+    primitives::{Name, RowRangeList},
+    scan::RowPredicateRef
+};
 
 pub trait TableReader {
     /// Reads record batches with optional filtering, projection, and row selection.

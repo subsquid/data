@@ -1,17 +1,20 @@
-use crate::db::db::{RocksDB, RocksWriteBatch, CF_DIRTY_TABLES, CF_TABLES};
-use crate::db::table_id::TableId;
-use crate::kv::KvWrite;
 use rocksdb::ColumnFamily;
 
+use crate::{
+    db::{
+        db::{RocksDB, RocksWriteBatch, CF_DIRTY_TABLES, CF_TABLES},
+        table_id::TableId
+    },
+    kv::KvWrite
+};
 
 pub struct TableStorage<'a> {
     write_batch: RocksWriteBatch,
     db: &'a RocksDB,
-    cf: &'a ColumnFamily,
+    cf: &'a ColumnFamily
 }
 
-
-impl <'a> TableStorage<'a> {
+impl<'a> TableStorage<'a> {
     pub fn new(db: &'a RocksDB) -> Self {
         Self {
             write_batch: RocksWriteBatch::default(),
@@ -34,15 +37,14 @@ impl <'a> TableStorage<'a> {
         self.db.write(batch)?;
         Ok(())
     }
-    
+
     pub fn finish(self) -> anyhow::Result<()> {
         self.db.write(self.write_batch)?;
         Ok(())
     }
 }
 
-
-impl <'a> KvWrite for TableStorage<'a> {
+impl<'a> KvWrite for TableStorage<'a> {
     fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         self.write_batch.put_cf(self.cf, key, value);
         if self.byte_size() > 8 * 1024 * 1024 {

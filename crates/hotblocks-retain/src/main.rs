@@ -4,11 +4,14 @@ mod hotblocks;
 mod status;
 mod types;
 
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime, UNIX_EPOCH}
+};
+
 use anyhow::Context;
 use clap::Parser;
 use cli::Cli;
-use std::collections::HashMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::Instant;
 use types::{DatasetId, DatasetsConfig};
 use url::Url;
@@ -35,9 +38,9 @@ fn main() -> anyhow::Result<()> {
                 args.datasets_url,
                 datasets,
                 Duration::from_secs(args.datasets_update_interval_secs),
-                Duration::from_secs(args.retain_delay_secs),
+                Duration::from_secs(args.retain_delay_secs)
             )
-            .run(),
+            .run()
         )?;
 
     Ok(())
@@ -53,7 +56,7 @@ struct HotblocksRetain {
     retain_delay: Duration,
     name_to_id: HashMap<String, DatasetId>,
     last_datasets_refresh: Instant,
-    last_effective_from: Option<u64>,
+    last_effective_from: Option<u64>
 }
 
 impl HotblocksRetain {
@@ -63,7 +66,7 @@ impl HotblocksRetain {
         datasets_url: Url,
         datasets: DatasetsConfig,
         datasets_update_interval: Duration,
-        retain_delay: Duration,
+        retain_delay: Duration
     ) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -75,7 +78,7 @@ impl HotblocksRetain {
             retain_delay,
             name_to_id: HashMap::new(),
             last_datasets_refresh: Instant::now() - datasets_update_interval,
-            last_effective_from: None,
+            last_effective_from: None
         }
     }
 
@@ -98,10 +101,7 @@ impl HotblocksRetain {
                 continue;
             }
 
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
             let apply_at = status.effective_from + self.retain_delay.as_secs();
             if now < apply_at {
@@ -161,11 +161,7 @@ impl HotblocksRetain {
                 match self.name_to_id.get(network_dataset) {
                     Some(id) => id.as_str(),
                     None => {
-                        tracing::warn!(
-                            dataset,
-                            network_dataset,
-                            "dataset not found in manifest, skipping"
-                        );
+                        tracing::warn!(dataset, network_dataset, "dataset not found in manifest, skipping");
                         continue;
                     }
                 }
@@ -173,14 +169,7 @@ impl HotblocksRetain {
 
             match statuses.get(dataset_id) {
                 Some(Some(height)) => {
-                    match hotblocks::set_retention(
-                        &self.client,
-                        &self.hotblocks_url,
-                        dataset,
-                        *height,
-                    )
-                    .await
-                    {
+                    match hotblocks::set_retention(&self.client, &self.hotblocks_url, dataset, *height).await {
                         Ok(()) => {
                             tracing::info!(dataset, height, "applied retention policy");
                         }
@@ -206,15 +195,11 @@ impl HotblocksRetain {
 fn init_tracing() {
     use std::io::IsTerminal;
 
-    let env_filter = tracing_subscriber::EnvFilter::builder().parse_lossy(
-        std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV).unwrap_or("info".to_string()),
-    );
+    let env_filter = tracing_subscriber::EnvFilter::builder()
+        .parse_lossy(std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV).unwrap_or("info".to_string()));
 
     if std::io::stdout().is_terminal() {
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
-            .compact()
-            .init();
+        tracing_subscriber::fmt().with_env_filter(env_filter).compact().init();
     } else {
         tracing_subscriber::fmt()
             .with_env_filter(env_filter)

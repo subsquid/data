@@ -1,18 +1,19 @@
-use crate::scan::arrow::IntoArrowScalar;
-use anyhow::{anyhow, bail, ensure};
-use arrow::array::{Array, ArrayRef, AsArray, BooleanArray, Datum, PrimitiveArray, Scalar};
-use arrow::buffer::{BooleanBuffer, Buffer};
-use arrow::compute::{cast_with_options, CastOptions};
-use arrow::datatypes::{ArrowNativeType, ArrowNativeTypeOp, ArrowPrimitiveType, DataType, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
-use std::collections::HashSet;
-use std::hash::Hash;
-use std::ops::BitAnd;
-use std::sync::Arc;
-use crate::scan::IntoArrowArray;
+use std::{collections::HashSet, hash::Hash, ops::BitAnd, sync::Arc};
 
+use anyhow::{anyhow, bail, ensure};
+use arrow::{
+    array::{Array, ArrayRef, AsArray, BooleanArray, Datum, PrimitiveArray, Scalar},
+    buffer::{BooleanBuffer, Buffer},
+    compute::{cast_with_options, CastOptions},
+    datatypes::{
+        ArrowNativeType, ArrowNativeTypeOp, ArrowPrimitiveType, DataType, Int16Type, Int32Type, Int64Type, Int8Type,
+        UInt16Type, UInt32Type, UInt64Type, UInt8Type
+    }
+};
+
+use crate::scan::{arrow::IntoArrowScalar, IntoArrowArray};
 
 pub type ArrayPredicateRef = Arc<dyn ArrayPredicate>;
-
 
 pub trait ArrayPredicate: Sync + Send {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray>;
@@ -26,32 +27,26 @@ pub trait ArrayPredicate: Sync + Send {
     }
 }
 
-
 #[derive(Clone)]
 pub struct ArrayStats {
     pub min: ArrayRef,
     pub max: ArrayRef
 }
 
-
 pub struct And {
     predicates: Vec<ArrayPredicateRef>
 }
 
-
 impl And {
     pub fn new(predicates: Vec<ArrayPredicateRef>) -> Self {
-        Self {
-            predicates
-        }
+        Self { predicates }
     }
 }
-
 
 impl ArrayPredicate for And {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
         if self.predicates.len() == 0 {
-            return Ok(zero_mask(arr.len(), true))
+            return Ok(zero_mask(arr.len(), true));
         }
         let mut result_mask = self.predicates[0].evaluate(arr)?;
         for i in 1..self.predicates.len() {
@@ -67,7 +62,7 @@ impl ArrayPredicate for And {
 
     fn evaluate_stats(&self, stats: &ArrayStats) -> anyhow::Result<BooleanArray> {
         if self.predicates.len() == 0 {
-            return Ok(zero_mask(stats.min.len(), true))
+            return Ok(zero_mask(stats.min.len(), true));
         }
         let mut result_mask = self.predicates[0].evaluate_stats(stats)?;
         for i in 1..self.predicates.len() {
@@ -78,25 +73,20 @@ impl ArrayPredicate for And {
     }
 }
 
-
 pub struct Or {
     predicates: Vec<ArrayPredicateRef>
 }
 
-
 impl Or {
     pub fn new(predicates: Vec<ArrayPredicateRef>) -> Self {
-        Or {
-            predicates
-        }
+        Or { predicates }
     }
 }
-
 
 impl ArrayPredicate for Or {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
         if self.predicates.len() == 0 {
-            return Ok(zero_mask(arr.len(), false))
+            return Ok(zero_mask(arr.len(), false));
         }
         let mut result_mask = self.predicates[0].evaluate(arr)?;
         for i in 1..self.predicates.len() {
@@ -112,7 +102,7 @@ impl ArrayPredicate for Or {
 
     fn evaluate_stats(&self, stats: &ArrayStats) -> anyhow::Result<BooleanArray> {
         if self.predicates.len() == 0 {
-            return Ok(zero_mask(stats.min.len(), false))
+            return Ok(zero_mask(stats.min.len(), false));
         }
         let mut result_mask = self.predicates[0].evaluate_stats(stats)?;
         for i in 1..self.predicates.len() {
@@ -123,7 +113,6 @@ impl ArrayPredicate for Or {
     }
 }
 
-
 pub fn or(predicates: Vec<ArrayPredicateRef>) -> ArrayPredicateRef {
     if predicates.len() == 1 {
         predicates.into_iter().next().unwrap()
@@ -131,7 +120,6 @@ pub fn or(predicates: Vec<ArrayPredicateRef>) -> ArrayPredicateRef {
         Arc::new(Or::new(predicates))
     }
 }
-
 
 macro_rules! cast_scalar {
     ($value:ident, $scalar:expr, $arr:ident, Less: $less:literal, Greater: $greater:literal) => {
@@ -141,16 +129,14 @@ macro_rules! cast_scalar {
             CastResult::Same => scalar,
             CastResult::Cast(value) => value,
             CastResult::Less => return Ok(zero_mask($arr.len(), $less)),
-            CastResult::Greater => return Ok(zero_mask($arr.len(), $greater)),
+            CastResult::Greater => return Ok(zero_mask($arr.len(), $greater))
         };
     };
 }
 
-
 pub struct Eq {
     value: Scalar<ArrayRef>
 }
-
 
 impl Eq {
     pub fn new<T: IntoArrowScalar>(value: T) -> Self {
@@ -159,7 +145,6 @@ impl Eq {
         }
     }
 }
-
 
 impl ArrayPredicate for Eq {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
@@ -181,12 +166,10 @@ impl ArrayPredicate for Eq {
     }
 }
 
-
 /// value >= item
 pub struct GtEq {
     value: Scalar<ArrayRef>
 }
-
 
 impl GtEq {
     pub fn new<T: IntoArrowScalar>(value: T) -> Self {
@@ -195,7 +178,6 @@ impl GtEq {
         }
     }
 }
-
 
 impl ArrayPredicate for GtEq {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
@@ -216,12 +198,10 @@ impl ArrayPredicate for GtEq {
     }
 }
 
-
 /// value <= item
 pub struct LtEq {
     value: Scalar<ArrayRef>
 }
-
 
 impl LtEq {
     pub fn new<T: IntoArrowScalar>(value: T) -> Self {
@@ -230,7 +210,6 @@ impl LtEq {
         }
     }
 }
-
 
 impl ArrayPredicate for LtEq {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
@@ -251,7 +230,6 @@ impl ArrayPredicate for LtEq {
     }
 }
 
-
 pub fn zero_mask(len: usize, is_set: bool) -> BooleanArray {
     let buf = if is_set {
         BooleanBuffer::new_set(len)
@@ -261,7 +239,6 @@ pub fn zero_mask(len: usize, is_set: bool) -> BooleanArray {
     BooleanArray::from(buf)
 }
 
-
 enum CastResult {
     Less,
     Greater,
@@ -269,26 +246,28 @@ enum CastResult {
     Cast(Scalar<ArrayRef>)
 }
 
-
 fn cast_scalar(scalar: &Scalar<ArrayRef>, target_domain: &DataType) -> anyhow::Result<CastResult> {
     let array = scalar.get().0;
 
     if array.data_type() == target_domain {
-        return Ok(CastResult::Same)
+        return Ok(CastResult::Same);
     }
 
     if array.data_type().is_integer() && target_domain.is_integer() {
-        return Ok(tower_cast(array, target_domain))
+        return Ok(tower_cast(array, target_domain));
     }
 
-    let new_array = cast_with_options(array, target_domain, &CastOptions {
-        safe: false,
-        ..CastOptions::default()
-    })?;
+    let new_array = cast_with_options(
+        array,
+        target_domain,
+        &CastOptions {
+            safe: false,
+            ..CastOptions::default()
+        }
+    )?;
 
     Ok(CastResult::Cast(Scalar::new(new_array)))
 }
-
 
 fn tower_cast(array: &dyn Array, target_domain: &DataType) -> CastResult {
     macro_rules! cast {
@@ -296,7 +275,7 @@ fn tower_cast(array: &dyn Array, target_domain: &DataType) -> CastResult {
             tower_cast_impl::<$from, $to, $common>(array)
         };
     }
-    
+
     match (array.data_type(), target_domain) {
         (DataType::UInt64, DataType::UInt32) => cast!(UInt64Type, UInt32Type, u64),
         (DataType::UInt64, DataType::UInt16) => cast!(UInt64Type, UInt16Type, u64),
@@ -366,14 +345,14 @@ fn tower_cast(array: &dyn Array, target_domain: &DataType) -> CastResult {
     }
 }
 
-
 fn tower_cast_impl<FROM, TO, C>(array: &dyn Array) -> CastResult
-    where FROM: ArrowPrimitiveType,
-          TO: ArrowPrimitiveType,
-          TO::Native: TryFrom<FROM::Native>,
-          C: From<FROM::Native>,
-          C: From<TO::Native>,
-          C: Ord
+where
+    FROM: ArrowPrimitiveType,
+    TO: ArrowPrimitiveType,
+    TO::Native: TryFrom<FROM::Native>,
+    C: From<FROM::Native>,
+    C: From<TO::Native>,
+    C: Ord
 {
     let value = array.as_primitive::<FROM>().value(0);
     let target_value = if let Ok(val) = TO::Native::try_from(value) {
@@ -387,32 +366,23 @@ fn tower_cast_impl<FROM, TO, C>(array: &dyn Array) -> CastResult
         } else {
             assert!(value < min);
             CastResult::Less
-        }
+        };
     };
-    let scalar = Scalar::new(
-        Arc::new(
-            PrimitiveArray::<TO>::from_value(target_value, 1)
-        ) as Arc<dyn Array>
-    );
+    let scalar = Scalar::new(Arc::new(PrimitiveArray::<TO>::from_value(target_value, 1)) as Arc<dyn Array>);
     CastResult::Cast(scalar)
 }
-
 
 pub struct InList {
     list: sqd_polars::prelude::Series
 }
 
-
 impl InList {
     pub fn new<L: IntoArrowArray>(values: L) -> Self {
         let arr = values.into_array();
         let list = sqd_polars::arrow::array_series("value_list", &arr).unwrap();
-        Self {
-            list
-        }
+        Self { list }
     }
 }
-
 
 impl ArrayPredicate for InList {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
@@ -423,7 +393,6 @@ impl ArrayPredicate for InList {
     }
 }
 
-
 fn bitwise_and<const N: usize>(value: &[u8; N], other: &[u8; N]) -> [u8; N] {
     let mut arr = [0; N];
     for i in 0..N {
@@ -432,11 +401,9 @@ fn bitwise_and<const N: usize>(value: &[u8; N], other: &[u8; N]) -> [u8; N] {
     arr
 }
 
-
 pub struct BloomFilter {
     value: Buffer
 }
-
 
 impl BloomFilter {
     pub fn new<T: Hash>(byte_size: usize, num_hashes: usize, value: T) -> Self {
@@ -450,7 +417,7 @@ impl BloomFilter {
     #[inline(never)]
     fn eval_static<T, const N: usize>(&self, blooms: &[u8]) -> BooleanBuffer
     where
-        T: ArrowNativeType + BitAnd<Output=T>
+        T: ArrowNativeType + BitAnd<Output = T>
     {
         let value = to_typed_fixed_slice::<T, N>(&self.value);
         let blooms = to_typed_slice::<T>(blooms);
@@ -470,7 +437,7 @@ impl BloomFilter {
     #[inline(never)]
     fn eval_dynamic<T>(&self, blooms: &[u8]) -> BooleanBuffer
     where
-        T: ArrowNativeType + BitAnd<Output=T>
+        T: ArrowNativeType + BitAnd<Output = T>
     {
         let value = to_typed_slice::<T>(&self.value);
         let blooms = to_typed_slice::<T>(blooms);
@@ -483,25 +450,22 @@ impl BloomFilter {
     }
 }
 
-
 fn to_typed_slice<T: ArrowNativeType>(value: &[u8]) -> &[T] {
     let (prefix, offsets, suffix) = unsafe { value.align_to::<T>() };
     assert!(prefix.is_empty() && suffix.is_empty());
     offsets
 }
 
-
 fn to_typed_fixed_slice<T: ArrowNativeType, const N: usize>(value: &[u8]) -> &[T; N] {
     let slice = to_typed_slice::<T>(value);
     slice.try_into().unwrap()
 }
 
-
 impl ArrayPredicate for BloomFilter {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
-        let arr = arr.as_fixed_size_binary_opt().ok_or_else(|| {
-            anyhow!("expected fixed sized binary array, but got {}", arr.data_type())
-        })?;
+        let arr = arr
+            .as_fixed_size_binary_opt()
+            .ok_or_else(|| anyhow!("expected fixed sized binary array, but got {}", arr.data_type()))?;
 
         let size = self.value.len();
 
@@ -517,12 +481,14 @@ impl ArrayPredicate for BloomFilter {
 
         let mask = match size {
             64 => self.eval_static::<u128, 4>(values),
-            _ => if size % 16 == 0 {
-                self.eval_dynamic::<u128>(values)
-            } else if size % 8 == 0 {
-                self.eval_dynamic::<u64>(values)
-            } else {
-                self.eval_dynamic::<u8>(values)
+            _ => {
+                if size % 16 == 0 {
+                    self.eval_dynamic::<u128>(values)
+                } else if size % 8 == 0 {
+                    self.eval_dynamic::<u64>(values)
+                } else {
+                    self.eval_dynamic::<u8>(values)
+                }
             }
         };
 
@@ -530,32 +496,29 @@ impl ArrayPredicate for BloomFilter {
     }
 }
 
-
 pub struct PrimitiveListContainsAny<T: ArrowPrimitiveType> {
-    values: HashSet<T::Native>,
+    values: HashSet<T::Native>
 }
-
 
 impl<T: ArrowPrimitiveType> PrimitiveListContainsAny<T>
 where
-    T::Native: std::cmp::Eq + Hash,
+    T::Native: std::cmp::Eq + Hash
 {
     pub fn new(values: &[T::Native]) -> Self {
         Self {
-            values: values.iter().copied().collect(),
+            values: values.iter().copied().collect()
         }
     }
 }
 
-
 impl<T: ArrowPrimitiveType> ArrayPredicate for PrimitiveListContainsAny<T>
 where
-    T::Native: std::cmp::Eq + Hash,
+    T::Native: std::cmp::Eq + Hash
 {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
-        let list_array = arr.as_list_opt::<i32>().ok_or_else(|| {
-            anyhow!("expected List array, but got {}", arr.data_type())
-        })?;
+        let list_array = arr
+            .as_list_opt::<i32>()
+            .ok_or_else(|| anyhow!("expected List array, but got {}", arr.data_type()))?;
 
         let values_array = list_array.values().as_primitive_opt::<T>().ok_or_else(|| {
             anyhow!(
@@ -583,26 +546,23 @@ where
     }
 }
 
-
 pub struct StringListContainsAny {
-    values: HashSet<String>,
+    values: HashSet<String>
 }
-
 
 impl StringListContainsAny {
     pub fn new<S: AsRef<str>>(values: &[S]) -> Self {
         Self {
-            values: values.iter().map(|s| s.as_ref().to_string()).collect(),
+            values: values.iter().map(|s| s.as_ref().to_string()).collect()
         }
     }
 }
 
-
 impl ArrayPredicate for StringListContainsAny {
     fn evaluate(&self, arr: &dyn Array) -> anyhow::Result<BooleanArray> {
-        let list_array = arr.as_list_opt::<i32>().ok_or_else(|| {
-            anyhow!("expected List array, but got {}", arr.data_type())
-        })?;
+        let list_array = arr
+            .as_list_opt::<i32>()
+            .ok_or_else(|| anyhow!("expected List array, but got {}", arr.data_type()))?;
 
         let values_array = list_array.values().as_string_opt::<i32>().ok_or_else(|| {
             anyhow!(
@@ -630,24 +590,16 @@ impl ArrayPredicate for StringListContainsAny {
     }
 }
 
-
 #[cfg(feature = "_bench")]
 mod bench {
-    use crate::scan::array_predicate::{ArrayPredicate, BloomFilter};
-    use arrow::array::FixedSizeBinaryArray;
-    use arrow::buffer::MutableBuffer;
+    use arrow::{array::FixedSizeBinaryArray, buffer::MutableBuffer};
 
+    use crate::scan::array_predicate::{ArrayPredicate, BloomFilter};
 
     #[divan::bench]
     fn bloom_filter(bench: divan::Bencher) {
         let pred = BloomFilter::new(64, 7, "hello");
-        let array = FixedSizeBinaryArray::new(
-            64,
-            MutableBuffer::from_len_zeroed(64 * 200_000).into(),
-            None
-        );
-        bench.bench(|| {
-            pred.evaluate(&array).unwrap()
-        })
+        let array = FixedSizeBinaryArray::new(64, MutableBuffer::from_len_zeroed(64 * 200_000).into(), None);
+        bench.bench(|| pred.evaluate(&array).unwrap())
     }
 }

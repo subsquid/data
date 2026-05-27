@@ -7,10 +7,10 @@ mod transaction;
 pub use block::*;
 pub use input::*;
 pub use output::*;
+use sqd_data_core::chunk_builder;
 pub use transaction::*;
 
 use super::model::Block;
-use sqd_data_core::chunk_builder;
 
 chunk_builder! {
     BitcoinChunkBuilder {

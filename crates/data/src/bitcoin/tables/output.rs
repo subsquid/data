@@ -1,8 +1,10 @@
-use crate::bitcoin::model::{Block, TransactionOutput};
-use crate::bitcoin::tables::common::*;
 use sqd_array::builder::{Float64Builder, StringBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
+use crate::bitcoin::{
+    model::{Block, TransactionOutput},
+    tables::common::*
+};
 
 table_builder! {
     OutputBuilder {
@@ -31,21 +33,14 @@ table_builder! {
     }
 }
 
-
 impl OutputBuilder {
-    pub fn push(
-        &mut self,
-        block: &Block,
-        transaction_index: u32,
-        row: &TransactionOutput,
-    ) {
+    pub fn push(&mut self, block: &Block, transaction_index: u32, row: &TransactionOutput) {
         self.block_number.append(block.header.number);
         self.transaction_index.append(transaction_index);
         self.output_index.append(row.n);
         self.value.append(row.value);
         self.script_pub_key_hex.append(&row.script_pub_key.hex);
-        self.script_pub_key_asm
-            .append_option(row.script_pub_key.asm.as_deref());
+        self.script_pub_key_asm.append_option(row.script_pub_key.asm.as_deref());
         self.script_pub_key_desc
             .append_option(row.script_pub_key.desc.as_deref());
         self.script_pub_key_type

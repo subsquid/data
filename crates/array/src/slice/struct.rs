@@ -1,12 +1,12 @@
-use crate::index::RangeList;
-use crate::slice::any::AnySlice;
-use crate::slice::nullmask::NullmaskSlice;
-use crate::slice::{AsSlice, Slice};
-use crate::writer::ArrayWriter;
-use arrow::array::{Array, RecordBatch, StructArray};
-use std::ops::Range;
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
+use arrow::array::{Array, RecordBatch, StructArray};
+
+use crate::{
+    index::RangeList,
+    slice::{any::AnySlice, nullmask::NullmaskSlice, AsSlice, Slice},
+    writer::ArrayWriter
+};
 
 #[derive(Clone)]
 pub struct AnyStructSlice<'a> {
@@ -15,7 +15,6 @@ pub struct AnyStructSlice<'a> {
     offset: usize,
     len: usize
 }
-
 
 impl<'a> AnyStructSlice<'a> {
     pub fn new(nulls: NullmaskSlice<'a>, columns: Arc<[AnySlice<'a>]>) -> Self {
@@ -30,7 +29,7 @@ impl<'a> AnyStructSlice<'a> {
             len
         }
     }
-    
+
     pub fn has_nulls(&self) -> bool {
         self.nulls.has_nulls()
     }
@@ -38,16 +37,16 @@ impl<'a> AnyStructSlice<'a> {
     pub fn nulls(&self) -> NullmaskSlice<'a> {
         self.nulls.slice(self.offset, self.len)
     }
-    
+
     pub fn column(&self, i: usize) -> AnySlice<'a> {
         self.columns[i].slice(self.offset, self.len)
     }
-    
+
     pub fn num_columns(&self) -> usize {
         self.columns.len()
     }
-    
-    pub fn project(&self, fields: impl Iterator<Item=usize>) -> Self {
+
+    pub fn project(&self, fields: impl Iterator<Item = usize>) -> Self {
         let columns = fields.map(|i| self.columns[i].clone()).collect();
         Self {
             nulls: self.nulls.clone(),
@@ -56,7 +55,7 @@ impl<'a> AnyStructSlice<'a> {
             len: self.len
         }
     }
-    
+
     fn write_src_range(&self, dst: &mut impl ArrayWriter, range: Range<usize>) -> anyhow::Result<()> {
         self.nulls.write_range(dst.nullmask(0), range.clone())?;
 
@@ -68,7 +67,6 @@ impl<'a> AnyStructSlice<'a> {
         Ok(())
     }
 }
-
 
 impl<'a> Slice for AnyStructSlice<'a> {
     fn num_buffers(&self) -> usize {
@@ -104,33 +102,37 @@ impl<'a> Slice for AnyStructSlice<'a> {
     }
 
     fn write_ranges(&self, dst: &mut impl ArrayWriter, ranges: &mut impl RangeList) -> anyhow::Result<()> {
-        self.nulls.slice(self.offset, self.len).write_ranges(dst.nullmask(0), ranges)?;
-        
+        self.nulls
+            .slice(self.offset, self.len)
+            .write_ranges(dst.nullmask(0), ranges)?;
+
         let mut shift = 1;
         for c in self.columns.iter() {
-            c.slice(self.offset, self.len).write_ranges(&mut dst.shift(shift), ranges)?;
+            c.slice(self.offset, self.len)
+                .write_ranges(&mut dst.shift(shift), ranges)?;
             shift += c.num_buffers();
         }
         Ok(())
     }
 
     fn write_indexes(
-        &self, 
-        dst: &mut impl ArrayWriter, 
-        indexes: impl Iterator<Item=usize> + Clone
-    ) -> anyhow::Result<()> 
-    {
-        self.nulls.slice(self.offset, self.len).write_indexes(dst.nullmask(0), indexes.clone())?;
+        &self,
+        dst: &mut impl ArrayWriter,
+        indexes: impl Iterator<Item = usize> + Clone
+    ) -> anyhow::Result<()> {
+        self.nulls
+            .slice(self.offset, self.len)
+            .write_indexes(dst.nullmask(0), indexes.clone())?;
 
         let mut shift = 1;
         for c in self.columns.iter() {
-            c.slice(self.offset, self.len).write_indexes(&mut dst.shift(shift), indexes.clone())?;
+            c.slice(self.offset, self.len)
+                .write_indexes(&mut dst.shift(shift), indexes.clone())?;
             shift += c.num_buffers();
         }
         Ok(())
     }
 }
-
 
 impl<'a> From<&'a StructArray> for AnyStructSlice<'a> {
     fn from(value: &'a StructArray) -> Self {
@@ -143,7 +145,6 @@ impl<'a> From<&'a StructArray> for AnyStructSlice<'a> {
     }
 }
 
-
 impl AsSlice for StructArray {
     type Slice<'a> = AnyStructSlice<'a>;
 
@@ -152,14 +153,12 @@ impl AsSlice for StructArray {
     }
 }
 
-
 #[derive(Clone)]
 pub struct AnyTableSlice<'a> {
     columns: Arc<[AnySlice<'a>]>,
     offset: usize,
     len: usize
 }
-
 
 impl<'a> AnyTableSlice<'a> {
     pub fn new(columns: Arc<[AnySlice<'a>]>) -> Self {
@@ -191,7 +190,6 @@ impl<'a> AnyTableSlice<'a> {
         Ok(())
     }
 }
-
 
 impl<'a> Slice for AnyTableSlice<'a> {
     fn num_buffers(&self) -> usize {
@@ -228,7 +226,8 @@ impl<'a> Slice for AnyTableSlice<'a> {
     fn write_ranges(&self, dst: &mut impl ArrayWriter, ranges: &mut impl RangeList) -> anyhow::Result<()> {
         let mut shift = 0;
         for c in self.columns.iter() {
-            c.slice(self.offset, self.len).write_ranges(&mut dst.shift(shift), ranges)?;
+            c.slice(self.offset, self.len)
+                .write_ranges(&mut dst.shift(shift), ranges)?;
             shift += c.num_buffers();
         }
         Ok(())
@@ -237,20 +236,19 @@ impl<'a> Slice for AnyTableSlice<'a> {
     fn write_indexes(
         &self,
         dst: &mut impl ArrayWriter,
-        indexes: impl Iterator<Item=usize> + Clone
-    ) -> anyhow::Result<()>
-    {
+        indexes: impl Iterator<Item = usize> + Clone
+    ) -> anyhow::Result<()> {
         let mut shift = 0;
         for c in self.columns.iter() {
-            c.slice(self.offset, self.len).write_indexes(&mut dst.shift(shift), indexes.clone())?;
+            c.slice(self.offset, self.len)
+                .write_indexes(&mut dst.shift(shift), indexes.clone())?;
             shift += c.num_buffers();
         }
         Ok(())
     }
 }
 
-
-impl<'a> From<&'a RecordBatch> for AnyTableSlice<'a>  {
+impl<'a> From<&'a RecordBatch> for AnyTableSlice<'a> {
     fn from(value: &'a RecordBatch) -> Self {
         Self {
             columns: value.columns().iter().map(|c| c.as_ref().into()).collect(),
@@ -260,7 +258,6 @@ impl<'a> From<&'a RecordBatch> for AnyTableSlice<'a>  {
     }
 }
 
-
 impl AsSlice for RecordBatch {
     type Slice<'a> = AnyTableSlice<'a>;
 
@@ -268,7 +265,6 @@ impl AsSlice for RecordBatch {
         self.into()
     }
 }
-
 
 impl<'a> From<&'a AnyStructSlice<'a>> for AnyTableSlice<'a> {
     fn from(value: &'a AnyStructSlice<'a>) -> Self {
@@ -279,7 +275,6 @@ impl<'a> From<&'a AnyStructSlice<'a>> for AnyTableSlice<'a> {
         }
     }
 }
-
 
 impl<'a> From<&'a StructArray> for AnyTableSlice<'a> {
     fn from(value: &'a StructArray) -> Self {

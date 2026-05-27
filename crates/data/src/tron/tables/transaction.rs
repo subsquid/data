@@ -1,11 +1,14 @@
-use crate::tron::model::{Block, Transaction};
-use crate::tron::tables::common::*;
-use sqd_array::builder::{Int32Builder, Int64Builder, ListBuilder, StringBuilder, TimestampMillisecondBuilder, UInt32Builder, UInt64Builder};
+use sqd_array::builder::{
+    Int32Builder, Int64Builder, ListBuilder, StringBuilder, TimestampMillisecondBuilder, UInt32Builder, UInt64Builder
+};
 use sqd_data_core::table_builder;
 
+use crate::tron::{
+    model::{Block, Transaction},
+    tables::common::*
+};
 
 type SignatureListBuilder = ListBuilder<HexBytesBuilder>;
-
 
 table_builder! {
     TransactionBuilder {
@@ -94,7 +97,6 @@ table_builder! {
     }
 }
 
-
 impl TransactionBuilder {
     pub fn push(&mut self, block: &Block, row: &Transaction) {
         self.block_number.append(block.header.height);
@@ -126,26 +128,36 @@ impl TransactionBuilder {
         self.contract_result.append_option(row.contract_result.as_deref());
         self.contract_address.append_option(row.contract_address.as_deref());
         self.res_message.append_option(row.res_message.as_deref());
-        self.withdraw_amount.append_option(row.withdraw_amount.map(|v| v as i64));
-        self.unfreeze_amount.append_option(row.unfreeze_amount.map(|v| v as i64));
-        self.withdraw_expire_amount.append_option(row.withdraw_expire_amount.map(|v| v as i64));
+        self.withdraw_amount
+            .append_option(row.withdraw_amount.map(|v| v as i64));
+        self.unfreeze_amount
+            .append_option(row.unfreeze_amount.map(|v| v as i64));
+        self.withdraw_expire_amount
+            .append_option(row.withdraw_expire_amount.map(|v| v as i64));
 
-        let cancel = row.cancel_unfreeze_v2_amount.as_ref().map(|val| serde_json::to_string(val).unwrap());
+        let cancel = row
+            .cancel_unfreeze_v2_amount
+            .as_ref()
+            .map(|val| serde_json::to_string(val).unwrap());
         self.cancel_unfreeze_v2_amount.append_option(cancel.as_deref());
 
         self.result.append_option(row.result.as_deref());
         self.energy_fee.append_option(row.energy_fee.map(|v| v as i64));
         self.energy_usage.append_option(row.energy_usage.map(|v| v as i64));
-        self.energy_usage_total.append_option(row.energy_usage_total.map(|v| v as i64));
+        self.energy_usage_total
+            .append_option(row.energy_usage_total.map(|v| v as i64));
         self.net_usage.append_option(row.net_usage.map(|v| v as i64));
         self.net_fee.append_option(row.net_fee.map(|v| v as i64));
-        self.origin_energy_usage.append_option(row.origin_energy_usage.map(|v| v as i64));
-        self.energy_penalty_total.append_option(row.energy_penalty_total.map(|v| v as i64));
+        self.origin_energy_usage
+            .append_option(row.origin_energy_usage.map(|v| v as i64));
+        self.energy_penalty_total
+            .append_option(row.energy_penalty_total.map(|v| v as i64));
 
         let value = &row.parameter["value"];
 
         if row.r#type == "TransferContract" {
-            self._transfer_contract_owner.append_option(value["owner_address"].as_str());
+            self._transfer_contract_owner
+                .append_option(value["owner_address"].as_str());
             self._transfer_contract_to.append_option(value["to_address"].as_str());
         } else {
             self._transfer_contract_owner.append_null();
@@ -153,9 +165,12 @@ impl TransactionBuilder {
         }
 
         if row.r#type == "TransferAssetContract" {
-            self._transfer_asset_contract_owner.append_option(value["owner_address"].as_str());
-            self._transfer_asset_contract_to.append_option(value["to_address"].as_str());
-            self._transfer_asset_contract_asset.append_option(value["asset_name"].as_str());
+            self._transfer_asset_contract_owner
+                .append_option(value["owner_address"].as_str());
+            self._transfer_asset_contract_to
+                .append_option(value["to_address"].as_str());
+            self._transfer_asset_contract_asset
+                .append_option(value["asset_name"].as_str());
         } else {
             self._transfer_asset_contract_owner.append_null();
             self._transfer_asset_contract_to.append_null();
@@ -163,11 +178,12 @@ impl TransactionBuilder {
         }
 
         if row.r#type == "TriggerSmartContract" {
-            self._trigger_smart_contract_owner.append_option(value["owner_address"].as_str());
-            self._trigger_smart_contract_contract.append_option(value["contract_address"].as_str());
-            self._trigger_smart_contract_sighash.append_option(
-                value["data"].as_str().and_then(sighash)
-            );
+            self._trigger_smart_contract_owner
+                .append_option(value["owner_address"].as_str());
+            self._trigger_smart_contract_contract
+                .append_option(value["contract_address"].as_str());
+            self._trigger_smart_contract_sighash
+                .append_option(value["data"].as_str().and_then(sighash));
         } else {
             self._trigger_smart_contract_owner.append_null();
             self._trigger_smart_contract_contract.append_null();

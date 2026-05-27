@@ -1,10 +1,7 @@
-use crate::bitcoin::model::BlockHeader;
-use crate::bitcoin::tables::common::*;
-use sqd_array::builder::{
-    Float64Builder, TimestampSecondBuilder, UInt32Builder, UInt64Builder,
-};
+use sqd_array::builder::{Float64Builder, TimestampSecondBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
+use crate::bitcoin::{model::BlockHeader, tables::common::*};
 
 table_builder! {
     BlockBuilder {
@@ -32,7 +29,6 @@ table_builder! {
         d.options.row_group_size = 5_000;
     }
 }
-
 
 impl BlockBuilder {
     pub fn push(&mut self, row: &BlockHeader) {

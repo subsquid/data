@@ -1,64 +1,58 @@
-use crate::json::exp::Exp;
-use crate::json::lang::*;
-use crate::plan::{ScanBuilder, TableSet};
-use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
-use crate::{BlockNumber, Plan};
-use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
-use super::util::to_lowercase_list;
+use serde::{Deserialize, Serialize};
 
+use super::util::to_lowercase_list;
+use crate::{
+    json::{exp::Exp, lang::*},
+    plan::{ScanBuilder, TableSet},
+    query::util::{
+        compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request,
+        PredicateBuilder
+    },
+    BlockNumber, Plan
+};
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     let mut tables = TableSet::new();
 
-    tables.add_table("blocks", vec![
-        "number"
-    ])
-    .set_weight("logs_bloom", 512)
-    .set_weight_column("extra_data", "extra_data_size")
-    .set_weight_column("withdrawals", "withdrawals_size");
+    tables
+        .add_table("blocks", vec!["number"])
+        .set_weight("logs_bloom", 512)
+        .set_weight_column("extra_data", "extra_data_size")
+        .set_weight_column("withdrawals", "withdrawals_size");
 
-    tables.add_table("transactions", vec![
-        "block_number",
-        "transaction_index"
-    ])
-    .add_child("logs", vec!["block_number", "transaction_index"])
-    .add_child("traces", vec!["block_number", "transaction_index"])
-    .add_child("statediffs", vec!["block_number", "transaction_index"])
-    .set_weight("logs_bloom", 512)
-    .set_weight_column("input", "input_size")
-    .set_weight_column("access_list", "access_list_size");
+    tables
+        .add_table("transactions", vec!["block_number", "transaction_index"])
+        .add_child("logs", vec!["block_number", "transaction_index"])
+        .add_child("traces", vec!["block_number", "transaction_index"])
+        .add_child("statediffs", vec!["block_number", "transaction_index"])
+        .set_weight("logs_bloom", 512)
+        .set_weight_column("input", "input_size")
+        .set_weight_column("access_list", "access_list_size");
 
-    tables.add_table("logs", vec![
-        "block_number",
-        "log_index"
-    ])
-    .set_weight_column("data", "data_size");
+    tables
+        .add_table("logs", vec!["block_number", "log_index"])
+        .set_weight_column("data", "data_size");
 
-    tables.add_table("traces", vec![
-        "block_number",
-        "transaction_index",
-        "trace_address"
-    ])
-    .set_weight_column("create_init", "create_init_size")
-    .set_weight_column("create_result_code", "create_result_code_size")
-    .set_weight_column("call_input", "call_input_size")
-    .set_weight_column("call_result_output", "call_result_output_size");
+    tables
+        .add_table("traces", vec!["block_number", "transaction_index", "trace_address"])
+        .set_weight_column("create_init", "create_init_size")
+        .set_weight_column("create_result_code", "create_result_code_size")
+        .set_weight_column("call_input", "call_input_size")
+        .set_weight_column("call_result_output", "call_result_output_size");
 
-    tables.add_table("statediffs", vec![
-        "block_number",
-        "transaction_index",
-        "address",
-        "key"
-    ])
-    .set_weight_column("prev", "prev_size")
-    .set_weight_column("next", "next_size")
-    .set_result_item_name("stateDiffs");
+    tables
+        .add_table(
+            "statediffs",
+            vec!["block_number", "transaction_index", "address", "key"]
+        )
+        .set_weight_column("prev", "prev_size")
+        .set_weight_column("next", "next_size")
+        .set_result_item_name("stateDiffs");
 
     tables
 });
-
 
 field_selection! {
     block: BlockFieldSelection,
@@ -67,7 +61,6 @@ field_selection! {
     trace: TraceFieldSelection,
     state_diff: StateDiffFieldSelection,
 }
-
 
 item_field_selection! {
     BlockFieldSelection {
@@ -136,7 +129,6 @@ item_field_selection! {
         [this.timestamp_millis_part]: Value,
     }}
 }
-
 
 item_field_selection! {
     TransactionFieldSelection {
@@ -261,7 +253,6 @@ item_field_selection! {
     }
 }
 
-
 item_field_selection! {
     LogFieldSelection {
         log_index,
@@ -290,7 +281,6 @@ item_field_selection! {
         }
     }}
 }
-
 
 item_field_selection! {
     TraceFieldSelection {
@@ -393,7 +383,7 @@ item_field_selection! {
             call_action.add("type", prop("call_type", Exp::Value));
         }
         if this.call_call_type {
-            call_action.add("callType", prop("call_type", Exp::Value));    
+            call_action.add("callType", prop("call_type", Exp::Value));
         }
         if !call_action.is_empty() {
             call.add("action", call_action);
@@ -452,7 +442,6 @@ item_field_selection! {
     }
 }
 
-
 item_field_selection! {
     StateDiffFieldSelection {
         transaction_index,
@@ -473,9 +462,7 @@ item_field_selection! {
     }}
 }
 
-
 type Bytes = String;
-
 
 request! {
     pub struct TransactionRequest {
@@ -489,7 +476,6 @@ request! {
         pub state_diffs: bool,
     }
 }
-
 
 impl TransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -525,7 +511,6 @@ impl TransactionRequest {
     }
 }
 
-
 request! {
     pub struct LogRequest {
         pub address: Option<Vec<Bytes>>,
@@ -539,7 +524,6 @@ request! {
         pub transaction_state_diffs: bool,
     }
 }
-
 
 impl LogRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -582,7 +566,6 @@ impl LogRequest {
     }
 }
 
-
 request! {
     pub struct TraceRequest {
         pub r#type: Option<Vec<String>>,
@@ -601,7 +584,6 @@ request! {
     }
 }
 
-
 impl TraceRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_in_list("type", self.r#type.as_deref());
@@ -611,7 +593,10 @@ impl TraceRequest {
         p.col_in_list("call_to", to_lowercase_list(&self.call_to));
         p.col_in_list("call_sighash", to_lowercase_list(&self.call_sighash));
         p.col_in_list("suicide_address", to_lowercase_list(&self.suicide_address));
-        p.col_in_list("suicide_refund_address", to_lowercase_list(&self.suicide_refund_address));
+        p.col_in_list(
+            "suicide_refund_address",
+            to_lowercase_list(&self.suicide_refund_address)
+        );
         p.col_in_list("reward_author", to_lowercase_list(&self.reward_author));
     }
 
@@ -639,7 +624,6 @@ impl TraceRequest {
     }
 }
 
-
 request! {
     pub struct StateDiffRequest {
         pub address: Option<Vec<Bytes>>,
@@ -648,7 +632,6 @@ request! {
         pub transaction: bool,
     }
 }
-
 
 impl StateDiffRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -668,7 +651,6 @@ impl StateDiffRequest {
     }
 }
 
-
 request! {
     pub struct EthQuery {
         pub from_block: BlockNumber,
@@ -683,7 +665,6 @@ request! {
         pub statediffs: Vec<StateDiffRequest>,
     }
 }
-
 
 impl EthQuery {
     pub fn validate(&self) -> anyhow::Result<()> {

@@ -1,24 +1,22 @@
-mod common;
+mod balance;
 mod block;
-mod transaction;
+mod common;
 mod instruction;
 mod log_message;
-mod balance;
-mod token_balance;
 mod reward;
-
+mod token_balance;
+mod transaction;
 
 pub use balance::*;
 pub use block::*;
 pub use instruction::*;
 pub use log_message::*;
 pub use reward::*;
+use sqd_data_core::chunk_builder;
 pub use token_balance::*;
 pub use transaction::*;
 
 use super::model::Block;
-use sqd_data_core::chunk_builder;
-
 
 chunk_builder! {
     SolanaChunkBuilder {
@@ -31,7 +29,6 @@ chunk_builder! {
         rewards: RewardBuilder,
     }
 }
-
 
 impl sqd_data_core::BlockChunkBuilder for SolanaChunkBuilder {
     type Block = Block;
@@ -62,7 +59,7 @@ impl sqd_data_core::BlockChunkBuilder for SolanaChunkBuilder {
         for row in block.rewards.iter() {
             self.rewards.push(block, row)?
         }
-        
+
         Ok(())
     }
 }

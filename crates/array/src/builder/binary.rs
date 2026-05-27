@@ -1,22 +1,23 @@
-use crate::builder::memory_writer::MemoryWriter;
-use crate::builder::nullmask::NullmaskBuilder;
-use crate::builder::offsets::OffsetsBuilder;
-use crate::builder::ArrayBuilder;
-use crate::slice::{AsSlice, ListSlice};
-use crate::util::invalid_buffer_access;
-use crate::writer::{ArrayWriter, Writer};
-use arrow::array::{ArrayRef, BinaryArray, StringArray};
-use arrow::datatypes::DataType;
-use arrow_buffer::MutableBuffer;
 use std::sync::Arc;
 
+use arrow::{
+    array::{ArrayRef, BinaryArray, StringArray},
+    datatypes::DataType
+};
+use arrow_buffer::MutableBuffer;
+
+use crate::{
+    builder::{memory_writer::MemoryWriter, nullmask::NullmaskBuilder, offsets::OffsetsBuilder, ArrayBuilder},
+    slice::{AsSlice, ListSlice},
+    util::invalid_buffer_access,
+    writer::{ArrayWriter, Writer}
+};
 
 pub struct BinaryBuilder {
     nulls: NullmaskBuilder,
     offsets: OffsetsBuilder,
     values: MutableBuffer
 }
-
 
 impl BinaryBuilder {
     pub fn new(item_capacity: usize, content_capacity: usize) -> Self {
@@ -32,7 +33,7 @@ impl BinaryBuilder {
         self.nulls.append(true);
         self.offsets.append(self.values.len() as i32);
     }
-    
+
     pub fn append_option(&mut self, val: Option<&[u8]>) {
         if let Some(val) = val {
             self.values.extend_from_slice(val);
@@ -47,16 +48,11 @@ impl BinaryBuilder {
         self.nulls.append(false);
         self.offsets.append(self.values.len() as i32);
     }
-    
+
     pub fn finish(self) -> BinaryArray {
-        BinaryArray::new(
-            self.offsets.finish(),
-            self.values.into(),
-            self.nulls.finish()
-        )
+        BinaryArray::new(self.offsets.finish(), self.values.into(), self.nulls.finish())
     }
 }
-
 
 impl ArrayBuilder for BinaryBuilder {
     fn data_type(&self) -> DataType {
@@ -81,7 +77,6 @@ impl ArrayBuilder for BinaryBuilder {
         Arc::new(self.finish())
     }
 }
-
 
 impl ArrayWriter for BinaryBuilder {
     type Writer = MemoryWriter;
@@ -118,7 +113,6 @@ impl ArrayWriter for BinaryBuilder {
     }
 }
 
-
 impl AsSlice for BinaryBuilder {
     type Slice<'a> = ListSlice<'a, &'a [u8]>;
 
@@ -131,13 +125,11 @@ impl AsSlice for BinaryBuilder {
     }
 }
 
-
 impl Default for BinaryBuilder {
     fn default() -> Self {
         Self::new(0, 0)
     }
 }
-
 
 pub struct StringBuilder {
     nulls: NullmaskBuilder,
@@ -145,7 +137,6 @@ pub struct StringBuilder {
     values: MutableBuffer,
     validity: Option<usize>
 }
-
 
 impl StringBuilder {
     pub fn new(item_capacity: usize, content_capacity: usize) -> Self {
@@ -177,7 +168,7 @@ impl StringBuilder {
         self.nulls.append(false);
         self.offsets.append(self.values.len() as i32);
     }
-    
+
     fn mark_maybe_invalid(&mut self) {
         if self.validity.is_none() {
             self.validity = Some(self.offsets.as_slice().len())
@@ -185,22 +176,13 @@ impl StringBuilder {
     }
 
     pub fn finish(self) -> StringArray {
-        StringArray::new(
-            self.offsets.finish(),
-            self.values.into(),
-            self.nulls.finish()
-        )
+        StringArray::new(self.offsets.finish(), self.values.into(), self.nulls.finish())
     }
-    
+
     pub unsafe fn finish_unchecked(self) -> StringArray {
-        StringArray::new_unchecked(
-            self.offsets.finish(),
-            self.values.into(),
-            self.nulls.finish()
-        )
+        StringArray::new_unchecked(self.offsets.finish(), self.values.into(), self.nulls.finish())
     }
 }
-
 
 impl ArrayBuilder for StringBuilder {
     fn data_type(&self) -> DataType {
@@ -230,7 +212,6 @@ impl ArrayBuilder for StringBuilder {
         Arc::new(self.finish_unchecked())
     }
 }
-
 
 impl ArrayWriter for StringBuilder {
     type Writer = MemoryWriter;
@@ -269,7 +250,6 @@ impl ArrayWriter for StringBuilder {
     }
 }
 
-
 impl AsSlice for StringBuilder {
     type Slice<'a> = ListSlice<'a, &'a [u8]>;
 
@@ -282,13 +262,11 @@ impl AsSlice for StringBuilder {
     }
 }
 
-
 impl Default for StringBuilder {
     fn default() -> Self {
         Self::new(0, 0)
     }
 }
-
 
 impl std::fmt::Write for StringBuilder {
     #[inline]

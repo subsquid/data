@@ -1,6 +1,7 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-
+use std::{
+    error::Error,
+    fmt::{Display, Formatter}
+};
 
 pub type Name = sqd_primitives::Name;
 
@@ -16,13 +17,11 @@ pub type RowWeight = u64;
 
 pub type RowWeightPolarsType = sqd_polars::prelude::UInt64Type;
 
-
 #[derive(Debug)]
 pub struct SchemaError {
     pub path: Vec<String>,
     pub message: String
 }
-
 
 impl SchemaError {
     pub fn new<S: ToString>(message: S) -> Self {
@@ -38,7 +37,6 @@ impl SchemaError {
     }
 }
 
-
 impl Display for SchemaError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if self.path.len() > 0 {
@@ -51,9 +49,7 @@ impl Display for SchemaError {
     }
 }
 
-
 impl Error for SchemaError {}
-
 
 macro_rules! schema_error {
     ($($arg:tt)*) => {
