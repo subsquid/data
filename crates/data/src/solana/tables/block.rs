@@ -1,8 +1,7 @@
-use crate::solana::model::BlockHeader;
-use crate::solana::tables::common::*;
 use sqd_array::builder::{TimestampSecondBuilder, UInt64Builder};
 use sqd_data_core::table_builder;
 
+use crate::solana::{model::BlockHeader, tables::common::*};
 
 table_builder! {
     BlockBuilder {
@@ -21,7 +20,6 @@ table_builder! {
         d.options.row_group_size = 5_000;
     }
 }
-
 
 impl BlockBuilder {
     pub fn push(&mut self, row: &BlockHeader) {

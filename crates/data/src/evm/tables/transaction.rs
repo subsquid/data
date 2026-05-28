@@ -1,8 +1,12 @@
-use crate::evm::model::{Block, Transaction, TempoPrimitiveSignature, TempoSignature, TempoKeychainSignature};
-use crate::evm::tables::common::*;
-use sqd_array::builder::{BooleanBuilder, ListBuilder, StringBuilder, UInt32Builder, UInt64Builder, UInt8Builder, Float64Builder};
+use sqd_array::builder::{
+    BooleanBuilder, Float64Builder, ListBuilder, StringBuilder, UInt32Builder, UInt64Builder, UInt8Builder
+};
 use sqd_data_core::{struct_builder, table_builder};
 
+use crate::evm::{
+    model::{Block, TempoKeychainSignature, TempoPrimitiveSignature, TempoSignature, Transaction},
+    tables::common::*
+};
 
 type EIP7702AuthorizationListBuilder = ListBuilder<EIP7702AuthorizationBuilder>;
 struct_builder! {
@@ -88,7 +92,6 @@ struct_builder! {
     }
 }
 
-
 table_builder! {
     TransactionBuilder {
         block_number: UInt64Builder,
@@ -165,7 +168,6 @@ table_builder! {
     }
 }
 
-
 fn push_prim_sig(b: &mut TempoPrimSigBuilder, sig: &TempoPrimitiveSignature) {
     match sig {
         TempoPrimitiveSignature::Secp256k1 { r, s, y_parity, v } => {
@@ -179,7 +181,13 @@ fn push_prim_sig(b: &mut TempoPrimSigBuilder, sig: &TempoPrimitiveSignature) {
             b.pre_hash.append_option(None);
             b.webauthn_data.append_null();
         }
-        TempoPrimitiveSignature::P256 { r, s, pub_key_x, pub_key_y, pre_hash } => {
+        TempoPrimitiveSignature::P256 {
+            r,
+            s,
+            pub_key_x,
+            pub_key_y,
+            pre_hash
+        } => {
             b.sig_type.append("p256");
             b.r.append(r);
             b.s.append(s);
@@ -190,7 +198,13 @@ fn push_prim_sig(b: &mut TempoPrimSigBuilder, sig: &TempoPrimitiveSignature) {
             b.pre_hash.append(*pre_hash);
             b.webauthn_data.append_null();
         }
-        TempoPrimitiveSignature::WebAuthn { r, s, pub_key_x, pub_key_y, webauthn_data } => {
+        TempoPrimitiveSignature::WebAuthn {
+            r,
+            s,
+            pub_key_x,
+            pub_key_y,
+            webauthn_data
+        } => {
             b.sig_type.append("webAuthn");
             b.r.append(r);
             b.s.append(s);
@@ -225,7 +239,11 @@ fn push_tempo_sig(b: &mut TempoSigBuilder, sig: &TempoSignature) {
             b.user_address.append_null();
             b.version.append_null();
         }
-        TempoSignature::Keychain(TempoKeychainSignature { user_address, signature, version }) => {
+        TempoSignature::Keychain(TempoKeychainSignature {
+            user_address,
+            signature,
+            version
+        }) => {
             push_prim_sig(&mut b.primitive, signature);
             b.user_address.append(user_address);
             b.version.append_option(version.as_deref());
@@ -241,7 +259,6 @@ fn push_tempo_sig_null(b: &mut TempoSigBuilder) {
     b.append_null();
 }
 
-
 impl TransactionBuilder {
     pub fn push(&mut self, block: &Block, row: &Transaction) {
         self.block_number.append(block.header.number);
@@ -256,7 +273,8 @@ impl TransactionBuilder {
         self.gas.append(&row.gas);
         self.gas_price.append_option(row.gas_price.as_deref());
         self.max_fee_per_gas.append_option(row.max_fee_per_gas.as_deref());
-        self.max_priority_fee_per_gas.append_option(row.max_priority_fee_per_gas.as_deref());
+        self.max_priority_fee_per_gas
+            .append_option(row.max_priority_fee_per_gas.as_deref());
         self.v.append_option(row.v.as_deref());
         self.r.append_option(row.r.as_deref());
         self.s.append_option(row.s.as_deref());
@@ -276,7 +294,8 @@ impl TransactionBuilder {
         self.access_list.append();
 
         self.chain_id.append_option(row.chain_id);
-        self.max_fee_per_blob_gas.append_option(row.max_fee_per_blob_gas.as_deref());
+        self.max_fee_per_blob_gas
+            .append_option(row.max_fee_per_blob_gas.as_deref());
 
         for blob_hash in row.blob_versioned_hashes.iter().flatten() {
             self.blob_versioned_hashes.values().append(blob_hash);
@@ -371,7 +390,8 @@ impl TransactionBuilder {
 
         self.contract_address.append_option(row.contract_address.as_deref());
         self.cumulative_gas_used.append(&row.cumulative_gas_used);
-        self.effective_gas_price.append_option(row.effective_gas_price.as_deref());
+        self.effective_gas_price
+            .append_option(row.effective_gas_price.as_deref());
         self.gas_used.append(&row.gas_used);
         self.logs_bloom.append(&row.logs_bloom);
         self.sighash.append_option(row.input.as_deref().and_then(sighash));

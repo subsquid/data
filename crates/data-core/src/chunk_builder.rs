@@ -1,14 +1,14 @@
-use crate::ChunkProcessor;
-use sqd_array::slice::AnyTableSlice;
 use std::collections::BTreeMap;
 
+use sqd_array::slice::AnyTableSlice;
+
+use crate::ChunkProcessor;
 
 pub trait BlockChunkBuilder: ChunkBuilder {
     type Block;
 
     fn push(&mut self, block: &Self::Block) -> anyhow::Result<()>;
 }
-
 
 pub trait ChunkBuilder {
     fn dataset_description(&self) -> sqd_dataset::DatasetDescriptionRef;
@@ -25,7 +25,6 @@ pub trait ChunkBuilder {
 
     fn submit_to_processor(&self, processor: &mut ChunkProcessor) -> anyhow::Result<()>;
 }
-
 
 #[macro_export]
 macro_rules! chunk_builder {

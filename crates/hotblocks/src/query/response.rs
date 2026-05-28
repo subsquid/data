@@ -1,19 +1,22 @@
-use super::executor::{QueryExecutor, QuerySlot};
-use super::running::{RunningQuery, RunningQueryStats};
-use crate::errors::Busy;
-use crate::metrics::{
-    STREAM_BLOCKS, STREAM_BLOCKS_PER_SECOND, STREAM_BYTES, STREAM_BYTES_PER_SECOND, STREAM_CHUNKS,
-    STREAM_DURATIONS,
-};
-use crate::types::ClientId;
-use crate::types::DBRef;
+use std::time::{Duration, Instant};
+
 use anyhow::bail;
 use bytes::Bytes;
 use sqd_primitives::BlockRef;
 use sqd_query::Query;
 use sqd_storage::db::DatasetId;
-use std::time::Duration;
-use std::time::Instant;
+
+use super::{
+    executor::{QueryExecutor, QuerySlot},
+    running::{RunningQuery, RunningQueryStats}
+};
+use crate::{
+    errors::Busy,
+    metrics::{
+        STREAM_BLOCKS, STREAM_BLOCKS_PER_SECOND, STREAM_BYTES, STREAM_BYTES_PER_SECOND, STREAM_CHUNKS, STREAM_DURATIONS
+    },
+    types::{ClientId, DBRef}
+};
 
 const DEFAULT_QUERY_LIMIT: Duration = Duration::from_secs(10);
 
@@ -24,14 +27,14 @@ pub struct QueryResponse {
     dataset_id: DatasetId,
     client_id: ClientId,
     stats: QueryStreamStats,
-    time_limit: Duration,
+    time_limit: Duration
 }
 
 pub struct QueryStreamStats {
     response_chunks: u64,
     response_blocks: u64,
     response_bytes: u64,
-    start_time: Instant,
+    start_time: Instant
 }
 
 impl QueryStreamStats {
@@ -40,18 +43,14 @@ impl QueryStreamStats {
             response_chunks: 0,
             response_blocks: 0,
             response_bytes: 0,
-            start_time: Instant::now(),
+            start_time: Instant::now()
         }
     }
 
     pub fn add_running_stats(&mut self, running_stats: &RunningQueryStats) {
         // We only count chunks/blocks that were actually written in the buffer
-        self.response_chunks = self
-            .response_chunks
-            .saturating_add(running_stats.chunks_returned);
-        self.response_blocks = self
-            .response_blocks
-            .saturating_add(running_stats.blocks_returned);
+        self.response_chunks = self.response_chunks.saturating_add(running_stats.chunks_returned);
+        self.response_blocks = self.response_blocks.saturating_add(running_stats.blocks_returned);
     }
 
     fn report_metrics(&self, dataset_id: &DatasetId, client_id: &ClientId) {
@@ -70,9 +69,7 @@ impl QueryStreamStats {
         STREAM_BLOCKS.get_or_create(&labels).observe(blocks);
         STREAM_CHUNKS.get_or_create(&labels).observe(chunks);
         if duration > 0.0 {
-            STREAM_BYTES_PER_SECOND
-                .get_or_create(&labels)
-                .observe(bytes / duration);
+            STREAM_BYTES_PER_SECOND.get_or_create(&labels).observe(bytes / duration);
             STREAM_BLOCKS_PER_SECOND
                 .get_or_create(&labels)
                 .observe(blocks / duration);
@@ -88,17 +85,14 @@ impl QueryResponse {
         query: Query,
         only_finalized: bool,
         time_limit: Option<Duration>,
-        client_id: ClientId,
+        client_id: ClientId
     ) -> anyhow::Result<Self> {
-        let Some(slot) = executor.get_slot() else {
-            bail!(Busy)
-        };
+        let Some(slot) = executor.get_slot() else { bail!(Busy) };
 
         let stats = QueryStreamStats::new();
         let mut runner = slot
             .run(move |slot| -> anyhow::Result<_> {
-                let mut runner =
-                    RunningQuery::new(db, dataset_id, &query, only_finalized).map(Box::new)?;
+                let mut runner = RunningQuery::new(db, dataset_id, &query, only_finalized).map(Box::new)?;
                 next_run(&mut runner, slot)?;
                 Ok(runner)
             })
@@ -112,7 +106,7 @@ impl QueryResponse {
             stats,
             dataset_id,
             client_id,
-            time_limit,
+            time_limit
         };
 
         Ok(response)
@@ -138,8 +132,7 @@ impl QueryResponse {
 
         if runner.buffered_bytes() > 0 {
             let bytes = runner.take_buffered_bytes();
-            self.stats.response_bytes =
-                self.stats.response_bytes.saturating_add(bytes.len() as u64);
+            self.stats.response_bytes = self.stats.response_bytes.saturating_add(bytes.len() as u64);
             self.runner = Some(runner);
             return Ok(Some(bytes));
         }
@@ -164,8 +157,7 @@ impl QueryResponse {
 
         if runner.has_next_chunk() {
             let bytes = runner.take_buffered_bytes();
-            self.stats.response_bytes =
-                self.stats.response_bytes.saturating_add(bytes.len() as u64);
+            self.stats.response_bytes = self.stats.response_bytes.saturating_add(bytes.len() as u64);
             self.runner = Some(runner);
             Ok(Some(bytes))
         } else {

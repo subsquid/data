@@ -1,8 +1,11 @@
-use crate::chunking::ChunkRange;
-use crate::writer::{ArrayWriter, BitmaskWriter, NativeWriter, OffsetsWriter};
-use arrow_buffer::ArrowNativeType;
 use std::ops::Range;
 
+use arrow_buffer::ArrowNativeType;
+
+use crate::{
+    chunking::ChunkRange,
+    writer::{ArrayWriter, BitmaskWriter, NativeWriter, OffsetsWriter}
+};
 
 mod any;
 mod binary;
@@ -13,7 +16,6 @@ mod native;
 mod primitive;
 mod r#struct;
 
-
 pub use any::*;
 pub use binary::*;
 pub use boolean::*;
@@ -22,55 +24,36 @@ pub use list::*;
 pub use primitive::*;
 pub use r#struct::*;
 
-
 pub trait BitmaskReader {
     fn len(&self) -> usize;
 
-    fn read_slice(
-        &mut self,
-        dst: &mut impl BitmaskWriter,
-        offset: usize,
-        len: usize
-    ) -> anyhow::Result<()>;
+    fn read_slice(&mut self, dst: &mut impl BitmaskWriter, offset: usize, len: usize) -> anyhow::Result<()>;
 
     fn read(&mut self, dst: &mut impl BitmaskWriter) -> anyhow::Result<()> {
         self.read_slice(dst, 0, self.len())
     }
 }
 
-
 pub trait NativeReader {
     fn len(&self) -> usize;
 
-    fn read_slice(
-        &mut self,
-        dst: &mut impl NativeWriter,
-        offset: usize,
-        len: usize
-    ) -> anyhow::Result<()>;
-    
+    fn read_slice(&mut self, dst: &mut impl NativeWriter, offset: usize, len: usize) -> anyhow::Result<()>;
+
     fn read(&mut self, dst: &mut impl NativeWriter) -> anyhow::Result<()> {
         self.read_slice(dst, 0, self.len())
     }
 }
 
-
 pub trait OffsetsReader {
     fn len(&self) -> usize;
 
-    fn read_slice(
-        &mut self,
-        dst: &mut impl OffsetsWriter,
-        offset: usize,
-        len: usize
-    ) -> anyhow::Result<Range<usize>>;
-    
+    fn read_slice(&mut self, dst: &mut impl OffsetsWriter, offset: usize, len: usize) -> anyhow::Result<Range<usize>>;
+
     #[inline]
     fn read(&mut self, dst: &mut impl OffsetsWriter) -> anyhow::Result<Range<usize>> {
         self.read_slice(dst, 0, self.len())
     }
 }
-
 
 pub trait Reader {
     type Nullmask: BitmaskReader;
@@ -79,24 +62,17 @@ pub trait Reader {
     type Offset: OffsetsReader;
 }
 
-
 pub trait ArrayReader {
     fn num_buffers(&self) -> usize;
-    
+
     fn len(&self) -> usize;
 
     fn read(&mut self, dst: &mut impl ArrayWriter) -> anyhow::Result<()> {
         self.read_slice(dst, 0, self.len())
     }
 
-    fn read_slice(
-        &mut self,
-        dst: &mut impl ArrayWriter,
-        offset: usize,
-        len: usize
-    ) -> anyhow::Result<()>;
+    fn read_slice(&mut self, dst: &mut impl ArrayWriter, offset: usize, len: usize) -> anyhow::Result<()>;
 }
-
 
 pub trait ChunkedArrayReader {
     type Chunk;
@@ -108,10 +84,9 @@ pub trait ChunkedArrayReader {
     fn read_chunked_ranges(
         &mut self,
         dst: &mut impl ArrayWriter,
-        ranges: impl Iterator<Item=ChunkRange> + Clone
+        ranges: impl Iterator<Item = ChunkRange> + Clone
     ) -> anyhow::Result<()>;
 }
-
 
 pub trait ReaderFactory {
     type Reader: Reader;

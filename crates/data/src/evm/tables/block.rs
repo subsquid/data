@@ -1,8 +1,7 @@
-use crate::evm::model::BlockHeader;
-use crate::evm::tables::common::*;
 use sqd_array::builder::{ListBuilder, TimestampSecondBuilder, UInt64Builder};
 use sqd_data_core::{struct_builder, table_builder};
 
+use crate::evm::{model::BlockHeader, tables::common::*};
 
 type WithdrawalListBuilder = ListBuilder<WithdrawalBuilder>;
 struct_builder! {
@@ -13,7 +12,6 @@ struct_builder! {
         validator_index: HexBytesBuilder,
     }
 }
-
 
 table_builder! {
     BlockBuilder {
@@ -62,7 +60,6 @@ table_builder! {
     }
 }
 
-
 impl BlockBuilder {
     pub fn push(&mut self, row: &BlockHeader) {
         self.number.append(row.number);
@@ -103,12 +100,15 @@ impl BlockBuilder {
         self.withdrawals_root.append_option(row.withdrawals_root.as_deref());
         self.blob_gas_used.append_option(row.blob_gas_used.as_deref());
         self.excess_blob_gas.append_option(row.excess_blob_gas.as_deref());
-        self.parent_beacon_block_root.append_option(row.parent_beacon_block_root.as_deref());
+        self.parent_beacon_block_root
+            .append_option(row.parent_beacon_block_root.as_deref());
         self.requests_hash.append_option(row.requests_hash.as_deref());
         self.l1_block_number.append_option(row.l1_block_number);
-        self.main_block_general_gas_limit.append_option(row.main_block_general_gas_limit.as_deref());
+        self.main_block_general_gas_limit
+            .append_option(row.main_block_general_gas_limit.as_deref());
         self.shared_gas_limit.append_option(row.shared_gas_limit.as_deref());
-        self.timestamp_millis_part.append_option(row.timestamp_millis_part.as_deref());
+        self.timestamp_millis_part
+            .append_option(row.timestamp_millis_part.as_deref());
 
         self.extra_data_size.append(row.extra_data.len() as u64);
 

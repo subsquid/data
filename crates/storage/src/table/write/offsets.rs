@@ -1,24 +1,18 @@
-use crate::table::write::page::PageWriter;
-use arrow_buffer::ToByteSlice;
-use parking_lot::RwLock;
-use sqd_array::builder::offsets::OffsetsBuilder;
-use sqd_array::index::RangeList;
-use sqd_array::offsets::Offsets;
-use sqd_array::writer::OffsetsWriter;
 use std::sync::LazyLock;
 
+use arrow_buffer::ToByteSlice;
+use parking_lot::RwLock;
+use sqd_array::{builder::offsets::OffsetsBuilder, index::RangeList, offsets::Offsets, writer::OffsetsWriter};
 
-pub static PAGE_LEN: LazyLock<RwLock<usize>> = LazyLock::new(|| {
-    RwLock::new(16 * 1024)
-});
+use crate::table::write::page::PageWriter;
 
+pub static PAGE_LEN: LazyLock<RwLock<usize>> = LazyLock::new(|| RwLock::new(16 * 1024));
 
 pub struct OffsetPageWriter<P> {
     page_writer: P,
     builder: OffsetsBuilder,
     page_len: usize
 }
-
 
 impl<P: PageWriter> OffsetPageWriter<P> {
     pub fn new(page_writer: P) -> Self {
@@ -61,10 +55,7 @@ impl<P: PageWriter> OffsetPageWriter<P> {
 
         if data.len() > self.page_len {
             let split = data.len() / 2;
-            self.page_writer.write_page(
-                split,
-                data[0..split].to_byte_slice()
-            )?;
+            self.page_writer.write_page(split, data[0..split].to_byte_slice())?;
             offset = split;
         }
 
@@ -75,14 +66,17 @@ impl<P: PageWriter> OffsetPageWriter<P> {
     }
 }
 
-
 impl<P: PageWriter> OffsetsWriter for OffsetPageWriter<P> {
     fn write_slice(&mut self, offsets: Offsets<'_>) -> anyhow::Result<()> {
         self.builder.append_slice(offsets);
         self.flush()
     }
 
-    fn write_slice_indexes(&mut self, offsets: Offsets<'_>, indexes: impl Iterator<Item=usize>) -> anyhow::Result<()> {
+    fn write_slice_indexes(
+        &mut self,
+        offsets: Offsets<'_>,
+        indexes: impl Iterator<Item = usize>
+    ) -> anyhow::Result<()> {
         self.builder.append_slice_indexes(offsets, indexes);
         self.flush()
     }

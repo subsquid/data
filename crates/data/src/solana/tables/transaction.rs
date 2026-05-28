@@ -1,9 +1,15 @@
-use crate::solana::model::{Block, Transaction, TransactionVersion};
-use crate::solana::tables::common::{AccountIndexList, AccountListBuilder, AddressListBuilder, Base58Builder, JsonBuilder, SignatureListBuilder};
-use sqd_array::builder::{BooleanBuilder, FixedSizeBinaryBuilder, Int16Builder, ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder};
+use sqd_array::builder::{
+    BooleanBuilder, FixedSizeBinaryBuilder, Int16Builder, ListBuilder, UInt32Builder, UInt64Builder, UInt8Builder
+};
 use sqd_bloom_filter::BloomFilter;
 use sqd_data_core::{struct_builder, table_builder};
 
+use crate::solana::{
+    model::{Block, Transaction, TransactionVersion},
+    tables::common::{
+        AccountIndexList, AccountListBuilder, AddressListBuilder, Base58Builder, JsonBuilder, SignatureListBuilder
+    }
+};
 
 type AddressTableLookupListBuilder = ListBuilder<AddressTableLookupBuilder>;
 struct_builder! {
@@ -14,7 +20,6 @@ struct_builder! {
     }
 }
 
-
 struct_builder! {
     LoadedAddressBuilder {
         readonly: AddressListBuilder,
@@ -22,10 +27,8 @@ struct_builder! {
     }
 }
 
-
 const ACCOUNT_BLOOM_BYTES: usize = 64;
 const ACCOUNT_BLOOM_NUM_HASHES: usize = 7;
-
 
 table_builder! {
     TransactionBuilder {
@@ -68,7 +71,6 @@ table_builder! {
     }
 }
 
-
 impl TransactionBuilder {
     pub fn push(&mut self, block: &Block, row: &Transaction) -> anyhow::Result<()> {
         self.block_number.append(block.header.number);
@@ -80,9 +82,7 @@ impl TransactionBuilder {
         });
 
         for account in row.account_keys.iter().copied() {
-            self.account_keys.values().append(
-                block.get_account(account)?
-            )
+            self.account_keys.values().append(block.get_account(account)?)
         }
         self.account_keys.append();
 
@@ -101,8 +101,10 @@ impl TransactionBuilder {
         }
         self.address_table_lookups.append();
 
-        self.num_readonly_signed_accounts.append(row.num_readonly_signed_accounts);
-        self.num_readonly_unsigned_accounts.append(row.num_readonly_unsigned_accounts);
+        self.num_readonly_signed_accounts
+            .append(row.num_readonly_signed_accounts);
+        self.num_readonly_unsigned_accounts
+            .append(row.num_readonly_unsigned_accounts);
         self.num_required_signatures.append(row.num_required_signatures);
         self.recent_blockhash.append(&row.recent_blockhash);
 
@@ -115,21 +117,23 @@ impl TransactionBuilder {
             let err = row.err.as_ref().map(|val| val.to_string());
             self.err.append_option(err.as_ref().map(|s| s.as_ref()));
         }
-       
+
         self.compute_units_consumed.append_option(row.compute_units_consumed);
         self.cost_units.append_option(row.cost_units);
         self.fee.append(row.fee);
 
         for address in &row.loaded_addresses.readonly {
-            self.loaded_addresses.readonly.values().append(
-                block.get_account(*address)?
-            );
+            self.loaded_addresses
+                .readonly
+                .values()
+                .append(block.get_account(*address)?);
         }
         self.loaded_addresses.readonly.append();
         for address in &row.loaded_addresses.writable {
-            self.loaded_addresses.writable.values().append(
-                block.get_account(*address)?
-            );
+            self.loaded_addresses
+                .writable
+                .values()
+                .append(block.get_account(*address)?);
         }
         self.loaded_addresses.writable.append();
         self.loaded_addresses.append(true);
@@ -140,10 +144,14 @@ impl TransactionBuilder {
         let account_keys_size = row.account_keys.len() * 44;
         self.account_keys_size.append(account_keys_size as u64);
 
-        let address_table_lookups_size = 44usize * row.address_table_lookups.iter()
-            .map(|l| 1 + l.readonly_indexes.len() + l.writable_indexes.len())
-            .sum::<usize>();
-        self.address_table_lookups_size.append(address_table_lookups_size as u64);
+        let address_table_lookups_size = 44usize
+            * row
+                .address_table_lookups
+                .iter()
+                .map(|l| 1 + l.readonly_indexes.len() + l.writable_indexes.len())
+                .sum::<usize>();
+        self.address_table_lookups_size
+            .append(address_table_lookups_size as u64);
 
         let signatures_size = row.signatures.iter().map(|val| val.len() as u64).sum();
         self.signatures_size.append(signatures_size);

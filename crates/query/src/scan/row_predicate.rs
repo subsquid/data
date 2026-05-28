@@ -1,15 +1,20 @@
-use crate::primitives::{Name, RowRangeList};
-use crate::scan::array_predicate;
-use crate::scan::array_predicate::{ArrayPredicateRef, ArrayStats};
-use anyhow::bail;
-use arrow::array::{Array, ArrayRef, BooleanArray, RecordBatch};
-use arrow::buffer::OffsetBuffer;
-use std::collections::HashSet;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
+use anyhow::bail;
+use arrow::{
+    array::{Array, ArrayRef, BooleanArray, RecordBatch},
+    buffer::OffsetBuffer
+};
+
+use crate::{
+    primitives::{Name, RowRangeList},
+    scan::{
+        array_predicate,
+        array_predicate::{ArrayPredicateRef, ArrayStats}
+    }
+};
 
 pub type RowPredicateRef = Arc<dyn RowPredicate>;
-
 
 pub trait RowPredicate: Sync + Send {
     fn projection(&self) -> &[Name];
@@ -25,11 +30,9 @@ pub trait RowPredicate: Sync + Send {
     }
 }
 
-
 pub trait RowStats {
     fn get_column_stats(&self, column: Name) -> anyhow::Result<Option<ColumnStats>>;
 }
-
 
 #[derive(Clone)]
 pub struct ColumnStats {
@@ -38,12 +41,10 @@ pub struct ColumnStats {
     pub max: ArrayRef
 }
 
-
 pub struct ColumnPredicate {
     column: [Name; 1],
     array_predicate: ArrayPredicateRef
 }
-
 
 impl ColumnPredicate {
     pub fn new(column_name: Name, array_predicate: ArrayPredicateRef) -> Self {
@@ -53,7 +54,6 @@ impl ColumnPredicate {
         }
     }
 }
-
 
 impl RowPredicate for ColumnPredicate {
     fn projection(&self) -> &[Name] {
@@ -73,42 +73,37 @@ impl RowPredicate for ColumnPredicate {
     }
 
     fn evaluate_stats(&self, row_stats: &dyn RowStats) -> anyhow::Result<Option<RowRangeList>> {
-        row_stats.get_column_stats(self.column[0])?.map(|column_stats| {
-            let mask = self.array_predicate.evaluate_stats(&ArrayStats {
-                min: column_stats.min.clone(),
-                max: column_stats.max.clone()
-            })?;
+        row_stats
+            .get_column_stats(self.column[0])?
+            .map(|column_stats| {
+                let mask = self.array_predicate.evaluate_stats(&ArrayStats {
+                    min: column_stats.min.clone(),
+                    max: column_stats.max.clone()
+                })?;
 
-            let offsets = &column_stats.offsets;
+                let offsets = &column_stats.offsets;
 
-            let ranges = (0..offsets.len() - 1)
-                .filter(|&i| {
-                    mask.value(i) && !mask.is_null(i)
-                })
-                .map(|i| offsets[i]..offsets[i + 1]);
+                let ranges = (0..offsets.len() - 1)
+                    .filter(|&i| mask.value(i) && !mask.is_null(i))
+                    .map(|i| offsets[i]..offsets[i + 1]);
 
-            Ok(RowRangeList::seal(ranges))
-        }).transpose()
+                Ok(RowRangeList::seal(ranges))
+            })
+            .transpose()
     }
 }
-
 
 pub struct AndPredicate {
     predicates: Vec<RowPredicateRef>,
     projection: Vec<Name>
 }
 
-
 impl AndPredicate {
     pub fn new(predicates: Vec<RowPredicateRef>) -> Self {
         let projection = predicates_projection(&predicates);
-        Self {
-            predicates,
-            projection
-        }
+        Self { predicates, projection }
     }
 }
-
 
 impl RowPredicate for AndPredicate {
     fn projection(&self) -> &[Name] {
@@ -117,7 +112,7 @@ impl RowPredicate for AndPredicate {
 
     fn evaluate(&self, batch: &RecordBatch) -> anyhow::Result<BooleanArray> {
         if self.predicates.len() == 0 {
-           return Ok(array_predicate::zero_mask(batch.num_rows(), true))
+            return Ok(array_predicate::zero_mask(batch.num_rows(), true));
         }
         let mut result_mask = self.predicates[0].evaluate(batch)?;
         for i in 1..self.predicates.len() {
@@ -148,23 +143,17 @@ impl RowPredicate for AndPredicate {
     }
 }
 
-
 pub struct OrPredicate {
     predicates: Vec<RowPredicateRef>,
     projection: Vec<Name>
 }
 
-
 impl OrPredicate {
     pub fn new(predicates: Vec<RowPredicateRef>) -> Self {
         let projection = predicates_projection(&predicates);
-        Self {
-            predicates,
-            projection
-        }
+        Self { predicates, projection }
     }
 }
-
 
 impl RowPredicate for OrPredicate {
     fn projection(&self) -> &[Name] {
@@ -173,7 +162,7 @@ impl RowPredicate for OrPredicate {
 
     fn evaluate(&self, batch: &RecordBatch) -> anyhow::Result<BooleanArray> {
         if self.predicates.len() == 0 {
-            return Ok(array_predicate::zero_mask(batch.num_rows(), false))
+            return Ok(array_predicate::zero_mask(batch.num_rows(), false));
         }
         let mut result_mask = self.predicates[0].evaluate(batch)?;
         for i in 1..self.predicates.len() {
@@ -198,16 +187,15 @@ impl RowPredicate for OrPredicate {
                         sel
                     })
                 } else {
-                    return Ok(None)
+                    return Ok(None);
                 }
             } else {
-                return Ok(None)
+                return Ok(None);
             }
         }
         Ok(selection)
     }
 }
-
 
 fn predicates_projection(predicates: &[RowPredicateRef]) -> Vec<Name> {
     let n_columns = predicates.iter().map(|p| p.projection().len()).sum();

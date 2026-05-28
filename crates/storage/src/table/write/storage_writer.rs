@@ -1,19 +1,17 @@
-use super::bitmask::BitmaskPageWriter;
-use super::native::NativePageWriter;
-use super::nullmask::NullmaskPageWriter;
-use super::offsets::OffsetPageWriter;
-use super::page::BufferPageWriter;
-use crate::kv::KvWrite;
-use crate::table::key::TableKeyFactory;
-use arrow_buffer::ArrowNativeType;
-use sqd_array::writer::{Writer, WriterFactory};
 use std::marker::PhantomData;
 
+use arrow_buffer::ArrowNativeType;
+use sqd_array::writer::{Writer, WriterFactory};
+
+use super::{
+    bitmask::BitmaskPageWriter, native::NativePageWriter, nullmask::NullmaskPageWriter, offsets::OffsetPageWriter,
+    page::BufferPageWriter
+};
+use crate::{kv::KvWrite, table::key::TableKeyFactory};
 
 pub struct StorageWriter<S> {
     phantom_data: PhantomData<S>
 }
-
 
 impl<S: KvWrite> Writer for StorageWriter<S> {
     type Bitmask = BitmaskPageWriter<BufferPageWriter<S>>;
@@ -22,21 +20,15 @@ impl<S: KvWrite> Writer for StorageWriter<S> {
     type Offset = OffsetPageWriter<BufferPageWriter<S>>;
 }
 
-
 pub(super) struct StorageWriterFactory<S> {
     storage: S,
     key: TableKeyFactory,
     pos: usize
 }
 
-
 impl<S: KvWrite + Clone> StorageWriterFactory<S> {
     pub fn new(storage: S, key: TableKeyFactory) -> Self {
-        Self {
-            storage,
-            key,
-            pos: 0
-        }
+        Self { storage, key, pos: 0 }
     }
 
     fn next_buffer(&mut self) -> BufferPageWriter<S> {
@@ -46,8 +38,7 @@ impl<S: KvWrite + Clone> StorageWriterFactory<S> {
     }
 }
 
-
-impl <S: KvWrite + Clone> WriterFactory for StorageWriterFactory<S>{
+impl<S: KvWrite + Clone> WriterFactory for StorageWriterFactory<S> {
     type Writer = StorageWriter<S>;
 
     fn nullmask(&mut self) -> anyhow::Result<<Self::Writer as Writer>::Nullmask> {

@@ -6,10 +6,9 @@ mod json;
 mod list;
 mod nullable;
 mod primitive;
-mod r#struct;
 mod string;
+mod r#struct;
 pub mod util;
-
 
 pub use binary::*;
 pub use boolean::*;
@@ -21,14 +20,11 @@ pub use primitive::*;
 pub use r#struct::*;
 pub use string::*;
 
-
 pub trait Encoder: Send {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>);
 }
 
-
 pub type EncoderObject = Box<dyn Encoder>;
-
 
 impl Encoder for Box<dyn Encoder> {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {

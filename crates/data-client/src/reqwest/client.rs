@@ -1,19 +1,23 @@
-use super::lines::LineStream;
-use crate::types::{BlockStreamRequest, BlockStreamResponse};
-use crate::DataClient;
+use std::{
+    fmt::{Debug, Display, Formatter},
+    io::ErrorKind,
+    sync::Arc,
+    time::Duration
+};
+
 use anyhow::{anyhow, bail, ensure, Context};
 use bytes::Bytes;
-use futures::future::BoxFuture;
-use futures::{FutureExt, StreamExt};
+use futures::{future::BoxFuture, FutureExt, StreamExt};
 use reqwest::{Client, IntoUrl, Response, StatusCode, Url};
 use serde::Deserialize;
 use serde_json::json;
 use sqd_primitives::{BlockNumber, BlockRef};
-use std::fmt::{Debug, Display, Formatter};
-use std::io::ErrorKind;
-use std::sync::Arc;
-use std::time::Duration;
 
+use super::lines::LineStream;
+use crate::{
+    types::{BlockStreamRequest, BlockStreamResponse},
+    DataClient
+};
 
 pub fn default_http_client() -> Client {
     Client::builder()
@@ -24,13 +28,11 @@ pub fn default_http_client() -> Client {
         .unwrap()
 }
 
-
 #[derive(Clone)]
 pub struct ReqwestDataClient {
     http: Client,
     url: Arc<Url>
 }
-
 
 impl Debug for ReqwestDataClient {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -40,13 +42,12 @@ impl Debug for ReqwestDataClient {
     }
 }
 
-
 impl ReqwestDataClient {
     pub fn from_url(url: impl IntoUrl) -> Self {
         let http = default_http_client();
         Self::new(http, url)
     }
-    
+
     pub fn new(http: Client, url: impl IntoUrl) -> Self {
         Self {
             http,
@@ -54,30 +55,21 @@ impl ReqwestDataClient {
         }
     }
 
-    pub async fn stream(
-        &self,
-        req: BlockStreamRequest
-    ) -> anyhow::Result<BlockStreamResponse<Bytes>>
-    {
+    pub async fn stream(&self, req: BlockStreamRequest) -> anyhow::Result<BlockStreamResponse<Bytes>> {
         let mut body = json!({
             "fromBlock": req.first_block
         });
 
         if req.parent_block_hash.is_some() {
-            body.as_object_mut().unwrap().insert(
-                "parentBlockHash".into(),
-                req.parent_block_hash.clone().into()
-            );
+            body.as_object_mut()
+                .unwrap()
+                .insert("parentBlockHash".into(), req.parent_block_hash.clone().into());
         }
 
         let mut url = self.url.as_ref().clone();
         url.path_segments_mut().unwrap().push("stream");
 
-        let res = self.http
-            .post(url)
-            .json(&body)
-            .send()
-            .await?;
+        let res = self.http.post(url).json(&body).send().await?;
 
         match res.status().as_u16() {
             200 => {
@@ -87,34 +79,26 @@ impl ReqwestDataClient {
                     blocks: blocks.boxed(),
                     finalized_head
                 })
-            },
+            }
             204 => {
                 let finalized_head = extract_finalized_head(&res)?;
                 Ok(BlockStreamResponse::Stream {
                     blocks: futures::stream::empty().boxed(),
                     finalized_head
                 })
-            },
+            }
             409 => {
                 let conflict: BaseBlockConflict = res
                     .json()
                     .await
-                    .context(
-                        "failed to receive a list of previous blocks after base-block hash mismatch"
-                    )?;
-                ensure!(
-                    !conflict.previous_blocks.is_empty(),
-                    "got an empty list of prev blocks"
-                );
+                    .context("failed to receive a list of previous blocks after base-block hash mismatch")?;
+                ensure!(!conflict.previous_blocks.is_empty(), "got an empty list of prev blocks");
                 Ok(BlockStreamResponse::Fork(conflict.previous_blocks))
-            },
+            }
             _ => {
                 let status = res.status();
                 let text = res.text().await.unwrap_or_default();
-                bail!(UnexpectedHttpStatus {
-                    status,
-                    text
-                })
+                bail!(UnexpectedHttpStatus { status, text })
             }
         }
     }
@@ -131,7 +115,8 @@ impl ReqwestDataClient {
         let mut url = self.url.as_ref().clone();
         url.path_segments_mut().unwrap().push(slug);
 
-        let head: Option<BlockRef> = self.http
+        let head: Option<BlockRef> = self
+            .http
             .get(url)
             .send()
             .await?
@@ -142,14 +127,14 @@ impl ReqwestDataClient {
 
         Ok(head)
     }
-    
+
     pub fn is_retryable(&self, err: &anyhow::Error) -> bool {
         for cause in err.chain() {
             if let Some(unexpected_status) = cause.downcast_ref::<UnexpectedHttpStatus>() {
                 return match unexpected_status.status.as_u16() {
                     429 | 502 | 503 | 504 | 524 => true,
                     _ => false
-                }
+                };
             }
 
             if let Some(reqwest_error) = cause.downcast_ref::<reqwest::Error>() {
@@ -158,11 +143,12 @@ impl ReqwestDataClient {
                     _ => {}
                 }
                 if reqwest_error.is_timeout() {
-                    return true
+                    return true;
                 }
-                if reqwest_error.is_request() &&
-                    reqwest_error.to_string() == "connection closed before message completed" {
-                    return true
+                if reqwest_error.is_request()
+                    && reqwest_error.to_string() == "connection closed before message completed"
+                {
+                    return true;
                 }
             }
 
@@ -180,12 +166,11 @@ impl ReqwestDataClient {
         }
         false
     }
-    
+
     pub fn url(&self) -> &Url {
         self.url.as_ref()
     }
 }
-
 
 fn extract_finalized_head(res: &Response) -> anyhow::Result<Option<BlockRef>> {
     let number = get_finalized_head_number(res)
@@ -211,14 +196,12 @@ fn extract_finalized_head(res: &Response) -> anyhow::Result<Option<BlockRef>> {
     }
 }
 
-
 fn get_finalized_head_number(res: &Response) -> Option<anyhow::Result<BlockNumber>> {
     res.headers().get("x-sqd-finalized-head-number").map(|v| {
         let num = v.to_str()?.parse()?;
         Ok(num)
     })
 }
-
 
 fn get_finalized_head_hash(res: &Response) -> Option<anyhow::Result<&str>> {
     res.headers().get("x-sqd-finalized-head-hash").map(|v| {
@@ -227,22 +210,17 @@ fn get_finalized_head_hash(res: &Response) -> Option<anyhow::Result<&str>> {
     })
 }
 
-
 impl DataClient for ReqwestDataClient {
     type Block = Bytes;
 
     fn stream(&self, req: BlockStreamRequest) -> BoxFuture<'static, anyhow::Result<BlockStreamResponse<Self::Block>>> {
         let this = self.clone();
-        async move {
-            this.stream(req).await
-        }.boxed()
+        async move { this.stream(req).await }.boxed()
     }
 
     fn get_finalized_head(&self) -> BoxFuture<'static, anyhow::Result<Option<BlockRef>>> {
         let this = self.clone();
-        async move {
-            this.get_finalized_head().await
-        }.boxed()
+        async move { this.get_finalized_head().await }.boxed()
     }
 
     fn is_retryable(&self, err: &anyhow::Error) -> bool {
@@ -250,13 +228,11 @@ impl DataClient for ReqwestDataClient {
     }
 }
 
-
 #[derive(Debug)]
 pub struct UnexpectedHttpStatus {
     pub status: StatusCode,
     pub text: String
 }
-
 
 impl Display for UnexpectedHttpStatus {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -269,9 +245,7 @@ impl Display for UnexpectedHttpStatus {
     }
 }
 
-
 impl std::error::Error for UnexpectedHttpStatus {}
-
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

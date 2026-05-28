@@ -1,31 +1,30 @@
+use std::{
+    io::{Error, ErrorKind},
+    pin::pin,
+    time::Duration
+};
+
 use async_stream::try_stream;
 use futures::{Stream, StreamExt, TryStreamExt};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 use sqd_primitives::{Block, BlockNumber};
-use std::io::{Error, ErrorKind};
-use std::pin::pin;
-use std::time::Duration;
 use tokio::io::AsyncBufReadExt;
 use tokio_util::io::StreamReader;
 use tracing::{error, info};
 use url::Url;
 
-
 #[derive(Serialize)]
 struct BlockRange {
     from: BlockNumber,
-    to: Option<BlockNumber>,
+    to: Option<BlockNumber>
 }
-
 
 pub fn ingest_from_service<B: Block + DeserializeOwned>(
     url: Url,
     from: BlockNumber,
     to: Option<BlockNumber>,
     block_stream_interval: Duration
-) -> impl Stream<Item = anyhow::Result<B>>
-{
+) -> impl Stream<Item = anyhow::Result<B>> {
     try_stream! {
         let mut first_block = from;
 
@@ -65,13 +64,11 @@ pub fn ingest_from_service<B: Block + DeserializeOwned>(
     }
 }
 
-
 fn fetch<B: Block + DeserializeOwned>(
     url: Url,
     from: BlockNumber,
     to: Option<BlockNumber>
-) -> impl Stream<Item = anyhow::Result<B>>
-{
+) -> impl Stream<Item = anyhow::Result<B>> {
     try_stream! {
         let byte_stream = reqwest::Client::new()
             .post(url)
@@ -81,9 +78,9 @@ fn fetch<B: Block + DeserializeOwned>(
             .error_for_status()?
             .bytes_stream()
             .map_err(|err| Error::new(ErrorKind::Other, err));
-        
+
         let mut line_stream = StreamReader::new(byte_stream).lines();
-        
+
         while let Some(line) = line_stream.next_line().await? {
             let block = serde_json::from_str(&line)?;
             yield block;

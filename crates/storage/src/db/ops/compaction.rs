@@ -1,14 +1,18 @@
-use crate::db::db::RocksDB;
-use crate::db::ops::schema_merge::can_merge_schemas;
-use crate::db::ops::table_merge::TableMerge;
-use crate::db::table_id::TableId;
-use crate::db::write::tx::Tx;
-use crate::db::{Chunk, ChunkReader, DatasetId, ReadSnapshot, TableBuilder};
+use std::{
+    cmp::{max, min},
+    collections::BTreeMap
+};
+
 use arrow::datatypes::SchemaRef;
 use sqd_primitives::BlockNumber;
-use std::cmp::{max, min};
-use std::collections::BTreeMap;
 
+use crate::db::{
+    db::RocksDB,
+    ops::{schema_merge::can_merge_schemas, table_merge::TableMerge},
+    table_id::TableId,
+    write::tx::Tx,
+    Chunk, ChunkReader, DatasetId, ReadSnapshot, TableBuilder
+};
 
 pub const MAX_CHUNK_SIZE: usize = 200_000;
 pub const WA_LIMIT: f64 = 1.9;
@@ -18,7 +22,7 @@ pub const COMPACTION_LEN_LIMIT: usize = 50;
 pub enum CompactionStatus {
     Ok(Vec<MergedChunk>),
     Canceled,
-    NotingToCompact,
+    NotingToCompact
 }
 
 #[derive(Debug)]
@@ -33,9 +37,8 @@ pub fn perform_dataset_compaction(
     dataset_id: DatasetId,
     max_chunk_size: Option<usize>,
     write_amplification_limit: Option<f64>,
-    compaction_len_limit: Option<usize>,
-) -> anyhow::Result<CompactionStatus>
-{
+    compaction_len_limit: Option<usize>
+) -> anyhow::Result<CompactionStatus> {
     DatasetCompaction {
         db,
         snapshot: &ReadSnapshot::new(db),
@@ -43,7 +46,7 @@ pub fn perform_dataset_compaction(
         merge: Vec::new(),
         max_chunk_size: max_chunk_size.unwrap_or(MAX_CHUNK_SIZE),
         write_amplification_limit: write_amplification_limit.unwrap_or(WA_LIMIT),
-        compaction_len_limit: compaction_len_limit.unwrap_or(COMPACTION_LEN_LIMIT),
+        compaction_len_limit: compaction_len_limit.unwrap_or(COMPACTION_LEN_LIMIT)
     }
     .execute()
 }
@@ -55,7 +58,7 @@ struct DatasetCompaction<'a> {
     merge: Vec<ChunkReader<'a>>,
     max_chunk_size: usize,
     write_amplification_limit: f64,
-    compaction_len_limit: usize,
+    compaction_len_limit: usize
 }
 
 impl<'a> DatasetCompaction<'a> {
@@ -75,7 +78,7 @@ impl<'a> DatasetCompaction<'a> {
         Tx::new(self.db).run(|tx| {
             let mut label = match tx.find_label_for_update(self.dataset_id)? {
                 Some(label) => label,
-                None => return Ok(CompactionStatus::Canceled),
+                None => return Ok(CompactionStatus::Canceled)
             };
 
             if self.data_was_changed(tx)? {
@@ -88,21 +91,26 @@ impl<'a> DatasetCompaction<'a> {
             label.bump_version();
             tx.write_label(self.dataset_id, &label)?;
 
-            let merged_chunks = self.merge.iter().map(|c| {
-                let size = c.tables()
-                    .keys()
-                    .map(|name| c.get_table_reader(name).map(|r| r.num_rows()))
-                    .fold(Ok::<_, anyhow::Error>(0), |acc, size| {
-                        let acc = acc?;
-                        let size = size?;
-                        Ok(max(acc, size))
-                    })?;
-                Ok(MergedChunk {
-                    first_block: c.first_block(),
-                    last_block: c.last_block(),
-                    size
+            let merged_chunks = self
+                .merge
+                .iter()
+                .map(|c| {
+                    let size = c
+                        .tables()
+                        .keys()
+                        .map(|name| c.get_table_reader(name).map(|r| r.num_rows()))
+                        .fold(Ok::<_, anyhow::Error>(0), |acc, size| {
+                            let acc = acc?;
+                            let size = size?;
+                            Ok(max(acc, size))
+                        })?;
+                    Ok(MergedChunk {
+                        first_block: c.first_block(),
+                        last_block: c.last_block(),
+                        size
+                    })
                 })
-            }).collect::<anyhow::Result<_>>()?;
+                .collect::<anyhow::Result<_>>()?;
 
             Ok(CompactionStatus::Ok(merged_chunks))
         })
@@ -112,7 +120,7 @@ impl<'a> DatasetCompaction<'a> {
         let current_chunks = tx.list_chunks(
             self.dataset_id,
             self.merge[0].first_block(),
-            Some(self.merge.last().unwrap().last_block()),
+            Some(self.merge.last().unwrap().last_block())
         );
 
         let mut compared = 0;
@@ -144,7 +152,7 @@ impl<'a> DatasetCompaction<'a> {
             parent_block_hash: first_chunk.base_block_hash().to_string(),
             first_block_time: first_chunk.chunk().first_block_time(),
             last_block_time: last_chunk.chunk().last_block_time(),
-            tables,
+            tables
         }
     }
 
@@ -155,11 +163,7 @@ impl<'a> DatasetCompaction<'a> {
         Ok(())
     }
 
-    fn merge_table(
-        &self,
-        name: &str,
-        tables: &mut BTreeMap<String, TableId>,
-    ) -> anyhow::Result<()> {
+    fn merge_table(&self, name: &str, tables: &mut BTreeMap<String, TableId>) -> anyhow::Result<()> {
         let chunks = self
             .merge
             .iter()
@@ -224,8 +228,7 @@ impl<'a> DatasetCompaction<'a> {
             .iter()
             .position(|element| element == max_el)
             .unwrap();
-        let left_range =
-            Self::find_range(chunk_sizes, start, start + max_idx, *max_el, wa_threshold, len_limit);
+        let left_range = Self::find_range(chunk_sizes, start, start + max_idx, *max_el, wa_threshold, len_limit);
         if left_range.is_some() {
             return left_range;
         }
@@ -233,10 +236,7 @@ impl<'a> DatasetCompaction<'a> {
     }
 
     fn prepare_merge_plan(&mut self) -> anyhow::Result<()> {
-        let mut reversed_chunk_iterator = self
-            .snapshot
-            .list_chunks(self.dataset_id, 0, None)
-            .into_reversed();
+        let mut reversed_chunk_iterator = self.snapshot.list_chunks(self.dataset_id, 0, None).into_reversed();
         let mut first_applicable_block = u64::MAX;
         let mut chunk_data_sizes: Vec<Vec<usize>> = Default::default();
         let mut last_schema_map: BTreeMap<String, SchemaRef> = Default::default();

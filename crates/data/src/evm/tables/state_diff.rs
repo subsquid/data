@@ -1,9 +1,8 @@
-use crate::evm::model::{Block, StateDiff};
-use sqd_array::builder::{StringBuilder, UInt64Builder, UInt32Builder};
+use sqd_array::builder::{StringBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
 use super::common::HexBytesBuilder;
-
+use crate::evm::model::{Block, StateDiff};
 
 table_builder! {
     StateDiffBuilder {

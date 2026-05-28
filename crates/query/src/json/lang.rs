@@ -1,12 +1,9 @@
-use crate::json::exp::Exp;
-use crate::primitives::Name;
-
+use crate::{json::exp::Exp, primitives::Name};
 
 #[derive(Debug, Clone)]
 pub struct JsonObject {
     props: Vec<(Name, Exp)>
 }
-
 
 impl Default for JsonObject {
     fn default() -> Self {
@@ -16,9 +13,7 @@ impl Default for JsonObject {
 
 impl JsonObject {
     pub fn new() -> Self {
-        Self {
-            props: Vec::new()
-        }
+        Self { props: Vec::new() }
     }
 
     pub fn add<E: Into<Exp>>(&mut self, name: Name, exp: E) -> &mut Self {
@@ -36,13 +31,11 @@ impl JsonObject {
     }
 }
 
-
 impl From<JsonObject> for Exp {
     fn from(val: JsonObject) -> Self {
         Exp::Object(val.props)
     }
 }
-
 
 macro_rules! json_object {
     (
@@ -88,14 +81,12 @@ macro_rules! json_object {
 }
 pub(crate) use json_object;
 
-
 pub fn roll(exp: Exp, columns: Vec<Name>) -> Exp {
     Exp::Roll {
         columns,
         exp: Box::new(exp)
     }
 }
-
 
 pub fn prop<E: Into<Exp>>(name: Name, exp: E) -> Exp {
     Exp::Prop(name, Box::new(exp.into()))

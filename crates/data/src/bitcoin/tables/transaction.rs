@@ -1,8 +1,10 @@
-use crate::bitcoin::model::{Block, Transaction};
-use crate::bitcoin::tables::common::*;
 use sqd_array::builder::{UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
+use crate::bitcoin::{
+    model::{Block, Transaction},
+    tables::common::*
+};
 
 table_builder! {
     TransactionBuilder {
@@ -27,7 +29,6 @@ table_builder! {
         d.options.row_group_size = 10_000;
     }
 }
-
 
 impl TransactionBuilder {
     pub fn push(&mut self, block: &Block, transaction_index: u32, row: &Transaction) {

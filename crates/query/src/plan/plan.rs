@@ -1,16 +1,22 @@
-use crate::json::exp::Exp;
-use crate::plan::rel::Rel;
-use crate::plan::result::{BlockWriter, DataItem};
-use crate::plan::row_list::RowList;
-use crate::plan::table::{ColumnWeight, TableSet};
-use crate::primitives::{BlockNumber, Name, RowRangeList, RowWeight, RowWeightPolarsType};
-use crate::scan::{col_between, col_gt_eq, col_lt_eq, Chunk, RowPredicateRef};
-use crate::UnexpectedBaseBlock;
+use std::collections::{HashMap, HashSet};
+
 use anyhow::{anyhow, bail};
 use rayon::prelude::*;
 use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
 use sqd_primitives::BlockRef;
-use std::collections::{HashMap, HashSet};
+
+use crate::{
+    json::exp::Exp,
+    plan::{
+        rel::Rel,
+        result::{BlockWriter, DataItem},
+        row_list::RowList,
+        table::{ColumnWeight, TableSet}
+    },
+    primitives::{BlockNumber, Name, RowRangeList, RowWeight, RowWeightPolarsType},
+    scan::{col_between, col_gt_eq, col_lt_eq, Chunk, RowPredicateRef},
+    UnexpectedBaseBlock
+};
 
 type Idx = usize;
 
@@ -18,7 +24,7 @@ struct Scan {
     table: Name,
     predicate: Option<RowPredicateRef>,
     relations: Vec<Idx>,
-    output: Option<Idx>,
+    output: Option<Idx>
 }
 
 struct Output {
@@ -28,7 +34,7 @@ struct Output {
     weight_per_row: RowWeight,
     weight_columns: Vec<Name>,
     exp: Exp,
-    item_name: Name,
+    item_name: Name
 }
 
 pub struct Plan {
@@ -39,7 +45,7 @@ pub struct Plan {
     include_all_blocks: bool,
     parent_block_hash: Option<String>,
     first_block: Option<BlockNumber>,
-    last_block: Option<BlockNumber>,
+    last_block: Option<BlockNumber>
 }
 
 impl Plan {
@@ -47,9 +53,9 @@ impl Plan {
         PlanExecution {
             chunk: ChunkWithDefaults {
                 chunk: data_chunk,
-                tables: self.tables,
+                tables: self.tables
             },
-            plan: self,
+            plan: self
         }
         .execute()
     }
@@ -73,7 +79,7 @@ impl Plan {
 /// treated as all-null rather than causing errors.
 struct ChunkWithDefaults<'a> {
     chunk: &'a dyn Chunk,
-    tables: &'static TableSet,
+    tables: &'static TableSet
 }
 
 impl Chunk for ChunkWithDefaults<'_> {
@@ -89,7 +95,7 @@ impl Chunk for ChunkWithDefaults<'_> {
 
 struct PlanExecution<'a> {
     chunk: ChunkWithDefaults<'a>,
-    plan: &'a Plan,
+    plan: &'a Plan
 }
 
 impl<'a> PlanExecution<'a> {
@@ -115,22 +121,17 @@ impl<'a> PlanExecution<'a> {
     fn check_parent_block(&self) -> anyhow::Result<()> {
         let parent_hash = match self.plan.parent_block_hash.as_ref() {
             Some(s) => s.as_str(),
-            None => return Ok(()),
+            None => return Ok(())
         };
 
         let block_number = match self.plan.first_block {
             Some(bn) => bn,
-            None => bail!(
-                "invalid plan: parent block hash is specified, but block number is not available"
-            ),
+            None => bail!("invalid plan: parent block hash is specified, but block number is not available")
         };
 
         let block_scan = self.chunk.scan_table(self.plan.outputs[0].table)?;
 
-        let has_parent_number = block_scan
-            .schema()
-            .column_with_name("parent_number")
-            .is_some();
+        let has_parent_number = block_scan.schema().column_with_name("parent_number").is_some();
 
         let (number_col, predicate_upper) = if has_parent_number {
             ("parent_number", block_number.saturating_sub(1))
@@ -144,14 +145,12 @@ impl<'a> PlanExecution<'a> {
             .with_predicate(col_between(
                 number_col,
                 block_number.saturating_sub(100),
-                predicate_upper,
+                predicate_upper
             ))
             .to_lazy_df()?
             .collect()?;
 
-        let numbers = df
-            .column(number_col)?
-            .cast(&sqd_polars::prelude::DataType::UInt64)?;
+        let numbers = df.column(number_col)?.cast(&sqd_polars::prelude::DataType::UInt64)?;
         let numbers = numbers.u64()?;
 
         let hashes = df.column("parent_hash")?;
@@ -164,8 +163,12 @@ impl<'a> PlanExecution<'a> {
                     .expect("block number can't be null according to the predicate applied");
                 let hash = hashes.get(i).unwrap_or("");
                 BlockRef {
-                    number: if has_parent_number { number } else { number.saturating_sub(1) },
-                    hash: hash.to_string(),
+                    number: if has_parent_number {
+                        number
+                    } else {
+                        number.saturating_sub(1)
+                    },
+                    hash: hash.to_string()
                 }
             })
             .collect();
@@ -192,33 +195,26 @@ impl<'a> PlanExecution<'a> {
     /// its predicate. These row indexes are distributed to relation inputs
     /// (for cross-table joins in `execute_relations`) and/or output inputs (for direct
     /// data reading in `execute_output`). Scans run in parallel.
-    fn execute_scans(
-        &self,
-        relation_inputs: &Vec<RowList>,
-        output_inputs: &Vec<RowList>,
-    ) -> anyhow::Result<()> {
-        self.plan
-            .scans
-            .par_iter()
-            .try_for_each(|scan| -> anyhow::Result<()> {
-                let rows = self
-                    .chunk
-                    .scan_table(scan.table)?
-                    .with_row_index(true)
-                    .with_columns([])
-                    .with_predicate(scan.predicate.clone())
-                    .execute()?;
+    fn execute_scans(&self, relation_inputs: &Vec<RowList>, output_inputs: &Vec<RowList>) -> anyhow::Result<()> {
+        self.plan.scans.par_iter().try_for_each(|scan| -> anyhow::Result<()> {
+            let rows = self
+                .chunk
+                .scan_table(scan.table)?
+                .with_row_index(true)
+                .with_columns([])
+                .with_predicate(scan.predicate.clone())
+                .execute()?;
 
-                for rel_idx in scan.relations.iter() {
-                    relation_inputs[*rel_idx].extend_from_record_batch_vec(&rows);
-                }
+            for rel_idx in scan.relations.iter() {
+                relation_inputs[*rel_idx].extend_from_record_batch_vec(&rows);
+            }
 
-                if let Some(idx) = &scan.output {
-                    output_inputs[*idx].extend_from_record_batch_vec(&rows)
-                }
+            if let Some(idx) = &scan.output {
+                output_inputs[*idx].extend_from_record_batch_vec(&rows)
+            }
 
-                Ok(())
-            })
+            Ok(())
+        })
     }
 
     /// Propagate row selections through relations.
@@ -227,13 +223,11 @@ impl<'a> PlanExecution<'a> {
     /// For each relation, the matched rows from `execute_scans` are used to find
     /// corresponding rows in the relation's output table, adding them
     /// to that table's output inputs. Relations run in parallel.
-    fn execute_relations(
-        &self,
-        relation_inputs: Vec<RowList>,
-        output_inputs: &Vec<RowList>,
-    ) -> anyhow::Result<()> {
-        relation_inputs.into_par_iter().enumerate().try_for_each(
-            |(idx, row_list)| -> anyhow::Result<()> {
+    fn execute_relations(&self, relation_inputs: Vec<RowList>, output_inputs: &Vec<RowList>) -> anyhow::Result<()> {
+        relation_inputs
+            .into_par_iter()
+            .enumerate()
+            .try_for_each(|(idx, row_list)| -> anyhow::Result<()> {
                 let input = row_list.into_inner();
                 if input.is_empty() {
                     return Ok(());
@@ -241,8 +235,7 @@ impl<'a> PlanExecution<'a> {
                 let rel = &self.plan.relations[idx];
                 let output = &output_inputs[self.get_output_index(rel.output_table())];
                 rel.eval(&self.chunk, &input, output)
-            },
-        )
+            })
     }
 
     /// Read actual column data and build the output.
@@ -300,11 +293,7 @@ impl<'a> PlanExecution<'a> {
                 weight_exp = weight_exp.alias("weight");
 
                 let rows = df
-                    .select([
-                        col("row_index"),
-                        col(output.key[0]).alias("block_number"),
-                        weight_exp,
-                    ])
+                    .select([col("row_index"), col(output.key[0]).alias("block_number"), weight_exp])
                     .collect()?;
 
                 Ok(rows)
@@ -322,14 +311,14 @@ impl<'a> PlanExecution<'a> {
         for df in rows.iter().skip(1).filter(|df| !df.is_empty()) {
             item_union.push(df.clone().lazy().select([
                 col("block_number"),
-                col("weight").strict_cast(RowWeightPolarsType::get_dtype()),
+                col("weight").strict_cast(RowWeightPolarsType::get_dtype())
             ]))
         }
 
         let block_weights = if self.plan.include_all_blocks {
             item_union.push(header_rows.clone().lazy().select([
                 col("block_number"),
-                col("weight").strict_cast(RowWeightPolarsType::get_dtype()),
+                col("weight").strict_cast(RowWeightPolarsType::get_dtype())
             ]));
             concat(item_union, UnionArgs::default())?
                 .group_by([col("block_number")])
@@ -340,7 +329,7 @@ impl<'a> PlanExecution<'a> {
                 .lazy()
                 .select([
                     min("block_number").alias("first_block"),
-                    max("block_number").alias("last_block"),
+                    max("block_number").alias("last_block")
                 ])
                 .collect()?;
 
@@ -353,7 +342,7 @@ impl<'a> PlanExecution<'a> {
                     block_numbers,
                     Series::new("weight".into(), &[0 as RowWeight, 0 as RowWeight]),
                 ])?
-                .lazy(),
+                .lazy()
             );
 
             let item_stats = concat(item_union, UnionArgs::default())?
@@ -366,7 +355,7 @@ impl<'a> PlanExecution<'a> {
                 .left_join(item_stats, col("block_number"), col("block_number"))
                 .select([
                     col("block_number"),
-                    (col("weight") + col("weight_right")).alias("weight"),
+                    (col("weight") + col("weight_right")).alias("weight")
                 ])
         };
 
@@ -398,7 +387,7 @@ impl<'a> PlanExecution<'a> {
         let data_items_mutex = parking_lot::Mutex::new(
             std::iter::repeat_with(|| None)
                 .take(self.plan.outputs.len())
-                .collect::<Vec<_>>(),
+                .collect::<Vec<_>>()
         );
 
         rows.into_par_iter()
@@ -411,24 +400,16 @@ impl<'a> PlanExecution<'a> {
                 let output = &self.plan.outputs[idx];
 
                 let row_index = if idx == 0 && !self.plan.include_all_blocks {
-                    rows.lazy().semi_join(
-                        selected_blocks.clone().lazy(),
-                        col("block_number"),
-                        col("block_number"),
-                    )
-                } else {
                     rows.lazy()
-                        .filter(col("block_number").lt_eq(lit(last_block)))
+                        .semi_join(selected_blocks.clone().lazy(), col("block_number"), col("block_number"))
+                } else {
+                    rows.lazy().filter(col("block_number").lt_eq(lit(last_block)))
                 }
                 .select([col("row_index")])
                 .collect()?;
 
                 let row_selection = RowRangeList::from_sorted_indexes(
-                    row_index
-                        .column("row_index")
-                        .unwrap()
-                        .u32()?
-                        .into_no_null_iter(),
+                    row_index.column("row_index").unwrap().u32()?.into_no_null_iter()
                 );
 
                 let records = self
@@ -446,20 +427,12 @@ impl<'a> PlanExecution<'a> {
             })?;
 
         Ok(Some(BlockWriter::new(
-            data_items_mutex
-                .into_inner()
-                .into_iter()
-                .flatten()
-                .collect(),
+            data_items_mutex.into_inner().into_iter().flatten().collect()
         )))
     }
 
     fn get_output_index(&self, table: Name) -> usize {
-        self.plan
-            .outputs
-            .iter()
-            .position(|o| o.table == table)
-            .unwrap()
+        self.plan.outputs.iter().position(|o| o.table == table).unwrap()
     }
 
     fn get_block_number_predicate(&self, output_idx: usize) -> Option<RowPredicateRef> {
@@ -468,7 +441,7 @@ impl<'a> PlanExecution<'a> {
             (Some(fst), Some(lst)) => Some(col_between(column, fst, lst)),
             (None, Some(lst)) => Some(col_lt_eq(column, lst)),
             (Some(fst), None) => Some(col_gt_eq(column, fst)),
-            (None, None) => None,
+            (None, None) => None
         }
     }
 }
@@ -481,7 +454,7 @@ pub struct PlanBuilder {
     include_all_blocks: bool,
     parent_block_hash: Option<String>,
     first_block: Option<BlockNumber>,
-    last_block: Option<BlockNumber>,
+    last_block: Option<BlockNumber>
 }
 
 impl PlanBuilder {
@@ -499,13 +472,13 @@ impl PlanBuilder {
                     weight_per_row: 0,
                     weight_columns: Vec::new(),
                     exp: Exp::Object(vec![]),
-                    item_name: table.result_item_name,
+                    item_name: table.result_item_name
                 })
                 .collect(),
             include_all_blocks: false,
             parent_block_hash: None,
             first_block: None,
-            last_block: None,
+            last_block: None
         }
     }
 
@@ -514,14 +487,11 @@ impl PlanBuilder {
             table,
             predicate: None,
             output: Some(self.tables.get_index(table)),
-            relations: Vec::new(),
+            relations: Vec::new()
         };
         let scan_idx = self.scans.len();
         self.scans.push(scan);
-        ScanBuilder {
-            plan: self,
-            scan_idx,
-        }
+        ScanBuilder { plan: self, scan_idx }
     }
 
     pub fn set_projection<E: Into<Exp>>(&mut self, table: Name, exp: E) -> &mut Self {
@@ -561,7 +531,7 @@ impl PlanBuilder {
             include_all_blocks: self.include_all_blocks,
             parent_block_hash: self.parent_block_hash,
             first_block: self.first_block,
-            last_block: self.last_block,
+            last_block: self.last_block
         }
     }
 
@@ -579,11 +549,7 @@ impl PlanBuilder {
             let mut weight_columns = Vec::new();
 
             for col in output.projection.iter() {
-                match table
-                    .column_weights
-                    .get(col)
-                    .unwrap_or(&ColumnWeight::Fixed(32))
-                {
+                match table.column_weights.get(col).unwrap_or(&ColumnWeight::Fixed(32)) {
                     ColumnWeight::Fixed(weight) => {
                         per_row += weight;
                     }
@@ -598,13 +564,10 @@ impl PlanBuilder {
     }
 
     fn add_rel(&mut self, rel: Rel) -> usize {
-        self.relations
-            .iter()
-            .position(|r| r == &rel)
-            .unwrap_or_else(|| {
-                self.relations.push(rel);
-                self.relations.len() - 1
-            })
+        self.relations.iter().position(|r| r == &rel).unwrap_or_else(|| {
+            self.relations.push(rel);
+            self.relations.len() - 1
+        })
     }
 
     /// Lame plan optimization procedure
@@ -703,11 +666,7 @@ impl PlanBuilder {
         // Introduce new scans to populate that.
         let mut new_scans: HashMap<Name, Scan> = HashMap::new();
 
-        for out_idx in is_full
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, full)| full.then_some(idx))
-        {
+        for out_idx in is_full.iter().enumerate().filter_map(|(idx, full)| full.then_some(idx)) {
             let table = self.outputs[out_idx].table;
             new_scans.insert(
                 table,
@@ -715,17 +674,12 @@ impl PlanBuilder {
                     table,
                     predicate: None,
                     relations: vec![],
-                    output: Some(out_idx),
-                },
+                    output: Some(out_idx)
+                }
             );
         }
 
-        for (idx, rel) in self
-            .relations
-            .iter()
-            .enumerate()
-            .filter(|(idx, _)| is_full_rel[*idx])
-        {
+        for (idx, rel) in self.relations.iter().enumerate().filter(|(idx, _)| is_full_rel[*idx]) {
             // The new scan must read the relation's *input* table, since
             // execute_scans feeds scan rows into relation_inputs[rel_idx],
             // which eval_join etc. interpret as row indexes of input_table.
@@ -734,7 +688,7 @@ impl PlanBuilder {
                 table,
                 predicate: None,
                 relations: vec![],
-                output: None,
+                output: None
             });
             scan.relations.push(idx);
         }
@@ -803,15 +757,14 @@ impl PlanBuilder {
                 input_table,
                 input_key,
                 output_table,
-                output_key,
+                output_key
             } => {
                 let input_desc = self.tables.get(input_table);
-                input_key == &input_desc.primary_key
-                    && input_desc.children.get(output_table) == Some(output_key)
+                input_key == &input_desc.primary_key && input_desc.children.get(output_table) == Some(output_key)
             }
             Rel::Children { .. } => true,
             Rel::Parents { .. } => true,
-            _ => false,
+            _ => false
         }
     }
 }
@@ -827,7 +780,7 @@ fn remove_elements<T>(vec: &mut Vec<T>, remove_mask: &[bool]) {
 
 pub struct ScanBuilder<'a> {
     plan: &'a mut PlanBuilder,
-    scan_idx: usize,
+    scan_idx: usize
 }
 
 impl<'a> ScanBuilder<'a> {
@@ -836,17 +789,12 @@ impl<'a> ScanBuilder<'a> {
         self
     }
 
-    pub fn join(
-        &mut self,
-        output_table: Name,
-        output_key: Vec<Name>,
-        scan_key: Vec<Name>,
-    ) -> &mut Self {
+    pub fn join(&mut self, output_table: Name, output_key: Vec<Name>, scan_key: Vec<Name>) -> &mut Self {
         let rel_idx = self.plan.add_rel(Rel::Join {
             input_table: self.plan.scans[self.scan_idx].table,
             input_key: scan_key,
             output_table,
-            output_key,
+            output_key
         });
         self.scan_mut().relations.push(rel_idx);
         self
@@ -872,13 +820,13 @@ impl<'a> ScanBuilder<'a> {
         &mut self,
         output_table: Name,
         output_key: Vec<Name>,
-        scan_key: Vec<Name>,
+        scan_key: Vec<Name>
     ) -> &mut Self {
         let rel_idx = self.plan.add_rel(Rel::ForeignChildren {
             input_table: self.plan.scans[self.scan_idx].table,
             input_key: scan_key,
             output_table,
-            output_key,
+            output_key
         });
         self.scan_mut().relations.push(rel_idx);
         self
@@ -888,13 +836,13 @@ impl<'a> ScanBuilder<'a> {
         &mut self,
         output_table: Name,
         output_key: Vec<Name>,
-        scan_key: Vec<Name>,
+        scan_key: Vec<Name>
     ) -> &mut Self {
         let rel_idx = self.plan.add_rel(Rel::ForeignParents {
             input_table: self.plan.scans[self.scan_idx].table,
             input_key: scan_key,
             output_table,
-            output_key,
+            output_key
         });
         self.scan_mut().relations.push(rel_idx);
         self
@@ -910,12 +858,12 @@ impl<'a> ScanBuilder<'a> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
+    use std::sync::OnceLock;
+
     use super::*;
     use crate::scan::col_gt_eq;
-    use std::sync::OnceLock;
 
     /// Tables with a `transactions` parent and `logs` child, plus an explicit
     /// `add_child("logs", ...)` registration on transactions. The logs side has
@@ -927,11 +875,8 @@ mod tests {
         TABLES.get_or_init(|| {
             let mut t = TableSet::new();
             t.add_table("blocks", vec!["number"]);
-            t.add_table(
-                "transactions",
-                vec!["block_number", "transaction_index"],
-            )
-            .add_child("logs", vec!["block_number", "transaction_index"]);
+            t.add_table("transactions", vec!["block_number", "transaction_index"])
+                .add_child("logs", vec!["block_number", "transaction_index"]);
             t.add_table("logs", vec!["block_number", "log_index"]);
             t
         })
@@ -963,13 +908,11 @@ mod tests {
     #[test]
     fn simplify_attaches_surviving_relations_to_input_table_scan() {
         let mut builder = PlanBuilder::new(evm_like_tables());
-        builder
-            .add_scan("logs")
-            .join(
-                "transactions",
-                vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
-            );
+        builder.add_scan("logs").join(
+            "transactions",
+            vec!["block_number", "transaction_index"],
+            vec!["block_number", "transaction_index"]
+        );
 
         let plan = builder.build();
 
@@ -996,13 +939,11 @@ mod tests {
     #[test]
     fn simplify_drops_full_rel_and_replaces_with_direct_scan() {
         let mut builder = PlanBuilder::new(full_rel_tables());
-        builder
-            .add_scan("logs")
-            .join(
-                "transactions",
-                vec!["block_number", "log_index"],
-                vec!["block_number", "log_index"],
-            );
+        builder.add_scan("logs").join(
+            "transactions",
+            vec!["block_number", "log_index"],
+            vec!["block_number", "log_index"]
+        );
 
         let plan = builder.build();
 
@@ -1038,7 +979,7 @@ mod tests {
             .join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
 
         let plan = builder.build();
@@ -1073,13 +1014,13 @@ mod tests {
             input_table: "logs",
             input_key: vec!["block_number", "transaction_index"],
             output_table: "transactions",
-            output_key: vec!["block_number", "transaction_index"],
+            output_key: vec!["block_number", "transaction_index"]
         });
         builder.scans.push(Scan {
             table: "transactions",
             predicate: None,
             relations: vec![0],
-            output: None,
+            output: None
         });
         builder.assert_scan_relation_invariant();
     }

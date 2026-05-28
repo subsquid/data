@@ -1,11 +1,10 @@
-use sqd_primitives::{BlockNumber, BlockRef};
-use sqd_storage::db::DatasetId;
 use std::fmt::{Display, Formatter};
 
+use sqd_primitives::{BlockNumber, BlockRef};
+use sqd_storage::db::DatasetId;
 
 #[derive(Debug)]
 pub struct Busy;
-
 
 impl Display for Busy {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -13,15 +12,12 @@ impl Display for Busy {
     }
 }
 
-
 impl std::error::Error for Busy {}
-
 
 #[derive(Debug)]
 pub struct UnknownDataset {
     pub dataset_id: DatasetId
 }
-
 
 impl Display for UnknownDataset {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -29,9 +25,7 @@ impl Display for UnknownDataset {
     }
 }
 
-
 impl std::error::Error for UnknownDataset {}
-
 
 #[derive(Debug)]
 pub struct BlockRangeMissing {
@@ -39,36 +33,33 @@ pub struct BlockRangeMissing {
     pub last_block: BlockNumber
 }
 
-
 impl Display for BlockRangeMissing {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
-            f, "blocks from {} to {} are not available in the dataset", 
-            self.first_block, 
-            self.last_block
+            f,
+            "blocks from {} to {} are not available in the dataset",
+            self.first_block, self.last_block
         )
     }
 }
 
-
 impl std::error::Error for BlockRangeMissing {}
-
 
 #[derive(Debug)]
 pub struct QueryIsAboveTheHead {
     pub finalized_head: Option<BlockRef>
 }
 
-
 impl Display for QueryIsAboveTheHead {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "first block requested by the query is above the current dataset head")
+        write!(
+            f,
+            "first block requested by the query is above the current dataset head"
+        )
     }
 }
 
-
 impl std::error::Error for QueryIsAboveTheHead {}
-
 
 #[derive(Debug)]
 pub struct QueryKindMismatch {
@@ -76,16 +67,17 @@ pub struct QueryKindMismatch {
     pub dataset_kind: sqd_storage::db::DatasetKind
 }
 
-
 impl Display for QueryKindMismatch {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} query was issued against {} dataset", self.query_kind, self.dataset_kind)
+        write!(
+            f,
+            "{} query was issued against {} dataset",
+            self.query_kind, self.dataset_kind
+        )
     }
 }
 
-
 impl std::error::Error for QueryKindMismatch {}
-
 
 #[derive(Debug)]
 pub struct BlockItemIsNotAvailable {
@@ -94,18 +86,14 @@ pub struct BlockItemIsNotAvailable {
     pub last_block: BlockNumber
 }
 
-
 impl Display for BlockItemIsNotAvailable {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "'{}' data is not available for blocks {}..{}",
-            self.item_name,
-            self.first_block,
-            self.last_block
+            self.item_name, self.first_block, self.last_block
         )
     }
 }
-
 
 impl std::error::Error for BlockItemIsNotAvailable {}

@@ -1,13 +1,12 @@
-use crate::hyperliquid_replica_cmds::model::{Action, ActionData, Block, Status};
 use anyhow::Context;
 use sqd_array::builder::{ListBuilder, StringBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
+use crate::hyperliquid_replica_cmds::model::{Action, ActionData, Block, Status};
 
 type JsonBuilder = StringBuilder;
 type AssetListBuilder = ListBuilder<UInt32Builder>;
 type CloidListBuilder = ListBuilder<StringBuilder>;
-
 
 table_builder! {
     ActionBuilder {
@@ -53,7 +52,6 @@ table_builder! {
     }
 }
 
-
 impl ActionBuilder {
     pub fn push(&mut self, block: &Block, action: &Action) -> anyhow::Result<()> {
         self.block_number.append(block.header.height);
@@ -73,7 +71,7 @@ impl ActionBuilder {
 
         let status = match action.status {
             Status::Ok => "ok",
-            Status::Err => "err",
+            Status::Err => "err"
         };
         self.status.append(status);
 

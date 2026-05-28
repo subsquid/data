@@ -1,9 +1,12 @@
-use prometheus_client::metrics::counter::Counter;
-use prometheus_client::metrics::gauge::Gauge;
-use prometheus_client::registry::Registry;
-use std::sync::atomic::{AtomicI64, AtomicU64};
-use std::sync::LazyLock;
+use std::sync::{
+    atomic::{AtomicI64, AtomicU64},
+    LazyLock
+};
 
+use prometheus_client::{
+    metrics::{counter::Counter, gauge::Gauge},
+    registry::Registry
+};
 
 pub static PROGRESS: LazyLock<Gauge<f64, AtomicU64>> = LazyLock::new(Gauge::default);
 pub static LATEST_BLOCK_TIMESTAMP: LazyLock<Gauge<i64, AtomicI64>> = LazyLock::new(Gauge::default);
@@ -11,7 +14,6 @@ pub static LATEST_BLOCK: LazyLock<Gauge<u64, AtomicU64>> = LazyLock::new(Gauge::
 pub static LATEST_SAVED_BLOCK: LazyLock<Gauge<u64, AtomicU64>> = LazyLock::new(Gauge::default);
 pub static LAST_BLOCK: LazyLock<Counter> = LazyLock::new(Counter::default);
 pub static LAST_SAVED_BLOCK: LazyLock<Counter> = LazyLock::new(Counter::default);
-
 
 pub fn register_metrics(registry: &mut Registry) {
     registry.register(
@@ -36,14 +38,6 @@ pub fn register_metrics(registry: &mut Registry) {
     );
 
     // kept for compatibility with the old metrics
-    registry.register(
-        "sqd_last_block",
-        "Last ingested block",
-        LAST_BLOCK.clone()
-    );
-    registry.register(
-        "sqd_last_saved_block",
-        "Last saved block",
-        LAST_SAVED_BLOCK.clone()
-    );
+    registry.register("sqd_last_block", "Last ingested block", LAST_BLOCK.clone());
+    registry.register("sqd_last_saved_block", "Last saved block", LAST_SAVED_BLOCK.clone());
 }

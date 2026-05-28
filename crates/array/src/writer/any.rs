@@ -1,24 +1,26 @@
-use crate::util::{get_num_buffers, invalid_buffer_access};
-use crate::visitor::DataTypeVisitor;
-use crate::writer::{ArrayWriter, Writer, WriterFactory};
-use arrow::array::ArrowPrimitiveType;
-use arrow::datatypes::{DataType, FieldRef, Schema};
+use arrow::{
+    array::ArrowPrimitiveType,
+    datatypes::{DataType, FieldRef, Schema}
+};
 
+use crate::{
+    util::{get_num_buffers, invalid_buffer_access},
+    visitor::DataTypeVisitor,
+    writer::{ArrayWriter, Writer, WriterFactory}
+};
 
 pub enum AnyWriter<W: Writer> {
     Bitmask(W::Bitmask),
     Nullmask(W::Nullmask),
     Native(W::Native),
-    Offsets(W::Offset),
+    Offsets(W::Offset)
 }
-
 
 pub struct AnyArrayWriter<W: Writer> {
     buffers: Vec<AnyWriter<W>>
 }
 
-
-impl <W: Writer> ArrayWriter for AnyArrayWriter<W> {
+impl<W: Writer> ArrayWriter for AnyArrayWriter<W> {
     type Writer = W;
 
     fn bitmask(&mut self, buf: usize) -> &mut W::Bitmask {
@@ -50,64 +52,48 @@ impl <W: Writer> ArrayWriter for AnyArrayWriter<W> {
     }
 }
 
-
-impl <W: Writer> AnyArrayWriter<W> {
+impl<W: Writer> AnyArrayWriter<W> {
     pub fn into_inner(self) -> Vec<AnyWriter<W>> {
         self.buffers
     }
-    
-    pub fn from_factory(
-        factory: &mut impl WriterFactory<Writer=W>,
-        data_type: &DataType
-    ) -> anyhow::Result<Self>
-    {
+
+    pub fn from_factory(factory: &mut impl WriterFactory<Writer = W>, data_type: &DataType) -> anyhow::Result<Self> {
         let mut buffers = Vec::with_capacity(get_num_buffers(data_type));
-        
+
         AnyArrayFactory {
             buffers: &mut buffers,
             writer_factory: factory
-        }.visit(data_type)?;
-        
-        Ok(Self {
-            buffers
-        })
+        }
+        .visit(data_type)?;
+
+        Ok(Self { buffers })
     }
-    
+
     pub fn table_writer_from_factory(
-        factory: &mut impl WriterFactory<Writer=W>,
+        factory: &mut impl WriterFactory<Writer = W>,
         schema: &Schema
-    ) -> anyhow::Result<Self>
-    {
-        let mut buffers = Vec::with_capacity(
-            schema.fields()
-                .iter()
-                .map(|f| get_num_buffers(f.data_type()))
-                .sum()
-        );
-        
+    ) -> anyhow::Result<Self> {
+        let mut buffers = Vec::with_capacity(schema.fields().iter().map(|f| get_num_buffers(f.data_type())).sum());
+
         let mut wf = AnyArrayFactory {
             buffers: &mut buffers,
             writer_factory: factory
         };
-        
+
         for f in schema.fields().iter() {
             wf.visit(f.data_type())?;
         }
-        
-        Ok(Self {
-            buffers
-        })
+
+        Ok(Self { buffers })
     }
 }
 
-
 struct AnyArrayFactory<'a, W: Writer, F> {
     buffers: &'a mut Vec<AnyWriter<W>>,
-    writer_factory: &'a mut F,
+    writer_factory: &'a mut F
 }
 
-
-impl <'a, W: Writer, F: WriterFactory<Writer=W>> DataTypeVisitor for AnyArrayFactory<'a, W, F> {
+impl<'a, W: Writer, F: WriterFactory<Writer = W>> DataTypeVisitor for AnyArrayFactory<'a, W, F> {
     type Result = anyhow::Result<()>;
 
     fn boolean(&mut self) -> Self::Result {

@@ -1,25 +1,19 @@
-use crate::chain::Chain;
-use crate::chain_watch::ChainSender;
-use crate::ingest::store::Store;
-use futures::stream::FuturesUnordered;
-use futures::{StreamExt, TryStreamExt};
-use sqd_primitives::{Block, BlockNumber, BlockRef};
 use std::future::Future;
+
+use futures::{StreamExt, TryStreamExt, stream::FuturesUnordered};
+use sqd_primitives::{Block, BlockNumber, BlockRef};
 use tokio::select;
 use tracing::debug;
 
+use crate::{chain::Chain, chain_watch::ChainSender, ingest::store::Store};
 
-pub async fn write_chain<S: Store>(
-    store: S,
-    chain_sender: ChainSender<S::Block>
-) -> anyhow::Result<()>
-{
+pub async fn write_chain<S: Store>(store: S, chain_sender: ChainSender<S::Block>) -> anyhow::Result<()> {
     let mut chain_receiver = chain_sender.subscribe();
     let mut writes = FuturesUnordered::new();
     let mut state = State::new(5);
     loop {
         state.advance(&mut chain_receiver, |b| {
-            writes.push(async { 
+            writes.push(async {
                 store.save(&b).await?;
                 Ok::<_, anyhow::Error>(b)
             })
@@ -41,14 +35,12 @@ pub async fn write_chain<S: Store>(
     }
 }
 
-
 struct State<B> {
     pending: Vec<B>,
     max_pending: usize,
     last_block: BlockNumber,
     waits_new_block: bool
 }
-
 
 impl<B: Block + Clone> State<B> {
     pub fn new(max_pending: usize) -> Self {
@@ -64,12 +56,8 @@ impl<B: Block + Clone> State<B> {
     pub fn has_capacity(&self) -> bool {
         self.pending.len() < self.max_pending
     }
-    
-    pub fn advance(
-        &mut self,
-        chain_receiver: &mut tokio::sync::watch::Receiver<Chain<B>>,
-        mut cb: impl FnMut(B)
-    ) {
+
+    pub fn advance(&mut self, chain_receiver: &mut tokio::sync::watch::Receiver<Chain<B>>, mut cb: impl FnMut(B)) {
         if !self.has_capacity() {
             return;
         }
@@ -89,17 +77,17 @@ impl<B: Block + Clone> State<B> {
 
     fn find_position(&self, chain: &Chain<B>) -> usize {
         if chain.is_empty() {
-            return 0
+            return 0;
         }
 
         let mut pos = chain.bisect(self.last_block).min(chain.len() - 1);
 
         loop {
             if chain.is_stored(pos) || self.is_pending(&chain[pos]) {
-                return pos + 1
+                return pos + 1;
             }
             if pos == 0 {
-                return 0
+                return 0;
             } else {
                 pos -= 1;
             }

@@ -1,10 +1,8 @@
-use crate::json::encoder::Encoder;
-use arrow::buffer::ScalarBuffer;
-use arrow::datatypes::ArrowNativeType;
+use arrow::{buffer::ScalarBuffer, datatypes::ArrowNativeType};
 
+use crate::json::encoder::Encoder;
 
 static TABLE: &[u8] = b"0123456789abcdef";
-
 
 pub trait HexEncode: ArrowNativeType + Send {
     type Buffer: Send + AsRef<[u8]>;
@@ -13,7 +11,6 @@ pub trait HexEncode: ArrowNativeType + Send {
 
     fn encode(self, buf: &mut Self::Buffer);
 }
-
 
 macro_rules! hex_encode {
     ($($t:ty),*) => {
@@ -46,14 +43,12 @@ macro_rules! hex_encode {
 }
 hex_encode!(u8, u16, u32, u64, u128);
 
-
 pub struct HexEncoder<N: HexEncode> {
     values: ScalarBuffer<N>,
-    buffer: N::Buffer,
+    buffer: N::Buffer
 }
 
-
-impl <N: HexEncode> HexEncoder<N> {
+impl<N: HexEncode> HexEncoder<N> {
     pub fn new(values: ScalarBuffer<N>) -> Self {
         Self {
             values,
@@ -62,7 +57,6 @@ impl <N: HexEncode> HexEncoder<N> {
     }
 }
 
-
 impl<N: HexEncode> Encoder for HexEncoder<N> {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {
         self.values[idx].encode(&mut self.buffer);
@@ -70,11 +64,9 @@ impl<N: HexEncode> Encoder for HexEncoder<N> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::HexEncode;
-
 
     #[test]
     fn test_hex_write() {

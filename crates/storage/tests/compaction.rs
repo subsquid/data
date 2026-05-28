@@ -1,25 +1,25 @@
-use arrow::datatypes::{DataType, Schema};
-use proptest::prelude::{prop, ProptestConfig};
-use proptest::proptest;
-use rand::rng;
-use rand::seq::SliceRandom;
-use sqd_storage::db::ops::schema_merge::can_merge_schemas;
-use sqd_storage::db::{ops::CompactionStatus, Chunk, Database, DatasetId};
-use sqd_storage::table::write::use_small_buffers;
 use std::sync::Arc;
-use utils::{
-    chunkify_data, make_block, make_irregular_block, make_schema, read_chunk, setup_db,
-    validate_chunks,
-};
 
+use arrow::datatypes::{DataType, Schema};
+use proptest::{
+    prelude::{prop, ProptestConfig},
+    proptest
+};
+use rand::{rng, seq::SliceRandom};
+use sqd_storage::{
+    db::{
+        ops::{schema_merge::can_merge_schemas, CompactionStatus},
+        Chunk, Database, DatasetId
+    },
+    table::write::use_small_buffers
+};
+use utils::{chunkify_data, make_block, make_irregular_block, make_schema, read_chunk, setup_db, validate_chunks};
 
 mod utils;
-
 
 fn compact(db: &Database, dataset_id: DatasetId) -> anyhow::Result<CompactionStatus> {
     db.perform_dataset_compaction(dataset_id, Some(100), Some(1.25), None)
 }
-
 
 #[test]
 fn small_chunks_test() {
@@ -32,21 +32,21 @@ fn small_chunks_test() {
         parent_block_hash: "base".to_owned(),
         first_block_time: Some(5),
         last_block_time: None,
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk2 = Chunk::V0 {
         first_block: 1,
         last_block: 1,
         last_block_hash: "last_2".to_owned(),
         parent_block_hash: "last_1".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk3 = Chunk::V0 {
         first_block: 2,
         last_block: 2,
         last_block_hash: "last_3".to_owned(),
         parent_block_hash: "last_2".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk4 = Chunk::V1 {
         first_block: 3,
@@ -55,7 +55,7 @@ fn small_chunks_test() {
         parent_block_hash: "last_3".to_owned(),
         first_block_time: None,
         last_block_time: Some(10),
-        tables: Default::default(),
+        tables: Default::default()
     };
 
     assert!(db.insert_chunk(dataset_id, &chunk4).is_ok());
@@ -63,11 +63,7 @@ fn small_chunks_test() {
     assert!(db.insert_chunk(dataset_id, &chunk2).is_ok());
     assert!(db.insert_chunk(dataset_id, &chunk1).is_ok());
 
-    validate_chunks(
-        &db,
-        dataset_id,
-        [&chunk1, &chunk2, &chunk3, &chunk4].to_vec(),
-    );
+    validate_chunks(&db, dataset_id, [&chunk1, &chunk2, &chunk3, &chunk4].to_vec());
 
     compact(&db, dataset_id).unwrap();
 
@@ -78,7 +74,7 @@ fn small_chunks_test() {
         parent_block_hash: "base".to_owned(),
         first_block_time: Some(5),
         last_block_time: Some(10),
-        tables: Default::default(),
+        tables: Default::default()
     };
     validate_chunks(&db, dataset_id, [&compacted].to_vec());
 }
@@ -96,7 +92,7 @@ fn compaction_wo_tables_test() {
             last_block: i,
             last_block_hash: last_hash,
             parent_block_hash: base_hash,
-            tables: Default::default(),
+            tables: Default::default()
         };
         assert!(db.insert_chunk(dataset_id, &chunk).is_ok());
         chunks.push(chunk);
@@ -115,7 +111,7 @@ fn compaction_wo_tables_test() {
         parent_block_hash: "last_0".to_owned(),
         first_block_time: None,
         last_block_time: None,
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chungus2 = Chunk::V1 {
         first_block: 100,
@@ -124,7 +120,7 @@ fn compaction_wo_tables_test() {
         parent_block_hash: "last_100".to_owned(),
         first_block_time: None,
         last_block_time: None,
-        tables: Default::default(),
+        tables: Default::default()
     };
     validate_chunks(&db, dataset_id, [&chungus1, &chungus2].to_vec());
 }
@@ -135,7 +131,7 @@ fn universal_compaction_test(
     type_b: DataType,
     do_sort: bool,
     n_blocks: usize,
-    n_compactions: usize,
+    n_compactions: usize
 ) {
     let (db, dataset_id) = setup_db();
     let _sb = use_small_buffers();
@@ -159,10 +155,7 @@ fn universal_compaction_test(
     let chunk_data = chunkify_data(global_data, do_sort);
     validate_chunks(&db, dataset_id, chunks.iter().collect());
     for _ in 0..n_compactions {
-        assert!(matches!(
-            compact(&db, dataset_id).unwrap(),
-            CompactionStatus::Ok(_)
-        ));
+        assert!(matches!(compact(&db, dataset_id).unwrap(), CompactionStatus::Ok(_)));
     }
     assert!(matches!(
         compact(&db, dataset_id).unwrap(),
@@ -240,10 +233,7 @@ fn compaction_plan_test_execution(
     let type_b = DataType::Int32;
     let do_sort = false;
 
-    let total_blocks = block_sizes
-        .iter()
-        .map(|v| v.iter().sum::<usize>())
-        .sum::<usize>();
+    let total_blocks = block_sizes.iter().map(|v| v.iter().sum::<usize>()).sum::<usize>();
     let static_data = vec![
         (0..total_blocks as u16).collect::<Vec<u16>>(),
         (0..total_blocks as u16).collect::<Vec<u16>>(),
@@ -264,16 +254,12 @@ fn compaction_plan_test_execution(
             } else {
                 Arc::clone(&schema_b)
             };
-            let (chunk, data) = make_irregular_block(
-                &static_data,
-                total_offset,
-                total_offset + *size,
-                local_schema,
-                &db,
-            );
+            let (chunk, data) =
+                make_irregular_block(&static_data, total_offset, total_offset + *size, local_schema, &db);
             assert!(db.insert_chunk(dataset_id, &chunk).is_ok());
             if compact_on_each_insert {
-                db.perform_dataset_compaction(dataset_id, Some(max_chunk_size), Some(wa_limit), None).unwrap();
+                db.perform_dataset_compaction(dataset_id, Some(max_chunk_size), Some(wa_limit), None)
+                    .unwrap();
             }
             chunks.push(chunk);
             global_data.extend(data);

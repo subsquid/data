@@ -1,8 +1,7 @@
-use arrow::array::ArrayRef;
-use arrow::datatypes::DataType;
-
+use arrow::{array::ArrayRef, datatypes::DataType};
 
 mod aliases;
+mod any;
 mod binary;
 pub mod bitmask;
 mod boolean;
@@ -13,10 +12,8 @@ pub mod native;
 pub mod nullmask;
 pub mod offsets;
 mod primitive;
-mod any;
 mod r#struct;
 mod table;
-
 
 pub use aliases::*;
 pub use any::*;
@@ -28,18 +25,17 @@ pub use primitive::*;
 pub use r#struct::*;
 pub use table::*;
 
-
 pub trait ArrayBuilder: Sized {
     fn data_type(&self) -> DataType;
-    
+
     fn len(&self) -> usize;
-    
+
     fn byte_size(&self) -> usize;
-    
+
     fn clear(&mut self);
 
     fn finish(self) -> ArrayRef;
-    
+
     unsafe fn finish_unchecked(self) -> ArrayRef {
         self.finish()
     }

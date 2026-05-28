@@ -1,9 +1,8 @@
-use crate::evm::model::{Block, Log};
-use sqd_array::builder::{UInt64Builder, UInt32Builder};
+use sqd_array::builder::{UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
 use super::common::HexBytesBuilder;
-
+use crate::evm::model::{Block, Log};
 
 table_builder! {
     LogBuilder {

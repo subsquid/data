@@ -1,11 +1,9 @@
+use std::{fs::File, path::Path};
+
 use arrow::array::RecordBatchReader;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use sqd_array::builder::AnyTableBuilder;
-use sqd_array::slice::AsSlice;
+use sqd_array::{builder::AnyTableBuilder, slice::AsSlice};
 use sqd_data_core::TableSorter;
-use std::fs::File;
-use std::path::Path;
-
 
 #[test]
 fn sort_ethereum_transactions() -> anyhow::Result<()> {
@@ -13,14 +11,10 @@ fn sort_ethereum_transactions() -> anyhow::Result<()> {
 
     let mut sorter = TableSorter::new(
         src_reader.schema().fields(),
-        [
-            "sighash",
-            "to",
-            "block_number",
-            "transaction_index"
-        ].iter().map(|name| {
-            src_reader.schema().index_of(name).unwrap()
-        }).collect(),
+        ["sighash", "to", "block_number", "transaction_index"]
+            .iter()
+            .map(|name| src_reader.schema().index_of(name).unwrap())
+            .collect()
     )?;
 
     for record_batch in src_reader {
@@ -37,7 +31,7 @@ fn sort_ethereum_transactions() -> anyhow::Result<()> {
     let mut pos = 0;
     for record_batch in ref_reader {
         let record_batch = record_batch?;
-        
+
         let mut builder = AnyTableBuilder::new(record_batch.schema());
         for i in 0..builder.num_columns() {
             let dst = builder.column_writer(i);
@@ -64,11 +58,9 @@ fn sort_ethereum_transactions() -> anyhow::Result<()> {
     Ok(())
 }
 
-
 fn open_parquet(path: &str) -> anyhow::Result<ParquetRecordBatchReaderBuilder<File>> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
     let file = File::open(path)?;
-    let reader = ParquetRecordBatchReaderBuilder::try_new(file)?
-        .with_batch_size(4000);
+    let reader = ParquetRecordBatchReaderBuilder::try_new(file)?.with_batch_size(4000);
     Ok(reader)
 }

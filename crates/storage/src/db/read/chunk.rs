@@ -1,8 +1,10 @@
-use crate::db::data::{Chunk, ChunkId, DatasetId};
-use crate::kv::KvReadCursor;
 use anyhow::{ensure, Context};
 use sqd_primitives::BlockNumber;
 
+use crate::{
+    db::data::{Chunk, ChunkId, DatasetId},
+    kv::KvReadCursor
+};
 
 pub struct ChunkIterator<C> {
     cursor: C,
@@ -13,15 +15,8 @@ pub struct ChunkIterator<C> {
     is_reversed: bool
 }
 
-
 impl<C: KvReadCursor> ChunkIterator<C> {
-    pub fn new(
-        cursor: C, 
-        dataset_id: DatasetId, 
-        from_block: BlockNumber, 
-        to_block: Option<BlockNumber>
-    ) -> Self 
-    {
+    pub fn new(cursor: C, dataset_id: DatasetId, from_block: BlockNumber, to_block: Option<BlockNumber>) -> Self {
         Self {
             cursor,
             dataset_id,
@@ -31,7 +26,7 @@ impl<C: KvReadCursor> ChunkIterator<C> {
             is_reversed: false
         }
     }
-    
+
     pub fn into_reversed(self) -> Self {
         Self {
             cursor: self.cursor,
@@ -42,7 +37,7 @@ impl<C: KvReadCursor> ChunkIterator<C> {
             is_reversed: !self.is_reversed
         }
     }
-    
+
     fn chunk_id(&self, last_block: BlockNumber) -> ChunkId {
         ChunkId::new(self.dataset_id, last_block)
     }
@@ -54,13 +49,9 @@ impl<C: KvReadCursor> ChunkIterator<C> {
 
     fn seek_last(&mut self) -> anyhow::Result<()> {
         if let Some(to_block) = self.to_block {
-            self.cursor.seek_prev(
-                self.chunk_id(to_block).as_ref()
-            )
+            self.cursor.seek_prev(self.chunk_id(to_block).as_ref())
         } else {
-            self.cursor.seek_prev(
-                self.chunk_id(BlockNumber::MAX).as_ref()
-            )
+            self.cursor.seek_prev(self.chunk_id(BlockNumber::MAX).as_ref())
         }
     }
 
@@ -81,28 +72,26 @@ impl<C: KvReadCursor> ChunkIterator<C> {
         }
 
         if !self.cursor.is_valid() {
-            return Ok(None)
+            return Ok(None);
         }
 
         let current_id: ChunkId = borsh::from_slice(self.cursor.key())?;
         if current_id.dataset_id() != self.dataset_id {
-            return Ok(None)
+            return Ok(None);
         }
 
-        let chunk: Chunk = borsh::from_slice(self.cursor.value()).with_context(|| {
-            format!("failed to deserialize chunk {}", current_id)
-        })?;
+        let chunk: Chunk = borsh::from_slice(self.cursor.value())
+            .with_context(|| format!("failed to deserialize chunk {}", current_id))?;
 
         validate_chunk(&current_id, &chunk)?;
-        
+
         if self.from_block <= chunk.last_block() && self.to_block.map_or(true, |end| chunk.first_block() <= end) {
-            return Ok(Some(chunk))
+            return Ok(Some(chunk));
         }
 
         Ok(None)
     }
 }
-
 
 fn validate_chunk(chunk_id: &ChunkId, chunk: &Chunk) -> anyhow::Result<()> {
     ensure!(
@@ -120,7 +109,6 @@ fn validate_chunk(chunk_id: &ChunkId, chunk: &Chunk) -> anyhow::Result<()> {
     );
     Ok(())
 }
-
 
 impl<C: KvReadCursor> Iterator for ChunkIterator<C> {
     type Item = anyhow::Result<Chunk>;

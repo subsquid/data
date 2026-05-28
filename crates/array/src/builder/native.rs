@@ -1,7 +1,6 @@
-use crate::index::RangeList;
-use crate::writer::NativeWriter;
 use arrow_buffer::{ArrowNativeType, MutableBuffer, ToByteSlice};
 
+use crate::{index::RangeList, writer::NativeWriter};
 
 impl NativeWriter for MutableBuffer {
     #[inline]
@@ -11,7 +10,7 @@ impl NativeWriter for MutableBuffer {
     }
 
     #[inline]
-    fn write_iter<T: ArrowNativeType>(&mut self, values: impl Iterator<Item=T>) -> anyhow::Result<()> {
+    fn write_iter<T: ArrowNativeType>(&mut self, values: impl Iterator<Item = T>) -> anyhow::Result<()> {
         self.extend(values);
         Ok(())
     }
@@ -25,9 +24,8 @@ impl NativeWriter for MutableBuffer {
     fn write_slice_indexes<T: ArrowNativeType>(
         &mut self,
         values: &[T],
-        mut indexes: impl Iterator<Item=usize>
-    ) -> anyhow::Result<()>
-    {
+        mut indexes: impl Iterator<Item = usize>
+    ) -> anyhow::Result<()> {
         let value_size = size_of::<T>();
         let min_byte_len = indexes.size_hint().0 * value_size;
 
@@ -44,16 +42,12 @@ impl NativeWriter for MutableBuffer {
                     byte_len += value_size;
                 }
             } else {
-                unsafe {
-                    self.set_len(byte_len)
-                }
-                return Ok(())
+                unsafe { self.set_len(byte_len) }
+                return Ok(());
             }
         }
 
-        unsafe {
-            self.set_len(byte_len)
-        }
+        unsafe { self.set_len(byte_len) }
 
         for i in indexes {
             self.push(values[i])
@@ -66,14 +60,13 @@ impl NativeWriter for MutableBuffer {
         &mut self,
         values: &[T],
         ranges: &mut impl RangeList
-    ) -> anyhow::Result<()>
-    {
+    ) -> anyhow::Result<()> {
         self.reserve(ranges.span() * size_of::<T>());
-        
+
         for r in ranges.iter() {
-            self.extend_from_slice(&values[r])        
+            self.extend_from_slice(&values[r])
         }
-        
+
         Ok(())
     }
 }

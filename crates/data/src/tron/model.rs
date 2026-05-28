@@ -1,6 +1,7 @@
-use crate::types::{HexBytes, JsonValue};
 use serde::Deserialize;
 use sqd_primitives::{BlockNumber, ItemIndex};
+
+use crate::types::{HexBytes, JsonValue};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,13 +13,13 @@ pub struct BlockHeader {
     pub version: Option<i32>,
     pub timestamp: i64,
     pub witness_address: HexBytes,
-    pub witness_signature: Option<HexBytes>,
+    pub witness_signature: Option<HexBytes>
 }
 
 #[derive(Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionResult {
-    pub contract_ret: Option<String>, // eg. "SUCCESS", "REVERT", etc.
+    pub contract_ret: Option<String> // eg. "SUCCESS", "REVERT", etc.
 }
 
 #[derive(Deserialize)]
@@ -34,78 +35,39 @@ pub struct Transaction {
     pub permission_id: Option<i32>,
     pub ref_block_bytes: Option<HexBytes>,
     pub ref_block_hash: Option<HexBytes>,
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub fee_limit: Option<i64>,
     pub expiration: Option<i64>,
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub timestamp: Option<i64>,
     pub raw_data_hex: HexBytes,
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub fee: Option<i64>,
     pub contract_result: Option<HexBytes>,
     pub contract_address: Option<HexBytes>,
     pub res_message: Option<HexBytes>,
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub withdraw_amount: Option<i64>,
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub unfreeze_amount: Option<i64>,
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub withdraw_expire_amount: Option<i64>,
     pub cancel_unfreeze_v2_amount: Option<JsonValue>,
     pub result: Option<String>, // Result from receipt, eg. "SUCCESS", "REVERT", etc.
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub energy_fee: Option<i64>,
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub energy_usage: Option<i64>,
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub energy_usage_total: Option<i64>,
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub net_usage: Option<i64>,
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub net_fee: Option<i64>,
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub origin_energy_usage: Option<i64>,
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
-    pub energy_penalty_total: Option<i64>,
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
+    pub energy_penalty_total: Option<i64>
 }
 
 #[derive(Deserialize)]
@@ -115,18 +77,15 @@ pub struct Log {
     pub log_index: ItemIndex,
     pub address: HexBytes,
     pub data: Option<HexBytes>,
-    pub topics: Option<Vec<HexBytes>>,
+    pub topics: Option<Vec<HexBytes>>
 }
 
 #[derive(Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallValueInfo {
-    #[serde(
-        deserialize_with = "sqd_data_core::serde::decode_string_option",
-        default
-    )]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub call_value: Option<i64>,
-    pub token_id: Option<String>,
+    pub token_id: Option<String>
 }
 
 #[derive(Deserialize)]
@@ -140,7 +99,7 @@ pub struct InternalTransaction {
     pub call_value_info: Vec<CallValueInfo>,
     pub note: HexBytes,
     pub rejected: Option<bool>,
-    pub extra: Option<HexBytes>,
+    pub extra: Option<HexBytes>
 }
 
 #[derive(Deserialize)]
@@ -149,7 +108,7 @@ pub struct Block {
     pub header: BlockHeader,
     pub transactions: Vec<Transaction>,
     pub logs: Vec<Log>,
-    pub internal_transactions: Vec<InternalTransaction>,
+    pub internal_transactions: Vec<InternalTransaction>
 }
 
 impl sqd_primitives::Block for Block {

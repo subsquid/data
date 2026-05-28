@@ -1,18 +1,16 @@
-use crate::plan::Plan;
-use crate::primitives::BlockNumber;
 use serde::{Deserialize, Serialize};
 
+use crate::{plan::Plan, primitives::BlockNumber};
 
 pub mod bitcoin;
 pub mod eth;
-pub mod solana;
-pub mod substrate;
 pub mod fuel;
 pub mod hyperliquid_fills;
 pub mod hyperliquid_replica_cmds;
+pub mod solana;
+pub mod substrate;
 pub mod tron;
 mod util;
-
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -35,14 +33,13 @@ pub enum Query {
     Tron(tron::TronQuery)
 }
 
-
 impl Query {
     pub fn from_json_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
         let query: Self = serde_json::from_slice(bytes)?;
         query.validate()?;
         Ok(query)
     }
-    
+
     pub fn from_json_value(json: serde_json::Value) -> anyhow::Result<Self> {
         let query: Self = serde_json::from_value(json)?;
         query.validate()?;
@@ -62,7 +59,7 @@ impl Query {
             Query::Fuel(q) => q.validate(),
             Query::HyperliquidFills(q) => q.validate(),
             Query::HyperliquidReplicaCmds(q) => q.validate(),
-            Query::Tron(q) => q.validate(),
+            Query::Tron(q) => q.validate()
         }
     }
 
@@ -75,8 +72,9 @@ impl Query {
             Query::Fuel(q) => q.parent_block_hash.as_ref(),
             Query::HyperliquidFills(q) => q.parent_block_hash.as_ref(),
             Query::HyperliquidReplicaCmds(q) => q.parent_block_hash.as_ref(),
-            Query::Tron(q) => q.parent_block_hash.as_ref(),
-        }.map(|s| s.as_str())
+            Query::Tron(q) => q.parent_block_hash.as_ref()
+        }
+        .map(|s| s.as_str())
     }
 
     pub fn first_block(&self) -> BlockNumber {
@@ -88,7 +86,7 @@ impl Query {
             Query::Fuel(q) => q.from_block,
             Query::HyperliquidFills(q) => q.from_block,
             Query::HyperliquidReplicaCmds(q) => q.from_block,
-            Query::Tron(q) => q.from_block,
+            Query::Tron(q) => q.from_block
         }
     }
 
@@ -101,7 +99,7 @@ impl Query {
             Query::Fuel(q) => q.from_block = block_number,
             Query::HyperliquidFills(q) => q.from_block = block_number,
             Query::HyperliquidReplicaCmds(q) => q.from_block = block_number,
-            Query::Tron(q) => q.from_block = block_number,
+            Query::Tron(q) => q.from_block = block_number
         }
     }
 
@@ -114,7 +112,7 @@ impl Query {
             Query::Fuel(q) => q.to_block,
             Query::HyperliquidFills(q) => q.to_block,
             Query::HyperliquidReplicaCmds(q) => q.to_block,
-            Query::Tron(q) => q.to_block,
+            Query::Tron(q) => q.to_block
         }
     }
 
@@ -128,7 +126,7 @@ impl Query {
             Query::Fuel(q) => q.to_block = block_number,
             Query::HyperliquidFills(q) => q.to_block = block_number,
             Query::HyperliquidReplicaCmds(q) => q.to_block = block_number,
-            Query::Tron(q) => q.to_block = block_number,
+            Query::Tron(q) => q.to_block = block_number
         }
     }
 
@@ -141,7 +139,7 @@ impl Query {
             Query::Fuel(q) => q.compile(),
             Query::HyperliquidFills(q) => q.compile(),
             Query::HyperliquidReplicaCmds(q) => q.compile(),
-            Query::Tron(q) => q.compile(),
+            Query::Tron(q) => q.compile()
         }
     }
 }

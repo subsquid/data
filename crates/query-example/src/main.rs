@@ -1,11 +1,8 @@
-use anyhow::{bail, Context};
-use sqd_query::{ParquetChunk, Query};
-use std::fs::File;
-use std::io::Write;
-use std::time::Instant;
-use flate2::Compression;
-use flate2::write::GzEncoder;
+use std::{fs::File, io::Write, time::Instant};
 
+use anyhow::{bail, Context};
+use flate2::{write::GzEncoder, Compression};
+use sqd_query::{ParquetChunk, Query};
 
 fn main() -> anyhow::Result<()> {
     unsafe {

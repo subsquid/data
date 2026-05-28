@@ -1,11 +1,12 @@
-use sqd_primitives::BlockNumber;
-use std::borrow::{Borrow, Cow};
-use std::ops::Range;
-use std::sync::Arc;
+use std::{
+    borrow::{Borrow, Cow},
+    ops::Range,
+    sync::Arc
+};
 
+use sqd_primitives::BlockNumber;
 
 pub type BlockRange = Range<BlockNumber>;
-
 
 #[derive(Clone, Debug)]
 pub struct BlockHeader<'a> {
@@ -17,19 +18,15 @@ pub struct BlockHeader<'a> {
     pub is_final: bool
 }
 
-
 #[derive(Clone, Debug)]
 pub struct Block<'a> {
     pub header: BlockHeader<'a>,
     pub data: Cow<'a, [u8]>
 }
 
-
-
 pub type BlockArc = Arc<Block<'static>>;
 
-
-impl <'a> sqd_primitives::Block for Block<'a> {
+impl<'a> sqd_primitives::Block for Block<'a> {
     fn number(&self) -> BlockNumber {
         self.header.number
     }
@@ -50,7 +47,6 @@ impl <'a> sqd_primitives::Block for Block<'a> {
         self.header.timestamp
     }
 }
-
 
 impl<'a> sqd_primitives::Block for BlockHeader<'a> {
     fn number(&self) -> BlockNumber {
@@ -73,7 +69,6 @@ impl<'a> sqd_primitives::Block for BlockHeader<'a> {
         self.timestamp
     }
 }
-
 
 impl<'a> BlockHeader<'a> {
     pub fn to_static(&self) -> BlockHeader<'static> {

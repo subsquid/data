@@ -1,30 +1,27 @@
-use crate::chunking::ChunkRange;
-use crate::reader::{ArrayReader, BitmaskReader, ChunkedArrayReader, NativeReader, Reader};
-use crate::writer::ArrayWriter;
 use anyhow::ensure;
 
+use crate::{
+    chunking::ChunkRange,
+    reader::{ArrayReader, BitmaskReader, ChunkedArrayReader, NativeReader, Reader},
+    writer::ArrayWriter
+};
 
 pub struct PrimitiveReader<R: Reader> {
     nulls: R::Nullmask,
     values: R::Native
 }
 
-
-impl <R: Reader> PrimitiveReader<R> {
+impl<R: Reader> PrimitiveReader<R> {
     pub fn try_new(nulls: R::Nullmask, values: R::Native) -> anyhow::Result<Self> {
         ensure!(
-            nulls.len() == values.len(), 
+            nulls.len() == values.len(),
             "null and value buffers have incompatible lengths"
         );
-        Ok(Self {
-            nulls,
-            values
-        })
+        Ok(Self { nulls, values })
     }
 }
 
-
-impl <R: Reader> ArrayReader for PrimitiveReader<R> {
+impl<R: Reader> ArrayReader for PrimitiveReader<R> {
     fn num_buffers(&self) -> usize {
         2
     }
@@ -39,12 +36,10 @@ impl <R: Reader> ArrayReader for PrimitiveReader<R> {
     }
 }
 
-
 pub struct ChunkedPrimitiveReader<R: Reader> {
     nulls: Vec<R::Nullmask>,
     values: Vec<R::Native>
 }
-
 
 impl<R: Reader> ChunkedPrimitiveReader<R> {
     pub fn with_capacity(cap: usize) -> Self {
@@ -54,7 +49,6 @@ impl<R: Reader> ChunkedPrimitiveReader<R> {
         }
     }
 }
-
 
 impl<R: Reader> ChunkedArrayReader for ChunkedPrimitiveReader<R> {
     type Chunk = PrimitiveReader<R>;
@@ -69,27 +63,18 @@ impl<R: Reader> ChunkedArrayReader for ChunkedPrimitiveReader<R> {
     }
 
     fn read_chunked_ranges(
-        &mut self, 
+        &mut self,
         dst: &mut impl ArrayWriter,
-        ranges: impl Iterator<Item=ChunkRange> + Clone
-    ) -> anyhow::Result<()> 
-    {
+        ranges: impl Iterator<Item = ChunkRange> + Clone
+    ) -> anyhow::Result<()> {
         let nullmask_dst = dst.nullmask(0);
         for r in ranges.clone() {
-            self.nulls[r.chunk_index()].read_slice(
-                nullmask_dst,
-                r.offset_index(),
-                r.len_index()
-            )?;
+            self.nulls[r.chunk_index()].read_slice(nullmask_dst, r.offset_index(), r.len_index())?;
         }
 
         let values_dst = dst.native(1);
         for r in ranges {
-            self.values[r.chunk_index()].read_slice(
-                values_dst,
-                r.offset_index(),
-                r.len_index()
-            )?;
+            self.values[r.chunk_index()].read_slice(values_dst, r.offset_index(), r.len_index())?;
         }
 
         Ok(())

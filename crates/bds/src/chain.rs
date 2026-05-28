@@ -1,18 +1,17 @@
-use crate::util::{bisect, compute_fork_base};
+use std::{collections::VecDeque, ops::Index};
+
 use anyhow::{anyhow, bail, ensure};
 use sqd_primitives::{Block, BlockNumber, BlockPtr, BlockRef};
-use std::collections::VecDeque;
-use std::ops::Index;
 
+use crate::util::{bisect, compute_fork_base};
 
 /// Last blocks of a chain, starting from the highest finalized block
 #[derive(Debug)]
 pub struct HeadChain {
     pub blocks: Vec<BlockRef>,
-    /// indicates, that the first block in `self.blocks` is final 
+    /// indicates, that the first block in `self.blocks` is final
     pub first_finalized: bool
 }
-
 
 impl HeadChain {
     pub fn empty() -> Self {
@@ -23,17 +22,15 @@ impl HeadChain {
     }
 }
 
-
 pub struct Chain<B> {
     chain: VecDeque<BlockRef>,
     fin: bool,
     blocks: VecDeque<B>,
     stored: VecDeque<bool>,
-    min_size: usize,
+    min_size: usize
 }
 
-
-impl <B: Block> Chain<B> {
+impl<B: Block> Chain<B> {
     pub fn new(chain: HeadChain, min_size: usize) -> Self {
         assert!(!(chain.first_finalized && chain.blocks.is_empty()));
         Self {
@@ -48,19 +45,19 @@ impl <B: Block> Chain<B> {
     pub fn base(&self) -> Option<BlockPtr<'_>> {
         self.first().map(|b| b.parent_ptr())
     }
-    
+
     pub fn first(&self) -> Option<&B> {
         self.blocks.get(0)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &B> + DoubleEndedIterator  {
+    pub fn iter(&self) -> impl Iterator<Item = &B> + DoubleEndedIterator {
         self.blocks.iter()
     }
-    
+
     pub fn bisect(&self, block_number: BlockNumber) -> usize {
         bisect(self.blocks.len(), &self.blocks, block_number)
     }
-    
+
     pub fn is_stored(&self, idx: usize) -> bool {
         self.stored[idx]
     }
@@ -73,7 +70,7 @@ impl <B: Block> Chain<B> {
                 self.stored.push_back(false);
                 return Ok(());
             };
-            
+
             if prev.number == block.parent_number() && prev.hash == block.parent_hash() {
                 self.chain.push_back(block.ptr().to_ref());
                 self.blocks.push_back(block);
@@ -106,22 +103,22 @@ impl <B: Block> Chain<B> {
             self.stored.pop_back();
         }
     }
-    
+
     pub fn mark_stored(&mut self, number: BlockNumber, hash: &str) -> bool {
         let pos = self.bisect(number);
-        
+
         let Some(block) = self.blocks.get(pos) else {
-            return false  
+            return false;
         };
-        
+
         if block.number() != number || block.hash() != hash {
-            return false
+            return false;
         }
-        
+
         self.stored[pos] = true;
         true
     }
-    
+
     pub fn clean(&mut self) -> bool {
         let mut dropped = false;
         for _ in 0..self.len().saturating_sub(self.min_size) {
@@ -133,7 +130,7 @@ impl <B: Block> Chain<B> {
                 }
                 dropped = true;
             } else {
-                break
+                break;
             }
         }
         dropped
@@ -150,7 +147,7 @@ impl <B: Block> Chain<B> {
                 Ok(true)
             } else {
                 Ok(false)
-            }
+            };
         }
 
         let pos = bisect(self.chain.len(), &self.chain, head.number);
@@ -160,7 +157,7 @@ impl <B: Block> Chain<B> {
             for _ in 0..pos {
                 self.chain.pop_front();
             }
-            return Ok(!fin || pos > 0)
+            return Ok(!fin || pos > 0);
         }
 
         bail!(
@@ -172,10 +169,10 @@ impl <B: Block> Chain<B> {
 
     pub fn finalize_all(&mut self) {
         match self.chain.len() {
-            0 => {},
+            0 => {}
             1 => {
                 self.fin = true;
-            },
+            }
             _ => {
                 let head = self.chain.pop_back().unwrap();
                 self.chain.clear();
@@ -191,18 +188,18 @@ impl <B: Block> Chain<B> {
             Some(i) => Some(self.blocks[i].parent_ptr())
         }
     }
-    
+
     pub fn stored_finalized_head(&self) -> Option<BlockPtr<'_>> {
         if !self.fin {
-            return None
+            return None;
         }
         if self.chain.len() > self.blocks.len() {
-            return Some(self.chain[0].ptr())
+            return Some(self.chain[0].ptr());
         }
         for i in (0..=self.blocks.len() - self.chain.len()).rev() {
             if self.stored[i] {
-                return Some(self.blocks[i].ptr())
-            }   
+                return Some(self.blocks[i].ptr());
+            }
         }
         None
     }
@@ -229,7 +226,6 @@ impl <B: Block> Chain<B> {
         self.blocks.is_empty()
     }
 }
-
 
 impl<B> Index<usize> for Chain<B> {
     type Output = B;

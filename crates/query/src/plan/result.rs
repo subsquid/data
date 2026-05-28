@@ -1,14 +1,23 @@
-use crate::json::encoder::util::{json_close, make_object_prop};
-use crate::json::encoder::{Encoder, EncoderObject};
-use crate::json::exp::Exp;
-use crate::plan::sort::{compute_order, Position};
-use crate::primitives::{BlockNumber, Name};
-use anyhow::{anyhow, Context};
-use arrow::array::{AsArray, PrimitiveArray, RecordBatch, StructArray};
-use arrow::datatypes::{DataType, UInt64Type};
-use sqd_primitives::BlockRef;
 use std::fmt::{Display, Formatter};
 
+use anyhow::{anyhow, Context};
+use arrow::{
+    array::{AsArray, PrimitiveArray, RecordBatch, StructArray},
+    datatypes::{DataType, UInt64Type}
+};
+use sqd_primitives::BlockRef;
+
+use crate::{
+    json::{
+        encoder::{
+            util::{json_close, make_object_prop},
+            Encoder, EncoderObject
+        },
+        exp::Exp
+    },
+    plan::sort::{compute_order, Position},
+    primitives::{BlockNumber, Name}
+};
 
 pub(super) struct DataItem {
     prop: Vec<u8>,
@@ -20,40 +29,39 @@ pub(super) struct DataItem {
     is_block_header: bool
 }
 
-
 impl DataItem {
-    pub(super) fn new(
-        name: &str,
-        key: &[Name],
-        records: Vec<RecordBatch>,
-        exp: &Exp
-    ) -> anyhow::Result<Self> {
+    pub(super) fn new(name: &str, key: &[Name], records: Vec<RecordBatch>, exp: &Exp) -> anyhow::Result<Self> {
         let block_number_column = key[0];
 
-        let block_numbers = records.iter().map(|b| -> anyhow::Result<_> {
-            let column = b.column_by_name(block_number_column).ok_or_else(|| {
-                anyhow!(
-                    "key column '{}' is not present in '{}' output",
-                    block_number_column,
-                    name
-                )
-            })?;
+        let block_numbers = records
+            .iter()
+            .map(|b| -> anyhow::Result<_> {
+                let column = b.column_by_name(block_number_column).ok_or_else(|| {
+                    anyhow!(
+                        "key column '{}' is not present in '{}' output",
+                        block_number_column,
+                        name
+                    )
+                })?;
 
-            let numbers = arrow::compute::cast(column, &DataType::UInt64).with_context(|| {
-                format!("failed to cast '{}' to block number", block_number_column)
-            })?;
+                let numbers = arrow::compute::cast(column, &DataType::UInt64)
+                    .with_context(|| format!("failed to cast '{}' to block number", block_number_column))?;
 
-            Ok(numbers.as_primitive::<UInt64Type>().clone())
-        }).collect::<anyhow::Result<Vec<_>>>()?;
+                Ok(numbers.as_primitive::<UInt64Type>().clone())
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         let order = compute_order(&records, key)?;
 
         let size = records.iter().map(|b| b.get_array_memory_size()).sum();
 
-        let encoders = records.into_iter().map(|b| {
-            let struct_array = StructArray::from(b);
-            exp.eval(&struct_array)
-        }).collect::<Result<Vec<_>, _>>()?;
+        let encoders = records
+            .into_iter()
+            .map(|b| {
+                let struct_array = StructArray::from(b);
+                exp.eval(&struct_array)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
             prop: make_object_prop(name),
@@ -71,9 +79,7 @@ impl DataItem {
     }
 
     fn get_block_at(&self, idx: usize) -> Option<BlockNumber> {
-        self.order.get(idx).map(|pos| {
-            self.block_numbers[pos.0].value(pos.1)
-        })
+        self.order.get(idx).map(|pos| self.block_numbers[pos.0].value(pos.1))
     }
 
     fn write_header(&mut self, out: &mut Vec<u8>) {
@@ -85,9 +91,10 @@ impl DataItem {
     }
 
     fn write_items(&mut self, block_number: BlockNumber, out: &mut Vec<u8>) {
-        let has_items = self.order.get(self.pos).map_or(false, |pos| {
-            self.block_numbers[pos.0].value(pos.1) == block_number
-        });
+        let has_items = self
+            .order
+            .get(self.pos)
+            .map_or(false, |pos| self.block_numbers[pos.0].value(pos.1) == block_number);
 
         if !has_items {
             return;
@@ -98,7 +105,7 @@ impl DataItem {
         while self.pos < self.order.len() {
             let pos = self.order[self.pos];
             if self.block_numbers[pos.0].value(pos.1) != block_number {
-                break
+                break;
             }
             self.pos += 1;
             self.encoders[pos.0].encode(pos.1, out);
@@ -110,18 +117,14 @@ impl DataItem {
     }
 }
 
-
 pub struct BlockWriter {
     items: Vec<DataItem>
 }
 
-
 impl BlockWriter {
     pub(super) fn new(items: Vec<DataItem>) -> Self {
         assert!(items.len() > 0 && items[0].is_block_header);
-        Self {
-            items
-        }
+        Self { items }
     }
 
     pub fn data_size(&self) -> usize {
@@ -160,13 +163,11 @@ impl BlockWriter {
     }
 }
 
-
 #[derive(Clone, Debug)]
 pub struct UnexpectedBaseBlock {
     pub prev_blocks: Vec<BlockRef>,
     pub expected_hash: String
 }
-
 
 impl Display for UnexpectedBaseBlock {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -174,9 +175,7 @@ impl Display for UnexpectedBaseBlock {
             write!(
                 f,
                 "unexpected base block: expected {}, but got {}#{}",
-                self.expected_hash,
-                last_block.number,
-                last_block.hash
+                self.expected_hash, last_block.number, last_block.hash
             )
         } else {
             write!(
@@ -187,6 +186,5 @@ impl Display for UnexpectedBaseBlock {
         }
     }
 }
-
 
 impl std::error::Error for UnexpectedBaseBlock {}

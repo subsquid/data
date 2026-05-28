@@ -1,24 +1,22 @@
-use crate::util::validate_offsets;
-use arrow_buffer::OffsetBuffer;
 use std::ops::Range;
 
+use arrow_buffer::OffsetBuffer;
+
+use crate::util::validate_offsets;
 
 #[derive(Copy, Clone)]
 pub struct Offsets<'a> {
     offsets: &'a [i32]
 }
 
-
-impl <'a> Offsets<'a> {
+impl<'a> Offsets<'a> {
     pub fn new(offsets: &'a [i32]) -> Self {
         Self::try_new(offsets).unwrap()
     }
-    
+
     pub fn try_new(offsets: &'a [i32]) -> Result<Self, &'static str> {
         validate_offsets(offsets, 0)?;
-        Ok(Self { 
-            offsets 
-        })
+        Ok(Self { offsets })
     }
 
     #[inline]
@@ -55,7 +53,7 @@ impl <'a> Offsets<'a> {
     pub fn last_offset(&self) -> i32 {
         self.offsets[self.len()]
     }
-    
+
     #[inline]
     pub fn first_index(&self) -> usize {
         self.first_offset() as usize
@@ -65,10 +63,10 @@ impl <'a> Offsets<'a> {
     pub fn last_index(&self) -> usize {
         self.last_offset() as usize
     }
-    
+
     #[inline]
     pub fn range(&self) -> Range<usize> {
-        self.first_index().. self.last_index()
+        self.first_index()..self.last_index()
     }
 
     #[inline]
@@ -86,11 +84,8 @@ impl <'a> Offsets<'a> {
     }
 }
 
-
-impl <'a> From<&'a OffsetBuffer<i32>> for Offsets<'a> {
+impl<'a> From<&'a OffsetBuffer<i32>> for Offsets<'a> {
     fn from(value: &'a OffsetBuffer<i32>) -> Self {
-        Self {
-            offsets: value.inner()
-        }
+        Self { offsets: value.inner() }
     }
 }

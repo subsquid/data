@@ -1,6 +1,7 @@
-use crate::types::HexBytes;
 use serde::Deserialize;
 use sqd_primitives::{BlockNumber, DataMask, ItemIndex};
+
+use crate::types::HexBytes;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -8,7 +9,7 @@ pub struct Withdrawal {
     pub address: HexBytes,
     pub amount: HexBytes,
     pub index: HexBytes,
-    pub validator_index: HexBytes,
+    pub validator_index: HexBytes
 }
 
 #[derive(Deserialize)]
@@ -44,7 +45,7 @@ pub struct BlockHeader {
     // Tempo-specific block header fields
     pub main_block_general_gas_limit: Option<HexBytes>,
     pub shared_gas_limit: Option<HexBytes>,
-    pub timestamp_millis_part: Option<HexBytes>,
+    pub timestamp_millis_part: Option<HexBytes>
 }
 
 #[derive(Deserialize)]
@@ -52,11 +53,11 @@ pub struct BlockHeader {
 pub struct EIP7702Authorization {
     pub chain_id: HexBytes,
     pub address: HexBytes,
-    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string")]
     pub nonce: u64,
     pub y_parity: u8,
     pub r: HexBytes,
-    pub s: HexBytes,
+    pub s: HexBytes
 }
 
 #[derive(Deserialize)]
@@ -64,7 +65,7 @@ pub struct EIP7702Authorization {
 pub struct TempoCall {
     pub to: Option<HexBytes>,
     pub value: HexBytes,
-    pub input: HexBytes,
+    pub input: HexBytes
 }
 
 #[derive(Deserialize)]
@@ -75,7 +76,7 @@ pub enum TempoPrimitiveSignature {
         r: HexBytes,
         s: HexBytes,
         y_parity: Option<u8>,
-        v: Option<u8>,
+        v: Option<u8>
     },
     #[serde(rename = "p256", rename_all = "camelCase")]
     P256 {
@@ -83,7 +84,7 @@ pub enum TempoPrimitiveSignature {
         s: HexBytes,
         pub_key_x: HexBytes,
         pub_key_y: HexBytes,
-        pre_hash: bool,
+        pre_hash: bool
     },
     #[serde(rename = "webAuthn", rename_all = "camelCase")]
     WebAuthn {
@@ -91,8 +92,8 @@ pub enum TempoPrimitiveSignature {
         s: HexBytes,
         pub_key_x: HexBytes,
         pub_key_y: HexBytes,
-        webauthn_data: HexBytes,
-    },
+        webauthn_data: HexBytes
+    }
 }
 
 #[derive(Deserialize)]
@@ -100,14 +101,14 @@ pub enum TempoPrimitiveSignature {
 pub struct TempoKeychainSignature {
     pub user_address: HexBytes,
     pub signature: TempoPrimitiveSignature,
-    pub version: Option<String>,
+    pub version: Option<String>
 }
 
 #[derive(Deserialize)]
 #[serde(untagged)]
 pub enum TempoSignature {
     Keychain(TempoKeychainSignature),
-    Primitive(TempoPrimitiveSignature),
+    Primitive(TempoPrimitiveSignature)
 }
 
 #[derive(Deserialize)]
@@ -116,14 +117,14 @@ pub struct TempoSignedAuthorization {
     pub chain_id: HexBytes,
     pub address: HexBytes,
     pub nonce: u64,
-    pub signature: TempoSignature,
+    pub signature: TempoSignature
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TempoTokenLimit {
     pub token: HexBytes,
-    pub limit: HexBytes,
+    pub limit: HexBytes
 }
 
 #[derive(Deserialize)]
@@ -134,7 +135,7 @@ pub struct TempoSignedKeyAuthorization {
     pub key_id: HexBytes,
     pub expiry: Option<HexBytes>,
     pub limits: Option<Vec<TempoTokenLimit>>,
-    pub signature: TempoPrimitiveSignature,
+    pub signature: TempoPrimitiveSignature
 }
 
 #[derive(Deserialize)]
@@ -142,14 +143,14 @@ pub struct TempoSignedKeyAuthorization {
 pub struct TempoFeePayerSignature {
     pub v: u8,
     pub r: HexBytes,
-    pub s: HexBytes,
+    pub s: HexBytes
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccessListItem {
     pub address: HexBytes,
-    pub storage_keys: Vec<HexBytes>,
+    pub storage_keys: Vec<HexBytes>
 }
 
 #[derive(Deserialize)]
@@ -207,7 +208,7 @@ pub struct Transaction {
     pub l1_fee: Option<HexBytes>,
     pub l1_fee_scalar: Option<f64>,
     pub l1_gas_price: Option<HexBytes>,
-    pub l1_gas_used: Option<HexBytes>,
+    pub l1_gas_used: Option<HexBytes>
 }
 
 #[derive(Deserialize)]
@@ -239,7 +240,7 @@ pub struct TraceActionCall {
     pub value: Option<HexBytes>,
     pub gas: HexBytes,
     pub input: HexBytes,
-    pub call_type: String,
+    pub call_type: String
 }
 
 #[derive(Deserialize)]
@@ -247,7 +248,7 @@ pub struct TraceActionCall {
 pub struct TraceActionReward {
     pub author: HexBytes,
     pub value: HexBytes,
-    pub reward_type: String,
+    pub reward_type: String
 }
 
 #[derive(Deserialize)]
@@ -263,7 +264,7 @@ pub struct TraceActionSelfDestruct {
 pub struct TraceResultCreate {
     pub gas_used: HexBytes,
     pub code: Option<HexBytes>,
-    pub address: Option<HexBytes>,
+    pub address: Option<HexBytes>
 }
 
 #[derive(Deserialize)]
@@ -299,13 +300,9 @@ pub enum TraceOp {
         result: Option<TraceResultCall>
     },
     #[serde(rename = "selfdestruct")]
-    SelfDestruct {
-        action: TraceActionSelfDestruct
-    },
+    SelfDestruct { action: TraceActionSelfDestruct },
     #[serde(rename = "reward")]
-    Reward {
-        action: TraceActionReward
-    }
+    Reward { action: TraceActionReward }
 }
 
 #[derive(Deserialize)]
@@ -326,7 +323,7 @@ pub struct Block {
     pub transactions: Vec<Transaction>,
     pub logs: Option<Vec<Log>>,
     pub traces: Option<Vec<Trace>>,
-    pub state_diffs: Option<Vec<StateDiff>>,
+    pub state_diffs: Option<Vec<StateDiff>>
 }
 
 impl sqd_primitives::Block for Block {

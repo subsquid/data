@@ -1,8 +1,7 @@
-use arrow::buffer::ScalarBuffer;
-use arrow::datatypes::ArrowNativeType;
+use arrow::{buffer::ScalarBuffer, datatypes::ArrowNativeType};
 use lexical_core::FormattedSize;
-use crate::json::encoder::Encoder;
 
+use crate::json::encoder::Encoder;
 
 pub trait PrimitiveEncode: ArrowNativeType + Send {
     type Buffer: Send;
@@ -15,7 +14,6 @@ pub trait PrimitiveEncode: ArrowNativeType + Send {
     /// `buf` is temporary space that may be used
     fn encode(self, buf: &mut Self::Buffer) -> &[u8];
 }
-
 
 macro_rules! integer_encode {
     ($($t:ty),*) => {
@@ -35,7 +33,6 @@ macro_rules! integer_encode {
     };
 }
 integer_encode!(i8, i16, i32, i64, u8, u16, u32, u64, i128);
-
 
 macro_rules! float_encode {
     ($($t:ty),*) => {
@@ -60,14 +57,12 @@ macro_rules! float_encode {
 }
 float_encode!(f32, f64);
 
-
 pub struct PrimitiveEncoder<N: PrimitiveEncode> {
     values: ScalarBuffer<N>,
-    buffer: N::Buffer,
+    buffer: N::Buffer
 }
 
-
-impl <N: PrimitiveEncode> PrimitiveEncoder<N> {
+impl<N: PrimitiveEncode> PrimitiveEncoder<N> {
     pub fn new(values: ScalarBuffer<N>) -> Self {
         Self {
             values,
@@ -76,13 +71,11 @@ impl <N: PrimitiveEncode> PrimitiveEncoder<N> {
     }
 }
 
-
 impl<N: PrimitiveEncode> Encoder for PrimitiveEncoder<N> {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {
         out.extend_from_slice(self.values[idx].encode(&mut self.buffer));
     }
 }
-
 
 pub struct TimestampEncoder {
     values: ScalarBuffer<i64>,
@@ -90,7 +83,6 @@ pub struct TimestampEncoder {
     scale_multiplier: i64,
     scale_divisor: i64
 }
-
 
 impl TimestampEncoder {
     pub fn new(values: ScalarBuffer<i64>, scale_multiplier: i64, scale_divisor: i64) -> Self {
@@ -102,7 +94,6 @@ impl TimestampEncoder {
         }
     }
 }
-
 
 impl Encoder for TimestampEncoder {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {

@@ -1,35 +1,27 @@
-use crate::chunking::ChunkRange;
-use crate::reader::any::AnyReader;
-use crate::reader::{AnyChunkedReader, ArrayReader, BitmaskReader, ChunkedArrayReader, Reader};
-use crate::writer::ArrayWriter;
 use anyhow::ensure;
 
+use crate::{
+    chunking::ChunkRange,
+    reader::{any::AnyReader, AnyChunkedReader, ArrayReader, BitmaskReader, ChunkedArrayReader, Reader},
+    writer::ArrayWriter
+};
 
 pub struct StructReader<R: Reader> {
     nulls: R::Nullmask,
     columns: Vec<AnyReader<R>>
 }
 
-
-impl <R: Reader> StructReader<R> {
+impl<R: Reader> StructReader<R> {
     pub fn try_new(nulls: R::Nullmask, columns: Vec<AnyReader<R>>) -> anyhow::Result<Self> {
         let len = nulls.len();
         for (i, c) in columns.iter().enumerate() {
-            ensure!(
-                len == c.len(),
-                "null mask and column {} have incompatible lengths",
-                i
-            );
+            ensure!(len == c.len(), "null mask and column {} have incompatible lengths", i);
         }
-        Ok(Self {
-            nulls,
-            columns
-        })
+        Ok(Self { nulls, columns })
     }
 }
 
-
-impl <R: Reader> ArrayReader for StructReader<R> {
+impl<R: Reader> ArrayReader for StructReader<R> {
     fn num_buffers(&self) -> usize {
         1 + self.columns.iter().map(|c| c.num_buffers()).sum::<usize>()
     }
@@ -51,12 +43,10 @@ impl <R: Reader> ArrayReader for StructReader<R> {
     }
 }
 
-
 pub struct ChunkedStructReader<R: Reader> {
     nulls: Vec<R::Nullmask>,
     columns: Vec<AnyChunkedReader<R>>
 }
-
 
 impl<R: Reader> ChunkedStructReader<R> {
     pub fn new(cap: usize, columns: Vec<AnyChunkedReader<R>>) -> Self {
@@ -66,7 +56,6 @@ impl<R: Reader> ChunkedStructReader<R> {
         }
     }
 }
-
 
 impl<R: Reader> ChunkedArrayReader for ChunkedStructReader<R> {
     type Chunk = StructReader<R>;
@@ -86,16 +75,11 @@ impl<R: Reader> ChunkedArrayReader for ChunkedStructReader<R> {
     fn read_chunked_ranges(
         &mut self,
         dst: &mut impl ArrayWriter,
-        ranges: impl Iterator<Item=ChunkRange> + Clone
-    ) -> anyhow::Result<()>
-    {
+        ranges: impl Iterator<Item = ChunkRange> + Clone
+    ) -> anyhow::Result<()> {
         let nullmask_dst = dst.nullmask(0);
         for r in ranges.clone() {
-            self.nulls[r.chunk_index()].read_slice(
-                nullmask_dst,
-                r.offset_index(),
-                r.len_index()
-            )?;
+            self.nulls[r.chunk_index()].read_slice(nullmask_dst, r.offset_index(), r.len_index())?;
         }
 
         let mut shift = 1;
@@ -109,34 +93,25 @@ impl<R: Reader> ChunkedArrayReader for ChunkedStructReader<R> {
     }
 }
 
-
 pub struct TableReader<R: Reader> {
     columns: Vec<AnyReader<R>>
 }
-
 
 impl<R: Reader> TableReader<R> {
     pub fn try_new(columns: Vec<AnyReader<R>>) -> anyhow::Result<Self> {
         let len = columns.first().map_or(0, |c| c.len());
         for (i, c) in columns.iter().enumerate() {
-            ensure!(
-                len == c.len(),
-                "columns 0 and {} have different lengths",
-                i
-            );
+            ensure!(len == c.len(), "columns 0 and {} have different lengths", i);
         }
-        Ok(Self {
-            columns
-        })
+        Ok(Self { columns })
     }
-    
+
     pub fn column_reader(&mut self, i: usize) -> &mut AnyReader<R> {
         &mut self.columns[i]
     }
 }
 
-
-impl <R: Reader> ArrayReader for TableReader<R> {
+impl<R: Reader> ArrayReader for TableReader<R> {
     fn num_buffers(&self) -> usize {
         self.columns.iter().map(|c| c.num_buffers()).sum()
     }
@@ -155,22 +130,17 @@ impl <R: Reader> ArrayReader for TableReader<R> {
     }
 }
 
-
 pub struct ChunkedTableReader<R: Reader> {
     columns: Vec<AnyChunkedReader<R>>
 }
 
-
-impl <R: Reader> ChunkedTableReader<R> {
+impl<R: Reader> ChunkedTableReader<R> {
     pub fn new(columns: Vec<AnyChunkedReader<R>>) -> Self {
-        Self {
-            columns
-        }
+        Self { columns }
     }
 }
 
-
-impl <R: Reader> ChunkedArrayReader for ChunkedTableReader<R> {
+impl<R: Reader> ChunkedArrayReader for ChunkedTableReader<R> {
     type Chunk = TableReader<R>;
 
     fn num_buffers(&self) -> usize {
@@ -184,7 +154,11 @@ impl <R: Reader> ChunkedArrayReader for ChunkedTableReader<R> {
         }
     }
 
-    fn read_chunked_ranges(&mut self, dst: &mut impl ArrayWriter, ranges: impl Iterator<Item=ChunkRange> + Clone) -> anyhow::Result<()> {
+    fn read_chunked_ranges(
+        &mut self,
+        dst: &mut impl ArrayWriter,
+        ranges: impl Iterator<Item = ChunkRange> + Clone
+    ) -> anyhow::Result<()> {
         let mut shift = 0;
         for col in self.columns.iter_mut() {
             col.read_chunked_ranges(&mut dst.shift(shift), ranges.clone())?;

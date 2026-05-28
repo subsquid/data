@@ -1,17 +1,19 @@
-use crate::access::Access;
-use crate::index::{RangeList, RangeListFromIterator};
-use crate::slice::bitmask::BitmaskSlice;
-use crate::slice::nullmask::NullmaskSlice;
-use crate::slice::{AnyListItem, AnySlice, Slice};
-use crate::writer::ArrayWriter;
-use arrow::array::{FixedSizeBinaryArray, FixedSizeListArray};
 use std::ops::Range;
+
+use arrow::array::{FixedSizeBinaryArray, FixedSizeListArray};
+
+use crate::{
+    access::Access,
+    index::{RangeList, RangeListFromIterator},
+    slice::{bitmask::BitmaskSlice, nullmask::NullmaskSlice, AnyListItem, AnySlice, Slice},
+    writer::ArrayWriter
+};
 
 #[derive(Clone)]
 pub struct FixedSizeListSlice<'a, T: Clone> {
     size: usize,
     nulls: NullmaskSlice<'a>,
-    values: T,
+    values: T
 }
 
 impl<'a, T: Slice> FixedSizeListSlice<'a, T> {
@@ -21,7 +23,7 @@ impl<'a, T: Slice> FixedSizeListSlice<'a, T> {
         Self {
             size,
             nulls: NullmaskSlice::new(len, nulls),
-            values,
+            values
         }
     }
 
@@ -62,7 +64,7 @@ impl<'a, T: Slice> Slice for FixedSizeListSlice<'a, T> {
         Self {
             size: self.size,
             nulls: self.nulls.slice(offset, len),
-            values: self.values.slice(offset * self.size, len * self.size),
+            values: self.values.slice(offset * self.size, len * self.size)
         }
     }
 
@@ -84,23 +86,18 @@ impl<'a, T: Slice> Slice for FixedSizeListSlice<'a, T> {
         self.values.write_range(&mut dst.shift(1), value_range)
     }
 
-    fn write_ranges(
-        &self,
-        dst: &mut impl ArrayWriter,
-        ranges: &mut impl RangeList,
-    ) -> anyhow::Result<()> {
+    fn write_ranges(&self, dst: &mut impl ArrayWriter, ranges: &mut impl RangeList) -> anyhow::Result<()> {
         self.nulls.write_ranges(dst.nullmask(0), ranges)?;
 
         let mut value_ranges = ranges.scale(self.size);
 
-        self.values
-            .write_ranges(&mut dst.shift(1), &mut value_ranges)
+        self.values.write_ranges(&mut dst.shift(1), &mut value_ranges)
     }
 
     fn write_indexes(
         &self,
         dst: &mut impl ArrayWriter,
-        indexes: impl Iterator<Item = usize> + Clone,
+        indexes: impl Iterator<Item = usize> + Clone
     ) -> anyhow::Result<()> {
         self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
 
@@ -110,10 +107,8 @@ impl<'a, T: Slice> Slice for FixedSizeListSlice<'a, T> {
             beg..end
         });
 
-        self.values.write_ranges(
-            &mut dst.shift(1),
-            &mut RangeListFromIterator::new(item_ranges),
-        )
+        self.values
+            .write_ranges(&mut dst.shift(1), &mut RangeListFromIterator::new(item_ranges))
     }
 }
 
@@ -122,7 +117,7 @@ impl<'a> From<&'a FixedSizeBinaryArray> for FixedSizeListSlice<'a, &'a [u8]> {
         Self {
             size: value.value_length() as usize,
             nulls: NullmaskSlice::from_array(value),
-            values: value.values().as_ref(),
+            values: value.values().as_ref()
         }
     }
 }
@@ -132,7 +127,7 @@ impl<'a> From<&'a FixedSizeListArray> for FixedSizeListSlice<'a, AnySlice<'a>> {
         Self {
             size: value.value_length() as usize,
             nulls: NullmaskSlice::from_array(value),
-            values: value.values().as_ref().into(),
+            values: value.values().as_ref().into()
         }
     }
 }
@@ -142,7 +137,7 @@ impl<'a> From<&'a FixedSizeListArray> for FixedSizeListSlice<'a, AnyListItem<'a>
         Self {
             size: value.value_length() as usize,
             nulls: NullmaskSlice::from_array(value),
-            values: AnyListItem::new(value.values().as_ref().into()),
+            values: AnyListItem::new(value.values().as_ref().into())
         }
     }
 }

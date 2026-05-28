@@ -1,18 +1,18 @@
-use crate::io::reader::bitmask::BitmaskIOReader;
-use crate::io::reader::byte_reader::ByteReader;
-use crate::reader::BitmaskReader;
-use crate::writer::BitmaskWriter;
 use anyhow::ensure;
 use arrow_buffer::bit_util;
 
+use crate::{
+    io::reader::{bitmask::BitmaskIOReader, byte_reader::ByteReader},
+    reader::BitmaskReader,
+    writer::BitmaskWriter
+};
 
 pub struct NullmaskIOReader<R> {
     bitmask: Option<BitmaskIOReader<R>>,
     len: usize
 }
 
-
-impl <R: ByteReader> NullmaskIOReader<R> {
+impl<R: ByteReader> NullmaskIOReader<R> {
     pub fn new(mut byte_reader: R) -> anyhow::Result<Self> {
         let (byte_len, bit_len) = BitmaskIOReader::<R>::read_length(&mut byte_reader)?;
         if byte_len == 0 {
@@ -33,10 +33,7 @@ impl <R: ByteReader> NullmaskIOReader<R> {
     }
 
     pub fn new_empty(len: usize) -> Self {
-        Self {
-            bitmask: None,
-            len
-        }
+        Self { bitmask: None, len }
     }
 
     pub fn from_bitmask(bitmask: BitmaskIOReader<R>) -> Self {
@@ -47,24 +44,17 @@ impl <R: ByteReader> NullmaskIOReader<R> {
     }
 }
 
-
-impl <R: ByteReader> BitmaskReader for NullmaskIOReader<R> {
+impl<R: ByteReader> BitmaskReader for NullmaskIOReader<R> {
     fn len(&self) -> usize {
         self.len
     }
 
-    fn read_slice(
-        &mut self, 
-        dst: &mut impl BitmaskWriter, 
-        offset: usize, 
-        len: usize
-    ) -> anyhow::Result<()> 
-    {
+    fn read_slice(&mut self, dst: &mut impl BitmaskWriter, offset: usize, len: usize) -> anyhow::Result<()> {
         if let Some(bitmask) = self.bitmask.as_mut() {
             bitmask.read_slice(dst, offset, len)
         } else {
             ensure!(offset + len <= self.len);
             dst.write_many(true, len)
-        }   
+        }
     }
 }

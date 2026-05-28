@@ -1,8 +1,10 @@
-use crate::tron::model::{Block, Log};
-use crate::tron::tables::common::HexBytesBuilder;
 use sqd_array::builder::{UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
+use crate::tron::{
+    model::{Block, Log},
+    tables::common::HexBytesBuilder
+};
 
 table_builder! {
     LogBuilder {
@@ -32,7 +34,6 @@ table_builder! {
         d.options.row_group_size = 10_000;
     }
 }
-
 
 impl LogBuilder {
     pub fn push(&mut self, block: &Block, row: &Log) {

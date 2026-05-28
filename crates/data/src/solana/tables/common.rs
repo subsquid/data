@@ -1,6 +1,5 @@
 use sqd_array::builder::{ListBuilder, StringBuilder, UInt32Builder, UInt8Builder};
 
-
 pub type Base58Builder = StringBuilder;
 pub type JsonBuilder = StringBuilder;
 pub type AccountListBuilder = ListBuilder<Base58Builder>;

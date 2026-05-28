@@ -1,10 +1,10 @@
-use crate::fs::{FSRef, Fs};
+use std::{path::Path, sync::Arc};
+
 use anyhow::{ensure, Context};
 use async_trait::async_trait;
 use aws_sdk_s3::primitives::ByteStream;
-use std::path::Path;
-use std::sync::Arc;
 
+use crate::fs::{FSRef, Fs};
 
 pub struct S3Fs {
     client: aws_sdk_s3::Client,
@@ -12,12 +12,8 @@ pub struct S3Fs {
     path: Vec<String>
 }
 
-
 impl S3Fs {
-    pub fn new(
-        s3_client: aws_sdk_s3::Client,
-        bucket: String
-    ) -> Self {
+    pub fn new(s3_client: aws_sdk_s3::Client, bucket: String) -> Self {
         Self {
             client: s3_client,
             bucket,
@@ -27,22 +23,22 @@ impl S3Fs {
 
     fn resolve(&self, mut path: &str) -> Vec<String> {
         let mut result = self.path.clone();
-        
+
         if path.starts_with('/') {
             result.clear();
             path = &path[1..];
         }
-        
+
         if path.ends_with('/') {
             path = &path[0..path.len() - 1];
         }
 
         for seg in path.split('/') {
             match seg {
-                "." | "" => {},
+                "." | "" => {}
                 ".." => {
                     result.pop();
-                },
+                }
                 s => {
                     result.push(s.to_string());
                 }
@@ -51,36 +47,31 @@ impl S3Fs {
 
         result
     }
-    
+
     fn resolve_key(&self, path: &str) -> String {
         let key_segments = self.resolve(path);
 
-        let mut key = String::with_capacity(
-            key_segments.len() + key_segments.iter().map(|s| s.len()).sum::<usize>() + 1
-        );
+        let mut key =
+            String::with_capacity(key_segments.len() + key_segments.iter().map(|s| s.len()).sum::<usize>() + 1);
 
         for seg in key_segments {
             key.push_str(&seg);
             key.push('/');
         }
         key.pop();
-        
+
         key
     }
 
     fn resolve_item_key(&self, path: &str) -> anyhow::Result<String> {
         let key = self.resolve_key(path);
-        ensure!(
-            !key.is_empty(), 
-            "'{}' resolves to a root path, not to an item", 
-            path
-        );
+        ensure!(!key.is_empty(), "'{}' resolves to a root path, not to an item", path);
         Ok(key)
     }
 
     async fn upload_directory(&self, local_src: &Path, dest: &str) -> anyhow::Result<()> {
         let mut dir = tokio::fs::read_dir(local_src).await?;
-        
+
         while let Some(entry) = dir.next_entry().await? {
             let path = entry.path();
             let file_name = entry.file_name().into_string().unwrap();
@@ -108,7 +99,6 @@ impl S3Fs {
     }
 }
 
-
 #[async_trait]
 impl Fs for S3Fs {
     fn cd(&self, path: &str) -> FSRef {
@@ -121,7 +111,7 @@ impl Fs for S3Fs {
 
     async fn ls(&self) -> anyhow::Result<Vec<String>> {
         let mut prefix = self.resolve_key(".");
-        
+
         if !self.path.is_empty() {
             prefix.push('/');
         }
@@ -155,10 +145,7 @@ impl Fs for S3Fs {
 
             for object in output.contents() {
                 if let Some(key) = object.key() {
-                    let file = key
-                        .strip_prefix(&prefix)
-                        .context("unexpected file name")?
-                        .to_string();
+                    let file = key.strip_prefix(&prefix).context("unexpected file name")?.to_string();
                     items.push(file);
                 }
             }
@@ -203,7 +190,7 @@ impl Fs for S3Fs {
             .prefix(&prefix)
             .send()
             .await?;
-        
+
         ensure!(
             !output.is_truncated.unwrap_or(false),
             "too many items under '{}', can't delete that much",
@@ -213,12 +200,7 @@ impl Fs for S3Fs {
         if let Some(contents) = output.contents {
             for object in contents {
                 if let Some(key) = object.key() {
-                    self.client
-                        .delete_object()
-                        .bucket(&self.bucket)
-                        .key(key)
-                        .send()
-                        .await?;
+                    self.client.delete_object().bucket(&self.bucket).key(key).send().await?;
                 }
             }
         } else {

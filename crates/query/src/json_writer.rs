@@ -2,10 +2,10 @@ use std::io::Write;
 
 use arrow::array::{Array, RecordBatch, StructArray};
 
-use crate::json::encoder::Encoder;
-use crate::json::encoder::factory::make_struct_encoder;
-use crate::plan::BlockWriter;
-
+use crate::{
+    json::encoder::{factory::make_struct_encoder, Encoder},
+    plan::BlockWriter
+};
 
 pub struct JsonArrayWriter<W> {
     write: W,
@@ -14,8 +14,7 @@ pub struct JsonArrayWriter<W> {
     rows_written: bool
 }
 
-
-impl <W> JsonArrayWriter<W> {
+impl<W> JsonArrayWriter<W> {
     pub fn new(write: W) -> Self {
         Self {
             write,
@@ -26,8 +25,7 @@ impl <W> JsonArrayWriter<W> {
     }
 }
 
-
-impl <W: Write> JsonArrayWriter<W> {
+impl<W: Write> JsonArrayWriter<W> {
     pub fn write_batch(&mut self, batch: RecordBatch) -> anyhow::Result<()> {
         if batch.num_rows() == 0 {
             return Ok(());
@@ -83,23 +81,21 @@ impl <W: Write> JsonArrayWriter<W> {
     }
 }
 
-
 pub struct JsonLinesWriter<W> {
     write: W,
     buf: Vec<u8>,
-    flush_threshold: usize,
-} 
+    flush_threshold: usize
+}
 
-
-impl <W: Write> JsonLinesWriter<W> {
+impl<W: Write> JsonLinesWriter<W> {
     pub fn new(write: W) -> Self {
         Self {
             write,
             buf: Vec::with_capacity(256 * 1024),
-            flush_threshold: 16 * 1024,
+            flush_threshold: 16 * 1024
         }
     }
-    
+
     pub fn write_blocks(&mut self, blocks: &mut BlockWriter) -> std::io::Result<()> {
         while blocks.has_next_block() {
             blocks.write_next_block(&mut self.buf);

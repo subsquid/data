@@ -1,20 +1,22 @@
-use crate::errors::{BlockItemIsNotAvailable, QueryKindMismatch};
-use crate::errors::{BlockRangeMissing, QueryIsAboveTheHead};
-use crate::metrics::{QUERIED_BLOCKS, QUERIED_CHUNKS};
-use crate::query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot};
-use crate::types::{ClientId, DBRef, DatasetKind};
+use std::io::Write;
+
 use anyhow::{anyhow, bail, ensure};
 use bytes::{BufMut, Bytes, BytesMut};
-use flate2::Compression;
-use flate2::write::GzEncoder;
+use flate2::{Compression, write::GzEncoder};
 use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_query::{JsonLinesWriter, Plan, Query};
 use sqd_storage::db::{Chunk as StorageChunk, DatasetId};
-use std::io::Write;
+
+use crate::{
+    errors::{BlockItemIsNotAvailable, BlockRangeMissing, QueryIsAboveTheHead, QueryKindMismatch},
+    metrics::{QUERIED_BLOCKS, QUERIED_CHUNKS},
+    query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot},
+    types::{ClientId, DBRef, DatasetKind}
+};
 
 struct LeftOver {
     chunk: StaticChunkReader,
-    next_block: BlockNumber,
+    next_block: BlockNumber
 }
 
 pub struct RunningQueryStats {
@@ -40,12 +42,8 @@ impl RunningQueryStats {
             ("dataset_id", dataset_id.as_str().to_owned()),
         ];
 
-        QUERIED_BLOCKS
-            .get_or_create(&labels)
-            .observe(self.blocks_read as f64);
-        QUERIED_CHUNKS
-            .get_or_create(&labels)
-            .observe(self.chunks_read as f64);
+        QUERIED_BLOCKS.get_or_create(&labels).observe(self.blocks_read as f64);
+        QUERIED_CHUNKS.get_or_create(&labels).observe(self.chunks_read as f64);
 
         // blocks_returned and chunks_returned are reported by the streaming part
     }
@@ -59,16 +57,11 @@ pub struct RunningQuery {
     chunk_iterator: StaticChunkIterator,
     finalized_head: Option<BlockRef>,
     buf: GzEncoder<bytes::buf::Writer<BytesMut>>,
-    stats: RunningQueryStats,
+    stats: RunningQueryStats
 }
 
 impl RunningQuery {
-    pub fn new(
-        db: DBRef,
-        dataset_id: DatasetId,
-        query: &Query,
-        only_finalized: bool,
-    ) -> anyhow::Result<Self> {
+    pub fn new(db: DBRef, dataset_id: DatasetId, query: &Query, only_finalized: bool) -> anyhow::Result<Self> {
         let snapshot = StaticSnapshot::new(db);
 
         let finalized_head = match snapshot.get_label(dataset_id)? {
@@ -86,14 +79,11 @@ impl RunningQuery {
             }
         };
 
-        let mut chunk_iterator =
-            StaticChunkIterator::new(snapshot, dataset_id, query.first_block(), None);
+        let mut chunk_iterator = StaticChunkIterator::new(snapshot, dataset_id, query.first_block(), None);
 
         let mut stats = RunningQueryStats::new();
         let Some(first_chunk) = chunk_iterator.next().transpose()? else {
-            bail!(QueryIsAboveTheHead {
-                finalized_head: None
-            })
+            bail!(QueryIsAboveTheHead { finalized_head: None })
         };
         stats.chunks_read += 1;
         stats.blocks_read += first_chunk.last_block() - first_chunk.first_block() + 1;
@@ -150,7 +140,7 @@ impl RunningQuery {
             chunk_iterator,
             finalized_head,
             buf: GzEncoder::new(BytesMut::new().writer(), Compression::fast()),
-            stats,
+            stats
         })
     }
 
@@ -192,35 +182,27 @@ impl RunningQuery {
             (left_over.chunk, false)
         } else {
             let storage_chunk = self.next_chunk()?;
-            let chunk = self
-                .chunk_iterator
-                .snapshot()
-                .create_chunk_reader(storage_chunk);
+            let chunk = self.chunk_iterator.snapshot().create_chunk_reader(storage_chunk);
             (chunk, true)
         };
 
-        if self
-            .last_block
-            .map_or(false, |end| end < chunk.last_block())
-        {
+        if self.last_block.map_or(false, |end| end < chunk.last_block()) {
             let last_block = self.last_block;
             self.plan.set_last_block(last_block);
         } else {
             self.plan.set_last_block(None);
         }
 
-        let query_result = chunk
-            .with_reader(|reader| self.plan.execute(reader))
-            .map_err(|err| {
-                if let Some(err) = err.downcast_ref::<sqd_query::TableDoesNotExist>() {
-                    return anyhow!(BlockItemIsNotAvailable {
-                        item_name: err.table_name,
-                        first_block: chunk.first_block(),
-                        last_block: chunk.last_block()
-                    });
-                }
-                err
-            });
+        let query_result = chunk.with_reader(|reader| self.plan.execute(reader)).map_err(|err| {
+            if let Some(err) = err.downcast_ref::<sqd_query::TableDoesNotExist>() {
+                return anyhow!(BlockItemIsNotAvailable {
+                    item_name: err.table_name,
+                    first_block: chunk.first_block(),
+                    last_block: chunk.last_block()
+                });
+            }
+            err
+        });
 
         // no matter what, we are moving to the next chunk
         self.plan.set_first_block(None);
@@ -234,15 +216,13 @@ impl RunningQuery {
             self.stats.chunks_returned += 1;
         }
         self.stats.blocks_returned += block_writer.num_blocks() as u64;
-        
+
         if chunk.last_block() > block_writer.last_block()
-            && self
-                .last_block
-                .map_or(true, |end| end > block_writer.last_block())
+            && self.last_block.map_or(true, |end| end > block_writer.last_block())
         {
             self.left_over = Some(LeftOver {
                 chunk,
-                next_block: block_writer.last_block() + 1,
+                next_block: block_writer.last_block() + 1
             })
         }
 
@@ -252,9 +232,7 @@ impl RunningQuery {
             .write_blocks(&mut block_writer)
             .expect("IO errors are not possible");
 
-        json_lines_writer
-            .finish()
-            .expect("IO errors are not possible");
+        json_lines_writer.finish().expect("IO errors are not possible");
 
         self.buf.flush().expect("IO errors are not possible");
 
@@ -274,11 +252,9 @@ impl RunningQuery {
                 let next_chunk = maybe_next_chunk?;
                 self.stats.chunks_read += 1;
                 self.stats.blocks_read += chunk.last_block() - chunk.first_block() + 1;
-                
+
                 let is_continuous = chunk.last_block() + 1 == next_chunk.first_block();
-                let is_requested = self
-                    .last_block
-                    .map_or(true, |end| next_chunk.first_block() <= end);
+                let is_requested = self.last_block.map_or(true, |end| next_chunk.first_block() <= end);
                 if is_continuous && is_requested {
                     Some(next_chunk)
                 } else {

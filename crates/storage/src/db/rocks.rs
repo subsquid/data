@@ -1,8 +1,6 @@
-use crate::db::db::RocksIterator;
-use crate::kv::KvReadCursor;
+use crate::{db::db::RocksIterator, kv::KvReadCursor};
 
-
-impl <'a, DB: rocksdb::DBAccess> KvReadCursor for RocksIterator<'a, DB> {
+impl<'a, DB: rocksdb::DBAccess> KvReadCursor for RocksIterator<'a, DB> {
     fn seek_first(&mut self) -> anyhow::Result<()> {
         self.seek_to_first();
         self.status()?;

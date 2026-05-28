@@ -1,20 +1,18 @@
 use sqd_data_core::{BlockChunkBuilder, ChunkProcessor, PreparedChunk};
 use sqd_dataset::DatasetDescriptionRef;
 
-
 pub struct ChunkWriter<B> {
     chunk_builder: B,
     processor: ChunkProcessor,
-    memory_threshold: usize,
+    memory_threshold: usize
 }
-
 
 impl<B: BlockChunkBuilder> ChunkWriter<B> {
     pub fn new(chunk_builder: B) -> anyhow::Result<Self> {
         Ok(Self {
             processor: chunk_builder.new_chunk_processor()?,
             chunk_builder,
-            memory_threshold: 40 * 1024 * 1024,
+            memory_threshold: 40 * 1024 * 1024
         })
     }
 

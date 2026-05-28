@@ -1,10 +1,12 @@
-use super::{can_have_stats, Stats};
 use arrow::datatypes::DataType;
 use arrow_buffer::{ArrowNativeType, OffsetBuffer};
-use sqd_array::builder::{AnyBuilder, ArrayBuilder};
-use sqd_array::slice::{AnySlice, FixedSizeListSlice, ListSlice, PrimitiveSlice, Slice};
-use sqd_array::writer::ArrayWriter;
+use sqd_array::{
+    builder::{AnyBuilder, ArrayBuilder},
+    slice::{AnySlice, FixedSizeListSlice, ListSlice, PrimitiveSlice, Slice},
+    writer::ArrayWriter
+};
 
+use super::{can_have_stats, Stats};
 
 pub struct StatsBuilder {
     data_type: DataType,
@@ -13,7 +15,6 @@ pub struct StatsBuilder {
     min: AnyBuilder,
     max: AnyBuilder
 }
-
 
 impl StatsBuilder {
     pub fn new(data_type: DataType) -> Self {
@@ -28,9 +29,7 @@ impl StatsBuilder {
     }
 
     pub fn finish(self) -> Stats {
-        let offsets = unsafe {
-            OffsetBuffer::new_unchecked(self.offsets.into())
-        };
+        let offsets = unsafe { OffsetBuffer::new_unchecked(self.offsets.into()) };
         Stats {
             offsets,
             min: self.min.finish(),
@@ -45,26 +44,22 @@ impl StatsBuilder {
             DataType::Int8 => self.push_primitive(values.as_i8()),
             DataType::Int16 => self.push_primitive(values.as_i16()),
 
-            DataType::Int32 |
-            DataType::Date32 |
-            DataType::Time32(_) => self.push_primitive(values.as_i32()),
+            DataType::Int32 | DataType::Date32 | DataType::Time32(_) => self.push_primitive(values.as_i32()),
 
-            DataType::Int64 |
-            DataType::Timestamp(_, _) |
-            DataType::Date64 |
-            DataType::Time64(_) |
-            DataType::Duration(_) |
-            DataType::Interval(_) => self.push_primitive(values.as_i64()),
+            DataType::Int64
+            | DataType::Timestamp(_, _)
+            | DataType::Date64
+            | DataType::Time64(_)
+            | DataType::Duration(_)
+            | DataType::Interval(_) => self.push_primitive(values.as_i64()),
 
             DataType::UInt8 => self.push_primitive(values.as_u8()),
             DataType::UInt16 => self.push_primitive(values.as_u16()),
             DataType::UInt32 => self.push_primitive(values.as_u32()),
             DataType::UInt64 => self.push_primitive(values.as_u64()),
 
-            DataType::Binary |
-            DataType::Utf8 => self.push_binary(values.as_binary()),
-            DataType::FixedSizeBinary(_) =>
-                self.push_fixed_size_binary(values.as_fixed_size_binary()),
+            DataType::Binary | DataType::Utf8 => self.push_binary(values.as_binary()),
+            DataType::FixedSizeBinary(_) => self.push_fixed_size_binary(values.as_fixed_size_binary()),
             ty => unreachable!("unexpected arrow type - {}", ty)
         };
     }
@@ -99,7 +94,7 @@ impl StatsBuilder {
                     min_builder.append_null();
                     max_builder.append_null()
                 }
-            },
+            }
             (AnyBuilder::String(min_builder), AnyBuilder::String(max_builder)) => {
                 if let Some((min, max)) = min_max {
                     // FIXME: we should not crush here
@@ -109,7 +104,7 @@ impl StatsBuilder {
                     min_builder.append_null();
                     max_builder.append_null()
                 }
-            },
+            }
             _ => unreachable!()
         };
     }
@@ -121,10 +116,7 @@ impl StatsBuilder {
         });
 
         match (&mut self.min, &mut self.max) {
-            (
-                AnyBuilder::FixedSizeBinary(min_builder),
-                AnyBuilder::FixedSizeBinary(max_builder),
-            ) => {
+            (AnyBuilder::FixedSizeBinary(min_builder), AnyBuilder::FixedSizeBinary(max_builder)) => {
                 if let Some((min, max)) = min_max {
                     min_builder.append(min);
                     max_builder.append(max)
@@ -133,7 +125,7 @@ impl StatsBuilder {
                     max_builder.append_null()
                 }
             }
-            _ => unreachable!(),
+            _ => unreachable!()
         };
     }
 }

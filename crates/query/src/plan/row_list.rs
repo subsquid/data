@@ -1,15 +1,13 @@
 use std::collections::BTreeSet;
 
 use arrow::array::{Array, AsArray, PrimitiveArray, RecordBatch};
-
-use crate::primitives::{RowIndex, RowIndexArrowType};
 use sqd_polars::arrow::polars_series_to_row_index_iter;
 
+use crate::primitives::{RowIndex, RowIndexArrowType};
 
 pub struct RowList {
     row_indexes: parking_lot::Mutex<BTreeSet<RowIndex>>
 }
-
 
 impl RowList {
     pub fn new() -> Self {
@@ -19,14 +17,16 @@ impl RowList {
     }
 
     pub fn extend<I>(&self, rows: I)
-        where I: IntoIterator<Item = RowIndex>
+    where
+        I: IntoIterator<Item = RowIndex>
     {
         self.row_indexes.lock().extend(rows)
     }
 
     pub fn extend_from_record_batch_vec(&self, batches: &Vec<RecordBatch>) {
         let row_index_iter = batches.iter().flat_map(|b| {
-            let array: &PrimitiveArray<RowIndexArrowType> = b.column_by_name("row_index")
+            let array: &PrimitiveArray<RowIndexArrowType> = b
+                .column_by_name("row_index")
                 .expect("No row_index column in the batch")
                 .as_primitive();
             assert_eq!(array.null_count(), 0);

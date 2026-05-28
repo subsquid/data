@@ -1,11 +1,10 @@
-use crate::types::{Base58Bytes, JsonValue};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use sqd_primitives::{BlockNumber, ItemIndex};
 
+use crate::types::{Base58Bytes, JsonValue};
 
 pub type AccountIndex = u32;
-
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,34 +14,30 @@ pub struct BlockHeader {
     pub parent_number: BlockNumber,
     pub parent_hash: Base58Bytes,
     pub height: BlockNumber,
-    pub timestamp: Option<i64>,
+    pub timestamp: Option<i64>
 }
-
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddressTableLookup {
     pub account_key: AccountIndex,
     pub readonly_indexes: Vec<u8>,
-    pub writable_indexes: Vec<u8>,
+    pub writable_indexes: Vec<u8>
 }
-
 
 #[derive(Deserialize)]
 pub struct LoadedAddresses {
     pub readonly: Vec<AccountIndex>,
-    pub writable: Vec<AccountIndex>,
+    pub writable: Vec<AccountIndex>
 }
-
 
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TransactionVersion {
     Legacy,
     #[serde(untagged)]
-    Other(u8),
+    Other(u8)
 }
-
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,16 +52,15 @@ pub struct Transaction {
     pub recent_blockhash: Base58Bytes,
     pub signatures: Vec<Base58Bytes>,
     pub err: Option<JsonValue>,
-    #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub compute_units_consumed: Option<u64>,
-    #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub cost_units: Option<u64>,
-    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string")]
     pub fee: u64,
     pub loaded_addresses: LoadedAddresses,
-    pub has_dropped_log_messages: bool,
+    pub has_dropped_log_messages: bool
 }
-
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,23 +70,21 @@ pub struct Instruction {
     pub program_id: AccountIndex,
     pub accounts: Vec<AccountIndex>,
     pub data: Base58Bytes,
-    #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub compute_units_consumed: Option<u64>,
     #[serde(default)]
     pub error: Option<JsonValue>,
     pub is_committed: bool,
-    pub has_dropped_log_messages: bool,
+    pub has_dropped_log_messages: bool
 }
-
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogMessageKind {
     Log,
     Data,
-    Other,
+    Other
 }
-
 
 impl LogMessageKind {
     pub fn to_str(&self) -> &'static str {
@@ -104,7 +96,6 @@ impl LogMessageKind {
     }
 }
 
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogMessage {
@@ -113,21 +104,19 @@ pub struct LogMessage {
     pub instruction_address: Vec<ItemIndex>,
     pub program_id: AccountIndex,
     pub kind: LogMessageKind,
-    pub message: String,
+    pub message: String
 }
-
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Balance {
     pub transaction_index: ItemIndex,
     pub account: AccountIndex,
-    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string")]
     pub pre: u64,
-    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
-    pub post: u64,
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string")]
+    pub post: u64
 }
-
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -150,27 +139,25 @@ pub struct TokenBalance {
     pub pre_owner: Option<AccountIndex>,
     #[serde(default)]
     pub post_owner: Option<AccountIndex>,
-    #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
     pub pre_amount: Option<u64>,
-    #[serde(deserialize_with="sqd_data_core::serde::decode_string_option", default)]
-    pub post_amount: Option<u64>,
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
+    pub post_amount: Option<u64>
 }
-
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reward {
     pub pubkey: AccountIndex,
-    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string")]
     pub lamports: i64,
-    #[serde(deserialize_with="sqd_data_core::serde::decode_string")]
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string")]
     pub post_balance: u64,
     #[serde(default)]
     pub reward_type: Option<String>,
     #[serde(default)]
-    pub commission: Option<u8>,
+    pub commission: Option<u8>
 }
-
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -185,20 +172,18 @@ pub struct Block {
     pub accounts: Vec<Base58Bytes>
 }
 
-
 impl Block {
     pub fn get_account(&self, idx: AccountIndex) -> anyhow::Result<&str> {
         self.accounts.get(idx as usize).map(|s| s.as_str()).ok_or_else(|| {
             anyhow!(
-                "invalid account reference {} in block {}#{}", 
-                idx, 
-                self.header.number, 
+                "invalid account reference {} in block {}#{}",
+                idx,
+                self.header.number,
                 self.header.hash
             )
         })
     }
 }
-
 
 impl sqd_primitives::Block for Block {
     fn number(&self) -> BlockNumber {

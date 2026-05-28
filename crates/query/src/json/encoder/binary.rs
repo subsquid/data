@@ -1,20 +1,16 @@
-use crate::json::encoder::Encoder;
 use arrow::array::{BinaryArray, FixedSizeBinaryArray};
 
+use crate::json::encoder::Encoder;
 
 pub struct BinaryEncoder {
     array: BinaryArray
 }
 
-
 impl BinaryEncoder {
     pub fn new(array: BinaryArray) -> Self {
-        Self {
-            array
-        }
+        Self { array }
     }
 }
-
 
 impl Encoder for BinaryEncoder {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {
@@ -23,20 +19,15 @@ impl Encoder for BinaryEncoder {
     }
 }
 
-
 pub struct FixedSizedBinaryEncoder {
     array: FixedSizeBinaryArray
 }
 
-
 impl FixedSizedBinaryEncoder {
     pub fn new(array: FixedSizeBinaryArray) -> Self {
-        Self {
-            array
-        }
+        Self { array }
     }
 }
-
 
 impl Encoder for FixedSizedBinaryEncoder {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {
@@ -44,7 +35,6 @@ impl Encoder for FixedSizedBinaryEncoder {
         write_hex(bytes, out)
     }
 }
-
 
 fn write_hex(bytes: &[u8], out: &mut Vec<u8>) {
     let offset = out.len();

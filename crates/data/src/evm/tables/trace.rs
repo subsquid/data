@@ -1,8 +1,8 @@
-use super::common::{sighash, HexBytesBuilder, TraceAddressListBuilder};
-use crate::evm::model::{Block, Trace, TraceOp};
 use sqd_array::builder::{StringBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
+use super::common::{sighash, HexBytesBuilder, TraceAddressListBuilder};
+use crate::evm::model::{Block, Trace, TraceOp};
 
 table_builder! {
     TraceBuilder {
@@ -90,7 +90,8 @@ impl TraceBuilder {
                 self.create_result_gas_used.append(&res.gas_used);
                 self.create_result_code.append_option(res.code.as_deref());
                 self.create_result_address.append_option(res.address.as_deref());
-                self.create_result_code_size.append(res.code.as_ref().map_or(0, |v| v.len()) as u64);
+                self.create_result_code_size
+                    .append(res.code.as_ref().map_or(0, |v| v.len()) as u64);
             } else {
                 self.create_result_gas_used.append_null();
                 self.create_result_code.append_null();
@@ -122,7 +123,8 @@ impl TraceBuilder {
             if let Some(res) = result {
                 self.call_result_gas_used.append_option(res.gas_used.as_deref());
                 self.call_result_output.append_option(res.output.as_deref());
-                self.call_result_output_size.append(res.output.as_ref().map_or(0, |v| v.len()) as u64);
+                self.call_result_output_size
+                    .append(res.output.as_ref().map_or(0, |v| v.len()) as u64);
             } else {
                 self.call_result_gas_used.append_null();
                 self.call_result_output.append_null();
@@ -153,7 +155,7 @@ impl TraceBuilder {
             self.reward_type.append_null();
         }
 
-        if let TraceOp::SelfDestruct { action} = &row.op {
+        if let TraceOp::SelfDestruct { action } = &row.op {
             self.r#type.append("suicide");
             self.suicide_address.append_option(action.address.as_deref());
             self.suicide_refund_address.append(&action.refund_address);

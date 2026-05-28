@@ -1,15 +1,23 @@
-use arrow::array::{Array, ArrayRef, RecordBatch};
-use arrow::datatypes::{Field, Schema};
-use proptest::prelude::{prop, ProptestConfig};
-use proptest::proptest;
-use proptest::strategy::Strategy;
-use sqd_array::builder::{AnyBuilder, ArrayBuilder};
-use sqd_array::reader::ArrayReader;
-use sqd_storage::db::{Database, DatabaseSettings};
-use sqd_storage::table::write::use_small_buffers;
-use core::assert_eq;
-use core::convert::TryFrom;
+use core::{assert_eq, convert::TryFrom};
 use std::sync::Arc;
+
+use arrow::{
+    array::{Array, ArrayRef, RecordBatch},
+    datatypes::{Field, Schema}
+};
+use proptest::{
+    prelude::{prop, ProptestConfig},
+    proptest,
+    strategy::Strategy
+};
+use sqd_array::{
+    builder::{AnyBuilder, ArrayBuilder},
+    reader::ArrayReader
+};
+use sqd_storage::{
+    db::{Database, DatabaseSettings},
+    table::write::use_small_buffers
+};
 
 mod arb_array;
 
@@ -18,9 +26,7 @@ const WRITE_READ_ARRAY_SIZE: usize = 300;
 const WRITE_READ_ITERATIONS: u32 = 10;
 
 fn to_record_batch(array: ArrayRef) -> RecordBatch {
-    let schema = Schema::new(vec![
-        Field::new("c0", array.data_type().clone(), true)
-    ]);
+    let schema = Schema::new(vec![Field::new("c0", array.data_type().clone(), true)]);
 
     RecordBatch::try_new(Arc::new(schema), vec![array]).unwrap()
 }
@@ -71,7 +77,7 @@ fn check_write_read(db: &Database, batches: Vec<RecordBatch>, stats_type: bool) 
     Ok(())
 }
 
-fn test_write_read(array: impl Strategy<Value=ArrayRef>) -> anyhow::Result<()> {
+fn test_write_read(array: impl Strategy<Value = ArrayRef>) -> anyhow::Result<()> {
     let db_dir = tempfile::tempdir()?;
     let db = DatabaseSettings::default().open(db_dir.path())?;
     let _sg = use_small_buffers();
@@ -140,8 +146,16 @@ fn binary_write_read() {
 fn fixed_size_binary_write_read() {
     // Strategy returned from `fixed_size_binary` within a single call to `test_write_read` has to generate
     // arrays with the same sizes so that they can be concatenated into a single RecordBatch.
-    test_write_read(arb_array::with_nullmask(arb_array::fixed_size_binary(0..WRITE_READ_ARRAY_SIZE, 12))).unwrap();
-    test_write_read(arb_array::with_nullmask(arb_array::fixed_size_binary(0..WRITE_READ_ARRAY_SIZE, 128))).unwrap();
+    test_write_read(arb_array::with_nullmask(arb_array::fixed_size_binary(
+        0..WRITE_READ_ARRAY_SIZE,
+        12
+    )))
+    .unwrap();
+    test_write_read(arb_array::with_nullmask(arb_array::fixed_size_binary(
+        0..WRITE_READ_ARRAY_SIZE,
+        128
+    )))
+    .unwrap();
 }
 
 #[test]

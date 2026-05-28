@@ -1,16 +1,21 @@
-use crate::index::RangeList;
-use crate::slice::boolean::BooleanSlice;
-use crate::slice::fixed_size_list::FixedSizeListSlice;
-use crate::slice::list::ListSlice;
-use crate::slice::primitive::PrimitiveSlice;
-use crate::slice::r#struct::AnyStructSlice;
-use crate::slice::{AsSlice, Slice};
-use crate::writer::ArrayWriter;
-use arrow::array::{Array, AsArray};
-use arrow::datatypes::{DataType, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit, TimestampMillisecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
-use std::ops::Range;
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
+use arrow::{
+    array::{Array, AsArray},
+    datatypes::{
+        DataType, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit, TimestampMillisecondType, TimestampSecondType,
+        UInt16Type, UInt32Type, UInt64Type, UInt8Type
+    }
+};
+
+use crate::{
+    index::RangeList,
+    slice::{
+        boolean::BooleanSlice, fixed_size_list::FixedSizeListSlice, list::ListSlice, primitive::PrimitiveSlice,
+        r#struct::AnyStructSlice, AsSlice, Slice
+    },
+    writer::ArrayWriter
+};
 
 #[derive(Clone)]
 pub enum AnySlice<'a> {
@@ -31,7 +36,6 @@ pub enum AnySlice<'a> {
     FixedSizeList(FixedSizeListSlice<'a, AnyListItem<'a>>),
     Struct(AnyStructSlice<'a>)
 }
-
 
 impl<'a> AnySlice<'a> {
     pub fn as_bool(&self) -> BooleanSlice<'a> {
@@ -133,8 +137,7 @@ impl<'a> AnySlice<'a> {
     }
 }
 
-
-impl <'a> Slice for AnySlice<'a> {
+impl<'a> Slice for AnySlice<'a> {
     fn num_buffers(&self) -> usize {
         match self {
             AnySlice::Boolean(s) => s.num_buffers(),
@@ -152,7 +155,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::FixedSizeBinary(s) => s.num_buffers(),
             AnySlice::List(s) => s.num_buffers(),
             AnySlice::FixedSizeList(s) => s.num_buffers(),
-            AnySlice::Struct(s) => s.num_buffers(),
+            AnySlice::Struct(s) => s.num_buffers()
         }
     }
 
@@ -173,7 +176,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::FixedSizeBinary(s) => s.byte_size(),
             AnySlice::List(s) => s.byte_size(),
             AnySlice::FixedSizeList(s) => s.byte_size(),
-            AnySlice::Struct(s) => s.byte_size(),
+            AnySlice::Struct(s) => s.byte_size()
         }
     }
 
@@ -194,7 +197,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::FixedSizeBinary(s) => s.len(),
             AnySlice::List(s) => s.len(),
             AnySlice::FixedSizeList(s) => s.len(),
-            AnySlice::Struct(s) => s.len(),
+            AnySlice::Struct(s) => s.len()
         }
     }
 
@@ -215,7 +218,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::FixedSizeBinary(s) => AnySlice::FixedSizeBinary(s.slice(offset, len)),
             AnySlice::List(s) => AnySlice::List(s.slice(offset, len)),
             AnySlice::FixedSizeList(s) => AnySlice::FixedSizeList(s.slice(offset, len)),
-            AnySlice::Struct(s) => AnySlice::Struct(s.slice(offset, len)),
+            AnySlice::Struct(s) => AnySlice::Struct(s.slice(offset, len))
         }
     }
 
@@ -236,7 +239,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::FixedSizeBinary(s) => s.write(dst),
             AnySlice::List(s) => s.write(dst),
             AnySlice::FixedSizeList(s) => s.write(dst),
-            AnySlice::Struct(s) => s.write(dst),
+            AnySlice::Struct(s) => s.write(dst)
         }
     }
 
@@ -257,7 +260,7 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::FixedSizeBinary(s) => s.write_range(dst, range),
             AnySlice::List(s) => s.write_range(dst, range),
             AnySlice::FixedSizeList(s) => s.write_range(dst, range),
-            AnySlice::Struct(s) => s.write_range(dst, range),
+            AnySlice::Struct(s) => s.write_range(dst, range)
         }
     }
 
@@ -278,16 +281,15 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::FixedSizeBinary(s) => s.write_ranges(dst, ranges),
             AnySlice::List(s) => s.write_ranges(dst, ranges),
             AnySlice::FixedSizeList(s) => s.write_ranges(dst, ranges),
-            AnySlice::Struct(s) => s.write_ranges(dst, ranges),
+            AnySlice::Struct(s) => s.write_ranges(dst, ranges)
         }
     }
 
     fn write_indexes(
-        &self, 
-        dst: &mut impl ArrayWriter, 
-        indexes: impl Iterator<Item=usize> + Clone
-    ) -> anyhow::Result<()> 
-    {
+        &self,
+        dst: &mut impl ArrayWriter,
+        indexes: impl Iterator<Item = usize> + Clone
+    ) -> anyhow::Result<()> {
         match self {
             AnySlice::Boolean(s) => s.write_indexes(dst, indexes),
             AnySlice::UInt8(s) => s.write_indexes(dst, indexes),
@@ -304,30 +306,25 @@ impl <'a> Slice for AnySlice<'a> {
             AnySlice::FixedSizeBinary(s) => s.write_indexes(dst, indexes),
             AnySlice::List(s) => s.write_indexes(dst, indexes),
             AnySlice::FixedSizeList(s) => s.write_indexes(dst, indexes),
-            AnySlice::Struct(s) => s.write_indexes(dst, indexes),
+            AnySlice::Struct(s) => s.write_indexes(dst, indexes)
         }
     }
 }
-
 
 #[derive(Clone)]
 pub struct AnyListItem<'a> {
     item: Arc<AnySlice<'a>>
 }
 
-
 impl<'a> AnyListItem<'a> {
     pub fn new(item: AnySlice<'a>) -> Self {
-        Self {
-            item: Arc::new(item)
-        }
+        Self { item: Arc::new(item) }
     }
-    
+
     pub fn item(&self) -> AnySlice<'a> {
         self.item.as_ref().clone()
     }
 }
-
 
 impl<'a> Slice for AnyListItem<'a> {
     #[inline]
@@ -366,17 +363,15 @@ impl<'a> Slice for AnyListItem<'a> {
 
     #[inline]
     fn write_indexes(
-        &self, 
-        dst: &mut impl ArrayWriter, 
-        indexes: impl Iterator<Item=usize> + Clone
-    ) -> anyhow::Result<()> 
-    {
+        &self,
+        dst: &mut impl ArrayWriter,
+        indexes: impl Iterator<Item = usize> + Clone
+    ) -> anyhow::Result<()> {
         self.item.write_indexes(dst, indexes)
     }
 }
 
-
-impl <'a> From<&'a dyn Array> for AnySlice<'a> {
+impl<'a> From<&'a dyn Array> for AnySlice<'a> {
     fn from(value: &'a dyn Array) -> Self {
         match value.data_type() {
             DataType::Boolean => AnySlice::Boolean(value.as_boolean().into()),
@@ -390,10 +385,10 @@ impl <'a> From<&'a dyn Array> for AnySlice<'a> {
             DataType::UInt64 => AnySlice::UInt64(value.as_primitive::<UInt64Type>().into()),
             DataType::Timestamp(TimeUnit::Second, _) => {
                 AnySlice::Int64(value.as_primitive::<TimestampSecondType>().into())
-            },
+            }
             DataType::Timestamp(TimeUnit::Millisecond, _) => {
                 AnySlice::Int64(value.as_primitive::<TimestampMillisecondType>().into())
-            },
+            }
             DataType::Binary => AnySlice::Binary(value.as_binary::<i32>().into()),
             DataType::FixedSizeBinary(_) => AnySlice::FixedSizeBinary(value.as_fixed_size_binary().into()),
             DataType::Utf8 => AnySlice::Binary(value.as_string::<i32>().into()),
@@ -405,75 +400,62 @@ impl <'a> From<&'a dyn Array> for AnySlice<'a> {
     }
 }
 
-
 impl<'a> AsSlice for &'a dyn Array {
-    type Slice<'b> = AnySlice<'b> where Self: 'b;
+    type Slice<'b>
+        = AnySlice<'b>
+    where
+        Self: 'b;
 
     fn as_slice(&self) -> Self::Slice<'a> {
         AnySlice::from(*self)
     }
 }
 
-
-impl <'a> From<BooleanSlice<'a>> for AnySlice<'a> {
+impl<'a> From<BooleanSlice<'a>> for AnySlice<'a> {
     fn from(value: BooleanSlice<'a>) -> Self {
         AnySlice::Boolean(value)
     }
 }
 
-
-impl <'a> From<ListSlice<'a, &'a [u8]>> for AnySlice<'a> {
+impl<'a> From<ListSlice<'a, &'a [u8]>> for AnySlice<'a> {
     fn from(value: ListSlice<'a, &'a [u8]>) -> Self {
         AnySlice::Binary(value)
     }
 }
 
-
-impl <'a> From<FixedSizeListSlice<'a, &'a [u8]>> for AnySlice<'a> {
+impl<'a> From<FixedSizeListSlice<'a, &'a [u8]>> for AnySlice<'a> {
     fn from(value: FixedSizeListSlice<'a, &'a [u8]>) -> Self {
         AnySlice::FixedSizeBinary(value)
     }
 }
 
-
-impl <'a, T: Slice + Into<AnySlice<'a>>> From<ListSlice<'a, T>> for AnySlice<'a> {
+impl<'a, T: Slice + Into<AnySlice<'a>>> From<ListSlice<'a, T>> for AnySlice<'a> {
     fn from(value: ListSlice<'a, T>) -> Self {
         let nulls = value.nulls();
         let offsets = value.offsets();
-        let items = AnyListItem::new(
-            value.values().into()
-        );
-        AnySlice::List(
-            ListSlice::new(offsets, items, nulls.bitmask())
-        )
+        let items = AnyListItem::new(value.values().into());
+        AnySlice::List(ListSlice::new(offsets, items, nulls.bitmask()))
     }
 }
 
-
-impl <'a, T: Slice + Into<AnySlice<'a>>> From<FixedSizeListSlice<'a, T>> for AnySlice<'a> {
+impl<'a, T: Slice + Into<AnySlice<'a>>> From<FixedSizeListSlice<'a, T>> for AnySlice<'a> {
     fn from(value: FixedSizeListSlice<'a, T>) -> Self {
         let size = value.size();
         let nulls = value.nulls();
-        let items = AnyListItem::new(
-            value.values().into()
-        );
-        AnySlice::FixedSizeList(
-            FixedSizeListSlice::new(size, items, nulls.bitmask())
-        )
+        let items = AnyListItem::new(value.values().into());
+        AnySlice::FixedSizeList(FixedSizeListSlice::new(size, items, nulls.bitmask()))
     }
 }
 
-
-impl <'a> From<AnyStructSlice<'a>> for AnySlice<'a> {
+impl<'a> From<AnyStructSlice<'a>> for AnySlice<'a> {
     fn from(value: AnyStructSlice<'a>) -> Self {
         AnySlice::Struct(value)
     }
 }
 
-
 macro_rules! impl_from_prim {
     ($t:ty, $v:ident) => {
-        impl <'a> From<PrimitiveSlice<'a, $t>> for AnySlice<'a> {
+        impl<'a> From<PrimitiveSlice<'a, $t>> for AnySlice<'a> {
             fn from(value: PrimitiveSlice<'a, $t>) -> Self {
                 AnySlice::$v(value)
             }

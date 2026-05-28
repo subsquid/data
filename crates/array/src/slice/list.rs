@@ -1,14 +1,17 @@
-use crate::access::Access;
-use crate::index::{MaterializedRangeList, RangeList, RangeListFromIterator};
-use crate::offsets::Offsets;
-use crate::slice::bitmask::BitmaskSlice;
-use crate::slice::nullmask::NullmaskSlice;
-use crate::slice::{AnyListItem, AnySlice, Slice};
-use crate::writer::{ArrayWriter, OffsetsWriter};
-use arrow::array::{GenericByteArray, ListArray};
-use arrow::datatypes::ByteArrayType;
 use std::ops::Range;
 
+use arrow::{
+    array::{GenericByteArray, ListArray},
+    datatypes::ByteArrayType
+};
+
+use crate::{
+    access::Access,
+    index::{MaterializedRangeList, RangeList, RangeListFromIterator},
+    offsets::Offsets,
+    slice::{bitmask::BitmaskSlice, nullmask::NullmaskSlice, AnyListItem, AnySlice, Slice},
+    writer::{ArrayWriter, OffsetsWriter}
+};
 
 #[derive(Clone)]
 pub struct ListSlice<'a, T: Clone> {
@@ -16,7 +19,6 @@ pub struct ListSlice<'a, T: Clone> {
     offsets: Offsets<'a>,
     values: T
 }
-
 
 impl<'a, T: Slice> ListSlice<'a, T> {
     pub fn new(offsets: Offsets<'a>, values: T, nulls: Option<BitmaskSlice<'a>>) -> Self {
@@ -27,7 +29,7 @@ impl<'a, T: Slice> ListSlice<'a, T> {
             values
         }
     }
-    
+
     #[inline]
     pub fn nulls(&self) -> NullmaskSlice<'a> {
         self.nulls.clone()
@@ -44,8 +46,7 @@ impl<'a, T: Slice> ListSlice<'a, T> {
     }
 }
 
-
-impl <'a, T: Slice> Slice for ListSlice<'a, T> {
+impl<'a, T: Slice> Slice for ListSlice<'a, T> {
     #[inline]
     fn num_buffers(&self) -> usize {
         2 + self.values.num_buffers()
@@ -80,7 +81,7 @@ impl <'a, T: Slice> Slice for ListSlice<'a, T> {
 
     fn write_range(&self, dst: &mut impl ArrayWriter, range: Range<usize>) -> anyhow::Result<()> {
         if range.is_empty() {
-            return Ok(())
+            return Ok(());
         }
 
         self.nulls.write_range(dst.nullmask(0), range.clone())?;
@@ -96,31 +97,25 @@ impl <'a, T: Slice> Slice for ListSlice<'a, T> {
         self.nulls.write_ranges(dst.nullmask(0), ranges)?;
 
         dst.offset(1).write_slice_ranges(self.offsets, ranges)?;
-        
-        let mut value_ranges = MaterializedRangeList::from_iter(
-            ranges.iter().map(|r| {
-                let beg = self.offsets.index(r.start);
-                let end = self.offsets.index(r.end);
-                beg..end
-            })
-        );
-        
-        self.values.write_ranges(
-            &mut dst.shift(2), 
-            &mut value_ranges
-        )
+
+        let mut value_ranges = MaterializedRangeList::from_iter(ranges.iter().map(|r| {
+            let beg = self.offsets.index(r.start);
+            let end = self.offsets.index(r.end);
+            beg..end
+        }));
+
+        self.values.write_ranges(&mut dst.shift(2), &mut value_ranges)
     }
 
     fn write_indexes(
         &self,
         dst: &mut impl ArrayWriter,
-        indexes: impl Iterator<Item=usize> + Clone
-    ) -> anyhow::Result<()>
-    {
+        indexes: impl Iterator<Item = usize> + Clone
+    ) -> anyhow::Result<()> {
         self.nulls.write_indexes(dst.nullmask(0), indexes.clone())?;
 
         dst.offset(1).write_slice_indexes(self.offsets, indexes.clone())?;
-        
+
         let item_ranges = indexes.filter_map(|i| {
             let beg = self.offsets.index(i);
             let end = self.offsets.index(i + 1);
@@ -130,13 +125,13 @@ impl <'a, T: Slice> Slice for ListSlice<'a, T> {
                 None
             }
         });
-        
-        self.values.write_ranges(&mut dst.shift(2), &mut RangeListFromIterator::new(item_ranges))
+
+        self.values
+            .write_ranges(&mut dst.shift(2), &mut RangeListFromIterator::new(item_ranges))
     }
 }
 
-
-impl <'a, T: ByteArrayType<Offset=i32>> From<&'a GenericByteArray<T>> for ListSlice<'a, &'a [u8]> {
+impl<'a, T: ByteArrayType<Offset = i32>> From<&'a GenericByteArray<T>> for ListSlice<'a, &'a [u8]> {
     fn from(value: &'a GenericByteArray<T>) -> Self {
         Self {
             nulls: NullmaskSlice::from_array(value),
@@ -145,7 +140,6 @@ impl <'a, T: ByteArrayType<Offset=i32>> From<&'a GenericByteArray<T>> for ListSl
         }
     }
 }
-
 
 impl<'a> From<&'a ListArray> for ListSlice<'a, AnySlice<'a>> {
     fn from(value: &'a ListArray) -> Self {
@@ -157,7 +151,6 @@ impl<'a> From<&'a ListArray> for ListSlice<'a, AnySlice<'a>> {
     }
 }
 
-
 impl<'a> From<&'a ListArray> for ListSlice<'a, AnyListItem<'a>> {
     fn from(value: &'a ListArray) -> Self {
         Self {
@@ -168,8 +161,7 @@ impl<'a> From<&'a ListArray> for ListSlice<'a, AnyListItem<'a>> {
     }
 }
 
-
-impl <'a, T> Access for ListSlice<'a, &'a [T]>{
+impl<'a, T> Access for ListSlice<'a, &'a [T]> {
     type Value = &'a [T];
 
     #[inline]
@@ -190,13 +182,12 @@ impl <'a, T> Access for ListSlice<'a, &'a [T]>{
     }
 }
 
-
 impl<'a, T: Ord> ListSlice<'a, &'a [T]> {
     pub fn max(&self) -> Option<&'a [T]> {
         if self.has_nulls() {
-            (0..self.nulls.len()).flat_map(|i| {
-                self.is_valid(i).then(|| self.get(i))
-            }).max()
+            (0..self.nulls.len())
+                .flat_map(|i| self.is_valid(i).then(|| self.get(i)))
+                .max()
         } else {
             (0..self.nulls.len()).map(|i| self.get(i)).max()
         }
@@ -204,9 +195,9 @@ impl<'a, T: Ord> ListSlice<'a, &'a [T]> {
 
     pub fn min(&self) -> Option<&'a [T]> {
         if self.has_nulls() {
-            (0..self.nulls.len()).flat_map(|i| {
-                self.is_valid(i).then(|| self.get(i))
-            }).min()
+            (0..self.nulls.len())
+                .flat_map(|i| self.is_valid(i).then(|| self.get(i)))
+                .min()
         } else {
             (0..self.nulls.len()).map(|i| self.get(i)).min()
         }

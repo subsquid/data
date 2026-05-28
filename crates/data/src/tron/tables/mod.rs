@@ -1,17 +1,16 @@
-mod common;
 mod block;
-mod transaction;
-mod log;
+mod common;
 mod internal_transaction;
+mod log;
+mod transaction;
 
 pub use block::*;
-pub use transaction::*;
-pub use log::*;
 pub use internal_transaction::*;
+pub use log::*;
+use sqd_data_core::chunk_builder;
+pub use transaction::*;
 
 use super::model::Block;
-use sqd_data_core::chunk_builder;
-
 
 chunk_builder! {
     TronChunkBuilder {
@@ -21,7 +20,6 @@ chunk_builder! {
         internal_transactions: InternalTransactionBuilder,
     }
 }
-
 
 impl sqd_data_core::BlockChunkBuilder for TronChunkBuilder {
     type Block = Block;
