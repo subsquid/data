@@ -21,6 +21,7 @@ pub(super) const CF_CHUNKS: Name = "CHUNKS";
 pub(super) const CF_TABLES: Name = "TABLES";
 pub(super) const CF_DIRTY_TABLES: Name = "DIRTY_TABLES";
 pub(super) const CF_DELETED_TABLES: Name = "DELETED_TABLES";
+pub(super) const CF_BLOCK_HASHES: Name = "BLOCK_HASHES";
 
 pub(super) type RocksDB = rocksdb::OptimisticTransactionDB;
 pub(super) type RocksTransaction<'a> = rocksdb::Transaction<'a, RocksDB>;
@@ -144,7 +145,8 @@ impl DatabaseSettings {
                 ColumnFamilyDescriptor::new(CF_CHUNKS, self.chunks_cf_options()),
                 ColumnFamilyDescriptor::new(CF_TABLES, self.tables_cf_options()),
                 ColumnFamilyDescriptor::new(CF_DIRTY_TABLES, self.cf_default_options()),
-                ColumnFamilyDescriptor::new(CF_DELETED_TABLES, self.cf_default_options())
+                ColumnFamilyDescriptor::new(CF_DELETED_TABLES, self.cf_default_options()),
+                ColumnFamilyDescriptor::new(CF_BLOCK_HASHES, self.cf_default_options())
             ]
         )?;
 
@@ -247,22 +249,30 @@ impl Database {
     }
 
     pub fn delete_dataset(&self, dataset_id: DatasetId) -> anyhow::Result<()> {
-        Tx::new(&self.db).run(|tx| {
-            let label = tx.find_label_for_update(dataset_id)?;
-            if label.is_none() {
+        // Split into per-chunk transactions instead of one giant one. A single
+        // transaction would buffer every `unindex_block_hashes` delete (up to
+        // ~10M `delete_cf` for a fully compacted dataset, ~1 GB of RAM) before
+        // commit - a real OOM risk. Bounding each transaction to a single chunk
+        // (~25 MB max) trades whole-operation atomicity for memory safety; the
+        // procedure stays crash-safe because both `delete_chunk` and the overall
+        // sweep are idempotent (a re-run resumes from `get_label` and finishes
+        // the remaining chunks).
+        let chunks: Vec<Chunk> = {
+            let snapshot = ReadSnapshot::new(&self.db);
+            if snapshot.get_label(dataset_id)?.is_none() {
                 return Ok(());
             }
+            snapshot.list_chunks(dataset_id, 0, None).collect::<Result<_, _>>()?
+        };
 
-            let chunks = tx.list_chunks(dataset_id, 0, None);
-            for chunk_result in chunks {
-                let chunk = chunk_result?;
-                tx.delete_chunk(dataset_id, &chunk)?;
-            }
+        for chunk in chunks {
+            Tx::new(&self.db).run(|tx| {
+                tx.unindex_block_hashes(dataset_id, &chunk)?;
+                tx.delete_chunk(dataset_id, &chunk)
+            })?;
+        }
 
-            tx.delete_label(dataset_id)?;
-
-            Ok(())
-        })?;
+        Tx::new(&self.db).run(|tx| tx.delete_label(dataset_id))?;
 
         self.cleanup()?;
         Ok(())

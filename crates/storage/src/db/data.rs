@@ -99,6 +99,30 @@ impl Display for ChunkId {
     }
 }
 
+/// Key for the `hash -> block number` index stored in `CF_BLOCK_HASHES`.
+///
+/// Layout: `dataset_id (48 bytes) || hash UTF-8 bytes`. The hash is stored
+/// exactly as it appears in the Arrow `hash` column (no normalization), so the
+/// encoding stays chain-agnostic.
+pub(crate) struct BlockHashIndexKey {
+    bytes: Vec<u8>
+}
+
+impl BlockHashIndexKey {
+    pub fn new(dataset_id: DatasetId, hash: &str) -> Self {
+        let mut bytes = Vec::with_capacity(48 + hash.len());
+        bytes.extend_from_slice(dataset_id.as_ref());
+        bytes.extend_from_slice(hash.as_bytes());
+        Self { bytes }
+    }
+}
+
+impl AsRef<[u8]> for BlockHashIndexKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum Chunk {
     V0 {
