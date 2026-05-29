@@ -6,14 +6,14 @@ use rocksdb::{ColumnFamilyDescriptor, Options as RocksOptions};
 use sqd_primitives::Name;
 
 use super::{
-    data::{Dataset, DatasetId, DatasetKind, DatasetLabel},
-    read::snapshot::ReadSnapshot
+    data::{BlockHashIndexKey, Dataset, DatasetId, DatasetKind, DatasetLabel},
+    read::snapshot::ReadSnapshot,
 };
 use crate::db::{
     ops::{perform_dataset_compaction, CompactionStatus},
     read::datasets::list_all_datasets,
     write::{ops::deleted_deleted_tables, table_builder::TableBuilder, tx::Tx},
-    Chunk, DatasetUpdate
+    Chunk, DatasetUpdate,
 };
 
 pub(super) const CF_DATASETS: Name = "DATASETS";
@@ -35,7 +35,7 @@ pub struct DatabaseSettings {
     data_cache_size: usize,
     with_rocksdb_stats: bool,
     direct_io: bool,
-    cache_index_and_filter_blocks: bool
+    cache_index_and_filter_blocks: bool,
 }
 
 impl Default for DatabaseSettings {
@@ -45,7 +45,7 @@ impl Default for DatabaseSettings {
             data_cache_size: 256,
             with_rocksdb_stats: false,
             direct_io: false,
-            cache_index_and_filter_blocks: false
+            cache_index_and_filter_blocks: false,
         }
     }
 }
@@ -146,8 +146,8 @@ impl DatabaseSettings {
                 ColumnFamilyDescriptor::new(CF_TABLES, self.tables_cf_options()),
                 ColumnFamilyDescriptor::new(CF_DIRTY_TABLES, self.cf_default_options()),
                 ColumnFamilyDescriptor::new(CF_DELETED_TABLES, self.cf_default_options()),
-                ColumnFamilyDescriptor::new(CF_BLOCK_HASHES, self.cf_default_options())
-            ]
+                ColumnFamilyDescriptor::new(CF_BLOCK_HASHES, self.cf_default_options()),
+            ],
         )?;
 
         Ok(Database { db, options })
@@ -156,7 +156,7 @@ impl DatabaseSettings {
 
 pub struct Database {
     db: RocksDB,
-    options: RocksOptions
+    options: RocksOptions,
 }
 
 impl Database {
@@ -169,8 +169,8 @@ impl Database {
                 &DatasetLabel::V0 {
                     kind,
                     version: 0,
-                    finalized_head: None
-                }
+                    finalized_head: None,
+                },
             )
         })
     }
@@ -192,8 +192,8 @@ impl Database {
                     &DatasetLabel::V0 {
                         kind,
                         version: 0,
-                        finalized_head: None
-                    }
+                        finalized_head: None,
+                    },
                 )
             }
         })
@@ -213,7 +213,7 @@ impl Database {
 
     pub fn update_dataset<F, R>(&self, dataset_id: DatasetId, mut cb: F) -> anyhow::Result<R>
     where
-        F: FnMut(&mut DatasetUpdate<'_>) -> anyhow::Result<R>
+        F: FnMut(&mut DatasetUpdate<'_>) -> anyhow::Result<R>,
     {
         Tx::new(&self.db).run(|tx| {
             let mut upd = DatasetUpdate::new(tx, dataset_id)?;
@@ -237,42 +237,39 @@ impl Database {
         dataset_id: DatasetId,
         max_chunk_size: Option<usize>,
         write_amplification_limit: Option<f64>,
-        compaction_len_limit: Option<usize>
+        compaction_len_limit: Option<usize>,
     ) -> anyhow::Result<CompactionStatus> {
         perform_dataset_compaction(
             &self.db,
             dataset_id,
             max_chunk_size,
             write_amplification_limit,
-            compaction_len_limit
+            compaction_len_limit,
         )
     }
 
     pub fn delete_dataset(&self, dataset_id: DatasetId) -> anyhow::Result<()> {
-        // Split into per-chunk transactions instead of one giant one. A single
-        // transaction would buffer every `unindex_block_hashes` delete (up to
-        // ~10M `delete_cf` for a fully compacted dataset, ~1 GB of RAM) before
-        // commit - a real OOM risk. Bounding each transaction to a single chunk
-        // (~25 MB max) trades whole-operation atomicity for memory safety; the
-        // procedure stays crash-safe because both `delete_chunk` and the overall
-        // sweep are idempotent (a re-run resumes from `get_label` and finishes
-        // the remaining chunks).
-        let chunks: Vec<Chunk> = {
-            let snapshot = ReadSnapshot::new(&self.db);
-            if snapshot.get_label(dataset_id)?.is_none() {
+        // Drop the whole index for this dataset with one range tombstone over
+        // its `dataset_id` prefix. Kept out of the transaction below because
+        // `delete_range` isn't allowed inside a RocksDB tx; a crash in between
+        // leaves chunks without index entries (hashes 404 until re-indexed),
+        // not corruption, and the next startup retries.
+        let (start, end) = BlockHashIndexKey::dataset_range(dataset_id);
+        self.db
+            .delete_range_cf(self.db.cf_handle(CF_BLOCK_HASHES).unwrap(), start, end)?;
+
+        // Metadata is removed atomically in one transaction, so the dataset is
+        // never observed half-deleted. `find_label_for_update` takes the lock.
+        Tx::new(&self.db).run(|tx| {
+            if tx.find_label_for_update(dataset_id)?.is_none() {
                 return Ok(());
             }
-            snapshot.list_chunks(dataset_id, 0, None).collect::<Result<_, _>>()?
-        };
-
-        for chunk in chunks {
-            Tx::new(&self.db).run(|tx| {
-                tx.unindex_block_hashes(dataset_id, &chunk)?;
-                tx.delete_chunk(dataset_id, &chunk)
-            })?;
-        }
-
-        Tx::new(&self.db).run(|tx| tx.delete_label(dataset_id))?;
+            for chunk_result in tx.list_chunks(dataset_id, 0, None) {
+                let chunk = chunk_result?;
+                tx.delete_chunk(dataset_id, &chunk)?;
+            }
+            tx.delete_label(dataset_id)
+        })?;
 
         self.cleanup()?;
         Ok(())
