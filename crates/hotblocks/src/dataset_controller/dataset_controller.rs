@@ -18,6 +18,7 @@ use crate::{
 };
 
 pub struct DatasetController {
+    db: DBRef,
     dataset_id: DatasetId,
     dataset_kind: DatasetKind,
     retention_sender: tokio::sync::watch::Sender<RetentionStrategy>,
@@ -71,9 +72,10 @@ impl DatasetController {
         let task = tokio::spawn(ctl.run(write).in_current_span());
 
         let compaction_task =
-            tokio::spawn(compaction_loop(db, dataset_id, compaction_enabled_receiver).in_current_span());
+            tokio::spawn(compaction_loop(db.clone(), dataset_id, compaction_enabled_receiver).in_current_span());
 
         Ok(Self {
+            db,
             dataset_id,
             dataset_kind,
             retention_sender,
@@ -103,6 +105,18 @@ impl DatasetController {
 
     pub fn get_head_block_number(&self) -> Option<BlockNumber> {
         self.head_receiver.borrow().as_ref().map(|h| h.number)
+    }
+
+    /// Resolves a block hash to its `BlockRef` via the storage index.
+    ///
+    /// A point lookup against RocksDB, run on the blocking pool (same pattern as
+    /// `Ctl::new_write_ctx`). `Ok(None)` means the hash is not in the index.
+    pub async fn get_block_by_hash(&self, hash: String) -> anyhow::Result<Option<BlockRef>> {
+        let db = self.db.clone();
+        let dataset_id = self.dataset_id;
+        tokio::task::spawn_blocking(move || db.snapshot().find_block_by_hash(dataset_id, &hash))
+            .await
+            .context("get_block_by_hash task panicked")?
     }
 
     pub fn enable_compaction(&self, yes: bool) {

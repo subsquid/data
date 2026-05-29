@@ -29,7 +29,8 @@ impl<'a> DatasetUpdate<'a> {
 
     pub fn insert_chunk(&self, chunk: &Chunk) -> anyhow::Result<()> {
         self.tx.validate_chunk_insertion(self.dataset_id, chunk)?;
-        self.tx.write_chunk(self.dataset_id, chunk)
+        self.tx.write_chunk(self.dataset_id, chunk)?;
+        self.tx.index_block_hashes(self.dataset_id, chunk)
     }
 
     pub fn insert_fork(&self, chunk: &Chunk) -> anyhow::Result<()> {
@@ -47,6 +48,7 @@ impl<'a> DatasetUpdate<'a> {
     }
 
     pub fn delete_chunk(&self, chunk: &Chunk) -> anyhow::Result<()> {
+        self.tx.unindex_block_hashes(self.dataset_id, chunk)?;
         self.tx.delete_chunk(self.dataset_id, chunk)
     }
 

@@ -60,6 +60,7 @@ pub fn build_api(app: App) -> Router {
         .route("/datasets/{id}/finalized-stream", post(finalized_stream))
         .route("/datasets/{id}/head", get(get_head))
         .route("/datasets/{id}/finalized-head", get(get_finalized_head))
+        .route("/datasets/{id}/hashes/{hash}/block", get(get_block_by_hash))
         .route("/datasets/{id}/retention", get(get_retention).post(set_retention))
         .route("/datasets/{id}/status", get(get_status))
         .route("/datasets/{id}/metadata", get(get_metadata))
@@ -360,6 +361,55 @@ async fn get_head(
                  get_dataset!(app, dataset_id).get_head()
             }
         })
+}
+
+async fn get_block_by_hash(
+    Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
+    Path((dataset_id, hash)): Path<(DatasetId, String)>
+) -> impl IntoResponse {
+    // `get_dataset!` returns from the enclosing fn, which doesn't work inside the
+    // synchronous `with_response` closure, and the lookup must be `.await`ed
+    // first - so existence/validation happen up front and the awaited result is
+    // handed to `with_response`.
+
+    // Reject obviously-invalid lengths before touching the DB. Crypto hashes are
+    // ~64-66 chars (hex, EVM/Bitcoin/Tron) up to ~88 (base58, Solana); 256 is a
+    // generous ceiling that still cuts off megabyte-sized URLs.
+    if hash.is_empty() || hash.len() > 256 {
+        return ResponseWithMetadata::new()
+            .with_client_id(&client_id)
+            .with_dataset_id(dataset_id)
+            .with_endpoint("/hashes/{hash}/block")
+            .with_response(|| text!(StatusCode::BAD_REQUEST, "invalid hash length"));
+    }
+
+    let dataset = match app.data_service.get_dataset(dataset_id) {
+        Ok(ds) => ds,
+        Err(err) => {
+            return ResponseWithMetadata::new()
+                .with_client_id(&client_id)
+                .with_dataset_id(dataset_id)
+                .with_endpoint("/hashes/{hash}/block")
+                .with_response(|| text!(StatusCode::NOT_FOUND, "{}", err));
+        }
+    };
+
+    let response = match dataset.get_block_by_hash(hash).await {
+        Ok(Some(block_ref)) => json_ok!(block_ref),
+        Ok(None) => text!(StatusCode::NOT_FOUND, "block not found"),
+        Err(err) => {
+            // Terse body; the full chain (and any backtrace from `{:?}`) goes to the log.
+            error!(error = ?err, dataset_id = %dataset_id, "get_block_by_hash failed");
+            text!(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
+        }
+    };
+
+    ResponseWithMetadata::new()
+        .with_client_id(&client_id)
+        .with_dataset_id(dataset_id)
+        .with_endpoint("/hashes/{hash}/block")
+        .with_response(|| response)
 }
 
 async fn get_retention(

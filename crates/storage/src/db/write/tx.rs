@@ -9,14 +9,17 @@ use rocksdb::ColumnFamily;
 use sqd_primitives::BlockNumber;
 
 use crate::db::{
-    data::ChunkId,
+    data::{BlockHashIndexKey, ChunkId},
     db::{
-        RocksDB, RocksIterator, RocksTransaction, RocksTransactionOptions, CF_CHUNKS, CF_DATASETS, CF_DELETED_TABLES,
-        CF_DIRTY_TABLES
+        RocksDB, RocksIterator, RocksTransaction, RocksTransactionOptions, CF_BLOCK_HASHES, CF_CHUNKS, CF_DATASETS,
+        CF_DELETED_TABLES, CF_DIRTY_TABLES
     },
-    read::{blocks_table::get_parent_block_hash, chunk::ChunkIterator},
+    read::{
+        blocks_table::{for_each_block_hash, get_parent_block_hash},
+        chunk::ChunkIterator
+    },
     table_id::TableId,
-    Chunk, DatasetId, DatasetLabel, ReadSnapshot
+    Chunk, DatasetId, DatasetKind, DatasetLabel, ReadSnapshot
 };
 
 static GLOBAL_RESTARTS: AtomicU64 = AtomicU64::new(0);
@@ -36,6 +39,15 @@ pub fn get_local_tx_restarts() -> u64 {
 fn record_restart() {
     GLOBAL_RESTARTS.fetch_add(1, Ordering::SeqCst);
     LOCAL_RESTARTS.with_borrow_mut(|val| *val = val.wrapping_add(1))
+}
+
+/// Whether a dataset of the given kind gets its block hashes indexed in
+/// `CF_BLOCK_HASHES`. Currently EVM-only; extend this whitelist (e.g. Bitcoin,
+/// Tron) when those chains need hash lookups. Hyperliquid is intentionally
+/// excluded - its `hash` is an arbitrary string, not a crypto hash, so it can
+/// collide and silently overwrite index entries.
+fn is_indexed_kind(kind: DatasetKind) -> bool {
+    kind == DatasetKind::from_str("evm")
 }
 
 pub struct Tx<'a> {
@@ -131,12 +143,73 @@ impl<'a> Tx<'a> {
         Ok(())
     }
 
+    /// Adds every `(hash -> block_number)` pair of `chunk`'s `blocks` table to
+    /// `CF_BLOCK_HASHES`. Called one level above `write_chunk` (which stays a
+    /// pure metadata op) whenever a chunk enters a dataset: ingest and fork.
+    ///
+    /// No-op unless the dataset kind is whitelisted in [`is_indexed_kind`].
+    /// Reads the table through a fresh `ReadSnapshot` (the same pattern as
+    /// `validate_parent_block_hash`): tables are immutable once `finish()`ed, so
+    /// this is safe, while the index writes go through `self.transaction` and are
+    /// thus atomic with the chunk metadata.
+    pub fn index_block_hashes(&self, dataset_id: DatasetId, chunk: &Chunk) -> anyhow::Result<()> {
+        let Some(label) = self.find_label_for_update(dataset_id)? else {
+            return Ok(()); // dataset does not exist - nothing to index
+        };
+        if !is_indexed_kind(label.kind()) {
+            return Ok(());
+        }
+
+        let Some(blocks_table_id) = chunk.tables().get("blocks").copied() else {
+            return Ok(()); // defensively skip chunks without a blocks table
+        };
+
+        let snapshot = ReadSnapshot::new(self.db);
+        let reader = snapshot.create_table_reader(blocks_table_id)?;
+        let cf = self.cf_handle(CF_BLOCK_HASHES);
+        for_each_block_hash(&reader, |number, hash| {
+            self.transaction
+                .put_cf(cf, BlockHashIndexKey::new(dataset_id, hash), number.to_be_bytes())?;
+            Ok(())
+        })
+    }
+
+    /// Removes every `(hash -> block_number)` pair of `chunk`'s `blocks` table
+    /// from `CF_BLOCK_HASHES`. Called one level above `delete_chunk` whenever a
+    /// chunk leaves a dataset: fork overwrite, retention, dataset deletion.
+    ///
+    /// Idempotent: `delete_cf` on a missing key is a no-op in RocksDB, so it is
+    /// safe over chunks that were never indexed (e.g. pre-upgrade chunks, or
+    /// non-EVM datasets which short-circuit on the kind check).
+    pub fn unindex_block_hashes(&self, dataset_id: DatasetId, chunk: &Chunk) -> anyhow::Result<()> {
+        let Some(label) = self.find_label_for_update(dataset_id)? else {
+            return Ok(());
+        };
+        if !is_indexed_kind(label.kind()) {
+            return Ok(());
+        }
+
+        let Some(blocks_table_id) = chunk.tables().get("blocks").copied() else {
+            return Ok(());
+        };
+
+        let snapshot = ReadSnapshot::new(self.db);
+        let reader = snapshot.create_table_reader(blocks_table_id)?;
+        let cf = self.cf_handle(CF_BLOCK_HASHES);
+        for_each_block_hash(&reader, |_number, hash| {
+            self.transaction
+                .delete_cf(cf, BlockHashIndexKey::new(dataset_id, hash))?;
+            Ok(())
+        })
+    }
+
     pub fn insert_fork(&self, dataset_id: DatasetId, chunk: &Chunk) -> anyhow::Result<()> {
         let existing = self.list_chunks(dataset_id, 0, None).into_reversed();
 
         for head_result in existing {
             let head = head_result?;
             if chunk.first_block() <= head.first_block() {
+                self.unindex_block_hashes(dataset_id, &head)?;
                 self.delete_chunk(dataset_id, &head)?;
             } else if head.last_block() + 1 == chunk.first_block() {
                 ensure!(
@@ -159,6 +232,7 @@ impl<'a> Tx<'a> {
         }
 
         self.write_chunk(dataset_id, chunk)?;
+        self.index_block_hashes(dataset_id, chunk)?;
 
         Ok(())
     }
