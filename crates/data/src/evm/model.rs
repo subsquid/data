@@ -254,7 +254,7 @@ pub struct TraceActionReward {
 #[serde(rename_all = "camelCase")]
 pub struct TraceActionSelfDestruct {
     pub address: Option<HexBytes>,
-    pub refund_address: HexBytes,
+    pub refund_address: Option<HexBytes>,
     pub balance: Option<HexBytes>
 }
 

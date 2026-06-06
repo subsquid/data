@@ -155,7 +155,7 @@ impl TraceBuilder {
         if let TraceOp::SelfDestruct { action} = &row.op {
             self.r#type.append("suicide");
             self.suicide_address.append_option(action.address.as_deref());
-            self.suicide_refund_address.append(&action.refund_address);
+            self.suicide_refund_address.append_option(action.refund_address.as_deref());
             self.suicide_balance.append_option(action.balance.as_deref());
         } else {
             self.suicide_address.append_null();
