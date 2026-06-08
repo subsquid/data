@@ -571,13 +571,17 @@ request! {
         pub r#type: Option<Vec<String>>,
         pub create_from: Option<Vec<Bytes>>,
         pub create_result_address: Option<Vec<Bytes>>,
+        pub create_value_non_zero: bool,
         pub call_from: Option<Vec<Bytes>>,
         pub call_to: Option<Vec<Bytes>>,
         pub call_sighash: Option<Vec<Bytes>>,
         pub call_type: Option<Vec<String>>,
+        pub call_value_non_zero: bool,
         pub suicide_address: Option<Vec<Bytes>>,
         pub suicide_refund_address: Option<Vec<Bytes>>,
+        pub suicide_balance_non_zero: bool,
         pub reward_author: Option<Vec<Bytes>>,
+        pub reward_value_non_zero: bool,
         pub transaction: bool,
         pub transaction_logs: bool,
         pub subtraces: bool,
@@ -600,6 +604,18 @@ impl TraceRequest {
             to_lowercase_list(&self.suicide_refund_address)
         );
         p.col_in_list("reward_author", to_lowercase_list(&self.reward_author));
+        if self.call_value_non_zero {
+            p.col_gt_eq("call_value", Some("0x1"));
+        }
+        if self.create_value_non_zero {
+            p.col_gt_eq("create_value", Some("0x1"));
+        }
+        if self.suicide_balance_non_zero {
+            p.col_gt_eq("suicide_balance", Some("0x1"));
+        }
+        if self.reward_value_non_zero {
+            p.col_gt_eq("reward_value", Some("0x1"));
+        }
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
