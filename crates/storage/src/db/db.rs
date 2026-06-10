@@ -34,7 +34,9 @@ pub struct DatabaseSettings {
     data_cache_size: usize,
     with_rocksdb_stats: bool,
     direct_io: bool,
-    cache_index_and_filter_blocks: bool
+    cache_index_and_filter_blocks: bool,
+    max_log_file_size: usize,
+    keep_log_file_num: usize
 }
 
 impl Default for DatabaseSettings {
@@ -44,7 +46,9 @@ impl Default for DatabaseSettings {
             data_cache_size: 256,
             with_rocksdb_stats: false,
             direct_io: false,
-            cache_index_and_filter_blocks: false
+            cache_index_and_filter_blocks: false,
+            max_log_file_size: 10,
+            keep_log_file_num: 10
         }
     }
 }
@@ -75,11 +79,26 @@ impl DatabaseSettings {
         self
     }
 
+    /// Max size of a single info log file in MB (0 means unlimited)
+    pub fn with_max_log_file_size(mut self, mb: usize) -> Self {
+        self.max_log_file_size = mb;
+        self
+    }
+
+    /// Max number of info log files to keep
+    pub fn with_keep_log_file_num(mut self, count: usize) -> Self {
+        self.keep_log_file_num = count;
+        self
+    }
+
     fn db_options(&self) -> RocksOptions {
         let mut options = RocksOptions::default();
         options.create_if_missing(true);
         options.create_missing_column_families(true);
         options.set_wal_compression_type(rocksdb::DBCompressionType::Zstd);
+        // Bound info log (LOG, LOG.old.*) growth
+        options.set_max_log_file_size(self.max_log_file_size * 1024 * 1024);
+        options.set_keep_log_file_num(self.keep_log_file_num);
         if self.with_rocksdb_stats {
             options.enable_statistics();
         }

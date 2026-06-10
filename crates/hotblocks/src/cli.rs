@@ -53,6 +53,14 @@ pub struct CLI {
     #[arg(long)]
     pub rocksdb_disable_direct_io: bool,
 
+    /// Max size of a single RocksDB info log file in MB (0 - unlimited)
+    #[arg(long, value_name = "MB", default_value = "10")]
+    pub rocksdb_max_log_file_size: usize,
+
+    /// Max number of RocksDB info log files to keep
+    #[arg(long, value_name = "N", default_value = "10")]
+    pub rocksdb_keep_log_file_num: usize,
+
     /// Known client IDs for metrics labeling. Client IDs not in this list
     /// will be reported as "unknown" to prevent metrics cardinality abuse.
     #[arg(long = "known-client", value_name = "ID")]
@@ -76,6 +84,8 @@ impl CLI {
             .with_data_cache_size(self.data_cache_size)
             .with_rocksdb_stats(self.rocksdb_stats)
             .with_direct_io(!self.rocksdb_disable_direct_io)
+            .with_max_log_file_size(self.rocksdb_max_log_file_size)
+            .with_keep_log_file_num(self.rocksdb_keep_log_file_num)
             .open(&self.database_dir)
             .map(Arc::new)
             .context("failed to open rocksdb database")?;
