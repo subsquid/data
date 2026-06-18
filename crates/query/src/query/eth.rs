@@ -575,7 +575,7 @@ request! {
         pub call_from: Option<Vec<Bytes>>,
         pub call_to: Option<Vec<Bytes>>,
         pub call_sighash: Option<Vec<Bytes>>,
-        pub call_type: Option<Vec<String>>,
+        pub call_call_type: Option<Vec<String>>,
         pub call_value_non_zero: bool,
         pub suicide_address: Option<Vec<Bytes>>,
         pub suicide_refund_address: Option<Vec<Bytes>>,
@@ -597,7 +597,7 @@ impl TraceRequest {
         p.col_in_list("call_from", to_lowercase_list(&self.call_from));
         p.col_in_list("call_to", to_lowercase_list(&self.call_to));
         p.col_in_list("call_sighash", to_lowercase_list(&self.call_sighash));
-        p.col_in_list("call_type", self.call_type.as_deref());
+        p.col_in_list("call_type", self.call_call_type.as_deref());
         p.col_in_list("suicide_address", to_lowercase_list(&self.suicide_address));
         p.col_in_list(
             "suicide_refund_address",

@@ -5,7 +5,7 @@
   "fields": {
     "trace": {
       "callFrom": true,
-      "callType": true,
+      "callCallType": true,
       "transactionIndex": true,
       "traceAddress": true,
       "type": true
@@ -19,7 +19,7 @@
   "traces": [
     {
       "callFrom": ["0x58df81babdf15276e761808e872a3838cbecbcf9"],
-      "callType": ["staticcall"]
+      "callCallType": ["staticcall"]
     }
   ]
 }

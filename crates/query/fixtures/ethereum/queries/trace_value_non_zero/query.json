@@ -4,7 +4,7 @@
   "toBlock": 17881870,
   "fields": {
     "trace": {
-      "callType": true,
+      "callCallType": true,
       "callSighash": true,
       "callValue": true,
       "createResultAddress": true,
@@ -27,7 +27,7 @@
       "createValueNonZero": true
     },
     {
-      "callType": ["call"],
+      "callCallType": ["call"],
       "callSighash": ["0x3598d8ab"],
       "callValueNonZero": true
     },
