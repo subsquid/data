@@ -604,6 +604,9 @@ impl TraceRequest {
             to_lowercase_list(&self.suicide_refund_address)
         );
         p.col_in_list("reward_author", to_lowercase_list(&self.reward_author));
+
+        // Hex values are stored in minimal form (no leading zeros),
+        // so "0x01" never exists in the data.
         if self.call_value_non_zero {
             p.col_gt_eq("call_value", Some("0x1"));
         }
