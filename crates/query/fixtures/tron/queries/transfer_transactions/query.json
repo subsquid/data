@@ -1,0 +1,29 @@
+{
+  "type": "tron",
+  "fromBlock": 82644089,
+  "toBlock": 82644098,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true,
+      "timestamp": true
+    },
+    "transaction": {
+      "transactionIndex": true,
+      "hash": true,
+      "type": true,
+      "parameter": true,
+      "feeLimit": true,
+      "fee": true,
+      "netFee": true,
+      "netUsage": true,
+      "timestamp": true,
+      "expiration": true
+    }
+  },
+  "transferTransactions": [
+    {
+      "owner": ["4192ddf3501ad77cfd87c32594207c8fcbe107b4bd"]
+    }
+  ]
+}
