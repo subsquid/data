@@ -1,0 +1,38 @@
+{
+  "type": "tron",
+  "fromBlock": 82644089,
+  "toBlock": 82644120,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "transaction": {
+      "transactionIndex": true,
+      "hash": true,
+      "type": true,
+      "contractAddress": true
+    },
+    "log": {
+      "transactionIndex": true,
+      "logIndex": true,
+      "address": true,
+      "topics": true
+    },
+    "internalTransaction": {
+      "transactionIndex": true,
+      "internalTransactionIndex": true,
+      "callerAddress": true,
+      "transferToAddress": true,
+      "callValueInfo": true
+    }
+  },
+  "triggerSmartContractTransactions": [
+    {
+      "contract": ["4139dd12a54e2bab7c82aa14a1e158b34263d2d510"],
+      "sighash": ["6f21b898"],
+      "logs": true,
+      "internalTransactions": true
+    }
+  ]
+}
