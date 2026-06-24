@@ -16,8 +16,13 @@ pub enum RetentionConfig {
     },
     // Moving window that keeps up to N blocks
     Head(u64),
-    // Retention is set dynamically from the portal
-    Api,
+    // Retention is set dynamically from the portal. `max_blocks`, if set, caps
+    // storage at N blocks behind the tip as a safety net for when the portal
+    // stops advancing the floor.
+    Api {
+        #[serde(default)]
+        max_blocks: Option<u64>
+    },
     None
 }
 

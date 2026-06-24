@@ -46,16 +46,17 @@ impl DataService {
                     .map(|url| ReqwestDataClient::new(http_client.clone(), url))
                     .collect();
 
-                let retention = match cfg.retention_strategy {
+                let (retention, max_blocks) = match &cfg.retention_strategy {
                     RetentionConfig::FromBlock { number, parent_hash } => {
-                        RetentionStrategy::FromBlock { number, parent_hash }
+                        (RetentionStrategy::FromBlock { number: *number, parent_hash: parent_hash.clone() }, None)
                     }
-                    RetentionConfig::Head(n) => RetentionStrategy::Head(n),
-                    RetentionConfig::Api | RetentionConfig::None => RetentionStrategy::None
+                    RetentionConfig::Head(n) => (RetentionStrategy::Head(*n), None),
+                    RetentionConfig::Api { max_blocks } => (RetentionStrategy::None, *max_blocks),
+                    RetentionConfig::None => (RetentionStrategy::None, None)
                 };
 
                 tokio::task::spawn_blocking(move || {
-                    DatasetController::new(db, dataset_id, cfg.kind, retention, data_sources).map(|c| {
+                    DatasetController::new(db, dataset_id, cfg.kind, retention, max_blocks, data_sources).map(|c| {
                         c.enable_compaction(!cfg.disable_compaction);
                         Arc::new(c)
                     })
