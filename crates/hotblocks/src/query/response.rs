@@ -11,6 +11,7 @@ use super::{
     running::{RunningQuery, RunningQueryStats}
 };
 use crate::{
+    encoding::ContentEncoding,
     errors::Busy,
     metrics::{
         STREAM_BLOCKS, STREAM_BLOCKS_PER_SECOND, STREAM_BYTES, STREAM_BYTES_PER_SECOND, STREAM_CHUNKS, STREAM_DURATIONS
@@ -85,14 +86,15 @@ impl QueryResponse {
         query: Query,
         only_finalized: bool,
         time_limit: Option<Duration>,
-        client_id: ClientId
+        client_id: ClientId,
+        encoding: ContentEncoding
     ) -> anyhow::Result<Self> {
         let Some(slot) = executor.get_slot() else { bail!(Busy) };
 
         let stats = QueryStreamStats::new();
         let mut runner = slot
             .run(move |slot| -> anyhow::Result<_> {
-                let mut runner = RunningQuery::new(db, dataset_id, &query, only_finalized).map(Box::new)?;
+                let mut runner = RunningQuery::new(db, dataset_id, &query, only_finalized, encoding).map(Box::new)?;
                 next_run(&mut runner, slot)?;
                 Ok(runner)
             })

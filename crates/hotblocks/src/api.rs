@@ -6,7 +6,7 @@ use axum::{
     BoxError, Extension, Json, Router,
     body::{Body, Bytes},
     extract::{Path, Request},
-    http::{StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::{get, post}
 };
@@ -21,6 +21,7 @@ use tracing::{Instrument, error};
 use crate::{
     cli::App,
     dataset_controller::DatasetController,
+    encoding::ContentEncoding,
     errors::{
         BlockItemIsNotAvailable, BlockRangeMissing, Busy, QueryIsAboveTheHead, QueryKindMismatch, UnknownDataset
     },
@@ -178,9 +179,11 @@ async fn stream(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
+    headers: HeaderMap,
     body: Bytes
 ) -> impl IntoResponse {
-    let response = stream_internal(app, dataset_id, body, false, client_id.clone()).await;
+    let encoding = ContentEncoding::from_headers(&headers);
+    let response = stream_internal(app, dataset_id, body, false, client_id.clone(), encoding).await;
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
         .with_dataset_id(dataset_id)
@@ -192,9 +195,11 @@ async fn finalized_stream(
     Extension(app): Extension<AppRef>,
     Extension(client_id): Extension<ClientId>,
     Path(dataset_id): Path<DatasetId>,
+    headers: HeaderMap,
     body: Bytes
 ) -> impl IntoResponse {
-    let response = stream_internal(app, dataset_id, body, true, client_id.clone()).await;
+    let encoding = ContentEncoding::from_headers(&headers);
+    let response = stream_internal(app, dataset_id, body, true, client_id.clone(), encoding).await;
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
         .with_dataset_id(dataset_id)
@@ -207,7 +212,8 @@ async fn stream_internal(
     dataset_id: DatasetId,
     body: Bytes,
     finalized: bool,
-    client_id: ClientId
+    client_id: ClientId,
+    encoding: ContentEncoding
 ) -> Response {
     let dataset = get_dataset!(app, dataset_id);
 
@@ -221,9 +227,11 @@ async fn stream_internal(
     }
 
     let query_result = if finalized {
-        app.query_service.query_finalized(&dataset, query, client_id).await
+        app.query_service
+            .query_finalized(&dataset, query, client_id, encoding)
+            .await
     } else {
-        app.query_service.query(&dataset, query, client_id).await
+        app.query_service.query(&dataset, query, client_id, encoding).await
     };
 
     match query_result {
@@ -231,7 +239,8 @@ async fn stream_internal(
             let mut res = Response::builder()
                 .status(200)
                 .header("content-type", "text/plain")
-                .header("content-encoding", "gzip");
+                .header("content-encoding", encoding.as_str())
+                .header("vary", "Accept-Encoding");
 
             if let Some(finalized_head) = stream.finalized_head() {
                 if finalized {
