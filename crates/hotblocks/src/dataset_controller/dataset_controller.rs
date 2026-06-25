@@ -83,8 +83,7 @@ impl DatasetController {
 
         let task = tokio::spawn(ctl.run(write).in_current_span());
 
-        let stats_task =
-            tokio::spawn(dataset_stats_loop(db.clone(), dataset_id, stats_sender).in_current_span());
+        let stats_task = tokio::spawn(dataset_stats_loop(db.clone(), dataset_id, stats_sender).in_current_span());
 
         let compaction_task =
             tokio::spawn(compaction_loop(db, dataset_id, compaction_enabled_receiver).in_current_span());
@@ -614,15 +613,15 @@ async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
 }
 
 #[instrument(name = "dataset_stats", skip_all)]
-async fn dataset_stats_loop(
-    db: DBRef,
-    dataset_id: DatasetId,
-    sender: tokio::sync::watch::Sender<DatasetStats>
-) {
+async fn dataset_stats_loop(db: DBRef, dataset_id: DatasetId, sender: tokio::sync::watch::Sender<DatasetStats>) {
     const REFRESH: Duration = Duration::from_secs(60);
 
     // Delay the first run by a per-dataset offset so the loops don't hit RocksDB together.
-    let offset = dataset_id.as_ref().iter().fold(0u64, |acc, &b| acc.wrapping_add(b as u64)) % REFRESH.as_secs();
+    let offset = dataset_id
+        .as_ref()
+        .iter()
+        .fold(0u64, |acc, &b| acc.wrapping_add(b as u64))
+        % REFRESH.as_secs();
     tokio::time::sleep(Duration::from_secs(offset)).await;
 
     loop {

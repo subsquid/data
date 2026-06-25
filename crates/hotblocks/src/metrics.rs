@@ -14,10 +14,7 @@ use prometheus_client::{
 use sqd_storage::db::DatasetId;
 
 use crate::{
-    data_service::DataServiceRef,
-    dataset_controller::DatasetController,
-    query::QueryExecutorCollector,
-    types::DBRef
+    data_service::DataServiceRef, dataset_controller::DatasetController, query::QueryExecutorCollector, types::DBRef
 };
 
 #[derive(Copy, Clone, Hash, Debug, Default, Ord, PartialOrd, Eq, PartialEq, EncodeLabelSet)]
