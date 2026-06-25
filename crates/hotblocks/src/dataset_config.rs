@@ -1,8 +1,9 @@
-use std::collections::BTreeMap;
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
-use serde::de::{self, IgnoredAny, MapAccess, Visitor};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{self, IgnoredAny, MapAccess, Visitor}
+};
 use sqd_query::BlockNumber;
 use sqd_storage::db::DatasetId;
 use url::Url;
@@ -80,12 +81,17 @@ impl<'de> Deserialize<'de> for RetentionConfig {
                 let strategy = match tag.as_str() {
                     "FromBlock" => {
                         let cfg: FromBlockCfg = map.next_value()?;
-                        RetentionConfig::FromBlock { number: cfg.number, parent_hash: cfg.parent_hash }
+                        RetentionConfig::FromBlock {
+                            number: cfg.number,
+                            parent_hash: cfg.parent_hash
+                        }
                     }
                     "Head" => RetentionConfig::Head(map.next_value()?),
                     "Api" => {
                         let cfg: ApiCfg = map.next_value()?;
-                        RetentionConfig::Api { max_blocks: cfg.max_blocks }
+                        RetentionConfig::Api {
+                            max_blocks: cfg.max_blocks
+                        }
                     }
                     "None" => {
                         map.next_value::<IgnoredAny>()?;
@@ -142,7 +148,12 @@ mod tests {
 
     #[test]
     fn api_with_max_blocks() {
-        assert_eq!(parse("Api:\n  max_blocks: 100000"), RetentionConfig::Api { max_blocks: Some(100000) });
+        assert_eq!(
+            parse("Api:\n  max_blocks: 100000"),
+            RetentionConfig::Api {
+                max_blocks: Some(100000)
+            }
+        );
     }
 
     #[test]
@@ -156,7 +167,10 @@ mod tests {
         assert_eq!(parse("Head: 2000"), RetentionConfig::Head(2000));
         assert_eq!(
             parse("FromBlock:\n  number: 10\n  parent_hash: '0xabc'"),
-            RetentionConfig::FromBlock { number: 10, parent_hash: Some("0xabc".to_owned()) }
+            RetentionConfig::FromBlock {
+                number: 10,
+                parent_hash: Some("0xabc".to_owned())
+            }
         );
     }
 

@@ -47,9 +47,13 @@ impl DataService {
                     .collect();
 
                 let (retention, max_blocks) = match &cfg.retention_strategy {
-                    RetentionConfig::FromBlock { number, parent_hash } => {
-                        (RetentionStrategy::FromBlock { number: *number, parent_hash: parent_hash.clone() }, None)
-                    }
+                    RetentionConfig::FromBlock { number, parent_hash } => (
+                        RetentionStrategy::FromBlock {
+                            number: *number,
+                            parent_hash: parent_hash.clone()
+                        },
+                        None
+                    ),
                     RetentionConfig::Head(n) => (RetentionStrategy::Head(*n), None),
                     RetentionConfig::Api { max_blocks } => (RetentionStrategy::None, *max_blocks),
                     RetentionConfig::None => (RetentionStrategy::None, None)
