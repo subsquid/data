@@ -42,6 +42,7 @@ impl DatasetController {
         dataset_id: DatasetId,
         dataset_kind: DatasetKind,
         retention: RetentionStrategy,
+        max_blocks: Option<u64>,
         data_sources: Vec<ReqwestDataClient>
     ) -> anyhow::Result<Self> {
         let mut write = WriteController::new(db.clone(), dataset_id, dataset_kind)?;
@@ -63,6 +64,7 @@ impl DatasetController {
             dataset_id,
             dataset_kind,
             data_sources,
+            max_blocks,
             retention_recv,
             head_sender,
             finalized_head_sender
@@ -283,6 +285,10 @@ struct Ctl {
     dataset_id: DatasetId,
     dataset_kind: DatasetKind,
     data_sources: Vec<ReqwestDataClient>,
+    // Static safety cap on retained blocks for Api-controlled datasets: even
+    // if the portal stops advancing the floor, the tail is trimmed to keep at
+    // most this many blocks behind the tip. `None` means grow indefinitely.
+    max_blocks: Option<u64>,
     retention_recv: tokio::sync::watch::Receiver<RetentionStrategy>,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
     finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>
@@ -343,17 +349,18 @@ impl Ctl {
         let retention = self.retention_recv.borrow_and_update().clone();
         let mut state = match retention {
             RetentionStrategy::FromBlock { number, parent_hash } => {
+                let (number, parent_hash) = self.clamp_floor(&write, number, parent_hash);
                 if !write.starts_at(number, &parent_hash) {
                     blocking! {
                         write.retain(number, parent_hash)
                     }?;
                 }
-                State::Init { head: None }
+                State::Init { head: self.max_blocks }
             }
             RetentionStrategy::Head(n) => State::Init { head: Some(n) },
             RetentionStrategy::None => {
                 if write.write.head().is_some() {
-                    State::Init { head: None }
+                    State::Init { head: self.max_blocks }
                 } else {
                     State::Idle
                 }
@@ -456,17 +463,36 @@ impl Ctl {
         }
     }
 
+    // With a storage cap, the tail trimmer may have already advanced the front
+    // past a stale/lagging portal floor. Retaining below the current front is
+    // treated as a gap and would drop the whole dataset, so never move the floor
+    // backwards. The posted parent_hash belongs to the original (lower) block,
+    // so it must be dropped when clamping or the hash check would wipe data.
+    fn clamp_floor(
+        &self,
+        write: &WriteCtx,
+        number: BlockNumber,
+        parent_hash: Option<String>
+    ) -> (BlockNumber, Option<String>) {
+        if self.max_blocks.is_some() && number < write.write.start_block() {
+            (write.write.start_block(), None)
+        } else {
+            (number, parent_hash)
+        }
+    }
+
     async fn handle_retention_change(&mut self, state: &mut State, mut write: WriteCtx) -> anyhow::Result<WriteCtx> {
         // need this variable to please the compiler
         let retention = self.retention_recv.borrow_and_update().clone();
         match retention {
             RetentionStrategy::FromBlock { number, parent_hash } => {
+                let (number, parent_hash) = self.clamp_floor(&write, number, parent_hash);
                 let will_erase_head = write.write.head().map_or(false, |h| h.number < number) || // FromBlock is greater than current head, so everything is cleared
                     write.write.start_block() > number; // FromBlock is less than current front, dropping everything by design
                 blocking_write!(write, write.retain(number, parent_hash))?;
                 match state {
                     State::Ingest { .. } if !will_erase_head => {} // Keep ingesting, head is valid
-                    _ => *state = State::Init { head: None }       // New ingest needed
+                    _ => *state = State::Init { head: self.max_blocks } // New ingest needed
                 }
             }
             RetentionStrategy::Head(n) => match state {
