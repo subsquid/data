@@ -22,6 +22,10 @@ pub(super) const CF_TABLES: Name = "TABLES";
 pub(super) const CF_DIRTY_TABLES: Name = "DIRTY_TABLES";
 pub(super) const CF_DELETED_TABLES: Name = "DELETED_TABLES";
 
+/// All column families. Keep in sync with the descriptor list in [`DatabaseSettings::open`].
+pub(super) const ALL_COLUMN_FAMILIES: [Name; 5] =
+    [CF_DATASETS, CF_CHUNKS, CF_TABLES, CF_DIRTY_TABLES, CF_DELETED_TABLES];
+
 pub(super) type RocksDB = rocksdb::OptimisticTransactionDB;
 pub(super) type RocksTransaction<'a> = rocksdb::Transaction<'a, RocksDB>;
 pub(super) type RocksTransactionOptions = rocksdb::OptimisticTransactionOptions;
@@ -293,6 +297,22 @@ impl Database {
 
     pub fn get_statistics(&self) -> Option<String> {
         self.options.get_statistics()
+    }
+
+    /// Approximate on-disk size of each column family as `(cf_name, bytes)`. Counts
+    /// SST files only, excluding WAL and memtables. Constant-time property reads.
+    pub fn column_family_sizes(&self) -> anyhow::Result<Vec<(&'static str, u64)>> {
+        ALL_COLUMN_FAMILIES
+            .into_iter()
+            .map(|cf| {
+                let handle = self.db.cf_handle(cf).expect("column family must exist");
+                let size = self
+                    .db
+                    .property_int_value_cf(handle, "rocksdb.total-sst-files-size")?
+                    .unwrap_or(0);
+                Ok((cf, size))
+            })
+            .collect()
     }
 
     pub fn get_property(&self, cf: &str, name: &str) -> anyhow::Result<Option<String>> {

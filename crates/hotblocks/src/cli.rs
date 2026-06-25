@@ -10,7 +10,7 @@ use sqd_storage::db::{DatabaseSettings, DatasetId};
 use crate::{
     data_service::{DataService, DataServiceRef},
     dataset_config::{DatasetConfig, RetentionConfig},
-    metrics::DatasetMetricsCollector,
+    metrics::{DatasetMetricsCollector, StorageMetricsCollector},
     query::{QueryService, QueryServiceRef},
     types::DBRef
 };
@@ -91,10 +91,8 @@ impl CLI {
             .context("failed to open rocksdb database")?;
 
         let mut metrics_registry = crate::metrics::build_metrics_registry();
-        metrics_registry.register_collector(Box::new(DatasetMetricsCollector {
-            db: db.clone(),
-            datasets: datasets.keys().copied().collect()
-        }));
+
+        let dataset_ids: Vec<DatasetId> = datasets.keys().copied().collect();
 
         let api_controlled_datasets = datasets
             .iter()
@@ -102,6 +100,12 @@ impl CLI {
             .collect();
 
         let data_service = DataService::start(db.clone(), datasets).await.map(Arc::new)?;
+
+        metrics_registry.register_collector(Box::new(DatasetMetricsCollector {
+            data_service: data_service.clone(),
+            datasets: dataset_ids
+        }));
+        metrics_registry.register_collector(Box::new(StorageMetricsCollector { db: db.clone() }));
 
         let query_service = {
             let mut builder = QueryService::builder(db.clone());

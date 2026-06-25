@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
 use anyhow::anyhow;
 use parking_lot::Mutex;
-use rocksdb::{ColumnFamily, ReadOptions};
+use rocksdb::{ColumnFamily, Range, ReadOptions};
 use sqd_primitives::{BlockNumber, Name};
 
 use crate::{
@@ -14,7 +14,7 @@ use crate::{
         DatasetLabel
     },
     kv::KvRead,
-    table::read::TableReader
+    table::{key::TableKeyFactory, read::TableReader}
 };
 
 pub struct ReadSnapshot<'a> {
@@ -73,6 +73,30 @@ impl<'a> ReadSnapshot<'a> {
 
     pub fn get_last_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<Chunk>> {
         self.list_chunks(dataset_id, 0, None).into_reversed().next().transpose()
+    }
+
+    /// Approximate on-disk size (compressed, flushed bytes) of a dataset's table data.
+    ///
+    /// `CF_TABLES` is keyed by random `TableId`, so a dataset's tables aren't
+    /// contiguous: we resolve them through chunks and sum each table's key-range
+    /// size. An estimate, safe to run against a live database.
+    pub fn estimate_dataset_size(&self, dataset_id: DatasetId) -> anyhow::Result<u64> {
+        let mut bounds: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+        for chunk in self.list_chunks(dataset_id, 0, None) {
+            let chunk = chunk?;
+            for table_id in chunk.tables().values() {
+                // `start()`/`end()` bracket all of one table's keys, using the
+                // same key layout the writer and reader rely on.
+                let mut key = TableKeyFactory::new(table_id.as_ref());
+                let lo = key.start().to_vec();
+                let hi = key.end().to_vec();
+                bounds.push((lo, hi));
+            }
+        }
+
+        let ranges: Vec<Range> = bounds.iter().map(|(lo, hi)| Range::new(lo, hi)).collect();
+        let sizes = self.db.get_approximate_sizes_cf(self.cf_handle(CF_TABLES), &ranges);
+        Ok(sizes.iter().sum())
     }
 
     fn new_options(&self) -> ReadOptions {
