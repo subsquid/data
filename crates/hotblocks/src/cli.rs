@@ -90,6 +90,15 @@ impl CLI {
             .map(Arc::new)
             .context("failed to open rocksdb database")?;
 
+        // Crash recovery: drop DIRTY_TABLES markers left by a build that died before
+        // commit. Must run before any ingest -- an orphan marker pins the disk-reclaim
+        // watermark forever. Best-effort: a failure degrades reclaim, never blocks startup.
+        match db.purge_orphan_dirty_tables() {
+            Ok(0) => {}
+            Ok(n) => tracing::info!("purged {n} orphan dirty table(s) left by an interrupted build"),
+            Err(err) => tracing::warn!(error =? err, "failed to purge orphan dirty tables at startup")
+        }
+
         let mut metrics_registry = crate::metrics::build_metrics_registry();
         metrics_registry.register_collector(Box::new(DatasetMetricsCollector {
             db: db.clone(),

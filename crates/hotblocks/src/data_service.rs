@@ -7,7 +7,7 @@ use anyhow::{Context, anyhow};
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_storage::db::DatasetId;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::{
     dataset_config::{DatasetConfig, RetentionConfig},
@@ -31,6 +31,18 @@ impl DataService {
                 if let Err(err) = db.delete_dataset(dataset.id) {
                     error!("failed to delete dataset {}: {}", dataset.id, err);
                 }
+            }
+        }
+
+        // Reclaim disk now, before any controller spawns. The file unlink ignores
+        // snapshots, so it is safe only here -- no ingest or query snapshot exists
+        // yet. Write-free, so it also makes progress at a full disk.
+        {
+            let db = db.clone();
+            match tokio::task::spawn_blocking(move || db.reclaim_disk_space()).await {
+                Ok(Ok(())) => debug!("startup disk reclaim complete"),
+                Ok(Err(err)) => error!(error =? err, "startup disk reclaim failed"),
+                Err(_) => error!("startup disk reclaim panicked")
             }
         }
 
