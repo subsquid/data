@@ -1,5 +1,5 @@
 //! Tests for table cleanup:
-//!   * Phase 1 ([`Database::cleanup`]) -- logical, snapshot-safe range tombstones.
+//!   * Phase 1 ([`Database::cleanup`]) -- logical, snapshot-safe point deletes.
 //!   * Physical reclaim ([`Database::reclaim_disk_space`]) -- SST-file unlink below the
 //!     live watermark. It ignores snapshots, so it runs only where there are no live
 //!     readers (startup in production); fully decoupled from Phase 1.
@@ -15,7 +15,7 @@ use mock_db::{MockDB, Table};
 
 /// Phase 1 must be invisible to readers that already hold a snapshot: a query
 /// in flight when its chunk is deleted keeps reading every row (RocksDB MVCC --
-/// range tombstones respect older snapshots), while new snapshots see nothing.
+/// point deletes respect older snapshots), while new snapshots see nothing.
 #[test]
 fn logical_delete_is_snapshot_safe() {
     let mut db = MockDB::new();
@@ -50,7 +50,7 @@ fn reclaim_unlinks_dead_sst_files() {
         db.delete(t);
     }
     assert_eq!(db.cleanup(), 3);
-    // Flush the Phase-1 range tombstones out of the memtable. Auto-compaction is
+    // Flush the Phase-1 tombstones out of the memtable. Auto-compaction is
     // off, so the flushed tombstone SST won't trigger a background compaction
     // that races the assertions -- the unlink is the only thing freeing space.
     db.flush();
@@ -120,7 +120,7 @@ fn cleanup_and_reclaim_are_idempotent() {
     assert_eq!(db.cleanup(), 0);
 }
 
-/// End-to-end: `delete_dataset` runs Phase 1 synchronously (now cheap), and the
+/// End-to-end: `delete_dataset` runs Phase 1 synchronously, and the
 /// subsequent startup reclaim (no readers) frees the disk.
 #[test]
 fn delete_dataset_then_reclaim_frees_space() {
@@ -234,7 +234,7 @@ fn reclaim_is_independent_of_phase1() {
     let before = db.sst_size();
     assert!(before > 0);
 
-    // Logical-delete but DO NOT run Phase 1 (no range tombstone issued).
+    // Logical-delete but DO NOT run Phase 1 (no point deletes issued).
     db.delete(&t);
 
     // No live table remains -> watermark unbounded -> the dead table's files are

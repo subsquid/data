@@ -1,5 +1,5 @@
 //! [`MockDB`] -- a scratch temp-dir `Database` for driving the table cleanup
-//! lifecycle in tests: logical purge (Phase 1, range tombstones) + physical
+//! lifecycle in tests: logical purge (Phase 1, point deletes) + physical
 //! SST-file unlink below the live watermark.
 //!
 //! It hides the fiddly setup (auto-compaction off, small write buffers, UUIDv7 id

@@ -127,7 +127,7 @@ impl<'a> Tx<'a> {
 
     pub fn delete_table(&self, table_id: &TableId) -> anyhow::Result<()> {
         // Value unused; the key's presence is the signal. Phase 1 (`ops::logical_cleanup`)
-        // range-tombstones the table and drops this entry.
+        // point-deletes the table's data and drops this entry.
         self.transaction
             .put_cf(self.cf_handle(CF_DELETED_TABLES), table_id, [])?;
         Ok(())

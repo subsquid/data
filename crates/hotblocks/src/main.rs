@@ -98,7 +98,7 @@ const CLEANUP_INTERVAL: Duration = Duration::from_secs(10);
 /// busy-loop failing writes.
 const CLEANUP_ERROR_BACKOFF: Duration = Duration::from_secs(30);
 
-/// Routine Phase-1 cleanup: range-tombstone deleted tables every tick so compaction
+/// Routine Phase-1 cleanup: point-delete deleted tables' data every tick so compaction
 /// can reclaim their space -- in normal operation the entire runtime reclaim path.
 ///
 /// The physical file unlink (`Database::reclaim_disk_space`) is NOT run here: it

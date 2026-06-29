@@ -9,15 +9,19 @@ use crate::{
 
 /// Phase 1 -- logical, snapshot-safe purge of deleted tables.
 ///
-/// Replaces each table routed to `CF_DELETED_TABLES` (by [`super::tx::Tx::delete_table`])
-/// with one `CF_TABLES` range tombstone instead of millions of point deletes, then
-/// drops its bookkeeping entry. Range tombstones respect snapshots, so in-flight
-/// queries are unaffected and no grace period is needed; the space is freed later by
-/// compaction -- the whole runtime reclaim path (the file unlink is startup-only).
+/// For each table routed to `CF_DELETED_TABLES` (by [`super::tx::Tx::delete_table`]),
+/// point-deletes every one of its `CF_TABLES` keys, then drops its bookkeeping entry.
+/// The deletes are MVCC-versioned, so in-flight queries holding an older snapshot are
+/// unaffected and no grace period is needed; the space is freed later by compaction
+/// (the file unlink is startup-only).
 ///
-/// Idempotent (a crash just replays the no-op range delete). Returns tables purged.
+/// Point deletes -- not one `delete_range` tombstone -- because range deletions are not
+/// officially supported on the transactional `OptimisticTransactionDB`. The cost (one
+/// tombstone per key) is bounded: cleanup runs only at startup and on a background
+/// tick, never on a query path.
+///
+/// Idempotent (a crash just replays now-no-op point deletes). Returns tables purged.
 pub(crate) fn logical_cleanup(db: &RocksDB) -> anyhow::Result<usize> {
-    let cf_tables = db.cf_handle(CF_TABLES).unwrap();
     let cf_deleted = db.cf_handle(CF_DELETED_TABLES).unwrap();
 
     // Collect first, then mutate: writing mid-iteration disturbs the cursor.
@@ -35,23 +39,49 @@ pub(crate) fn logical_cleanup(db: &RocksDB) -> anyhow::Result<usize> {
         it.status()?;
     }
 
-    if pending.is_empty() {
-        return Ok(0);
-    }
-
-    // Range delete writes straight to the base DB (the txn batch has no range
-    // delete), so it runs here, not in `delete_table`'s transaction. Dropping the
-    // bookkeeping entry after a crash just replays a harmless no-op range delete.
-    let mut batch = RocksWriteBatch::default();
+    // One write batch per table (not one shared batch for all): a large multi-table
+    // purge then never holds every table's point deletes in memory at once.
     for id in &pending {
-        let mut start = TableKeyFactory::new(id);
-        let mut end = TableKeyFactory::new(id);
-        db.delete_range_cf(cf_tables, start.start(), end.end())?;
-        batch.delete_cf(cf_deleted, id);
+        purge_table(db, CF_DELETED_TABLES, id)?;
     }
-    db.write(batch)?;
 
     Ok(pending.len())
+}
+
+/// Point-delete all of `id`'s `CF_TABLES` data and drop its `bookkeeping_cf` entry
+/// (`CF_DELETED_TABLES` for [`logical_cleanup`], `CF_DIRTY_TABLES` for
+/// [`purge_orphan_dirty_tables`]) in a single per-table write batch. Enumerates the
+/// table's key range `[start, end)` and deletes each key.
+///
+/// Point deletes rather than one `delete_range` tombstone: range deletions are not
+/// officially supported on the transactional `OptimisticTransactionDB`. One batch per
+/// table (as the pre-tombstone code did) keeps a large purge's memory bounded.
+fn purge_table(db: &RocksDB, bookkeeping_cf: &str, id: &TableId) -> anyhow::Result<()> {
+    let cf_tables = db.cf_handle(CF_TABLES).unwrap();
+    let cf_bookkeeping = db.cf_handle(bookkeeping_cf).unwrap();
+
+    let mut start = TableKeyFactory::new(id);
+    let mut end = TableKeyFactory::new(id);
+    let start_key = start.start();
+    let end_key = end.end();
+
+    let mut batch = RocksWriteBatch::default();
+    let mut it = db.raw_iterator_cf(cf_tables);
+    it.seek(start_key);
+    while it.valid() {
+        let key = it.key().unwrap();
+        if key >= end_key {
+            break;
+        }
+        batch.delete_cf(cf_tables, key);
+        it.next();
+    }
+    it.status()?;
+
+    batch.delete_cf(cf_bookkeeping, id);
+    db.write(batch)?;
+
+    Ok(())
 }
 
 /// Physically reclaim disk by unlinking whole `CF_TABLES` SST files entirely below
@@ -59,7 +89,7 @@ pub(crate) fn logical_cleanup(db: &RocksDB) -> anyhow::Result<usize> {
 /// reclaim that frees space *without writing*, so it works even at a full disk where
 /// compaction deadlocks. Table ids are never-reused, time-ordered UUIDv7s, so dead
 /// tables form a contiguous low range; boundary and above-watermark garbage are left
-/// to compaction (which Phase-1 [`logical_cleanup`] tombstones let it drop).
+/// to compaction (which Phase-1 [`logical_cleanup`] point deletes let it drop).
 ///
 /// SAFETY: the unlink IGNORES snapshots -- it can break an in-flight query reading a
 /// just-deleted table below the watermark. So it runs only at STARTUP, before any
@@ -87,14 +117,13 @@ pub(crate) fn reclaim_disk_space(db: &RocksDB) -> anyhow::Result<()> {
 /// (see [`super::tx::Tx::write_chunk`]). One still present with no build running is an
 /// orphan from a build that died before commit; [`min_live_table_id`] counts it as
 /// live, so a single orphan pins [`reclaim_disk_space`]'s watermark forever. We drop
-/// the marker and range-tombstone its (unreferenced) `CF_TABLES` data.
+/// the marker and point-delete its (unreferenced) `CF_TABLES` data.
 ///
 /// MUST run only with no build in flight (e.g. startup before ingest): it treats
 /// EVERY dirty marker as an orphan, so it would tombstone a live build's data. An
 /// orphan from a mid-run crash survives until the next restart's purge -- it only
 /// blunts the startup reclaim, never corrupts data. Returns orphans purged.
 pub(crate) fn purge_orphan_dirty_tables(db: &RocksDB) -> anyhow::Result<usize> {
-    let cf_tables = db.cf_handle(CF_TABLES).unwrap();
     let cf_dirty = db.cf_handle(CF_DIRTY_TABLES).unwrap();
 
     // Collect first, mutate after: writing while iterating disturbs the cursor.
@@ -112,18 +141,9 @@ pub(crate) fn purge_orphan_dirty_tables(db: &RocksDB) -> anyhow::Result<usize> {
         it.status()?;
     }
 
-    if orphans.is_empty() {
-        return Ok(0);
-    }
-
-    let mut batch = RocksWriteBatch::default();
     for id in &orphans {
-        let mut start = TableKeyFactory::new(id);
-        let mut end = TableKeyFactory::new(id);
-        db.delete_range_cf(cf_tables, start.start(), end.end())?;
-        batch.delete_cf(cf_dirty, id);
+        purge_table(db, CF_DIRTY_TABLES, id)?;
     }
-    db.write(batch)?;
 
     Ok(orphans.len())
 }

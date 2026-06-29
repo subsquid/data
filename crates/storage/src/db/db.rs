@@ -155,10 +155,10 @@ impl DatabaseSettings {
         let mut options = RocksOptions::default();
         options.set_block_based_table_factory(&block_based_table_factory);
         options.set_compression_type(rocksdb::DBCompressionType::Lz4);
-        // Find tombstone-heavy SSTs and bound staleness so no dead file lingers. A lone
-        // range tombstone over a whole table has low deletion density, so the 24h periodic
-        // compaction is the real backstop; the collector catches denser boundary files.
-        // Thresholds are provisional.
+        // Find tombstone-heavy SSTs and bound staleness so no dead file lingers. Deleting
+        // a table point-deletes all of its keys, so its SSTs turn dense with tombstones and
+        // the deletion collector compacts them out; the 24h periodic compaction backstops
+        // any file that never crosses the density threshold. Thresholds are provisional.
         options.add_compact_on_deletion_collector_factory(128 * 1024, 64 * 1024, 0.5);
         options.set_periodic_compaction_seconds(24 * 60 * 60);
         // Bound space amplification under leveled compaction (default since RocksDB 8.4;
@@ -313,7 +313,7 @@ impl Database {
         Ok(())
     }
 
-    /// Phase 1 -- logically purge deleted tables (snapshot-safe range tombstones).
+    /// Phase 1 -- logically purge deleted tables (snapshot-safe point deletes).
     /// Returns the number of tables logically deleted by this call.
     pub fn cleanup(&self) -> anyhow::Result<usize> {
         cleanup_ops::logical_cleanup(&self.db)
