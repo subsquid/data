@@ -25,6 +25,9 @@ impl<'a> TableStorage<'a> {
 
     pub fn mark_table_dirty(&mut self, table_id: TableId) {
         let cf_dirty = self.db.cf_handle(CF_DIRTY_TABLES).unwrap();
+        // Value unused; the key marks "table built, chunk not yet committed". Removed
+        // on commit (`tx::write_chunk`); an orphan from a dead build is cleared by
+        // `ops::purge_orphan_dirty_tables` at startup.
         self.write_batch.put_cf(cf_dirty, table_id, [])
     }
 

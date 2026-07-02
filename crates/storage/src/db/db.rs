@@ -12,7 +12,7 @@ use super::{
 use crate::db::{
     ops::{perform_dataset_compaction, CompactionStatus},
     read::datasets::list_all_datasets,
-    write::{ops::deleted_deleted_tables, table_builder::TableBuilder, tx::Tx},
+    write::{ops as cleanup_ops, table_builder::TableBuilder, tx::Tx},
     Chunk, DatasetUpdate
 };
 
@@ -36,7 +36,8 @@ pub struct DatabaseSettings {
     direct_io: bool,
     cache_index_and_filter_blocks: bool,
     max_log_file_size: usize,
-    keep_log_file_num: usize
+    keep_log_file_num: usize,
+    auto_compactions: bool
 }
 
 impl Default for DatabaseSettings {
@@ -48,7 +49,8 @@ impl Default for DatabaseSettings {
             direct_io: false,
             cache_index_and_filter_blocks: false,
             max_log_file_size: 10,
-            keep_log_file_num: 10
+            keep_log_file_num: 10,
+            auto_compactions: true
         }
     }
 }
@@ -91,6 +93,13 @@ impl DatabaseSettings {
         self
     }
 
+    /// Enable/disable RocksDB background auto-compaction of the table data.
+    /// Defaults to `true`; off mainly for tests needing deterministic compaction.
+    pub fn with_auto_compactions(mut self, yes: bool) -> Self {
+        self.auto_compactions = yes;
+        self
+    }
+
     fn db_options(&self) -> RocksOptions {
         let mut options = RocksOptions::default();
         options.create_if_missing(true);
@@ -99,6 +108,11 @@ impl DatabaseSettings {
         // Bound info log (LOG, LOG.old.*) growth
         options.set_max_log_file_size(self.max_log_file_size * 1024 * 1024);
         options.set_keep_log_file_num(self.keep_log_file_num);
+        // Keep compaction ahead of ingest + deletion tombstones: the default 2 jobs
+        // could not keep up during the NET-819 incident, and routine reclaim now relies
+        // entirely on compaction (the file unlink is startup-only). Load-bearing.
+        options.set_max_background_jobs(8);
+        options.set_max_subcompactions(4);
         if self.with_rocksdb_stats {
             options.enable_statistics();
         }
@@ -141,6 +155,22 @@ impl DatabaseSettings {
         let mut options = RocksOptions::default();
         options.set_block_based_table_factory(&block_based_table_factory);
         options.set_compression_type(rocksdb::DBCompressionType::Lz4);
+        // Find tombstone-heavy SSTs and bound staleness so no dead file lingers. Deleting
+        // a table point-deletes all of its keys, so its SSTs turn dense with tombstones and
+        // the deletion collector compacts them out; the periodic compaction backstops any
+        // file that never crosses the density threshold. The period is a trade-off: each
+        // pass rewrites every SST older than the period, live data included, so 24h would
+        // rewrite a large stable (e.g. FromBlock-retention) dataset daily for nothing --
+        // 3d bounds straggler garbage at a third of that write amplification. Thresholds
+        // are provisional.
+        options.add_compact_on_deletion_collector_factory(128 * 1024, 64 * 1024, 0.5);
+        options.set_periodic_compaction_seconds(3 * 24 * 60 * 60);
+        // Bound space amplification under leveled compaction (default since RocksDB 8.4;
+        // pinned because it is load-bearing here).
+        options.set_level_compaction_dynamic_level_bytes(true);
+        if !self.auto_compactions {
+            options.set_disable_auto_compactions(true);
+        }
         options
     }
 
@@ -287,8 +317,42 @@ impl Database {
         Ok(())
     }
 
+    /// Phase 1 -- logically purge deleted tables (snapshot-safe point deletes).
+    /// Returns the number of tables logically deleted by this call.
     pub fn cleanup(&self) -> anyhow::Result<usize> {
-        deleted_deleted_tables(&self.db)
+        cleanup_ops::logical_cleanup(&self.db)
+    }
+
+    /// Physically reclaim disk by unlinking whole SST files below the live watermark
+    /// (min live `TableId`). No writes, so it works even at a full disk, unlike
+    /// compaction. IGNORES snapshots, so it is safe only where no live reader exists --
+    /// today only at STARTUP. See [`cleanup_ops::reclaim_disk_space`] for the trade-off.
+    pub fn reclaim_disk_space(&self) -> anyhow::Result<()> {
+        cleanup_ops::reclaim_disk_space(&self.db)
+    }
+
+    /// Crash recovery: purge `DIRTY_TABLES` markers left by builds that died before
+    /// commit -- an orphan's id otherwise pins the reclaim watermark forever (see
+    /// [`Database::reclaim_disk_space`]). MUST run before any ingest starts (e.g. at
+    /// startup): it treats every dirty marker as an orphan. Returns orphans purged.
+    pub fn purge_orphan_dirty_tables(&self) -> anyhow::Result<usize> {
+        cleanup_ops::purge_orphan_dirty_tables(&self.db)
+    }
+
+    /// Flush the table-data column family's memtable to SST files (e.g. before a
+    /// reclaim, so freshly written data is unlinkable). ONLY `CF_TABLES` -- the
+    /// bookkeeping column families are not flushed.
+    pub fn flush_tables(&self) -> anyhow::Result<()> {
+        self.db.flush_cf(self.db.cf_handle(CF_TABLES).unwrap())?;
+        Ok(())
+    }
+
+    /// Force a full compaction of the table-data column family. Unlike
+    /// [`Database::reclaim_disk_space`] this *writes* (unsafe at a full disk); it pushes
+    /// data to the bottom level and rewrites tombstone-heavy files the unlink can't reach.
+    pub fn compact_tables(&self) {
+        let cf = self.db.cf_handle(CF_TABLES).unwrap();
+        self.db.compact_range_cf(cf, None::<&[u8]>, None::<&[u8]>);
     }
 
     pub fn get_statistics(&self) -> Option<String> {
