@@ -22,22 +22,9 @@ use crate::{
 ///
 /// Idempotent (a crash just replays now-no-op point deletes). Returns tables purged.
 pub(crate) fn logical_cleanup(db: &RocksDB) -> anyhow::Result<usize> {
-    let cf_deleted = db.cf_handle(CF_DELETED_TABLES).unwrap();
-
     // Collect first, then mutate: writing mid-iteration disturbs the cursor.
-    let mut pending: Vec<TableId> = Vec::new();
-    {
-        let mut it = db.raw_iterator_cf(cf_deleted);
-        it.seek_to_first();
-        while it.valid() {
-            // Skip malformed keys instead of panicking -- a panic re-fires every tick.
-            if let Some(id) = TableId::try_from_slice(it.key().unwrap()) {
-                pending.push(id);
-            }
-            it.next();
-        }
-        it.status()?;
-    }
+    let (pending, malformed) = scan_table_ids(db, CF_DELETED_TABLES)?;
+    drop_malformed_keys(db, CF_DELETED_TABLES, &malformed)?;
 
     // One write batch per table (not one shared batch for all): a large multi-table
     // purge then never holds every table's point deletes in memory at once.
@@ -46,6 +33,46 @@ pub(crate) fn logical_cleanup(db: &RocksDB) -> anyhow::Result<usize> {
     }
 
     Ok(pending.len())
+}
+
+/// Scan `cf`, splitting keys into well-formed `TableId`s and malformed leftovers.
+/// Malformed (non-16-byte) keys are returned rather than skipped: a panic would
+/// re-fire every cleanup tick, and silently skipping would rescan the same garbage
+/// forever -- purge paths delete them via [`drop_malformed_keys`].
+fn scan_table_ids(db: &RocksDB, cf: &str) -> anyhow::Result<(Vec<TableId>, Vec<Vec<u8>>)> {
+    let cf = db.cf_handle(cf).unwrap();
+    let mut ids = Vec::new();
+    let mut malformed = Vec::new();
+
+    let mut it = db.raw_iterator_cf(cf);
+    it.seek_to_first();
+    while it.valid() {
+        let key = it.key().unwrap();
+        match TableId::try_from_slice(key) {
+            Some(id) => ids.push(id),
+            None => malformed.push(key.to_vec())
+        }
+        it.next();
+    }
+    it.status()?;
+
+    Ok((ids, malformed))
+}
+
+/// Delete malformed bookkeeping keys outright, as the pre-rewrite cleanup did --
+/// left in place they would be rescanned by every pass forever, and no other code
+/// path can ever remove them.
+fn drop_malformed_keys(db: &RocksDB, cf: &str, keys: &[Vec<u8>]) -> anyhow::Result<()> {
+    if keys.is_empty() {
+        return Ok(());
+    }
+    let cf = db.cf_handle(cf).unwrap();
+    let mut batch = RocksWriteBatch::default();
+    for key in keys {
+        batch.delete_cf(cf, key);
+    }
+    db.write(batch)?;
+    Ok(())
 }
 
 /// Point-delete all of `id`'s `CF_TABLES` data and drop its `bookkeeping_cf` entry
@@ -124,22 +151,9 @@ pub(crate) fn reclaim_disk_space(db: &RocksDB) -> anyhow::Result<()> {
 /// orphan from a mid-run crash survives until the next restart's purge -- it only
 /// blunts the startup reclaim, never corrupts data. Returns orphans purged.
 pub(crate) fn purge_orphan_dirty_tables(db: &RocksDB) -> anyhow::Result<usize> {
-    let cf_dirty = db.cf_handle(CF_DIRTY_TABLES).unwrap();
-
     // Collect first, mutate after: writing while iterating disturbs the cursor.
-    let mut orphans: Vec<TableId> = Vec::new();
-    {
-        let mut it = db.raw_iterator_cf(cf_dirty);
-        it.seek_to_first();
-        while it.valid() {
-            // Skip a malformed key rather than panic (see logical_cleanup).
-            if let Some(id) = TableId::try_from_slice(it.key().unwrap()) {
-                orphans.push(id);
-            }
-            it.next();
-        }
-        it.status()?;
-    }
+    let (orphans, malformed) = scan_table_ids(db, CF_DIRTY_TABLES)?;
+    drop_malformed_keys(db, CF_DIRTY_TABLES, &malformed)?;
 
     for id in &orphans {
         purge_table(db, CF_DIRTY_TABLES, id)?;
@@ -155,6 +169,9 @@ pub(crate) fn purge_orphan_dirty_tables(db: &RocksDB) -> anyhow::Result<usize> {
 /// A `CF_CHUNKS` value that fails to decode aborts with `Err` (not skipped): skipping
 /// could omit a live table and lift the watermark over data a query needs, so the
 /// caller ([`reclaim_disk_space`]) reclaims nothing this run -- the safe failure mode.
+/// Note the blast radius: the watermark is global, so ONE undecodable chunk anywhere
+/// (e.g. written by a newer binary before a rollback) disables the file unlink for
+/// ALL datasets until it is resolved.
 fn min_live_table_id(db: &RocksDB) -> anyhow::Result<Option<TableId>> {
     let mut min: Option<TableId> = None;
 
@@ -173,17 +190,13 @@ fn min_live_table_id(db: &RocksDB) -> anyhow::Result<Option<TableId>> {
     }
 
     {
-        let cf_dirty = db.cf_handle(CF_DIRTY_TABLES).unwrap();
-        let mut it = db.raw_iterator_cf(cf_dirty);
-        it.seek_to_first();
-        while it.valid() {
-            // Skip a malformed key rather than panic (see logical_cleanup).
-            if let Some(id) = TableId::try_from_slice(it.key().unwrap()) {
-                min = Some(min.map_or(id, |m| m.min(id)));
-            }
-            it.next();
+        // Malformed dirty keys are ignored here: they decode to no TableId, so there
+        // is no data they could pin, and the startup purge deletes them anyway. This
+        // path must stay write-free (it serves reclaim at a full disk).
+        let (ids, _malformed) = scan_table_ids(db, CF_DIRTY_TABLES)?;
+        for id in ids {
+            min = Some(min.map_or(id, |m| m.min(id)));
         }
-        it.status()?;
     }
 
     Ok(min)

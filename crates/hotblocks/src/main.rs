@@ -36,9 +36,10 @@ fn main() -> anyhow::Result<()> {
         .block_on(async {
             let app = args.build_app().await?;
 
-            // NB: startup disk reclaim (file unlink) runs inside DataService::start
-            // (build_app above), before any controller spawns -- the only point where
-            // unlinking is safe, since no ingest/query snapshot exists yet.
+            // NB: startup disk recovery (orphan purge + file unlink) runs inside
+            // DataService::start (build_app above), before any controller spawns --
+            // the only point where it is safe, since no ingest/query snapshot exists
+            // yet.
 
             tokio::spawn(db_cleanup_task(app.db.clone()));
 

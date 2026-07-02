@@ -190,14 +190,14 @@ impl MockDB {
     }
 
     pub fn flush(&self) {
-        self.db.flush().unwrap();
+        self.db.flush_tables().unwrap();
     }
 
     /// Land the table data in the bottom level, so a later reclaim is a real
     /// file unlink (`DeleteFilesInRange` skips L0): flush the memtable, then
     /// compact. In production the dead data being reclaimed lives there too.
     pub fn compact_to_bottom(&self) {
-        self.db.flush().unwrap();
+        self.db.flush_tables().unwrap();
         self.db.compact_tables();
     }
 

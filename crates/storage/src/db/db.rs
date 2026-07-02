@@ -157,10 +157,14 @@ impl DatabaseSettings {
         options.set_compression_type(rocksdb::DBCompressionType::Lz4);
         // Find tombstone-heavy SSTs and bound staleness so no dead file lingers. Deleting
         // a table point-deletes all of its keys, so its SSTs turn dense with tombstones and
-        // the deletion collector compacts them out; the 24h periodic compaction backstops
-        // any file that never crosses the density threshold. Thresholds are provisional.
+        // the deletion collector compacts them out; the periodic compaction backstops any
+        // file that never crosses the density threshold. The period is a trade-off: each
+        // pass rewrites every SST older than the period, live data included, so 24h would
+        // rewrite a large stable (e.g. FromBlock-retention) dataset daily for nothing --
+        // 3d bounds straggler garbage at a third of that write amplification. Thresholds
+        // are provisional.
         options.add_compact_on_deletion_collector_factory(128 * 1024, 64 * 1024, 0.5);
-        options.set_periodic_compaction_seconds(24 * 60 * 60);
+        options.set_periodic_compaction_seconds(3 * 24 * 60 * 60);
         // Bound space amplification under leveled compaction (default since RocksDB 8.4;
         // pinned because it is load-bearing here).
         options.set_level_compaction_dynamic_level_bytes(true);
@@ -336,8 +340,9 @@ impl Database {
     }
 
     /// Flush the table-data column family's memtable to SST files (e.g. before a
-    /// reclaim, so freshly written data is unlinkable).
-    pub fn flush(&self) -> anyhow::Result<()> {
+    /// reclaim, so freshly written data is unlinkable). ONLY `CF_TABLES` -- the
+    /// bookkeeping column families are not flushed.
+    pub fn flush_tables(&self) -> anyhow::Result<()> {
         self.db.flush_cf(self.db.cf_handle(CF_TABLES).unwrap())?;
         Ok(())
     }

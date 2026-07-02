@@ -7,7 +7,7 @@ use anyhow::{Context, anyhow};
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_storage::db::DatasetId;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     dataset_config::{DatasetConfig, RetentionConfig},
@@ -24,25 +24,24 @@ pub struct DataService {
 
 impl DataService {
     pub async fn start(db: DBRef, datasets: BTreeMap<DatasetId, DatasetConfig>) -> anyhow::Result<Self> {
-        let all_datasets = db.get_all_datasets()?;
-        for dataset in all_datasets {
-            if !datasets.contains_key(&dataset.id) {
-                info!("deleting unconfigured dataset {}", dataset.id);
-                if let Err(err) = db.delete_dataset(dataset.id) {
-                    error!("failed to delete dataset {}: {}", dataset.id, err);
-                }
-            }
-        }
+        let unconfigured: Vec<DatasetId> = db
+            .get_all_datasets()?
+            .into_iter()
+            .filter(|ds| !datasets.contains_key(&ds.id))
+            .map(|ds| ds.id)
+            .collect();
 
-        // Reclaim disk now, before any controller spawns. The file unlink ignores
-        // snapshots, so it is safe only here -- no ingest or query snapshot exists
-        // yet. Write-free, so it also makes progress at a full disk.
+        // Startup disk recovery, before any controller spawns: the file unlink
+        // ignores snapshots and the orphan purge treats every dirty marker as an
+        // orphan, so both are safe only here -- no ingest or query snapshot exists
+        // yet.
         {
             let db = db.clone();
-            match tokio::task::spawn_blocking(move || db.reclaim_disk_space()).await {
-                Ok(Ok(())) => debug!("startup disk reclaim complete"),
-                Ok(Err(err)) => error!(error =? err, "startup disk reclaim failed"),
-                Err(_) => error!("startup disk reclaim panicked")
+            if tokio::task::spawn_blocking(move || startup_disk_recovery(&db, &unconfigured))
+                .await
+                .is_err()
+            {
+                error!("startup disk recovery panicked");
             }
         }
 
@@ -91,4 +90,43 @@ impl DataService {
             .map(Arc::clone)
             .ok_or(UnknownDataset { dataset_id })
     }
+}
+
+/// Startup-only disk recovery; must run before any ingest or query exists (the file
+/// unlink ignores snapshots, and the orphan purge treats every dirty marker as an
+/// orphan from a dead build).
+///
+/// Ordering matters at a full disk:
+/// 1. a write-free unlink pass first -- frees below-watermark space even at 100%
+///    disk usage, where every write (including the deletes below) fails with ENOSPC;
+/// 2. bookkeeping writes that lift the reclaim watermark: purge orphan dirty
+///    markers, delete unconfigured datasets;
+/// 3. a second unlink pass to free whatever step 2 unpinned.
+///
+/// Every step is best-effort: a failure leaves the watermark pinned (for the WHOLE
+/// db -- it is a global minimum) until a later startup succeeds, but never blocks
+/// startup.
+fn startup_disk_recovery(db: &DBRef, unconfigured: &[DatasetId]) {
+    if let Err(err) = db.reclaim_disk_space() {
+        error!(error =? err, "startup disk reclaim (first pass) failed");
+    }
+
+    match db.purge_orphan_dirty_tables() {
+        Ok(0) => {}
+        Ok(n) => info!("purged {n} orphan dirty table(s) left by an interrupted build"),
+        Err(err) => warn!(error =? err, "failed to purge orphan dirty tables")
+    }
+
+    for dataset_id in unconfigured {
+        info!("deleting unconfigured dataset {dataset_id}");
+        if let Err(err) = db.delete_dataset(*dataset_id) {
+            error!("failed to delete dataset {dataset_id}: {err}; its chunks keep pinning the disk-reclaim watermark until a later startup succeeds");
+        }
+    }
+
+    if let Err(err) = db.reclaim_disk_space() {
+        error!(error =? err, "startup disk reclaim (second pass) failed");
+    }
+
+    debug!("startup disk recovery complete");
 }
