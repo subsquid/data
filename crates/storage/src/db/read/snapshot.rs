@@ -75,11 +75,9 @@ impl<'a> ReadSnapshot<'a> {
         self.list_chunks(dataset_id, 0, None).into_reversed().next().transpose()
     }
 
-    /// Approximate on-disk size (compressed, flushed bytes) of a dataset's table data.
-    ///
-    /// `CF_TABLES` is keyed by random `TableId`, so a dataset's tables aren't
-    /// contiguous: we resolve them through chunks and sum each table's key-range
-    /// size. An estimate, safe to run against a live database.
+    /// Approximate on-disk size (compressed, flushed bytes) of a dataset's table
+    /// data, resolved via chunks since `CF_TABLES` is keyed by random `TableId`
+    /// (not contiguous per dataset). An estimate; safe to call on a live database.
     pub fn estimate_dataset_size(&self, dataset_id: DatasetId) -> anyhow::Result<u64> {
         let mut bounds: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
         for chunk in self.list_chunks(dataset_id, 0, None) {

@@ -38,7 +38,7 @@ impl Drop for DatasetController {
     }
 }
 
-/// Dataset metrics refreshed by [`dataset_stats_loop`] every ~60s.
+/// Dataset metrics refreshed by [`dataset_stats_loop`] on the configured stats interval.
 #[derive(Clone, Debug, Default)]
 pub struct DatasetStats {
     pub first_block: Option<BlockNumber>,
@@ -54,7 +54,8 @@ impl DatasetController {
         dataset_id: DatasetId,
         dataset_kind: DatasetKind,
         retention: RetentionStrategy,
-        data_sources: Vec<ReqwestDataClient>
+        data_sources: Vec<ReqwestDataClient>,
+        stats_interval: Duration
     ) -> anyhow::Result<Self> {
         let mut write = WriteController::new(db.clone(), dataset_id, dataset_kind)?;
 
@@ -83,7 +84,8 @@ impl DatasetController {
 
         let task = tokio::spawn(ctl.run(write).in_current_span());
 
-        let stats_task = tokio::spawn(dataset_stats_loop(db.clone(), dataset_id, stats_sender).in_current_span());
+        let stats_task =
+            tokio::spawn(dataset_stats_loop(db.clone(), dataset_id, stats_interval, stats_sender).in_current_span());
 
         let compaction_task =
             tokio::spawn(compaction_loop(db, dataset_id, compaction_enabled_receiver).in_current_span());
@@ -613,16 +615,16 @@ async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
 }
 
 #[instrument(name = "dataset_stats", skip_all)]
-async fn dataset_stats_loop(db: DBRef, dataset_id: DatasetId, sender: tokio::sync::watch::Sender<DatasetStats>) {
-    const REFRESH: Duration = Duration::from_secs(60);
-
+async fn dataset_stats_loop(db: DBRef, dataset_id: DatasetId, interval: Duration, sender: tokio::sync::watch::Sender<DatasetStats>) {
     // Delay the first run by a per-dataset offset so the loops don't hit RocksDB together.
-    let offset = dataset_id
-        .as_ref()
-        .iter()
-        .fold(0u64, |acc, &b| acc.wrapping_add(b as u64))
-        % REFRESH.as_secs();
-    tokio::time::sleep(Duration::from_secs(offset)).await;
+    if interval.as_secs() > 0 {
+        let offset = dataset_id
+            .as_ref()
+            .iter()
+            .fold(0u64, |acc, &b| acc.wrapping_add(b as u64))
+            % interval.as_secs();
+        tokio::time::sleep(Duration::from_secs(offset)).await;
+    }
 
     loop {
         let db = db.clone();
@@ -641,7 +643,7 @@ async fn dataset_stats_loop(db: DBRef, dataset_id: DatasetId, sender: tokio::syn
             Err(err) => error!(reason =? err, "dataset stats task panicked")
         }
 
-        tokio::time::sleep(REFRESH).await;
+        tokio::time::sleep(interval).await;
     }
 }
 
@@ -649,7 +651,11 @@ fn compute_dataset_stats(db: &Database, dataset_id: DatasetId) -> anyhow::Result
     let snapshot = db.snapshot();
     let first_block = snapshot.get_first_chunk(dataset_id)?.map(|c| c.first_block());
     let last_block_time = snapshot.get_last_chunk(dataset_id)?.and_then(|c| c.last_block_time());
+
+    let started = std::time::Instant::now();
     let size_bytes = snapshot.estimate_dataset_size(dataset_id)?;
+    debug!(elapsed_us = started.elapsed().as_micros(), "estimated dataset size");
+
     Ok(DatasetStats {
         first_block,
         last_block_time,

@@ -37,6 +37,11 @@ fn main() -> anyhow::Result<()> {
             let app = args.build_app().await?;
 
             tokio::spawn(db_cleanup_task(app.db.clone()));
+            tokio::spawn(metrics::storage_metrics_loop(
+                app.db.clone(),
+                app.storage_stats_interval,
+                app.storage_metrics_sender.clone()
+            ));
 
             let api = build_api(app);
 

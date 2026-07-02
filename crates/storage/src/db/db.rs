@@ -299,8 +299,10 @@ impl Database {
         self.options.get_statistics()
     }
 
-    /// Approximate on-disk size of each column family as `(cf_name, bytes)`. Counts
-    /// SST files only, excluding WAL and memtables. Constant-time property reads.
+    /// Approximate on-disk size of each column family as `(cf_name, bytes)`
+    /// (SST files only, excludes WAL/memtables). Holds RocksDB's DB mutex and
+    /// scales with live SST files across all open snapshots — not O(1). Call
+    /// from a background loop, not a hot path (e.g. per query or per scrape).
     pub fn column_family_sizes(&self) -> anyhow::Result<Vec<(&'static str, u64)>> {
         ALL_COLUMN_FAMILIES
             .into_iter()

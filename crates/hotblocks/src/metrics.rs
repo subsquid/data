@@ -181,25 +181,20 @@ fn collect_dataset_metrics(
     Ok(())
 }
 
-/// On-disk size of each RocksDB column family. Unlike per-dataset sizes, this also
-/// covers metadata column families and orphaned table data. Cheap enough to run
-/// on every scrape (O(1) property reads).
+pub type ColumnFamilySizes = Vec<(&'static str, u64)>;
+
+/// On-disk size of each RocksDB column family. Unlike per-dataset sizes, this
+/// also covers metadata CFs and orphaned table data. `total-sst-files-size`
+/// holds RocksDB's DB mutex and scales with live SST files across all open
+/// snapshots, so it's refreshed by [`storage_metrics_loop`], off the scrape path.
 #[derive(Debug)]
 pub struct StorageMetricsCollector {
-    pub db: DBRef
+    pub receiver: tokio::sync::watch::Receiver<ColumnFamilySizes>
 }
 
 impl Collector for StorageMetricsCollector {
     fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), std::fmt::Error> {
-        let sizes = match self.db.column_family_sizes() {
-            Ok(sizes) => sizes,
-            Err(err) => {
-                tracing::warn!(reason =? err, "failed to read column family sizes");
-                return Ok(());
-            }
-        };
-
-        for (cf, size) in sizes {
+        for (cf, size) in self.receiver.borrow().iter() {
             let labels: Vec<(&'static str, String)> = vec![("column_family", cf.to_string())];
             encoder
                 .encode_descriptor(
@@ -209,10 +204,46 @@ impl Collector for StorageMetricsCollector {
                     MetricType::Gauge
                 )?
                 .encode_family(&labels)?
-                .encode_gauge(&size)?;
+                .encode_gauge(size)?;
         }
 
         Ok(())
+    }
+}
+
+#[tracing::instrument(name = "storage_metrics", skip_all)]
+pub async fn storage_metrics_loop(db: DBRef, interval: Duration, sender: tokio::sync::watch::Sender<ColumnFamilySizes>) {
+    // Stagger the first run so this doesn't hit RocksDB's DB mutex (see
+    // column_family_sizes docs) right at startup alongside every dataset's own
+    // initial ingestion/compaction. Only one instance of this loop runs, so a
+    // fixed delay suffices (unlike dataset_stats_loop's per-dataset offset).
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    loop {
+        let db = db.clone();
+        let span = tracing::Span::current();
+        let result = tokio::task::spawn_blocking(move || {
+            let _s = span.enter();
+            let started = std::time::Instant::now();
+            let sizes = db.column_family_sizes();
+            (sizes, started.elapsed())
+        })
+        .await;
+
+        match result {
+            Ok((Ok(sizes), elapsed)) => {
+                tracing::debug!(
+                    elapsed_us = elapsed.as_micros(),
+                    column_families = sizes.len(),
+                    "measured column family sizes"
+                );
+                let _ = sender.send(sizes);
+            }
+            Ok((Err(err), _)) => tracing::warn!(reason =? err, "failed to read column family sizes"),
+            Err(err) => tracing::error!(reason =? err, "column family size measurement task panicked")
+        }
+
+        tokio::time::sleep(interval).await;
     }
 }
 
