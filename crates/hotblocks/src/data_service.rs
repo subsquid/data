@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::Arc
+    sync::Arc,
+    time::Duration
 };
 
 use anyhow::{Context, anyhow};
@@ -23,7 +24,7 @@ pub struct DataService {
 }
 
 impl DataService {
-    pub async fn start(db: DBRef, datasets: BTreeMap<DatasetId, DatasetConfig>) -> anyhow::Result<Self> {
+    pub async fn start(db: DBRef, datasets: BTreeMap<DatasetId, DatasetConfig>, stats_interval: Duration) -> anyhow::Result<Self> {
         let all_datasets = db.get_all_datasets()?;
         for dataset in all_datasets {
             if !datasets.contains_key(&dataset.id) {
@@ -55,7 +56,7 @@ impl DataService {
                 };
 
                 tokio::task::spawn_blocking(move || {
-                    DatasetController::new(db, dataset_id, cfg.kind, retention, data_sources).map(|c| {
+                    DatasetController::new(db, dataset_id, cfg.kind, retention, data_sources, stats_interval).map(|c| {
                         c.enable_compaction(!cfg.disable_compaction);
                         Arc::new(c)
                     })

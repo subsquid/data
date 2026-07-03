@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeSet, HashSet},
-    sync::Arc
+    sync::Arc,
+    time::Duration
 };
 
 use anyhow::Context;
@@ -10,7 +11,7 @@ use sqd_storage::db::{DatabaseSettings, DatasetId};
 use crate::{
     data_service::{DataService, DataServiceRef},
     dataset_config::{DatasetConfig, RetentionConfig},
-    metrics::DatasetMetricsCollector,
+    metrics::{ColumnFamilySizes, DatasetMetricsCollector, StorageMetricsCollector},
     query::{QueryService, QueryServiceRef},
     types::DBRef
 };
@@ -64,7 +65,11 @@ pub struct CLI {
     /// Known client IDs for metrics labeling. Client IDs not in this list
     /// will be reported as "unknown" to prevent metrics cardinality abuse.
     #[arg(long = "known-client", value_name = "ID")]
-    pub known_clients: Vec<String>
+    pub known_clients: Vec<String>,
+
+    /// Refresh interval for hotblocks_dataset_size_bytes and hotblocks_column_family_size_bytes
+    #[arg(long, value_name = "SECONDS", default_value = "60")]
+    pub storage_stats_interval_secs: u64
 }
 
 pub struct App {
@@ -73,7 +78,9 @@ pub struct App {
     pub query_service: QueryServiceRef,
     pub api_controlled_datasets: BTreeSet<DatasetId>,
     pub metrics_registry: prometheus_client::registry::Registry,
-    pub known_clients: HashSet<String>
+    pub known_clients: HashSet<String>,
+    pub storage_metrics_sender: tokio::sync::watch::Sender<ColumnFamilySizes>,
+    pub storage_stats_interval: Duration
 }
 
 impl CLI {
@@ -91,17 +98,29 @@ impl CLI {
             .context("failed to open rocksdb database")?;
 
         let mut metrics_registry = crate::metrics::build_metrics_registry();
-        metrics_registry.register_collector(Box::new(DatasetMetricsCollector {
-            db: db.clone(),
-            datasets: datasets.keys().copied().collect()
-        }));
+
+        let dataset_ids: Vec<DatasetId> = datasets.keys().copied().collect();
 
         let api_controlled_datasets = datasets
             .iter()
             .filter_map(|(id, cfg)| (cfg.retention_strategy == RetentionConfig::Api).then_some(*id))
             .collect();
 
-        let data_service = DataService::start(db.clone(), datasets).await.map(Arc::new)?;
+        let storage_stats_interval = Duration::from_secs(self.storage_stats_interval_secs);
+
+        let data_service = DataService::start(db.clone(), datasets, storage_stats_interval)
+            .await
+            .map(Arc::new)?;
+
+        metrics_registry.register_collector(Box::new(DatasetMetricsCollector {
+            data_service: data_service.clone(),
+            datasets: dataset_ids
+        }));
+
+        let (storage_metrics_sender, storage_metrics_receiver) = tokio::sync::watch::channel(ColumnFamilySizes::new());
+        metrics_registry.register_collector(Box::new(StorageMetricsCollector {
+            receiver: storage_metrics_receiver
+        }));
 
         let query_service = {
             let mut builder = QueryService::builder(db.clone());
@@ -128,7 +147,9 @@ impl CLI {
             query_service,
             api_controlled_datasets,
             metrics_registry,
-            known_clients
+            known_clients,
+            storage_metrics_sender,
+            storage_stats_interval
         })
     }
 }
