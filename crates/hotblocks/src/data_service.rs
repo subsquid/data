@@ -7,7 +7,7 @@ use anyhow::{Context, anyhow};
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_storage::db::DatasetId;
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     dataset_config::{DatasetConfig, RetentionConfig},
@@ -23,14 +23,24 @@ pub struct DataService {
 }
 
 impl DataService {
-    pub async fn start(db: DBRef, datasets: BTreeMap<DatasetId, DatasetConfig>) -> anyhow::Result<Self> {
-        let all_datasets = db.get_all_datasets()?;
-        for dataset in all_datasets {
-            if !datasets.contains_key(&dataset.id) {
-                info!("deleting unconfigured dataset {}", dataset.id);
-                if let Err(err) = db.delete_dataset(dataset.id) {
-                    error!("failed to delete dataset {}: {}", dataset.id, err);
-                }
+    pub async fn start(
+        db: DBRef,
+        datasets: BTreeMap<DatasetId, DatasetConfig>,
+        disk_reclaim: bool
+    ) -> anyhow::Result<Self> {
+        let unconfigured: Vec<DatasetId> = db
+            .get_all_datasets()?
+            .into_iter()
+            .filter(|ds| !datasets.contains_key(&ds.id))
+            .map(|ds| ds.id)
+            .collect();
+
+        // Must run before any controller spawns -- see `startup_disk_recovery`.
+        {
+            let db = db.clone();
+            let recovery = tokio::task::spawn_blocking(move || startup_disk_recovery(&db, &unconfigured, disk_reclaim));
+            if let Err(err) = recovery.await {
+                error!(error =? err, "startup disk recovery panicked");
             }
         }
 
@@ -79,4 +89,55 @@ impl DataService {
             .map(Arc::clone)
             .ok_or(UnknownDataset { dataset_id })
     }
+}
+
+/// Startup-only disk recovery; must run before any ingest or query exists (the file
+/// unlink ignores snapshots, and the orphan purge treats every dirty marker as an orphan
+/// from a dead build).
+///
+/// `disk_reclaim` gates both reclaim steps (`--startup-disk-reclaim`, off by default);
+/// deleting unconfigured datasets always runs. Ordering matters on a near-full disk:
+/// 1. an unlink pass first -- it needs no scratch space, so it frees below-watermark space
+///    where every write below would fail with ENOSPC;
+/// 2. bookkeeping writes that lift the reclaim watermark: purge orphan dirty markers,
+///    delete unconfigured datasets;
+/// 3. a second unlink pass to free whatever step 2 unpinned.
+///
+/// Every step is best-effort: a failure leaves the watermark pinned until a later startup
+/// succeeds, but never blocks startup.
+///
+/// Does not rescue a volume at literally zero free bytes: the database has already opened
+/// by the time we get here, and opening replays the WAL and flushes it to L0.
+fn startup_disk_recovery(db: &DBRef, unconfigured: &[DatasetId], disk_reclaim: bool) {
+    if disk_reclaim {
+        if let Err(err) = db.reclaim_disk_space() {
+            error!(error =? err, "startup disk reclaim (first pass) failed");
+        }
+
+        match db.purge_orphan_dirty_tables() {
+            Ok(0) => {}
+            Ok(n) => info!("purged {n} orphan dirty table(s) left by an interrupted build"),
+            Err(err) => warn!(error =? err, "failed to purge orphan dirty tables")
+        }
+    } else {
+        // FUTURE: ungate the orphan purge once the rollout measurement is done. It is safe
+        // without the unlink, and while gated an interrupted build leaks its data for good;
+        // it shares the flag only so `reclaim-measure` can still contrast the two watermarks.
+        info!("startup disk reclaim is off; enable with --startup-disk-reclaim");
+    }
+
+    for dataset_id in unconfigured {
+        info!("deleting unconfigured dataset {dataset_id}");
+        if let Err(err) = db.delete_dataset(*dataset_id) {
+            error!("failed to delete dataset {dataset_id}: {err}; its chunks keep pinning the reclaim watermark");
+        }
+    }
+
+    if disk_reclaim {
+        if let Err(err) = db.reclaim_disk_space() {
+            error!(error =? err, "startup disk reclaim (second pass) failed");
+        }
+    }
+
+    debug!("startup disk recovery complete");
 }

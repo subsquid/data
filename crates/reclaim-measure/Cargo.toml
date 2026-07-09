@@ -1,0 +1,18 @@
+[package]
+name = "reclaim-measure"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "reclaim-measure"
+path = "src/main.rs"
+
+[dependencies]
+sqd-storage = { path = "../storage" }
+rocksdb = { version = "0.24.0", features = ["jemalloc"] }
+borsh = { workspace = true }
+anyhow = { workspace = true }
+
+[lints]
+workspace = true
