@@ -13,12 +13,15 @@ ADD crates crates
 
 
 FROM builder AS hotblocks-builder
-RUN cargo build -p sqd-hotblocks --release
+RUN cargo build -p sqd-hotblocks -p reclaim-measure --release
 
 
 FROM rust AS hotblocks
 WORKDIR /app
 COPY --from=hotblocks-builder /app/target/release/sqd-hotblocks .
+# Read-only probe: opens the live db as a RocksDB secondary instance and reports how much
+# --startup-disk-reclaim would free. Run it in the pod before turning that flag on.
+COPY --from=hotblocks-builder /app/target/release/reclaim-measure .
 ENTRYPOINT ["/app/sqd-hotblocks"]
 
 

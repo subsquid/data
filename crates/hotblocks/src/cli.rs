@@ -61,6 +61,29 @@ pub struct CLI {
     #[arg(long, value_name = "N", default_value = "10")]
     pub rocksdb_keep_log_file_num: usize,
 
+    /// Concurrent RocksDB background flush + compaction jobs.
+    /// Defaults to the core count, clamped to 2..=8.
+    #[arg(long, value_name = "N")]
+    pub rocksdb_max_background_jobs: Option<usize>,
+
+    /// Rewrite every table SST older than this, collecting dead data that never made a file
+    /// tombstone-dense enough for the deletion collector. Lower means faster reclaim and
+    /// proportionally more write amplification. 0 disables it, leaving RocksDB's 30-day
+    /// `ttl` as the only backstop.
+    #[arg(long, value_name = "SECS", default_value_t = sqd_storage::db::DEFAULT_PERIODIC_COMPACTION_SECS)]
+    pub rocksdb_periodic_compaction_secs: u64,
+
+    /// Reclaim dead disk at startup: purge orphaned dirty-table markers, then unlink whole
+    /// SST files below the live-table watermark. Off by default -- the unlink ignores
+    /// snapshots, so it is only safe before any query exists. Use the `reclaim-measure`
+    /// binary (shipped in this image) to size the win first.
+    ///
+    /// Note that this runs *after* the database opens, and opening replays the WAL and
+    /// flushes it to L0. A volume at literally zero free bytes needs a few hundred MB
+    /// cleared by hand before the process can get far enough to reclaim anything.
+    #[arg(long)]
+    pub startup_disk_reclaim: bool,
+
     /// Known client IDs for metrics labeling. Client IDs not in this list
     /// will be reported as "unknown" to prevent metrics cardinality abuse.
     #[arg(long = "known-client", value_name = "ID")]
@@ -80,12 +103,19 @@ impl CLI {
     pub async fn build_app(&self) -> anyhow::Result<App> {
         let datasets = DatasetConfig::read_config_file(&self.datasets).context("failed to read datasets config")?;
 
-        let db = DatabaseSettings::default()
+        let mut settings = DatabaseSettings::default()
             .with_data_cache_size(self.data_cache_size)
             .with_rocksdb_stats(self.rocksdb_stats)
             .with_direct_io(!self.rocksdb_disable_direct_io)
             .with_max_log_file_size(self.rocksdb_max_log_file_size)
             .with_keep_log_file_num(self.rocksdb_keep_log_file_num)
+            .with_periodic_compaction_secs(self.rocksdb_periodic_compaction_secs);
+
+        if let Some(jobs) = self.rocksdb_max_background_jobs {
+            settings = settings.with_max_background_jobs(jobs);
+        }
+
+        let db = settings
             .open(&self.database_dir)
             .map(Arc::new)
             .context("failed to open rocksdb database")?;
@@ -101,7 +131,9 @@ impl CLI {
             .filter_map(|(id, cfg)| (cfg.retention_strategy == RetentionConfig::Api).then_some(*id))
             .collect();
 
-        let data_service = DataService::start(db.clone(), datasets).await.map(Arc::new)?;
+        let data_service = DataService::start(db.clone(), datasets, self.startup_disk_reclaim)
+            .await
+            .map(Arc::new)?;
 
         let query_service = {
             let mut builder = QueryService::builder(db.clone());

@@ -2,6 +2,7 @@ mod data;
 mod db;
 pub mod ops;
 mod read;
+pub mod reclaim;
 mod rocks;
 mod table_id;
 mod write;

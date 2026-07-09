@@ -37,6 +37,10 @@ fn main() -> anyhow::Result<()> {
         .block_on(async {
             let app = args.build_app().await?;
 
+            // NB: startup disk recovery (orphan purge + file unlink, gated by
+            // --startup-disk-reclaim) already ran inside `build_app` -> `DataService::start`,
+            // before any controller spawned.
+
             tokio::spawn(db_cleanup_task(app.db.clone()));
 
             let api = build_api(app);
@@ -90,24 +94,46 @@ async fn shutdown_signal() {
     }
 }
 
+const CLEANUP_INTERVAL: Duration = Duration::from_secs(10);
+/// Longer pause after a failed tick, so a persistent error (e.g. full disk) doesn't
+/// busy-loop failing writes.
+const CLEANUP_ERROR_BACKOFF: Duration = Duration::from_secs(30);
+
+/// Routine Phase-1 cleanup: point-delete deleted tables' data every tick so compaction
+/// can reclaim their space -- in normal operation the entire runtime reclaim path.
+///
+/// The physical file unlink (`Database::reclaim_disk_space`) is NOT run here: it ignores
+/// snapshots and could break an in-flight query, so it runs only at startup. FUTURE:
+/// trigger it here under disk pressure too, accepting that risk.
 #[instrument(name = "db_cleanup", skip_all)]
 async fn db_cleanup_task(db: DBRef) {
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(CLEANUP_INTERVAL).await;
     loop {
-        debug!("db cleanup started");
         let db = db.clone();
         let result = tokio::task::spawn_blocking(move || db.cleanup()).await;
-        match result {
-            Ok(Ok(deleted)) => {
-                if deleted > 0 {
-                    debug!("purged {} tables", deleted)
-                } else {
-                    debug!("nothing to purge, pausing cleanup for 10 seconds");
-                    tokio::time::sleep(Duration::from_secs(10)).await;
+
+        let failed = match result {
+            Ok(Ok(purged)) => {
+                if purged > 0 {
+                    debug!("cleanup: logically purged {purged} table(s)");
                 }
+                false
             }
-            Ok(Err(err)) => error!(error =? err, "database cleanup task failed"),
-            Err(_) => error!("database cleanup task panicked")
-        }
+            Ok(Err(err)) => {
+                error!(error =? err, "database cleanup failed");
+                true
+            }
+            Err(_) => {
+                error!("database cleanup task panicked");
+                true
+            }
+        };
+
+        tokio::time::sleep(if failed {
+            CLEANUP_ERROR_BACKOFF
+        } else {
+            CLEANUP_INTERVAL
+        })
+        .await;
     }
 }

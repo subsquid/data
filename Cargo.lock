@@ -4028,6 +4028,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "reclaim-measure"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "rocksdb",
+ "sqd-storage",
+]
+
+[[package]]
 name = "recursive"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
