@@ -135,7 +135,6 @@ item_field_selection! {
         this.call_address,
         this.name,
         this.phase,
-        this.call_address,
         this.topics,
         [this.args]: Json,
     }}
