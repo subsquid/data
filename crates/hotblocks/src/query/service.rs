@@ -12,6 +12,7 @@ use sqd_query::Query;
 use super::{executor::QueryExecutor, response::QueryResponse};
 use crate::{
     dataset_controller::DatasetController,
+    encoding::ContentEncoding,
     errors::{Busy, QueryIsAboveTheHead, QueryKindMismatch},
     query::QueryExecutorCollector,
     types::{ClientId, DBRef, DatasetKind}
@@ -84,18 +85,20 @@ impl QueryService {
         &self,
         dataset: &DatasetController,
         query: Query,
-        client_id: ClientId
+        client_id: ClientId,
+        encoding: ContentEncoding
     ) -> anyhow::Result<QueryResponse> {
-        self.query_internal(dataset, query, false, client_id).await
+        self.query_internal(dataset, query, false, client_id, encoding).await
     }
 
     pub async fn query_finalized(
         &self,
         dataset: &DatasetController,
         query: Query,
-        client_id: ClientId
+        client_id: ClientId,
+        encoding: ContentEncoding
     ) -> anyhow::Result<QueryResponse> {
-        self.query_internal(dataset, query, true, client_id).await
+        self.query_internal(dataset, query, true, client_id, encoding).await
     }
 
     async fn query_internal(
@@ -103,7 +106,8 @@ impl QueryService {
         dataset: &DatasetController,
         query: Query,
         finalized: bool,
-        client_id: ClientId
+        client_id: ClientId,
+        encoding: ContentEncoding
     ) -> anyhow::Result<QueryResponse> {
         ensure!(
             dataset.dataset_kind() == DatasetKind::from_query(&query),
@@ -158,7 +162,8 @@ impl QueryService {
             query,
             finalized,
             None,
-            client_id
+            client_id,
+            encoding
         )
         .await
     }
