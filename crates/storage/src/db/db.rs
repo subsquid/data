@@ -396,6 +396,14 @@ impl Database {
         let val = self.db.property_value_cf(cf_handle, name)?;
         Ok(val)
     }
+
+    pub fn get_int_property(&self, cf: &str, name: &str) -> anyhow::Result<Option<u64>> {
+        let Some(cf_handle) = self.db.cf_handle(cf) else {
+            return Ok(None);
+        };
+        let val = self.db.property_int_value_cf(cf_handle, name)?;
+        Ok(val)
+    }
 }
 
 impl std::fmt::Debug for Database {

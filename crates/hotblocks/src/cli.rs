@@ -10,7 +10,7 @@ use sqd_storage::db::{DatabaseSettings, DatasetId};
 use crate::{
     data_service::{DataService, DataServiceRef},
     dataset_config::{DatasetConfig, RetentionConfig},
-    metrics::DatasetMetricsCollector,
+    metrics::{DatasetMetricsCollector, RocksDbCollector},
     query::{QueryService, QueryServiceRef},
     types::DBRef
 };
@@ -125,6 +125,7 @@ impl CLI {
             db: db.clone(),
             datasets: datasets.keys().copied().collect()
         }));
+        metrics_registry.register_collector(Box::new(RocksDbCollector { db: db.clone() }));
 
         let api_controlled_datasets = datasets
             .iter()

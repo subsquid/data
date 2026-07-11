@@ -12,7 +12,7 @@ use prometheus_client::{
     },
     registry::Registry
 };
-use sqd_storage::db::{DatasetId, ReadSnapshot};
+use sqd_storage::db::{CF_CHUNKS, CF_TABLES, DatasetId, ReadSnapshot};
 use tracing::error;
 
 use crate::{query::QueryExecutorCollector, types::DBRef};
@@ -164,6 +164,105 @@ fn collect_dataset_metrics(
         )?
         .encode_family(&dataset_label!(dataset_id))?
         .encode_gauge(&label.finalized_head().map_or(0, |h| h.number))?;
+
+    Ok(())
+}
+
+/// RocksDB write-stall / LSM-backlog gauges, read from intrinsic properties on scrape.
+/// One shared WriteController: any CF's stall stops the whole DB, so DB-wide gauges are global.
+#[derive(Debug)]
+pub struct RocksDbCollector {
+    pub db: DBRef
+}
+
+// (metric, help, property) -- DB-global, queried on one CF.
+const ROCKSDB_DB_WIDE: &[(&str, &str, &str)] = &[
+    (
+        "hotblocks_rocksdb_write_stopped",
+        "1 while RocksDB has hard-stopped all writes",
+        "rocksdb.is-write-stopped"
+    ),
+    (
+        "hotblocks_rocksdb_actual_delayed_write_rate",
+        "Throttled write rate in bytes/s while writes are delayed (soft stall); 0 when not delayed",
+        "rocksdb.actual-delayed-write-rate"
+    ),
+    (
+        "hotblocks_rocksdb_running_compactions",
+        "Compactions currently running",
+        "rocksdb.num-running-compactions"
+    ),
+    (
+        "hotblocks_rocksdb_running_flushes",
+        "Memtable flushes currently running",
+        "rocksdb.num-running-flushes"
+    )
+];
+
+// (metric, help, property) -- per-cf backlog that trips a stall.
+const ROCKSDB_PER_CF: &[(&str, &str, &str)] = &[
+    (
+        "hotblocks_rocksdb_num_files_at_level0",
+        "SST files at L0 (stalls writes once it reaches level0_stop_writes_trigger)",
+        "rocksdb.num-files-at-level0"
+    ),
+    (
+        "hotblocks_rocksdb_estimate_pending_compaction_bytes",
+        "Estimated bytes pending compaction (stalls writes at the soft/hard limit)",
+        "rocksdb.estimate-pending-compaction-bytes"
+    ),
+    (
+        "hotblocks_rocksdb_num_immutable_mem_table",
+        "Immutable memtables not yet flushed",
+        "rocksdb.num-immutable-mem-table"
+    ),
+    (
+        "hotblocks_rocksdb_mem_table_flush_pending",
+        "1 while a memtable flush is pending",
+        "rocksdb.mem-table-flush-pending"
+    )
+];
+
+const ROCKSDB_DATA_CFS: &[&str] = &[CF_CHUNKS, CF_TABLES];
+
+#[derive(Clone, Hash, Debug, Eq, PartialEq, EncodeLabelSet)]
+struct CfLabel {
+    cf: &'static str
+}
+
+impl Collector for RocksDbCollector {
+    fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), std::fmt::Error> {
+        if let Err(err) = collect_rocksdb_metrics(&mut encoder, &self.db) {
+            return if err.is::<std::fmt::Error>() {
+                Err(err.downcast().unwrap())
+            } else {
+                error!(err =? err, "failed to collect rocksdb metrics");
+                Ok(())
+            };
+        }
+        Ok(())
+    }
+}
+
+fn collect_rocksdb_metrics(encoder: &mut DescriptorEncoder, db: &DBRef) -> anyhow::Result<()> {
+    for (metric, help, prop) in ROCKSDB_DB_WIDE {
+        if let Some(value) = db.get_int_property(CF_TABLES, prop)? {
+            encoder
+                .encode_descriptor(metric, help, None, MetricType::Gauge)?
+                .encode_gauge(&value)?;
+        }
+    }
+
+    for (metric, help, prop) in ROCKSDB_PER_CF {
+        for &cf in ROCKSDB_DATA_CFS {
+            if let Some(value) = db.get_int_property(cf, prop)? {
+                encoder
+                    .encode_descriptor(metric, help, None, MetricType::Gauge)?
+                    .encode_family(&CfLabel { cf })?
+                    .encode_gauge(&value)?;
+            }
+        }
+    }
 
     Ok(())
 }
