@@ -4909,6 +4909,7 @@ dependencies = [
  "sqd-data-core",
  "sqd-data-source",
  "sqd-dataset",
+ "sqd-hotblocks-harness",
  "sqd-polars",
  "sqd-primitives",
  "sqd-query",
@@ -4920,6 +4921,20 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "zstd",
+]
+
+[[package]]
+name = "sqd-hotblocks-harness"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "libc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
