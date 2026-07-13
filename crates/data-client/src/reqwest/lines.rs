@@ -35,6 +35,10 @@ impl<Body> LineStream<Body> {
     }
 
     fn take_final_line(&mut self) -> Option<Bytes> {
+        // The buffer is emptied here, so the scan position must go with it: a body whose last
+        // line is unterminated would otherwise leave `unchecked_pos` past the end of an empty
+        // buffer, and the next poll would index out of bounds.
+        self.unchecked_pos = 0;
         let line = std::mem::take(&mut self.line);
         if line.is_empty() {
             None
@@ -76,5 +80,45 @@ where
                 Poll::Pending => return Poll::Pending
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::{executor::block_on, stream, StreamExt};
+
+    use super::*;
+
+    fn lines(chunks: &[&'static str]) -> Vec<String> {
+        let body = stream::iter(
+            chunks
+                .iter()
+                .map(|chunk| Ok::<_, std::io::Error>(Bytes::from_static(chunk.as_bytes())))
+                .collect::<Vec<_>>()
+        );
+        block_on(
+            LineStream::new(body)
+                .map(|line| String::from_utf8(line.unwrap().to_vec()).unwrap())
+                .collect()
+        )
+    }
+
+    #[test]
+    fn splits_lines_across_chunk_boundaries() {
+        assert_eq!(lines(&["{\"a\":1}\n{\"a\"", ":2}\n"]), ["{\"a\":1}", "{\"a\":2}"]);
+    }
+
+    #[test]
+    fn an_unterminated_final_line_is_yielded_and_the_stream_ends() {
+        // The stream is polled once more after the final line: with the scan position left
+        // pointing past the emptied buffer, that poll used to index out of bounds and panic,
+        // taking the ingest task with it.
+        assert_eq!(lines(&["{\"a\":1}\n{\"a\":2}"]), ["{\"a\":1}", "{\"a\":2}"]);
+    }
+
+    #[test]
+    fn an_empty_body_yields_nothing() {
+        assert!(lines(&[]).is_empty());
+        assert!(lines(&[""]).is_empty());
     }
 }

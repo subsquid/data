@@ -34,5 +34,10 @@ tracing = { workspace = true, features = ["valuable"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json", "valuable"] }
 url = { workspace = true, features = ["serde"] }
 
+[dev-dependencies]
+anyhow = { workspace = true }
+sqd-hotblocks-harness = { path = "../hotblocks-harness" }
+tokio = { workspace = true, features = ["full"] }
+
 [lints]
-workspace = true 
+workspace = true
