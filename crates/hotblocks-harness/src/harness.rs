@@ -165,6 +165,11 @@ impl Harness {
         compare::assert_conforms(&self.client, &self.model, &*self.chain, &self.dataset).await
     }
 
+    /// Diff the opt-in block-hash lookup endpoint against every canonical block in the model.
+    pub async fn assert_hash_index_conforms(&self) -> Result<()> {
+        compare::assert_hash_index_conforms(&self.client, &self.model).await
+    }
+
     /// An anchored follower positioned at the bottom of the window (04 §7).
     pub fn follower(&self) -> Follower {
         Follower::new(

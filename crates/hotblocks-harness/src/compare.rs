@@ -96,6 +96,28 @@ pub async fn await_quiescence(client: &Client, model: &Model, q: &Quiescence) ->
     }
 }
 
+/// Every block on the model's canonical branch must resolve to the same block reference through
+/// the public hash-index endpoint. This is opt-in because the production index itself is opt-in.
+pub async fn assert_hash_index_conforms(client: &Client, model: &Model) -> Result<()> {
+    let mut errs = Vec::new();
+    for block in &model.seg {
+        let expected = Some(block.as_ref());
+        let observed = client.block_by_hash(&block.hash).await?;
+        if observed != expected {
+            errs.push(format!("hash {}: expected {expected:?}, got {observed:?}", block.hash));
+        }
+    }
+
+    if errs.is_empty() {
+        Ok(())
+    } else {
+        bail!(
+            "the block-hash index diverged from the model:\n  - {}",
+            errs.join("\n  - ")
+        )
+    }
+}
+
 /// Diff every observable against the model, reporting *all* violations, not the first.
 pub async fn assert_conforms(client: &Client, model: &Model, chain: &dyn Chain, dataset: &str) -> Result<()> {
     let mut errs: Vec<String> = Vec::new();

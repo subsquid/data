@@ -61,6 +61,7 @@ pub fn build_api(app: App) -> Router {
         .route("/datasets/{id}/finalized-stream", post(finalized_stream))
         .route("/datasets/{id}/head", get(get_head))
         .route("/datasets/{id}/finalized-head", get(get_finalized_head))
+        .route("/datasets/{id}/hashes/{hash}/block", get(get_block_by_hash))
         .route("/datasets/{id}/retention", get(get_retention).post(set_retention))
         .route("/datasets/{id}/status", get(get_status))
         .route("/datasets/{id}/metadata", get(get_metadata))
@@ -369,6 +370,47 @@ async fn get_head(
                  get_dataset!(app, dataset_id).get_head()
             }
         })
+}
+
+async fn get_block_by_hash(
+    Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
+    Path((dataset_id, hash)): Path<(DatasetId, String)>
+) -> impl IntoResponse {
+    // Reject absurd lengths before touching the DB (real hashes are 64-88 chars).
+    if hash.is_empty() || hash.len() > 256 {
+        return ResponseWithMetadata::new()
+            .with_client_id(&client_id)
+            .with_dataset_id(dataset_id)
+            .with_endpoint("/hashes/{hash}/block")
+            .with_response(|| text!(StatusCode::BAD_REQUEST, "invalid hash length"));
+    }
+
+    let dataset = match app.data_service.get_dataset(dataset_id) {
+        Ok(ds) => ds,
+        Err(err) => {
+            return ResponseWithMetadata::new()
+                .with_client_id(&client_id)
+                .with_dataset_id(dataset_id)
+                .with_endpoint("/hashes/{hash}/block")
+                .with_response(|| text!(StatusCode::NOT_FOUND, "{}", err));
+        }
+    };
+
+    let response = match dataset.get_block_by_hash(hash).await {
+        Ok(Some(block_ref)) => json_ok!(block_ref),
+        Ok(None) => text!(StatusCode::NOT_FOUND, "block not found"),
+        Err(err) => {
+            error!(error = ?err, dataset_id = %dataset_id, "get_block_by_hash failed");
+            text!(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
+        }
+    };
+
+    ResponseWithMetadata::new()
+        .with_client_id(&client_id)
+        .with_dataset_id(dataset_id)
+        .with_endpoint("/hashes/{hash}/block")
+        .with_response(|| response)
 }
 
 async fn get_retention(

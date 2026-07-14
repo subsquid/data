@@ -1,14 +1,14 @@
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use parking_lot::Mutex;
 use rocksdb::{ColumnFamily, ReadOptions};
-use sqd_primitives::{BlockNumber, Name};
+use sqd_primitives::{BlockNumber, BlockRef, Name};
 
 use crate::{
     db::{
-        data::{Chunk, DatasetId},
-        db::{RocksDB, RocksIterator, RocksSnapshot, CF_CHUNKS, CF_DATASETS, CF_TABLES},
+        data::{BlockHashIndexKey, Chunk, DatasetId},
+        db::{RocksDB, RocksIterator, RocksSnapshot, CF_BLOCK_HASHES, CF_CHUNKS, CF_DATASETS, CF_TABLES},
         read::chunk::ChunkIterator,
         table_id::TableId,
         DatasetLabel
@@ -73,6 +73,27 @@ impl<'a> ReadSnapshot<'a> {
 
     pub fn get_last_chunk(&self, dataset_id: DatasetId) -> anyhow::Result<Option<Chunk>> {
         self.list_chunks(dataset_id, 0, None).into_reversed().next().transpose()
+    }
+
+    /// Resolves a block hash via the `CF_BLOCK_HASHES` index. `Ok(None)` means
+    /// the hash is not indexed (unknown, pre-index chunk, or non-indexed kind).
+    pub fn find_block_by_hash(&self, dataset_id: DatasetId, hash: &str) -> anyhow::Result<Option<BlockRef>> {
+        let key = BlockHashIndexKey::new(dataset_id, hash);
+        let Some(bytes) = self
+            .db
+            .get_pinned_cf_opt(self.cf_handle(CF_BLOCK_HASHES), &key, &self.new_options())?
+        else {
+            return Ok(None);
+        };
+        // A wrong length means corruption; error rather than panic.
+        let arr: [u8; 8] = bytes
+            .as_ref()
+            .try_into()
+            .context("CF_BLOCK_HASHES value has unexpected length, expected 8 bytes")?;
+        Ok(Some(BlockRef {
+            number: BlockNumber::from_be_bytes(arr),
+            hash: hash.to_string()
+        }))
     }
 
     fn new_options(&self) -> ReadOptions {

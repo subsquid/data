@@ -6,7 +6,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options as RocksOptions};
 use sqd_primitives::Name;
 
 use super::{
-    data::{Dataset, DatasetId, DatasetKind, DatasetLabel},
+    data::{BlockHashIndexKey, Dataset, DatasetId, DatasetKind, DatasetLabel},
     read::snapshot::ReadSnapshot
 };
 use crate::db::{
@@ -22,6 +22,7 @@ pub const CF_CHUNKS: Name = "CHUNKS";
 pub const CF_TABLES: Name = "TABLES";
 pub const CF_DIRTY_TABLES: Name = "DIRTY_TABLES";
 pub const CF_DELETED_TABLES: Name = "DELETED_TABLES";
+pub const CF_BLOCK_HASHES: Name = "BLOCK_HASHES";
 
 /// Whole-file rewrite cadence for `CF_TABLES`. RocksDB leaves `periodic_compaction_seconds`
 /// disabled for leveled compaction without a compaction filter, so the effective baseline
@@ -45,7 +46,8 @@ pub struct DatabaseSettings {
     keep_log_file_num: usize,
     auto_compactions: bool,
     max_background_jobs: usize,
-    periodic_compaction_secs: u64
+    periodic_compaction_secs: u64,
+    block_hash_index: bool
 }
 
 /// RocksDB's default of 2 could not keep up with ingest during the NET-819 incident, but a
@@ -69,7 +71,8 @@ impl Default for DatabaseSettings {
             keep_log_file_num: 10,
             auto_compactions: true,
             max_background_jobs: default_max_background_jobs(),
-            periodic_compaction_secs: DEFAULT_PERIODIC_COMPACTION_SECS
+            periodic_compaction_secs: DEFAULT_PERIODIC_COMPACTION_SECS,
+            block_hash_index: false
         }
     }
 }
@@ -131,6 +134,14 @@ impl DatabaseSettings {
     /// backstop. See [`DEFAULT_PERIODIC_COMPACTION_SECS`].
     pub fn with_periodic_compaction_secs(mut self, secs: u64) -> Self {
         self.periodic_compaction_secs = secs;
+        self
+    }
+
+    /// Whether newly ingested chunks get their block hashes indexed in
+    /// `CF_BLOCK_HASHES`. Write-side only: entries are always removed when
+    /// their chunk is pruned, so the index drains after the flag goes off.
+    pub fn with_block_hash_index(mut self, yes: bool) -> Self {
+        self.block_hash_index = yes;
         self
     }
 
@@ -224,17 +235,23 @@ impl DatabaseSettings {
                 ColumnFamilyDescriptor::new(CF_CHUNKS, self.chunks_cf_options()),
                 ColumnFamilyDescriptor::new(CF_TABLES, self.tables_cf_options()),
                 ColumnFamilyDescriptor::new(CF_DIRTY_TABLES, self.cf_default_options()),
-                ColumnFamilyDescriptor::new(CF_DELETED_TABLES, self.cf_default_options())
+                ColumnFamilyDescriptor::new(CF_DELETED_TABLES, self.cf_default_options()),
+                ColumnFamilyDescriptor::new(CF_BLOCK_HASHES, self.cf_default_options())
             ]
         )?;
 
-        Ok(Database { db, options })
+        Ok(Database {
+            db,
+            options,
+            block_hash_index: self.block_hash_index
+        })
     }
 }
 
 pub struct Database {
     db: RocksDB,
-    options: RocksOptions
+    options: RocksOptions,
+    block_hash_index: bool
 }
 
 impl Database {
@@ -293,12 +310,14 @@ impl Database {
     where
         F: FnMut(&mut DatasetUpdate<'_>) -> anyhow::Result<R>
     {
-        Tx::new(&self.db).run(|tx| {
-            let mut upd = DatasetUpdate::new(tx, dataset_id)?;
-            let result = cb(&mut upd)?;
-            upd.finish()?;
-            Ok(result)
-        })
+        Tx::new(&self.db)
+            .with_block_hash_index(self.block_hash_index)
+            .run(|tx| {
+                let mut upd = DatasetUpdate::new(tx, dataset_id)?;
+                let result = cb(&mut upd)?;
+                upd.finish()?;
+                Ok(result)
+            })
     }
 
     pub fn snapshot(&self) -> ReadSnapshot<'_> {
@@ -327,24 +346,54 @@ impl Database {
     }
 
     pub fn delete_dataset(&self, dataset_id: DatasetId) -> anyhow::Result<()> {
+        self.purge_block_hash_index(dataset_id)?;
+
+        // Metadata is removed atomically in one transaction, so the dataset is
+        // never observed half-deleted.
         Tx::new(&self.db).run(|tx| {
-            let label = tx.find_label_for_update(dataset_id)?;
-            if label.is_none() {
+            if tx.find_label_for_update(dataset_id)?.is_none() {
                 return Ok(());
             }
-
-            let chunks = tx.list_chunks(dataset_id, 0, None);
-            for chunk_result in chunks {
+            for chunk_result in tx.list_chunks(dataset_id, 0, None) {
                 let chunk = chunk_result?;
                 tx.delete_chunk(dataset_id, &chunk)?;
             }
-
-            tx.delete_label(dataset_id)?;
-
-            Ok(())
+            tx.delete_label(dataset_id)
         })?;
 
         self.cleanup()?;
+        Ok(())
+    }
+
+    /// Point-deletes every `CF_BLOCK_HASHES` entry of `dataset_id` in bounded
+    /// batches (`delete_range` is not supported on `OptimisticTransactionDB`).
+    /// Runs outside the metadata transaction: a crash in between leaves chunks
+    /// without index entries (hashes 404), not corruption.
+    fn purge_block_hash_index(&self, dataset_id: DatasetId) -> anyhow::Result<()> {
+        const BATCH_SIZE: usize = 10_000;
+
+        let cf = self.db.cf_handle(CF_BLOCK_HASHES).unwrap();
+        let (start, end) = BlockHashIndexKey::dataset_range(dataset_id);
+
+        let mut read_opts = rocksdb::ReadOptions::default();
+        read_opts.set_iterate_upper_bound(end);
+
+        let mut cursor = self.db.raw_iterator_cf_opt(cf, read_opts);
+        cursor.seek(&start);
+
+        let mut batch = RocksWriteBatch::default();
+        while cursor.valid() {
+            batch.delete_cf(cf, cursor.key().unwrap());
+            if batch.len() >= BATCH_SIZE {
+                self.db.write(std::mem::take(&mut batch))?;
+            }
+            cursor.next();
+        }
+        cursor.status()?;
+
+        if !batch.is_empty() {
+            self.db.write(batch)?;
+        }
         Ok(())
     }
 

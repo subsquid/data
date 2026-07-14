@@ -86,6 +86,14 @@ pub struct CLI {
     #[arg(long)]
     pub startup_disk_reclaim: bool,
 
+    /// Index block hashes of newly ingested chunks, enabling
+    /// `GET /datasets/{id}/hashes/{hash}/block`. EVM datasets only.
+    ///
+    /// No backfill: pre-existing chunks stay unresolvable until they roll off
+    /// via retention. Entries drain as chunks are pruned after switching off.
+    #[arg(long)]
+    pub block_hash_index: bool,
+
     /// Known client IDs for metrics labeling. Client IDs not in this list
     /// will be reported as "unknown" to prevent metrics cardinality abuse.
     #[arg(long = "known-client", value_name = "ID")]
@@ -111,7 +119,8 @@ impl CLI {
             .with_direct_io(!self.rocksdb_disable_direct_io)
             .with_max_log_file_size(self.rocksdb_max_log_file_size)
             .with_keep_log_file_num(self.rocksdb_keep_log_file_num)
-            .with_periodic_compaction_secs(self.rocksdb_periodic_compaction_secs);
+            .with_periodic_compaction_secs(self.rocksdb_periodic_compaction_secs)
+            .with_block_hash_index(self.block_hash_index);
 
         if let Some(jobs) = self.rocksdb_max_background_jobs {
             settings = settings.with_max_background_jobs(jobs);

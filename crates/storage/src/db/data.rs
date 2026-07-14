@@ -99,6 +99,50 @@ impl Display for ChunkId {
     }
 }
 
+/// Key for the `hash -> block number` index in `CF_BLOCK_HASHES`:
+/// `dataset_id (48 bytes) || hash UTF-8 bytes`, the hash exactly as it appears
+/// in the Arrow `hash` column (no normalization).
+pub(crate) struct BlockHashIndexKey {
+    bytes: Vec<u8>
+}
+
+impl BlockHashIndexKey {
+    pub fn new(dataset_id: DatasetId, hash: &str) -> Self {
+        let mut bytes = Vec::with_capacity(48 + hash.len());
+        bytes.extend_from_slice(dataset_id.as_ref());
+        bytes.extend_from_slice(hash.as_bytes());
+        Self { bytes }
+    }
+
+    /// The `[start, end)` key range covering every entry of `dataset_id`.
+    pub fn dataset_range(dataset_id: DatasetId) -> (Vec<u8>, Vec<u8>) {
+        let start = dataset_id.as_ref().to_vec();
+        let end = prefix_upper_bound(&start);
+        (start, end)
+    }
+}
+
+impl AsRef<[u8]> for BlockHashIndexKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+/// Exclusive upper bound of `prefix`'s key range: increments the last
+/// non-`0xFF` byte. A `DatasetId` is never all-`0xFF`, so the bound is
+/// always non-empty.
+fn prefix_upper_bound(prefix: &[u8]) -> Vec<u8> {
+    let mut end = prefix.to_vec();
+    while let Some(last) = end.last_mut() {
+        if *last < u8::MAX {
+            *last += 1;
+            return end;
+        }
+        end.pop();
+    }
+    end
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum Chunk {
     V0 {
