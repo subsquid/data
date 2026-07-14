@@ -6,7 +6,7 @@ use futures::StreamExt;
 use sqd_data_core::{BlockChunkBuilder, ChunkProcessor, PreparedChunk};
 use sqd_data_source::{DataEvent, DataSource};
 use sqd_primitives::{Block, BlockNumber, BlockRef, DataMask, DisplayBlockRefOption};
-use tracing::{field::valuable, info};
+use tracing::{debug, field::valuable, info};
 
 use crate::dataset_controller::write_controller::Rollback;
 
@@ -230,7 +230,7 @@ where
         let last_block_time = DateTime::<Utc>::from_timestamp_millis(self.last_block_time.unwrap_or(0))
             .ok_or_else(|| anyhow!("block time is out of range"))?;
 
-        info!(
+        debug!(
             first_block = first_block,
             last_block = last_block,
             last_block_hash = %last_block_hash,

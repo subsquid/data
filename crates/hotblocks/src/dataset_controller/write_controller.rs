@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, ensure};
 use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_storage::db::{Chunk as StorageChunk, Chunk, DatasetId};
-use tracing::{field::valuable, info, instrument, warn};
+use tracing::{debug, field::valuable, info, instrument, warn};
 
 use crate::types::{DBRef, DatasetKind};
 
@@ -324,14 +324,14 @@ impl WriteController {
         })?;
 
         if let Some(new_head) = update {
-            info!(
+            debug!(
                 block_number = new_head.number,
                 block_hash = new_head.hash,
                 "saved new finalized head"
             );
             self.finalized_head = Some(new_head);
         } else {
-            info!("finalized head was ignored")
+            debug!("finalized head was ignored")
         }
 
         Ok(())
@@ -370,7 +370,7 @@ impl WriteController {
             Ok(new_finalized_head)
         })?;
 
-        info!(finalized_head = valuable(&finalized_head), "saved new chunk");
+        debug!(finalized_head = valuable(&finalized_head), "saved new chunk");
 
         self.finalized_head = finalized_head;
         self.head = Some(get_chunk_head(&chunk));

@@ -67,6 +67,10 @@ fn init_tracing() {
         tracing_subscriber::fmt()
             .with_env_filter(env_filter)
             .json()
+            // Event fields land at the top level instead of nested under `fields`, so a log
+            // sink queries `jsonPayload.freed_bytes` rather than `jsonPayload.fields.freed_bytes`.
+            // Matches what `sqd-archive` already does.
+            .flatten_event(true)
             .with_current_span(false)
             .init();
     }
