@@ -148,6 +148,23 @@ impl Client {
             .await?)
     }
 
+    /// Resolves a block hash through the public hash-index endpoint. A missing hash is a
+    /// normal `None`; every other non-success response is a binding failure.
+    pub async fn block_by_hash(&self, hash: &str) -> Result<Option<BlockRef>> {
+        let res = self.http.get(self.url(&format!("hashes/{hash}/block"))).send().await?;
+        let status = res.status();
+
+        match status.as_u16() {
+            200 => Ok(Some(res.json().await.context("malformed block-hash lookup payload")?)),
+            404 => Ok(None),
+            _ => bail!(
+                "block-hash lookup failed with {}: {}",
+                status.as_u16(),
+                res.text().await.unwrap_or_default()
+            )
+        }
+    }
+
     /// SET-RETENTION (DEF-9). Returns the status code: `403` unless the dataset is API-controlled.
     pub async fn set_retention(&self, policy: &Value) -> Result<u16> {
         let res = self.http.post(self.url("retention")).json(policy).send().await?;
