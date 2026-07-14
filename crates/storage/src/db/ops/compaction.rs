@@ -1,6 +1,7 @@
 use std::{
     cmp::{max, min},
-    collections::BTreeMap
+    collections::BTreeMap,
+    sync::Arc
 };
 
 use arrow::datatypes::SchemaRef;
@@ -10,7 +11,7 @@ use crate::db::{
     db::RocksDB,
     ops::{schema_merge::can_merge_schemas, table_merge::TableMerge},
     table_id::TableId,
-    write::tx::Tx,
+    write::{inflight::InflightTableRegistry, tx::Tx},
     Chunk, ChunkReader, DatasetId, ReadSnapshot, TableBuilder
 };
 
@@ -32,8 +33,9 @@ pub struct MergedChunk {
     pub size: usize
 }
 
-pub fn perform_dataset_compaction(
+pub(crate) fn perform_dataset_compaction(
     db: &RocksDB,
+    inflight_tables: &Arc<InflightTableRegistry>,
     dataset_id: DatasetId,
     max_chunk_size: Option<usize>,
     write_amplification_limit: Option<f64>,
@@ -41,6 +43,7 @@ pub fn perform_dataset_compaction(
 ) -> anyhow::Result<CompactionStatus> {
     DatasetCompaction {
         db,
+        inflight_tables,
         snapshot: &ReadSnapshot::new(db),
         dataset_id,
         merge: Vec::new(),
@@ -53,6 +56,7 @@ pub fn perform_dataset_compaction(
 
 struct DatasetCompaction<'a> {
     db: &'a RocksDB,
+    inflight_tables: &'a Arc<InflightTableRegistry>,
     snapshot: &'a ReadSnapshot<'a>,
     dataset_id: DatasetId,
     merge: Vec<ChunkReader<'a>>,
@@ -171,7 +175,7 @@ impl<'a> DatasetCompaction<'a> {
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         let src = TableMerge::prepare(&chunks)?;
-        let mut table_builder = TableBuilder::new(self.db, src.schema());
+        let mut table_builder = TableBuilder::new(self.db, src.schema(), self.inflight_tables);
         table_builder.set_stats(src.columns_with_stats().iter().copied())?;
         src.write(&mut table_builder)?;
         let table_id = table_builder.finish()?;

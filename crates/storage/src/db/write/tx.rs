@@ -126,8 +126,8 @@ impl<'a> Tx<'a> {
     }
 
     pub fn delete_table(&self, table_id: &TableId) -> anyhow::Result<()> {
-        // Value unused; the key's presence is the signal. `ops::logical_cleanup`
-        // point-deletes the table's data and drops this entry.
+        // Empty is the backwards-compatible `DeleteRequested` state. `logical_cleanup`
+        // point-deletes the table and replaces it with a sequence-stamped purge record.
         self.transaction
             .put_cf(self.cf_handle(CF_DELETED_TABLES), table_id, [])?;
         Ok(())

@@ -3,7 +3,48 @@
 //! (They cannot share a scan: one runs on a secondary `rocksdb::DB`, the other on an
 //! `OptimisticTransactionDB`, and `rocksdb::DBInner` is not exported.)
 
-use crate::db::table_id::TableId;
+use crate::db::{deleted_table::DeletedTableState, table_id::TableId};
+
+/// Diagnostic classification of a `CF_DELETED_TABLES` value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeletedTableRecordKind {
+    /// Point tombstones have not been written yet.
+    DeleteRequested,
+    /// Point tombstones were written, but their conservative sequence was not persisted.
+    PurgedUnstamped,
+    /// Point tombstones and their conservative sequence were persisted.
+    Purged,
+    /// The value cannot be decoded as any supported deletion state.
+    Malformed
+}
+
+/// Classify deletion bookkeeping without exposing its internal sequence-state encoding.
+pub fn deleted_table_record_kind(value: &[u8]) -> DeletedTableRecordKind {
+    match DeletedTableState::decode(value) {
+        Ok(DeletedTableState::DeleteRequested) => DeletedTableRecordKind::DeleteRequested,
+        Ok(DeletedTableState::PurgedUnstamped) => DeletedTableRecordKind::PurgedUnstamped,
+        Ok(DeletedTableState::Purged { .. }) => DeletedTableRecordKind::Purged,
+        Err(_) => DeletedTableRecordKind::Malformed
+    }
+}
+
+/// What a snapshot-aware runtime reclaim observed and retired.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct RuntimeReclaimResult {
+    /// RocksDB snapshots that existed when the safety horizon was sampled.
+    pub snapshot_count: u64,
+    /// Sequence of the oldest live snapshot, or `None` when there were no snapshots.
+    pub oldest_snapshot_sequence: Option<u64>,
+    /// Purged table records old enough for every live snapshot and removed this pass.
+    pub safe_deleted_tables: usize,
+    /// Deleted tables still awaiting point deletes/stamping or still needed by an old snapshot.
+    pub unsafe_deleted_tables: usize,
+    /// Undecodable committed chunks ignored by runtime reclaim. Their table data was already
+    /// inaccessible through the query API; startup reclaim remains fail-closed on them.
+    pub skipped_malformed_chunks: usize,
+    /// Smallest table id that the whole-file unlink was not allowed to cross.
+    pub watermark: Option<TableId>
+}
 
 /// Lower bound for `DeleteFilesInRange`. Keys are `table_id (16B) ++ tag ++ ..`.
 pub const RECLAIM_LOWER_BOUND: [u8; 16] = [0u8; 16];
@@ -91,5 +132,16 @@ mod tests {
         assert!(!sst_is_unlinkable(3, Some(&reaches_into_wm), &bound));
 
         assert!(sst_is_unlinkable(3, Some(&RECLAIM_LOWER_BOUND), &bound));
+    }
+
+    #[test]
+    fn deleted_table_records_are_classified_for_diagnostics() {
+        assert_eq!(deleted_table_record_kind(&[]), DeletedTableRecordKind::DeleteRequested);
+        assert_eq!(deleted_table_record_kind(&[1]), DeletedTableRecordKind::PurgedUnstamped);
+        assert_eq!(
+            deleted_table_record_kind(&[2, 0, 0, 0, 0, 0, 0, 0, 0]),
+            DeletedTableRecordKind::Purged
+        );
+        assert_eq!(deleted_table_record_kind(&[99]), DeletedTableRecordKind::Malformed);
     }
 }

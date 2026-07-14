@@ -14,7 +14,7 @@ use std::time::Duration;
 use api::build_api;
 use clap::Parser;
 use cli::CLI;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, instrument, warn};
 use types::DBRef;
 
 #[global_allocator]
@@ -37,11 +37,18 @@ fn main() -> anyhow::Result<()> {
         .block_on(async {
             let app = args.build_app().await?;
 
-            // NB: startup disk recovery (orphan purge + file unlink, gated by
-            // --startup-disk-reclaim) already ran inside `build_app` -> `DataService::start`,
-            // before any controller spawned.
+            // NB: startup orphan purge, plus optional file unlink gated by
+            // --startup-disk-reclaim, already ran inside `build_app` ->
+            // `DataService::start` before any controller spawned.
 
+            let runtime_reclaim_enabled = args.disk_reclaim_interval_secs > 0;
             tokio::spawn(db_cleanup_task(app.db.clone()));
+            if runtime_reclaim_enabled {
+                tokio::spawn(db_reclaim_task(
+                    app.db.clone(),
+                    Duration::from_secs(args.disk_reclaim_interval_secs)
+                ));
+            }
 
             let api = build_api(app);
 
@@ -99,12 +106,8 @@ const CLEANUP_INTERVAL: Duration = Duration::from_secs(10);
 /// busy-loop failing writes.
 const CLEANUP_ERROR_BACKOFF: Duration = Duration::from_secs(30);
 
-/// Routine Phase-1 cleanup: point-delete deleted tables' data every tick so compaction
-/// can reclaim their space -- in normal operation the entire runtime reclaim path.
-///
-/// The physical file unlink (`Database::reclaim_disk_space`) is NOT run here: it ignores
-/// snapshots and could break an in-flight query, so it runs only at startup. FUTURE:
-/// trigger it here under disk pressure too, accepting that risk.
+/// Routine Phase-1 cleanup: point-delete deleted tables' data. The database captures at
+/// open time whether sequence metadata is needed by snapshot-aware physical reclaim.
 #[instrument(name = "db_cleanup", skip_all)]
 async fn db_cleanup_task(db: DBRef) {
     tokio::time::sleep(CLEANUP_INTERVAL).await;
@@ -135,5 +138,74 @@ async fn db_cleanup_task(db: DBRef) {
             CLEANUP_INTERVAL
         })
         .await;
+    }
+}
+
+/// Whole-file reclaim whose watermark includes every deleted table still visible to the
+/// oldest RocksDB snapshot. It never waits for the global snapshot count to reach zero.
+#[instrument(name = "db_reclaim", skip_all)]
+async fn db_reclaim_task(db: DBRef, interval: Duration) {
+    tokio::time::sleep(interval).await;
+    loop {
+        let db = db.clone();
+        let result = tokio::task::spawn_blocking(move || db.reclaim_disk_space_runtime()).await;
+
+        let failed = match result {
+            Ok(Ok(report)) => {
+                // TODO: Export this report only when there is a concrete dashboard/alert
+                // contract; structured debug fields are sufficient for the current rollout.
+                debug!(
+                    snapshots = report.snapshot_count,
+                    oldest_snapshot_sequence = report.oldest_snapshot_sequence,
+                    safe_deleted_tables = report.safe_deleted_tables,
+                    unsafe_deleted_tables = report.unsafe_deleted_tables,
+                    watermark =? report.watermark,
+                    "snapshot-aware disk reclaim completed"
+                );
+                if report.skipped_malformed_chunks > 0 {
+                    warn!(
+                        malformed_chunks = report.skipped_malformed_chunks,
+                        "runtime reclaim ignored unreadable committed chunks"
+                    );
+                }
+                false
+            }
+            Ok(Err(err)) => {
+                error!(error =? err, "snapshot-aware disk reclaim failed");
+                true
+            }
+            Err(err) => {
+                error!(error =? err, "snapshot-aware disk reclaim task panicked");
+                true
+            }
+        };
+
+        tokio::time::sleep(db_reclaim_delay(interval, failed)).await;
+    }
+}
+
+fn db_reclaim_delay(interval: Duration, failed: bool) -> Duration {
+    if failed {
+        interval.max(CLEANUP_ERROR_BACKOFF)
+    } else {
+        interval
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reclaim_errors_never_retry_faster_than_the_configured_interval() {
+        assert_eq!(
+            db_reclaim_delay(Duration::from_secs(300), true),
+            Duration::from_secs(300)
+        );
+        assert_eq!(db_reclaim_delay(Duration::from_secs(2), true), CLEANUP_ERROR_BACKOFF);
+        assert_eq!(
+            db_reclaim_delay(Duration::from_secs(300), false),
+            Duration::from_secs(300)
+        );
     }
 }

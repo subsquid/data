@@ -44,6 +44,7 @@ pub mod driver;
 pub mod harness;
 pub mod model;
 pub mod sim;
+pub mod soak;
 pub mod sut;
 pub mod types;
 
@@ -56,5 +57,6 @@ pub use driver::{Client, Emitted, FollowStep, Follower, Outcome};
 pub use harness::{Harness, HarnessConfig};
 pub use model::{Finalize, ForkResolution, Model, Predicted};
 pub use sim::{Numbering, SourceSim};
+pub use soak::{ChurnSoakConfig, ChurnSoakReport, SpaceSample, StallProbe, StallReport};
 pub use sut::{DatasetSpec, Retention, Sut, SutConfig};
 pub use types::{Anchor, Block, BlockNumber, BlockRef};

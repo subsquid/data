@@ -23,6 +23,8 @@ is what makes the crash/restart and shutdown classes expressible at all.
 cargo test -p sqd-hotblocks-harness          # the harness's own unit tests (model, chain, simulator)
 cargo test -p sqd-hotblocks --test ct1_happy_path   # CT-1 — the Phase 0 exit criterion
 cargo test -p sqd-hotblocks --test ct9_source_faults
+# Explicit endurance lane (ignored by default; includes the reclaim convergence wait):
+cargo test -p sqd-hotblocks --test ct7_stall_and_churn ct7_churn_soak -- --ignored
 ```
 
 The CT tests live in `crates/hotblocks/tests/` because only a test inside that package gets
@@ -127,11 +129,10 @@ Fixed in `crates/data-client/src/reqwest/lines.rs`; pinned by a unit test there 
   normative CONFLICT recovery of 04 §7. What is missing is the scripts.
 - **CT-5 (error taxonomy)** — `Model::predict_query` returns the outcome class for any query;
   `Client::query` already classifies every response. What is missing is the request matrix.
-- **CT-7 (soak/space)** — needs `OB-6`-style space accounting; the retention model transition
-  (`Model::retain`) is implemented but the comparator compares the first block *exactly*, which
-  is wrong once retention starts trimming: the service trims whole chunks, so its window may be
-  larger than the model's (legal under RS-3/RS-4, `P-RETENTION-SLACK`). Give the comparator that
-  tolerance before writing retention tests.
+- **CT-7 (soak)** — the ignored S4 runner in `ct7_stall_and_churn` drives API-controlled
+  moving-window retention and samples `total-sst-files-size`, `estimate-live-data-size`, and
+  memtable bytes through the existing RocksDB property endpoint. Prometheus OB-2/3/6 series are
+  intentionally deferred to a separate change.
 - **CT-9 (fuzz)** — `SimFaults` is the injection point.
 
 ## Known open questions

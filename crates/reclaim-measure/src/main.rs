@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 use anyhow::{Context, Result};
 use rocksdb::{Options, DB};
 use sqd_storage::db::{
-    reclaim::{reclaim_upper_bound, sst_is_unlinkable, watermark},
+    reclaim::{deleted_table_record_kind, reclaim_upper_bound, sst_is_unlinkable, watermark, DeletedTableRecordKind},
     Chunk, TableId, CF_CHUNKS, CF_DATASETS, CF_DELETED_TABLES, CF_DIRTY_TABLES, CF_TABLES
 };
 
@@ -96,13 +96,19 @@ fn main() -> Result<()> {
         it.status()?;
     }
 
-    // Pending logical deletes awaiting Phase-1 cleanup.
-    let mut pending_deletes = 0u64;
+    // Deletion lifecycle records: only DeleteRequested still awaits point tombstones.
+    let (mut pending_deletes, mut unstamped_purges, mut retained_purges, mut malformed_deletes) =
+        (0u64, 0u64, 0u64, 0u64);
     {
         let mut it = db.raw_iterator_cf(&cf_deleted);
         it.seek_to_first();
         while it.valid() {
-            pending_deletes += 1;
+            match deleted_table_record_kind(it.value().context("missing deleted-table value")?) {
+                DeletedTableRecordKind::DeleteRequested => pending_deletes += 1,
+                DeletedTableRecordKind::PurgedUnstamped => unstamped_purges += 1,
+                DeletedTableRecordKind::Purged => retained_purges += 1,
+                DeletedTableRecordKind::Malformed => malformed_deletes += 1
+            }
             it.next();
         }
         it.status()?;
@@ -168,6 +174,9 @@ fn main() -> Result<()> {
     println!("live tables             : {}", live.len());
     println!("dirty markers (orphans) : {}", dirty.len());
     println!("pending deletes         : {pending_deletes}");
+    println!("unstamped purges        : {unstamped_purges}");
+    println!("retained purge records  : {retained_purges}");
+    println!("malformed delete records: {malformed_deletes}");
     println!("TABLES sst files        : {n_files}");
     match wm_now {
         Some(w) => println!("watermark (live+dirty)  : {w}"),
