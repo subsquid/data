@@ -1,0 +1,28 @@
+{
+  "type": "evm",
+  "fromBlock": 17881391,
+  "toBlock": 17881391,
+  "traces": [
+    {
+      "callSighash": ["0xe21fd0e9"],
+      "transactionTraces": true
+    }
+  ],
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "trace": {
+      "transactionIndex": true,
+      "traceAddress": true,
+      "type": true,
+      "callFrom": true,
+      "callTo": true,
+      "callValue": true,
+      "callGas": true,
+      "callCallType": true,
+      "callSighash": true
+    }
+  }
+}
