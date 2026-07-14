@@ -396,6 +396,18 @@ impl Database {
         let val = self.db.property_value_cf(cf_handle, name)?;
         Ok(val)
     }
+
+    /// Read an integer RocksDB property for a column family.
+    ///
+    /// Returns `None` when either the column family or property does not exist. Intrinsic
+    /// properties are available even when RocksDB statistics collection is disabled.
+    pub fn get_int_property(&self, cf: &str, name: &str) -> anyhow::Result<Option<u64>> {
+        let Some(cf_handle) = self.db.cf_handle(cf) else {
+            return Ok(None);
+        };
+        let val = self.db.property_int_value_cf(cf_handle, name)?;
+        Ok(val)
+    }
 }
 
 impl std::fmt::Debug for Database {
