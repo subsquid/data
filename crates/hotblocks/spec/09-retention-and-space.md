@@ -76,6 +76,21 @@ Requirements:
   not O(bytes); physical reclamation runs at bounded amortized cost without violating
   LIV-2 (deletion-induced maintenance debt counts inside the stall budget). Deleting a
   large dataset MUST have bounded peak memory (not proportional to the dataset's size).
+- **RS-12 (Derived index space).** Index bytes (DEF-17) count toward `live_bytes` and fall
+  under RS-6 like any other bytes: enabling an index raises the denominator, so the
+  amplification bound neither loosens nor tightens. Entries are removed in the same commit
+  as their blocks (INV-46), so their space becomes ordinary `debt_bytes` and converges per
+  RS-5/LIV-7 — **an index is never a leak path**, in either flag direction: enabling one
+  does not backfill existing blocks, disabling one does not eagerly erase entries, and both
+  states converge within one retention period as the window turns over.
+
+  Sizing is where the two indexes part company, and operators MUST budget them separately.
+  `bidx` costs one entry per *block*. `tidx` costs one entry per *transaction* — on a busy
+  EVM chain roughly two orders of magnitude more, so its footprint tracks the transaction
+  rate × retention, not the block rate. A retention window that makes `bidx` a rounding
+  error can make `tidx` the largest single consumer in the store. This asymmetry is why the
+  two are independently enabled (`P-BLOCK-INDEX`, `P-TX-INDEX`) rather than sharing a
+  switch.
 
 ## 3. Interactions
 
@@ -88,5 +103,10 @@ Requirements:
   the *next* query below the new `first` gets `RANGE_UNAVAILABLE` (RP-4).
 - **Retention × recovery:** recovered state reflects committed trims exactly (INV-40);
   a trim's anchor carry-over (INV-18) survives restarts.
+- **Retention × hash indexes:** retention is what bounds an index (RS-12) *and* what makes
+  it forget — a hash resolvable today stops resolving once its block leaves the window, and
+  a client cannot distinguish that from a hash that was never indexed (RP-19). Retention is
+  also the only mechanism that repairs an index: history missed while the flag was off
+  drains out on its own.
 - **Space × liveness:** reclamation lag is bounded (LIV-7); maintenance debt feeds back
   into the write path only within the stall budget (LIV-2, HZ-2/HZ-5).

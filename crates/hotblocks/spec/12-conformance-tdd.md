@@ -74,6 +74,10 @@ model Dataset:
   hash_at(p)  = b.hash for the highest b in seg with b.number <= p,
                 else anchor.hash if p >= anchor.number else undefined   # DEF-16
 
+  bidx(h)     = b.number for the b in seg with b.hash == h, else ⊥      # DEF-17
+  tidx(h)     = (b.number, i) for the i-th tx of the b in seg
+                with tx.hash == h, else ⊥
+
   wf():   # well-formedness — assert after every transition (INV-1..6)
     assert ascending_and_linked(seg)                # INV-1/2: parent_number + parent_hash
     assert anchor.number < first()                  if seg
@@ -173,6 +177,25 @@ valid `L`; matching blocks and their item content equal to the model evaluated *
 `L`*; the coverage-end record present; every extra record being a header-only true block
 of the snapshot inside coverage. Everything else must match exactly.
 
+`bidx`/`tidx` are the one place the model is **stronger than the contract**, and the
+comparator must not confuse the two. The model is always complete over `seg`; the SUT is
+only required to be *sound* (RP-19), because an index is not backfilled and may be disabled.
+So the comparator asserts, unconditionally:
+
+- every SUT **hit** matches the model exactly (a hit for a hash the model does not hold, or
+  at a position the model disagrees with, is a hard failure — INV-45);
+- every hash the model has **dropped** (forked away, trimmed, dropped) resolves to "none"
+  (INV-46) — this is the assertion that catches a stale index, and it is the one that
+  matters;
+- a transaction re-included by a fork resolves to its **new** position (INV-47).
+
+Full completeness — *every* block of `seg` resolves — may be asserted only by runs that
+guarantee the preconditions themselves: a fresh store, the index enabled for the whole run,
+and an indexed kind. Every script today satisfies all three, so
+`Harness::assert_hash_index_conforms` asserts completeness legitimately; the moment a script
+restarts the SUT with the flag flipped, or seeds a pre-existing store, that assertion must
+weaken to soundness or it will fail on correct behavior.
+
 ## 3. Test-class taxonomy
 
 | CT | Name | Method | Primary properties |
@@ -181,7 +204,7 @@ of the snapshot inside coverage. Everything else must match exactly.
 | CT-2 | **Crash-recovery** | kill-point matrix (during batch write, during fork, during trim, during boot, during shutdown) × restart → model diff; repeated-crash convergence | INV-40, 42, 43; CN-6/9/11; LIV-5/6/12; GAP-2 |
 | CT-3 | **Concurrency** | reader swarms hammering during write/fork/trim/maintenance storms; interleaved HEAD+QUERY sequencing checks | INV-20/21/23/31/41; CN-3/4; LIV-3/4 |
 | CT-4 | **Source-fault corpus** | scripted FM-SRC-1..8 scenarios incl. fork storms, deep forks, finality conflicts, equivocation | INV-12/13/14/23/24; WP-6/8; LIV-9; FM-SRC-*; GAP-3/4/5 |
-| CT-5 | **Interface conformance** | exhaustive request/response matrix against the binding: error taxonomy, watermark headers, encodings, boot config matrix | RP-1..16; INV-26/43; IB-*; GAP-8/9/11 |
+| CT-5 | **Interface conformance** | exhaustive request/response matrix against the binding: error taxonomy, watermark headers, encodings, hash-lookup matrix, boot config matrix | RP-1..16, 19/20; INV-26/43; IB-*; GAP-8/9/11/38/39 |
 | CT-6 | **Performance benchmarks** | reference scenarios S1–S6; SLI capture; SLO gates; saturation knees | SLI-1..12; PF-1..9; LIV-1/3/10; GAP-13 |
 | CT-7 | **Soak / endurance** | multi-day S4 churn with fault sprinkling; space, memory, stall, residue tracking | LIV-2/7/11; RS-6/10; INV-16/17; HZ-2/5; GAP-1/6 |
 | CT-8 | **Isolation / noisy neighbor** | S6: one dataset saturated/faulted, others measured differentially | INV-35/36; LIV-8; PF-4; GAP-14 |
@@ -238,6 +261,10 @@ the same property under forks, crashes and retention is the business of CT-2/CT-
 | INV-42 residue convergence | CT-2/7 | P | synthetic orphan purge tested; no crash-driven test |
 | INV-43 boot validation | CT-5 | U | |
 | INV-44 explicit destruction | CT-1/2 | U | |
+| INV-45 index soundness | CT-1/2 | **P** | `block_hash_index.rs`: hits match the model on ingest, unknown hashes miss, the replaced branch stops resolving. No crash or trim coverage; `tidx` unbuilt (GAP-38) |
+| INV-46 index maintenance | CT-1/4/7 | **P** | the fork path is covered black-box; trim / DROP / compaction paths have storage-level tests only (`crates/storage/tests/block_hash_index.rs`), never through the binding |
+| INV-47 fork re-inclusion | CT-4 | **U** | untestable until `tidx` exists (GAP-38); the hazard is invisible on block hashes |
+| RP-19/20 lookup contract | CT-5 | **P** | hit/miss shapes pinned; the length cap, the disabled-index case and the NOT_FOUND vs UNKNOWN_DATASET split (GAP-39) are unasserted |
 | LIV-1/2 progress/stall | CT-6/7 | **U — known-violated** | GAP-1 |
 | LIV-3 query termination | CT-3/6 | U | |
 | LIV-4 waiter termination | CT-1/3 | P | `ct1_happy_path`: a query above the head answers `NO_DATA` within `P-HEAD-WAIT` |
@@ -259,6 +286,7 @@ the same property under forks, crashes and retention is the business of CT-2/CT-
 | SLI-1..12 / PF-* | CT-6 | U | no benchmark harness exists |
 | OB-1 chain gauges | CT-1 | P | `first_block` / `last_block` / `last_finalized_block` diffed against the model; commit version and retention policy not exported (GAP-34) |
 | OB-2..11 | all | P | query metrics exist; stall gauges pending on PR #83 (unmerged); OB-2 heartbeat, OB-6 debt accounting, OB-9 alarms, OB-11 forensics absent |
+| OB-12 index state | CT-1 | **U** | nothing exported: no entry count, no bytes, no hit/miss (GAP-40) |
 
 ## 6. Gap register (dated 2026-07-12, informative)
 
@@ -305,6 +333,9 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 | GAP-35 | The runtime External instruction `"None"` parks the dataset: the controller maps it to Idle and stops ingestion even on a non-empty dataset (`RetentionStrategy::None → State::Idle`, dataset_controller.rs), while the binding documents `"None"` as Unbounded (13 §6) and WP-5 requires a non-empty dataset to keep ingesting from its window. Whether an External instruction may change the policy *mode* at all is unspecified (WP-11) | WP-5, DEF-9, WP-11, IB §6 | P2 | CT-1/CT-5: SET-RETENTION `"None"` on a non-empty External dataset; assert ingestion continues (or the instruction is refused with a defined error) — the head must keep advancing |
 | GAP-36 | `MALFORMED_REQUEST`, `RANGE_UNAVAILABLE`, `ITEM_UNAVAILABLE` and `KIND_MISMATCH` all surface as HTTP 400 with a free-text body (`api.rs error_to_response`); no machine-readable discriminant exists and IB-7 forbids keying on text — clients cannot distinguish "re-anchor upward" from "fix the request", and the CT-5 error matrix cannot verify INV-26 at the binding. 13 §5 marks the discrimination REQUIRED; the structured error body is the missing piece | INV-26, IB-7, 04 §8 | P2 | CT-5: trigger each 400 class; assert a structured field distinguishes them |
 | GAP-37 | PF-1's memory ceiling is not configuration-derivable on the read side: INV-25/RP-17 require emitting the first covered block whole even above `P-RESP-WEIGHT`, and nothing bounds a single block at ingest (`P-BATCH-BYTES` is a soft *batch* bound — one oversized block still stores), so per-response memory is bounded only by the largest block a source ever served. No `P-MAX-BLOCK-BYTES` exists | PF-1, RP-17/INV-25, FM-CLI-2 | P2 | CT-6/CT-9: ingest a pathological giant block, query it; assert bounded RSS and whole-block emission (INV-25) |
+| GAP-38 | `TX-BY-HASH` is specified (DEF-17, RP-19, IB §2) but not implemented — `tidx` does not exist. A consumer holding a bare transaction hash, which is the common case for anything reading logs or third-party feeds, has no way to reach a block number. Building it is not a variant of `bidx`: it costs one entry per *transaction* (RS-12 sizing) and it is the only index where the fork-ordering hazard of INV-47 can fire, since transaction hashes recur across branches and block hashes never do | DEF-17, RP-19, INV-47, IB §2 | P2 | CT-5: GET the transaction route (404 route-not-found today); then CT-4 re-inclusion per INV-47 |
+| GAP-39 | A hash-lookup miss and an unknown dataset are both 404 with only a free-text body between them, and IB-7 forbids keying on text. This is worse than the GAP-36 family it belongs to: RP-19 makes "this hash is not indexed" a *deliberately uninformative* answer, so a client that cannot separate it from "this dataset does not exist" cannot tell a misconfiguration from a legitimate miss at all | INV-26, IB-7, RP-19 | P3 | CT-5: unknown dataset vs unknown hash; assert a structured discriminant |
+| GAP-40 | The hash indexes export nothing (OB-12): no entry count, no bytes toward OB-6/RS-12, no hit/miss rate. Because a miss is uninformative by design, an index that is empty for a structural reason — enabled after the window had filled, wrong kind — is indistinguishable in production from one nobody queries. The `--block-hash-index` flag can be on, the endpoint can 404 every request, and no signal says so | OB-12, OB-6 | P3 | CT-1: scrape assertion once exported |
 
 ### 6.1 Closed
 

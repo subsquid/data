@@ -50,6 +50,13 @@ surface of the binding (13 §5) with bounded cardinality.
   engine state) sufficient to attribute the stall post-hoc. Rationale: the observed
   production freezes could not be root-caused from standard metrics; capture-on-stall
   turns the next occurrence into data (GAP-1).
+- **OB-12 (Hash index state).** Per dataset × index (DEF-17): whether it is enabled, its
+  entry count and estimated bytes (feeding OB-6's live/debt accounting — RS-12), and lookup
+  counts split by outcome (hit / miss) with latency. Rationale: because a miss is
+  indistinguishable from a genuine absence by design (RP-19), the miss *rate* is the only
+  signal an operator has. A rate near 1 is the signature of an index that is empty for a
+  structural reason — flag switched on after the window had filled, unsupported kind — and
+  without this signal it looks exactly like a chain on which nobody queries real hashes.
 
 ## 2. Property → observable mapping
 

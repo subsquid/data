@@ -256,6 +256,50 @@ eat committed blocks; a system crash may only rewind to a committed state within
 
 ---
 
+## G. Derived indexes
+
+The hash indexes (DEF-17) are optional and deliberately incomplete, so there is exactly one
+thing they must never do: lie. The catalog below is what "never lies" decomposes into.
+
+**INV-45 — Index soundness.** [state]
+Every entry of `bidx(D)` / `tidx(D)` is true of the state it is read from: `bidx(h) = n`
+implies `seg` holds a block numbered `n` whose hash is `h`; `tidx(h) = ⟨n, i⟩` implies that
+block holds a transaction at index `i` with hash `h`. No entry names a block outside the
+window, a replaced branch, or nothing at all.
+*Why:* an index that may lie is worse than no index — a client cannot cheaply re-verify a
+hit, so a false positive propagates silently. Partiality is a documented cost (RP-19);
+unsoundness is a defect.
+*Check:* CT-1 — after every commit, every hash of every block (and transaction) removed by
+a fork or a trim MUST resolve to "none", and every hash still in the window MUST resolve to
+its true position or to "none", never to a wrong one. CT-2 repeats it across restarts.
+
+**INV-46 — Index maintenance is part of the transition.** [transition]
+Every transition that removes a block from `seg` (REPLACE, RETAIN, RESET, DROP) removes
+that block's entry — and the entries of its transactions — in the *same* commit (WP-20).
+Transitions that preserve `seg` while reorganizing storage (INV-17) preserve the indexes
+exactly. No committed state, and no recovered state, contains an entry for a block outside
+its window.
+*Why:* this is what makes INV-45 survive churn, and it is the cheapest thing in the system
+to get wrong — one delete path that forgets its entries leaves an index that lies forever,
+and the lie is invisible until a client trusts it.
+*Check:* CT-1 fork + trim churn; CT-7 soak (entry count tracks window size with no upward
+drift); CT-2 crash during a trim.
+
+**INV-47 — Fork re-inclusion names the new position.** [transition]
+If a REPLACE removes a transaction and the new branch re-includes it at a different block
+or index, then after the commit `tidx` resolves its hash to the **new** position — never to
+the old one, and never to "none".
+*Why:* block hashes and transaction hashes behave differently across a fork, and the
+difference is a trap. A block hash belongs to one branch forever, so a fork can remove and
+add entries in any order. A transaction hash is routinely re-included on the winning branch
+— so a fork that removes the old entries *after* adding the new ones erases exactly the
+entry a client is about to ask for, and the resulting "none" is indistinguishable from the
+legitimate partiality of RP-19. Removal must precede insertion within the commit.
+*Check:* CT-4 — reorg script that re-includes a transaction at a new block/index; assert
+the lookup names the new position (not "none", not the old position).
+
+---
+
 ## Reading the catalog in tests
 
 A minimal harness assertion set that touches most of the catalog on every step:
@@ -265,4 +309,5 @@ A minimal harness assertion set that touches most of the catalog on every step:
 2. Every response through validators ⇒ INV-20..27.
 3. Model diff at quiescence ⇒ INV-7, 10, 11, 16, 17, 35, 44.
 4. Kill/restart cycles ⇒ INV-40, 42, 43.
-5. Fork/finality corpora ⇒ INV-12, 13, 14, 23, 24, 31, 36.
+5. Fork/finality corpora ⇒ INV-12, 13, 14, 23, 24, 31, 36, 47.
+6. Hash lookups of everything the window gained and lost, after every commit ⇒ INV-45, 46.

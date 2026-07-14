@@ -13,6 +13,8 @@ mapping lives in [13-interface-binding.md](13-interface-binding.md).
 | `HEAD` | dataset | `head(D)` Ref or "none" |
 | `FINALIZED-HEAD` | dataset | `fin(D)` Ref or "none" |
 | `STATUS` | dataset | kind, retention policy, `first`, `head` (+hash, time), `fin` |
+| `BLOCK-BY-HASH` | dataset, hash | the Ref of the block with that hash, or "none" (§6.1) |
+| `TX-BY-HASH` | dataset, hash | `⟨block number, transaction index⟩` + the hash, or "none" (§6.1) |
 | `GET-RETENTION` / `SET-RETENTION` | dataset (+policy) | current policy / acceptance |
 
 ## 2. Query admission
@@ -130,6 +132,31 @@ For coverage `[from, L]` against snapshot `S`:
 - **RP-14 (Status).** STATUS reports a consistent view: kind, retention policy, `first`,
   `head` (number, hash, time when known), `fin` — all from one snapshot.
 
+### 6.1 Hash lookups
+
+`BLOCK-BY-HASH` and `TX-BY-HASH` answer from `bidx`/`tidx` (DEF-17) of one snapshot `S`.
+
+- **RP-19 (Sound, not complete).** The two directions of a lookup carry very different
+  weight, and clients MUST treat them differently:
+  - a **hit** is true of `S` and as trustworthy as a range query: the named block is in
+    `seg(S)` carrying exactly that hash, and the named transaction sits in that block at
+    that index (INV-45). A hit is never stale, never orphaned, never from a replaced
+    branch;
+  - a **miss** proves *nothing*. The block or transaction MAY be sitting in the window
+    unindexed — the index was disabled when it was ingested, the dataset predates it, or
+    the kind is not covered (DEF-17). Clients MUST NOT read "none" as "not in the window";
+    the authoritative absence test remains a range query.
+
+  A lookup against a dataset whose index is disabled behaves as a lookup against an empty
+  index — "none", not an error. This is what makes the miss direction uninformative *by
+  construction* rather than by accident, and it is the whole price of not backfilling
+  (NG7).
+- **RP-20 (Bounded and non-competing).** A hash argument longer than `P-HASH-MAXLEN` (or
+  empty) MUST be rejected as `MALFORMED_REQUEST` before the store is touched. Lookups are
+  point reads: their cost MUST NOT scale with the window, and they MUST NOT consume the
+  query execution or waiter budgets (`P-EXEC-SLOTS`, `P-WAITERS`) — a lookup flood may not
+  starve range queries, and a query flood may not stall lookups (PF-4).
+
 ## 7. Fork handling — the CONFLICT protocol
 
 - **RP-11 (Anchored queries).** When `expected_parent ≠ ⊥`, it asserts the hash of
@@ -184,6 +211,7 @@ stable API surface. An error response carries no block data.
 | `RANGE_UNAVAILABLE` | `from < first` (window moved past it) | no — re-anchor upward |
 | `ITEM_UNAVAILABLE` | selection touches an absent item collection (RP-8) | no |
 | `NO_DATA` | `from` above watermark after bounded wait (RP-5/6) | yes — poll |
+| `NOT_FOUND` | hash lookup with no index entry (RP-19 — **not** proof of absence) | no |
 | `CONFLICT` | anchored-ancestry mismatch (RP-11) | yes — after re-anchoring |
 | `OVERLOADED` | admission control (RP-3) / waiter cap | yes — backoff |
 | `FORBIDDEN` | SET-RETENTION on a non-External dataset | no |
