@@ -2,8 +2,9 @@ name: Rust Tests
 
 on:
   push:
+    # Must be the default branch: a PR can only restore caches from its own ref or from it.
     branches:
-      - main
+      - master
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
