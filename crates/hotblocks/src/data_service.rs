@@ -1,13 +1,14 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::Arc
+    sync::Arc,
+    time::Instant
 };
 
 use anyhow::{Context, anyhow};
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use sqd_data_client::reqwest::ReqwestDataClient;
-use sqd_storage::db::DatasetId;
-use tracing::{debug, error, info, warn};
+use sqd_storage::db::{CF_TABLES, DatasetId};
+use tracing::{error, info, warn};
 
 use crate::{
     dataset_config::{DatasetConfig, RetentionConfig},
@@ -109,27 +110,29 @@ impl DataService {
 /// Does not rescue a volume at literally zero free bytes: the database has already opened
 /// by the time we get here, and opening replays the WAL and flushes it to L0.
 fn startup_disk_recovery(db: &DBRef, unconfigured: &[DatasetId], disk_reclaim: bool) {
+    let started = Instant::now();
+    let bytes_before = table_sst_bytes(db);
+
+    let mut orphans_purged = 0usize;
+    let mut unconfigured_deleted = 0usize;
+
     if disk_reclaim {
         if let Err(err) = db.reclaim_disk_space() {
             error!(error =? err, "startup disk reclaim (first pass) failed");
         }
 
         match db.purge_orphan_dirty_tables() {
-            Ok(0) => {}
-            Ok(n) => info!("purged {n} orphan dirty table(s) left by an interrupted build"),
+            Ok(n) => orphans_purged = n,
             Err(err) => warn!(error =? err, "failed to purge orphan dirty tables")
         }
-    } else {
-        // FUTURE: ungate the orphan purge once the rollout measurement is done. It is safe
-        // without the unlink, and while gated an interrupted build leaks its data for good;
-        // it shares the flag only so `reclaim-measure` can still contrast the two watermarks.
-        info!("startup disk reclaim is off; enable with --startup-disk-reclaim");
     }
 
     for dataset_id in unconfigured {
-        info!("deleting unconfigured dataset {dataset_id}");
-        if let Err(err) = db.delete_dataset(*dataset_id) {
-            error!("failed to delete dataset {dataset_id}: {err}; its chunks keep pinning the reclaim watermark");
+        match db.delete_dataset(*dataset_id) {
+            Ok(()) => unconfigured_deleted += 1,
+            Err(err) => {
+                error!("failed to delete dataset {dataset_id}: {err}; its chunks keep pinning the reclaim watermark")
+            }
         }
     }
 
@@ -139,5 +142,40 @@ fn startup_disk_recovery(db: &DBRef, unconfigured: &[DatasetId], disk_reclaim: b
         }
     }
 
-    debug!("startup disk recovery complete");
+    let bytes_after = table_sst_bytes(db);
+    // Only meaningful when both probes answered; a missing probe must not read as "freed 0".
+    let freed_bytes = bytes_before
+        .zip(bytes_after)
+        .map(|(before, after)| before.saturating_sub(after));
+
+    info!(
+        reclaim_enabled = disk_reclaim,
+        orphans_purged,
+        unconfigured_datasets = unconfigured.len(),
+        unconfigured_deleted,
+        table_sst_bytes_before = bytes_before,
+        table_sst_bytes_after = bytes_after,
+        freed_bytes,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "startup disk recovery complete"
+    );
+
+    if !disk_reclaim {
+        // FUTURE: ungate the orphan purge once the rollout measurement is done. It is safe
+        // without the unlink, and while gated an interrupted build leaks its data for good;
+        // it shares the flag only so `reclaim-measure` can still contrast the two watermarks.
+        info!("startup disk reclaim is off; enable with --startup-disk-reclaim");
+    }
+}
+
+/// Live SST bytes of `CF_TABLES`, straight from RocksDB metadata -- no SST reads. `None`
+/// when the property is unavailable, so a probe failure stays distinguishable from zero.
+fn table_sst_bytes(db: &DBRef) -> Option<u64> {
+    match db.get_property(CF_TABLES, "rocksdb.live-sst-files-size") {
+        Ok(value) => value.and_then(|v| v.parse().ok()),
+        Err(err) => {
+            warn!(error =? err, "failed to read live SST size");
+            None
+        }
+    }
 }

@@ -614,7 +614,7 @@ async fn compaction_loop(db: DBRef, dataset_id: DatasetId, mut enabled: tokio::s
 
             match result {
                 Ok(CompactionStatus::Ok(merged_chunks)) => {
-                    info!(
+                    debug!(
                         first_block = merged_chunks[0].first_block,
                         last_block = merged_chunks.last().unwrap().last_block,
                         size = merged_chunks.iter().map(|c| c.size).sum::<usize>(),

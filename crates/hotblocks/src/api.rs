@@ -111,7 +111,7 @@ pub async fn middleware(mut req: Request, next: axum::middleware::Next) -> impl 
     labels.push(("status", response.status().as_str().to_owned()));
 
     span.in_scope(|| {
-        tracing::info!(
+        tracing::debug!(
             target: "http_request",
             method,
             path,
