@@ -11,6 +11,12 @@ It is the "hot" complement to an archival store: archives hold the deep, immutab
 Hotblocks holds the volatile tip where blocks arrive continuously, forks and rollbacks
 happen, and freshness is measured in fractions of a second.
 
+Alongside range queries it offers **point lookups by hash** — resolving a block hash, or a
+transaction hash, to a position in the window — for consumers that hold a bare hash from a
+log, an event, or a third party and need a block number to query with. These lookups are
+served from optional derived indexes ([DEF-17](02-data-model.md)) and come with a sharp
+caveat spelled out in NG7 below.
+
 The system is a single service instance hosting many datasets concurrently (tens of
 datasets is the normal operating point). Datasets are independent chains: different
 networks, different chain families ("kinds"), different retention policies.
@@ -59,6 +65,13 @@ networks, different chain families ("kinds"), different retention policies.
   the server ([RP-10](04-read-path.md)).
 - **NG6 — No exactly-once source consumption.** Source delivery is at-least-once;
   ingestion is idempotent with respect to redelivery ([WP-16](03-write-path.md)).
+- **NG7 — Hash lookups are a convenience, not an oracle.** The hash indexes are optional,
+  derived, and deliberately incomplete: never backfilled, enabled per deployment, defined
+  only for kinds that expose the hash. A lookup **hit** is authoritative; a lookup **miss**
+  is not evidence that the block or transaction is absent from the window
+  ([RP-19](04-read-path.md)). Making misses meaningful would require backfilling history
+  the hot store has already accepted without an index — work whose cost scales with the
+  window, for a guarantee a range query already provides.
 
 ## 5. Trust model
 

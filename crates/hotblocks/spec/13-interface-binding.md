@@ -28,6 +28,8 @@ annotated with the relevant GAP.
 | HEAD | `GET /datasets/{id}/head` | `{"number":N,"hash":"…"}` or `null` |
 | FINALIZED-HEAD | `GET /datasets/{id}/finalized-head` | same shape |
 | STATUS | `GET /datasets/{id}/status` | kind, retention, first/last block (+hash/time), finalized head |
+| BLOCK-BY-HASH | `GET /datasets/{id}/hashes/{hash}/block` | `{"number":N,"hash":"…"}`; miss = `NOT_FOUND`, **not** proof of absence (RP-19) |
+| TX-BY-HASH | `GET /datasets/{id}/hashes/{hash}/transaction` | `{"blockNumber":N,"transactionIndex":i,"hash":"…"}` — **not implemented** (GAP-38) |
 | METADATA | `GET /datasets/{id}/metadata` | start block, real-time flag, aliases |
 | GET-RETENTION | `GET /datasets/{id}/retention` | current policy JSON |
 | SET-RETENTION | `POST /datasets/{id}/retention` | policy JSON; only for `External` datasets, else `FORBIDDEN` (403) |
@@ -93,12 +95,25 @@ below" never applies below genesis).
 | schema-invalid body | 422 |
 | `FORBIDDEN` | 403 |
 | `UNKNOWN_DATASET` | 404 |
+| `NOT_FOUND` (hash lookup miss) | 404 — indistinguishable from `UNKNOWN_DATASET` except by free-text body (GAP-39) |
 | `CONFLICT` | 409, body `{"previousBlocks":[{"number":…,"hash":"…"},…]}` = RP-11 hints (ascending; ≥ 1 entry; up to ~`P-CONFLICT-WINDOW`; entries are `⟨position, hash_at(position)⟩` pairs — DEF-16) |
 | `OVERLOADED` | 503 |
 | `INTERNAL` | 500 |
 
 - **IB-7** Error bodies MUST NOT leak internals in a way clients must parse; conformance
   tests key on status + the structured fields named above only.
+
+## 5a. Hash lookup binding
+
+- **IB-10** `{hash}` is a path segment carrying the hash exactly as it appears in the
+  dataset's own data — no normalization, no case folding, no `0x` handling: the service
+  compares the string it is given against the string it stored. A client that hashes
+  differently than its chain does simply misses. Length is bounded by `P-HASH-MAXLEN`;
+  empty or longer is `MALFORMED_REQUEST` (400) decided before any store access (RP-20).
+- **IB-11** A miss and a disabled index are the same response (404 `NOT_FOUND`). The
+  binding deliberately exposes **no** way to ask "is this index enabled / complete?" —
+  RP-19 forbids a client from acting on that difference anyway; operators read it from
+  OB-12 instead.
 
 ## 6. Retention policy JSON
 

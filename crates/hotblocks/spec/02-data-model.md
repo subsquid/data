@@ -173,6 +173,27 @@ progress ([RP-9](04-read-path.md)).
 **DEF-15 (Watermark reads).** Point reads returning the current committed `head`, `fin`,
 retention policy, and dataset status. Defined in [04-read-path.md §6](04-read-path.md).
 
+**DEF-17 (Hash indexes).** Two optional per-dataset **partial** maps over the current state:
+
+```
+bidx(D) : Hash ⇀ ℕ            — block hash → block number
+tidx(D) : Hash ⇀ ℕ × ℕ        — transaction hash → ⟨block number, transaction index⟩
+```
+
+They are **derived**, never primary: everything they name already lives in `seg`, no
+transition reads them, and dropping them loses no information. They are **partial by
+design** — a hash may be absent from an index while its block sits in `seg`. Absence
+therefore says nothing about `seg`; only presence does ([RP-19](04-read-path.md)). The
+sources of partiality are structural, not incidental: an index is enabled per deployment
+(`P-BLOCK-INDEX` / `P-TX-INDEX`), it is never backfilled, so blocks ingested while it was
+off stay unnamed for as long as they remain in the window, and it is defined only for
+kinds whose schema exposes the hash (EVM today).
+
+Within one dataset each index is a function: a block hash names at most one block, a
+transaction hash at most one transaction *of the current chain*. Across branches the two
+differ — a block hash belongs to exactly one branch forever, while a transaction hash is
+routinely re-included at a different position after a reorg ([INV-47](06-invariants.md)).
+
 ## 6. Transitions (summary)
 
 The complete write-side vocabulary; semantics in [03-write-path.md](03-write-path.md):
@@ -203,4 +224,5 @@ advance arriving together); invariants are evaluated at commit points only.
 | preceding block / `hash_at(p)` | DEF-16 |
 | coverage | DEF-14 |
 | fork hints | `ForkSignal.hints` (DEF-12), also the payload of the CONFLICT error (RP-11) |
+| hash index / `bidx`, `tidx` | DEF-17 |
 | batch | the unit of one `EXTEND`/`REPLACE` commit (bounded by P-BATCH-ROWS / P-BATCH-BYTES) |

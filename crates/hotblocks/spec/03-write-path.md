@@ -250,6 +250,16 @@ history cannot be re-acquired through RETAIN.
   concurrent controller of the same dataset is detected (state changed under the writer's
   feet), the writer MUST stop mutating that dataset and raise an alarm (FM-OP-3) — both
   writers continuing is forbidden.
+- **WP-20 (Derived index maintenance).** A derived index (DEF-17) is maintained *inside*
+  the transition that changes what it names, never by a follow-up pass: entries appear and
+  disappear in the same commit as their blocks (INV-46). A reader therefore can never
+  observe an index that disagrees with the window it was read from, and a crash can never
+  land between a block and its entry. Enabling or disabling an index is a deployment
+  change, not a transition: it decides whether *newly* ingested blocks are named and never
+  rewrites committed history — which is precisely why the indexes are partial (DEF-17).
+  Removal is unconditional: entries are dropped with their blocks whether or not the index
+  is currently enabled, so a disabled index drains within one retention period rather than
+  rotting into stale entries.
 
 ## 4. Ingestion error handling
 
