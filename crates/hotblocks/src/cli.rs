@@ -1,16 +1,18 @@
 use std::{
     collections::{BTreeSet, HashSet},
-    sync::Arc
+    sync::Arc,
+    time::Instant
 };
 
 use anyhow::Context;
 use clap::Parser;
 use sqd_storage::db::{DatabaseSettings, DatasetId};
+use tracing::info;
 
 use crate::{
     data_service::{DataService, DataServiceRef},
     dataset_config::{DatasetConfig, RetentionConfig},
-    metrics::DatasetMetricsCollector,
+    metrics::{DatasetMetricsCollector, RocksDbCollector},
     query::{QueryService, QueryServiceRef},
     types::DBRef
 };
@@ -115,16 +117,23 @@ impl CLI {
             settings = settings.with_max_background_jobs(jobs);
         }
 
+        let db_open_started = Instant::now();
+        info!("opening RocksDB");
         let db = settings
             .open(&self.database_dir)
             .map(Arc::new)
             .context("failed to open rocksdb database")?;
+        info!(
+            elapsed_ms = db_open_started.elapsed().as_millis() as u64,
+            "RocksDB opened"
+        );
 
         let mut metrics_registry = crate::metrics::build_metrics_registry();
         metrics_registry.register_collector(Box::new(DatasetMetricsCollector {
             db: db.clone(),
             datasets: datasets.keys().copied().collect()
         }));
+        metrics_registry.register_collector(Box::new(RocksDbCollector { db: db.clone() }));
 
         let api_controlled_datasets = datasets
             .iter()
