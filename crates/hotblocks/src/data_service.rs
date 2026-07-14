@@ -45,6 +45,10 @@ impl DataService {
             }
         }
 
+        let configured_datasets = datasets.len();
+        let controller_init_started = Instant::now();
+        info!(configured_datasets, "dataset controller initialization started");
+
         let mut controllers = futures::stream::iter(datasets.into_iter())
             .map(|(dataset_id, cfg)| {
                 let db = db.clone();
@@ -81,6 +85,13 @@ impl DataService {
             datasets.insert(ctl.dataset_id(), ctl);
         }
 
+        info!(
+            configured_datasets,
+            datasets_ready = datasets.len(),
+            elapsed_ms = controller_init_started.elapsed().as_millis() as u64,
+            "dataset controller initialization complete"
+        );
+
         Ok(Self { datasets })
     }
 
@@ -113,6 +124,13 @@ fn startup_disk_recovery(db: &DBRef, unconfigured: &[DatasetId], disk_reclaim: b
     let started = Instant::now();
     let bytes_before = table_sst_bytes(db);
 
+    info!(
+        reclaim_enabled = disk_reclaim,
+        unconfigured_datasets = unconfigured.len(),
+        table_sst_bytes_before = bytes_before,
+        "startup disk recovery started"
+    );
+
     let mut orphans_purged = 0usize;
     let mut unconfigured_deleted = 0usize;
 
@@ -131,7 +149,11 @@ fn startup_disk_recovery(db: &DBRef, unconfigured: &[DatasetId], disk_reclaim: b
         match db.delete_dataset(*dataset_id) {
             Ok(()) => unconfigured_deleted += 1,
             Err(err) => {
-                error!("failed to delete dataset {dataset_id}: {err}; its chunks keep pinning the reclaim watermark")
+                error!(
+                    dataset_id = %dataset_id,
+                    error =? err,
+                    "failed to delete dataset; its chunks keep pinning the reclaim watermark"
+                )
             }
         }
     }
