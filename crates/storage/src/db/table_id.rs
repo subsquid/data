@@ -15,6 +15,8 @@ impl AsRef<[u8]> for TableId {
 }
 
 impl TableId {
+    /// UUIDv7 generation is monotonic within one process. Runtime reclaim uses an unused
+    /// id as a fence: tables allocated after the fence sort above its unlink range.
     pub fn new() -> Self {
         Self { uuid: Uuid::now_v7() }
     }
@@ -47,5 +49,15 @@ mod tests {
         assert_eq!(TableId::try_from_key(&[]), None);
         assert_eq!(TableId::try_from_key(&[0u8; 15]), None);
         assert_eq!(TableId::try_from_key(&[0u8; 17]), None);
+    }
+
+    #[test]
+    fn new_ids_are_ordered_for_reclaim_fences() {
+        let mut previous = TableId::new();
+        for _ in 0..1_000 {
+            let next = TableId::new();
+            assert!(previous < next);
+            previous = next;
+        }
     }
 }

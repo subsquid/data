@@ -4892,6 +4892,7 @@ name = "sqd-hotblocks"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrow",
  "async-stream",
  "axum",
  "bytes",
@@ -4914,6 +4915,7 @@ dependencies = [
  "sqd-primitives",
  "sqd-query",
  "sqd-storage",
+ "tempfile",
  "tikv-jemallocator",
  "tokio",
  "tower-http",
@@ -5033,6 +5035,7 @@ dependencies = [
  "sqd-array",
  "sqd-primitives",
  "tempfile",
+ "tracing",
  "uuid",
 ]
 

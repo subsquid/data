@@ -7,7 +7,9 @@ use std::{sync::Arc, time::Duration};
 
 use arrow::datatypes::{DataType, Schema};
 use sqd_storage::{
-    db::{Chunk, Database, DatabaseSettings, DatasetId, DatasetKind, ReadSnapshot, TableId},
+    db::{
+        reclaim::RuntimeReclaimResult, Chunk, Database, DatabaseSettings, DatasetId, DatasetKind, ReadSnapshot, TableId
+    },
     table::write::{use_small_buffers, RestoreBufferSizesGuard}
 };
 use tempfile::TempDir;
@@ -57,6 +59,7 @@ impl MockDB {
             DatabaseSettings::default()
                 .with_rocksdb_stats(true)
                 .with_auto_compactions(false)
+                .with_runtime_reclaim(true)
         )
     }
 
@@ -69,6 +72,7 @@ impl MockDB {
                 .with_auto_compactions(false)
                 .with_data_cache_size(0)
                 .with_chunk_cache_size(0)
+                .with_runtime_reclaim(true)
         )
     }
 
@@ -167,10 +171,27 @@ impl MockDB {
         self.db.cleanup().unwrap()
     }
 
+    pub fn without_runtime_reclaim() -> Self {
+        Self::open(
+            DatabaseSettings::default()
+                .with_rocksdb_stats(true)
+                .with_auto_compactions(false)
+        )
+    }
+
     /// Physically unlink dead SST files below the live watermark. The caller is responsible
     /// for there being no live pre-deletion reader (as at startup in production).
     pub fn reclaim(&self) {
         self.db.reclaim_disk_space().unwrap()
+    }
+
+    /// Snapshot-aware physical reclaim used during normal service operation.
+    pub fn runtime_reclaim(&self) -> RuntimeReclaimResult {
+        self.db.reclaim_disk_space_runtime().unwrap()
+    }
+
+    pub fn try_runtime_reclaim(&self) -> anyhow::Result<RuntimeReclaimResult> {
+        self.db.reclaim_disk_space_runtime()
     }
 
     pub fn purge_orphans(&self) -> usize {

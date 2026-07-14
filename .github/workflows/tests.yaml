@@ -23,7 +23,7 @@ jobs:
     # self-hosted host. Everything else (in-repo branches, push, dispatch) uses the faster
     # self-hosted runner with a warm cargo cache. Runner groups can't gate by trigger, so the
     # split has to live here in the workflow — not in the approval setting.
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && fromJSON('["ubuntu-latest"]') || fromJSON('["self-hosted", "dev-server"]') }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && fromJSON('["ubuntu-latest"]') || fromJSON('["self-hosted", "dev-server"]') }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +50,7 @@ jobs:
     name: Test
     # Fork PRs stay on GitHub-hosted (untrusted code); trusted events use self-hosted. See the
     # clippy job above for the rationale.
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && fromJSON('["ubuntu-latest"]') || fromJSON('["self-hosted", "dev-server"]') }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && fromJSON('["ubuntu-latest"]') || fromJSON('["self-hosted", "dev-server"]') }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
     steps:
       - uses: actions/checkout@v4

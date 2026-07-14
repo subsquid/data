@@ -79,6 +79,7 @@ pub struct StatusData {
     pub finalized_head: Option<BlockRef>
 }
 
+#[derive(Clone)]
 pub struct Client {
     http: reqwest::Client,
     base: String,
@@ -176,6 +177,19 @@ impl Client {
             }
         }
         Ok(Metrics(out))
+    }
+
+    /// Reads the service's existing intrinsic RocksDB diagnostic property surface.
+    pub async fn rocksdb_property(&self, column_family: &str, name: &str) -> Result<Option<u64>> {
+        let res = self
+            .http
+            .get(format!("{}/rocksdb/prop/{column_family}/{name}", self.base))
+            .send()
+            .await?;
+        if res.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        Ok(Some(res.error_for_status()?.text().await?.trim().parse()?))
     }
 
     pub async fn query(&self, body: &Value) -> Result<Outcome> {

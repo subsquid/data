@@ -95,13 +95,14 @@ impl DataService {
 /// unlink ignores snapshots, and the orphan purge treats every dirty marker as an orphan
 /// from a dead build).
 ///
-/// `disk_reclaim` gates both reclaim steps (`--startup-disk-reclaim`, off by default);
-/// deleting unconfigured datasets always runs. Ordering matters on a near-full disk:
-/// 1. an unlink pass first -- it needs no scratch space, so it frees below-watermark space
-///    where every write below would fail with ENOSPC;
-/// 2. bookkeeping writes that lift the reclaim watermark: purge orphan dirty markers,
-///    delete unconfigured datasets;
-/// 3. a second unlink pass to free whatever step 2 unpinned.
+/// `disk_reclaim` gates only whole-file unlink (`--startup-disk-reclaim`, off by default).
+/// Orphan cleanup and deleting unconfigured datasets always run. Ordering matters on a
+/// near-full disk:
+/// 1. an optional unlink pass first -- it needs no scratch space, so it can free room for
+///    the bookkeeping writes below;
+/// 2. bookkeeping writes that lift the watermark: purge orphan dirty markers and delete
+///    unconfigured datasets;
+/// 3. an optional second unlink pass to free whatever step 2 unpinned.
 ///
 /// Every step is best-effort: a failure leaves the watermark pinned until a later startup
 /// succeeds, but never blocks startup.
@@ -113,17 +114,14 @@ fn startup_disk_recovery(db: &DBRef, unconfigured: &[DatasetId], disk_reclaim: b
         if let Err(err) = db.reclaim_disk_space() {
             error!(error =? err, "startup disk reclaim (first pass) failed");
         }
-
-        match db.purge_orphan_dirty_tables() {
-            Ok(0) => {}
-            Ok(n) => info!("purged {n} orphan dirty table(s) left by an interrupted build"),
-            Err(err) => warn!(error =? err, "failed to purge orphan dirty tables")
-        }
     } else {
-        // FUTURE: ungate the orphan purge once the rollout measurement is done. It is safe
-        // without the unlink, and while gated an interrupted build leaks its data for good;
-        // it shares the flag only so `reclaim-measure` can still contrast the two watermarks.
         info!("startup disk reclaim is off; enable with --startup-disk-reclaim");
+    }
+
+    match db.purge_orphan_dirty_tables() {
+        Ok(0) => {}
+        Ok(n) => info!("purged {n} orphan dirty table(s) left by an interrupted build"),
+        Err(err) => warn!(error =? err, "failed to purge orphan dirty tables")
     }
 
     for dataset_id in unconfigured {
@@ -140,4 +138,27 @@ fn startup_disk_recovery(db: &DBRef, unconfigured: &[DatasetId], disk_reclaim: b
     }
 
     debug!("startup disk recovery complete");
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow::datatypes::{DataType, Field, Schema};
+    use sqd_storage::db::DatabaseSettings;
+
+    use super::*;
+
+    #[test]
+    fn startup_always_purges_orphans_when_file_unlink_is_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let db = DatabaseSettings::default().open(dir.path()).unwrap();
+            let schema = Arc::new(Schema::new(vec![Field::new("data", DataType::UInt32, true)]));
+            db.new_table_builder(schema).finish().unwrap();
+        }
+        let db = Arc::new(DatabaseSettings::default().open(dir.path()).unwrap());
+
+        startup_disk_recovery(&db, &[], false);
+
+        assert_eq!(db.purge_orphan_dirty_tables().unwrap(), 0);
+    }
 }

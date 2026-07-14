@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 use anyhow::{ensure, Context};
 use arrow::{array::RecordBatch, datatypes::SchemaRef};
@@ -10,9 +10,11 @@ use sqd_array::{
 use crate::{
     db::{
         db::{RocksDB, CF_TABLES},
-        table_id::TableId,
-        write::storage::TableStorage,
-        ReadSnapshot
+        write::{
+            inflight::{InflightTableGuard, InflightTableRegistry},
+            storage::TableStorage
+        },
+        ReadSnapshot, TableId
     },
     table::{
         key::TableKeyFactory,
@@ -28,12 +30,14 @@ pub struct TableBuilder<'a> {
     schema: SchemaRef,
     columns_with_stats: BTreeSet<usize>,
     writer: TableWriter<'a>,
-    db: &'a RocksDB
+    db: &'a RocksDB,
+    _inflight: InflightTableGuard
 }
 
 impl<'a> TableBuilder<'a> {
-    pub fn new(db: &'a RocksDB, schema: SchemaRef) -> Self {
-        let table_id = TableId::new();
+    pub(crate) fn new(db: &'a RocksDB, schema: SchemaRef, inflight: &Arc<InflightTableRegistry>) -> Self {
+        let build_guard = inflight.register();
+        let table_id = build_guard.table_id();
 
         let mut storage = TableStorage::new(db);
         storage.mark_table_dirty(table_id);
@@ -45,7 +49,8 @@ impl<'a> TableBuilder<'a> {
             schema,
             columns_with_stats: BTreeSet::new(),
             writer,
-            db
+            db,
+            _inflight: build_guard
         }
     }
 

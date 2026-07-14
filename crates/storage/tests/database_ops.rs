@@ -44,6 +44,31 @@ fn create_dataset() {
 }
 
 #[test]
+fn runtime_reclaim_does_not_wait_for_an_active_table_build() {
+    let db_dir = tempfile::tempdir().unwrap();
+    let db = DatabaseSettings::default()
+        .with_runtime_reclaim(true)
+        .open(db_dir.path())
+        .unwrap();
+    let db = Arc::new(db);
+    let schema = Arc::new(Schema::new(vec![Field::new("data", DataType::UInt32, true)]));
+    let builder = db.new_table_builder(schema);
+    let (completed_tx, completed_rx) = std::sync::mpsc::channel();
+
+    let reclaim_db = Arc::clone(&db);
+    let reclaim = std::thread::spawn(move || {
+        reclaim_db.reclaim_disk_space_runtime().unwrap();
+        completed_tx.send(()).unwrap();
+    });
+
+    let completed_without_waiting = completed_rx.recv_timeout(std::time::Duration::from_secs(5)).is_ok();
+    drop(builder);
+    reclaim.join().unwrap();
+
+    assert!(completed_without_waiting, "runtime reclaim waited for a table build");
+}
+
+#[test]
 fn basic_chunks_test() {
     let (db, dataset_id) = setup_db();
 

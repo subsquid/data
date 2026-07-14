@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use anyhow::ensure;
 use arrow::datatypes::SchemaRef;
@@ -12,7 +12,8 @@ use super::{
 use crate::db::{
     ops::{perform_dataset_compaction, CompactionStatus},
     read::datasets::list_all_datasets,
-    write::{ops as cleanup_ops, table_builder::TableBuilder, tx::Tx},
+    reclaim::RuntimeReclaimResult,
+    write::{inflight::InflightTableRegistry, ops as cleanup_ops, table_builder::TableBuilder, tx::Tx},
     Chunk, DatasetUpdate
 };
 
@@ -45,7 +46,8 @@ pub struct DatabaseSettings {
     keep_log_file_num: usize,
     auto_compactions: bool,
     max_background_jobs: usize,
-    periodic_compaction_secs: u64
+    periodic_compaction_secs: u64,
+    runtime_reclaim_enabled: bool
 }
 
 /// RocksDB's default of 2 could not keep up with ingest during the NET-819 incident, but a
@@ -69,7 +71,8 @@ impl Default for DatabaseSettings {
             keep_log_file_num: 10,
             auto_compactions: true,
             max_background_jobs: default_max_background_jobs(),
-            periodic_compaction_secs: DEFAULT_PERIODIC_COMPACTION_SECS
+            periodic_compaction_secs: DEFAULT_PERIODIC_COMPACTION_SECS,
+            runtime_reclaim_enabled: false
         }
     }
 }
@@ -134,6 +137,13 @@ impl DatabaseSettings {
         self
     }
 
+    /// Retain snapshot-horizon deletion records for periodic runtime whole-file reclaim.
+    /// Defaults to `false`, preserving the standalone storage API's bounded-cleanup contract.
+    pub fn with_runtime_reclaim(mut self, enabled: bool) -> Self {
+        self.runtime_reclaim_enabled = enabled;
+        self
+    }
+
     fn db_options(&self) -> RocksOptions {
         let mut options = RocksOptions::default();
         options.create_if_missing(true);
@@ -143,8 +153,8 @@ impl DatabaseSettings {
         options.set_max_log_file_size(self.max_log_file_size * 1024 * 1024);
         options.set_keep_log_file_num(self.keep_log_file_num);
         // Keep compaction ahead of ingest + deletion tombstones: the default 2 jobs could
-        // not keep up during the NET-819 incident, and routine reclaim now relies entirely
-        // on compaction (the file unlink is startup-only).
+        // not keep up during the NET-819 incident. Runtime whole-file reclaim is a safety
+        // valve, not a replacement for normal background compaction.
         options.set_max_background_jobs(self.max_background_jobs as i32);
         options.set_max_subcompactions((self.max_background_jobs as u32 / 2).max(1));
         if self.with_rocksdb_stats {
@@ -228,13 +238,20 @@ impl DatabaseSettings {
             ]
         )?;
 
-        Ok(Database { db, options })
+        Ok(Database {
+            db,
+            options,
+            inflight_tables: Arc::new(InflightTableRegistry::default()),
+            runtime_reclaim_enabled: self.runtime_reclaim_enabled
+        })
     }
 }
 
 pub struct Database {
     db: RocksDB,
-    options: RocksOptions
+    options: RocksOptions,
+    inflight_tables: Arc<InflightTableRegistry>,
+    runtime_reclaim_enabled: bool
 }
 
 impl Database {
@@ -278,7 +295,7 @@ impl Database {
     }
 
     pub fn new_table_builder(&self, schema: SchemaRef) -> TableBuilder<'_> {
-        TableBuilder::new(&self.db, schema)
+        TableBuilder::new(&self.db, schema, &self.inflight_tables)
     }
 
     pub fn insert_chunk(&self, dataset_id: DatasetId, chunk: &Chunk) -> anyhow::Result<()> {
@@ -319,6 +336,7 @@ impl Database {
     ) -> anyhow::Result<CompactionStatus> {
         perform_dataset_compaction(
             &self.db,
+            &self.inflight_tables,
             dataset_id,
             max_chunk_size,
             write_amplification_limit,
@@ -349,9 +367,11 @@ impl Database {
     }
 
     /// Phase 1 -- logically purge deleted tables (snapshot-safe point deletes).
+    /// Snapshot-horizon metadata is retained only when configured through
+    /// [`DatabaseSettings::with_runtime_reclaim`].
     /// Returns the number of tables logically deleted by this call.
     pub fn cleanup(&self) -> anyhow::Result<usize> {
-        cleanup_ops::logical_cleanup(&self.db)
+        cleanup_ops::logical_cleanup(&self.db, self.runtime_reclaim_enabled)
     }
 
     /// Physically reclaim disk by unlinking whole SST files below the live watermark
@@ -361,6 +381,18 @@ impl Database {
     /// See [`cleanup_ops::reclaim_disk_space`].
     pub fn reclaim_disk_space(&self) -> anyhow::Result<()> {
         cleanup_ops::reclaim_disk_space(&self.db)
+    }
+
+    /// Physically reclaim whole SST files while queries are running. Unlike the startup
+    /// variant, this pins tables whose point tombstones are newer than RocksDB's oldest
+    /// live snapshot; continuous newer queries do not hold old tables forever.
+    pub fn reclaim_disk_space_runtime(&self) -> anyhow::Result<RuntimeReclaimResult> {
+        ensure!(
+            self.runtime_reclaim_enabled,
+            "runtime reclaim was not enabled in DatabaseSettings"
+        );
+        let build_fence = self.inflight_tables.reclaim_fence();
+        cleanup_ops::reclaim_disk_space_runtime(&self.db, build_fence)
     }
 
     /// Crash recovery: purge `DIRTY_TABLES` markers left by builds that died before
@@ -401,5 +433,88 @@ impl Database {
 impl std::fmt::Debug for Database {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Database").field("path", &self.db.path()).finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{deleted_table::DeletedTableState, table_id::TableId};
+
+    #[test]
+    fn malformed_deleted_value_does_not_block_valid_cleanup() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = DatabaseSettings::default()
+            .with_runtime_reclaim(true)
+            .open(dir.path())
+            .unwrap();
+        let cf_deleted = db.db.cf_handle(CF_DELETED_TABLES).unwrap();
+        let malformed = TableId::new();
+        let pending = TableId::new();
+        db.db.put_cf(cf_deleted, malformed, [99]).unwrap();
+        db.db.put_cf(cf_deleted, pending, []).unwrap();
+        let old_snapshot = db.db.snapshot();
+
+        assert_eq!(db.cleanup().unwrap(), 2);
+        for id in [malformed, pending] {
+            let value = db.db.get_cf(cf_deleted, id).unwrap().unwrap();
+            assert!(matches!(
+                DeletedTableState::decode(&value).unwrap(),
+                DeletedTableState::Purged { .. }
+            ));
+        }
+        let report = db.reclaim_disk_space_runtime().unwrap();
+        assert_eq!(report.unsafe_deleted_tables, 2);
+        drop(old_snapshot);
+        let report = db.reclaim_disk_space_runtime().unwrap();
+        assert_eq!(report.safe_deleted_tables, 2);
+    }
+
+    #[test]
+    fn partial_tombstone_failure_keeps_delete_requested_for_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = DatabaseSettings::default()
+            .with_runtime_reclaim(true)
+            .open(dir.path())
+            .unwrap();
+        let id = TableId::new();
+        let cf_deleted = db.db.cf_handle(CF_DELETED_TABLES).unwrap();
+        let cf_tables = db.db.cf_handle(CF_TABLES).unwrap();
+        let mut table_key = id.as_ref().to_vec();
+        table_key.push(1);
+        db.db.put_cf(cf_tables, &table_key, [42]).unwrap();
+        db.db.put_cf(cf_deleted, id, []).unwrap();
+
+        let mut fail_after_write = |batch| {
+            db.db.write(batch)?;
+            anyhow::bail!("injected failure after partial tombstone write")
+        };
+        let err =
+            cleanup_ops::purge_deleted_table_with_writer(&db.db, &id, true, 1, &mut fail_after_write).unwrap_err();
+        assert!(err.to_string().contains("injected failure"));
+        assert!(db.db.get_cf(cf_tables, &table_key).unwrap().is_none());
+        assert_eq!(db.db.get_cf(cf_deleted, id).unwrap().unwrap(), Vec::<u8>::new());
+
+        assert_eq!(db.cleanup().unwrap(), 1);
+        let value = db.db.get_cf(cf_deleted, id).unwrap().unwrap();
+        assert!(matches!(
+            DeletedTableState::decode(&value).unwrap(),
+            DeletedTableState::Purged { .. }
+        ));
+    }
+
+    #[test]
+    fn runtime_reclaim_skips_malformed_chunks_but_startup_reclaim_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = DatabaseSettings::default()
+            .with_runtime_reclaim(true)
+            .open(dir.path())
+            .unwrap();
+        let cf_chunks = db.db.cf_handle(CF_CHUNKS).unwrap();
+        db.db.put_cf(cf_chunks, [0u8; 56], [99]).unwrap();
+
+        let report = db.reclaim_disk_space_runtime().unwrap();
+        assert_eq!(report.skipped_malformed_chunks, 1);
+        assert!(db.reclaim_disk_space().is_err());
     }
 }

@@ -1,5 +1,6 @@
 mod data;
 mod db;
+mod deleted_table;
 pub mod ops;
 mod read;
 pub mod reclaim;

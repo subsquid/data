@@ -14,6 +14,7 @@ rocksdb = { version = "0.24.0", features = ["jemalloc"] }
 uuid = { workspace = true, features = ["v7", "borsh"] }
 sqd-array = { path = "../array" }
 sqd-primitives = { path = "../primitives", features = ["borsh", "sid", "range"] }
+tracing = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

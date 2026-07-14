@@ -3,6 +3,9 @@
 //!   * Physical reclaim ([`Database::reclaim_disk_space`]) -- SST-file unlink below the
 //!     live watermark. It ignores snapshots, so it runs only where there are no live
 //!     readers (startup in production); fully decoupled from Phase 1.
+//!   * Runtime physical reclaim ([`Database::reclaim_disk_space_runtime`]) -- the same
+//!     unlink with deleted tables pinned until RocksDB's oldest snapshot passes their
+//!     point-tombstone sequence.
 
 mod mock_db;
 #[allow(dead_code)] // shared with the other integration tests; this one uses a subset
@@ -187,6 +190,86 @@ fn reclaim_breaks_a_live_pre_deletion_reader() {
         db.try_read(&reader, &t).is_err(),
         "reading a table whose files were unlinked under a live snapshot must fail, not return wrong rows"
     );
+}
+
+/// Runtime reclaim pins a deleted table while a pre-deletion query snapshot can still read
+/// it. Once that one snapshot is dropped, a continuously live *newer* snapshot does not
+/// prevent the same files from being unlinked.
+#[test]
+fn runtime_reclaim_waits_only_for_pre_delete_snapshots() {
+    let mut db = MockDB::uncached();
+    let t = db.commit_table(3000);
+    db.compact_to_bottom();
+    let before = db.sst_size();
+    assert!(before > 0);
+
+    let old_reader = db.snapshot();
+    db.delete(&t);
+    assert_eq!(db.cleanup(), 1);
+    db.flush();
+
+    let first = db.runtime_reclaim();
+    assert_eq!(first.safe_deleted_tables, 0);
+    assert_eq!(first.unsafe_deleted_tables, 1);
+    assert!(first.oldest_snapshot_sequence.is_some());
+    assert!(db.sst_size() >= before, "the old reader must pin its table files");
+    assert_eq!(db.read(&old_reader, &t), t.rows);
+
+    // This models constant query traffic: at least one newer snapshot remains live while
+    // the last pre-deletion snapshot goes away.
+    let newer_reader = db.snapshot();
+    drop(old_reader);
+
+    let second = db.runtime_reclaim();
+    assert!(second.snapshot_count >= 1, "the newer query snapshot is still live");
+    assert_eq!(second.safe_deleted_tables, 1);
+    assert_eq!(second.unsafe_deleted_tables, 0);
+    assert!(
+        db.sst_size() * 4 < before,
+        "newer snapshots must not pin pre-tombstone files: before={before} after={}",
+        db.sst_size()
+    );
+    assert!(!db.has_visible_chunk());
+    drop(newer_reader);
+}
+
+/// A deletion request is not sequence-safe until Phase 1 has actually written its point
+/// tombstones. Runtime reclaim therefore leaves both its files and cleanup record alone.
+#[test]
+fn runtime_reclaim_waits_for_logical_cleanup() {
+    let mut db = MockDB::new();
+    let t = db.commit_table(2000);
+    db.compact_to_bottom();
+    let before = db.sst_size();
+
+    db.delete(&t);
+    let report = db.runtime_reclaim();
+    assert_eq!(report.safe_deleted_tables, 0);
+    assert_eq!(report.unsafe_deleted_tables, 1);
+    assert!(db.sst_size() >= before);
+
+    assert_eq!(db.cleanup(), 1, "runtime reclaim must preserve pending Phase 1 work");
+}
+
+/// Disabling runtime reclaim also disables its sequence bookkeeping. Point deletes remain
+/// snapshot-safe, but completed purge records must not accumulate forever.
+#[test]
+fn cleanup_drops_sequence_records_when_runtime_reclaim_is_disabled() {
+    let mut db = MockDB::without_runtime_reclaim();
+    let first_deleted = db.commit_table(1000);
+    let newly_deleted = db.commit_table(1000);
+    let old_reader = db.snapshot();
+
+    db.delete(&first_deleted);
+    assert_eq!(db.cleanup(), 1);
+    db.delete(&newly_deleted);
+    assert_eq!(db.cleanup(), 1);
+    assert_eq!(db.read(&old_reader, &first_deleted), first_deleted.rows);
+    assert_eq!(db.read(&old_reader, &newly_deleted), newly_deleted.rows);
+    drop(old_reader);
+
+    assert!(db.try_runtime_reclaim().is_err());
+    assert_eq!(db.cleanup(), 0);
 }
 
 /// An orphaned `DIRTY_TABLES` marker -- left when a build dies before committing its

@@ -8,6 +8,8 @@ use crate::{
     kv::KvWrite
 };
 
+pub(super) const WRITE_BATCH_SIZE_LIMIT: usize = 8 * 1024 * 1024;
+
 pub struct TableStorage<'a> {
     write_batch: RocksWriteBatch,
     db: &'a RocksDB,
@@ -49,7 +51,7 @@ impl<'a> TableStorage<'a> {
 impl<'a> KvWrite for TableStorage<'a> {
     fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         self.write_batch.put_cf(self.cf, key, value);
-        if self.byte_size() > 8 * 1024 * 1024 {
+        if self.byte_size() >= WRITE_BATCH_SIZE_LIMIT {
             self.flush()?;
         }
         Ok(())
