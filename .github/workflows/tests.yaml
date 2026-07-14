@@ -11,6 +11,12 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Cargo's default for dev/test is debug = 2 -- full DWARF, which is most of a ~280MB test
+  # binary and makes linking the slowest part of the job. Line tables keep file:line in panic
+  # backtraces, which is all CI reads. Set here rather than in [profile.*] so local debuggers
+  # keep full info.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
@@ -65,7 +71,7 @@ jobs:
         with:
           shared-key: rust-ci-test
           cache-on-failure: true
-      - name: Fetch LFS files
-        run: git lfs fetch --all && git lfs checkout
+      # 8 cores, shared with the second runner -- which picks up this workflow's clippy job.
+      # cc(1) inherits NUM_JOBS, so this caps the RocksDB C++ build too.
       - name: Run tests
-        run: cargo test --all-features --jobs 2
+        run: cargo test --all-features --jobs 4
