@@ -109,10 +109,11 @@ impl QueryService {
         client_id: ClientId,
         encoding: ContentEncoding
     ) -> anyhow::Result<QueryResponse> {
+        let query_kind = DatasetKind::from_query(&query)?;
         ensure!(
-            dataset.dataset_kind() == DatasetKind::from_query(&query),
+            dataset.dataset_kind() == query_kind,
             QueryKindMismatch {
-                query_kind: DatasetKind::from_query(&query).storage_kind(),
+                query_kind: query_kind.storage_kind(),
                 dataset_kind: dataset.dataset_kind().storage_kind()
             }
         );

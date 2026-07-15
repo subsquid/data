@@ -98,7 +98,7 @@ impl QueryResponse {
                 next_run(&mut runner, slot)?;
                 Ok(runner)
             })
-            .await?;
+            .await??;
 
         let time_limit = time_limit.unwrap_or(DEFAULT_QUERY_LIMIT);
         let response = Self {
@@ -150,7 +150,7 @@ impl QueryResponse {
                 let result = next_run(&mut runner, slot);
                 (runner, result)
             })
-            .await;
+            .await?;
 
         if let Err(err) = result {
             self.runner = Some(runner);

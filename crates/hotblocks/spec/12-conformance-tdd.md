@@ -204,11 +204,11 @@ weaken to soundness or it will fail on correct behavior.
 | CT-2 | **Crash-recovery** | kill-point matrix (during batch write, during fork, during trim, during boot, during shutdown) × restart → model diff; repeated-crash convergence | INV-40, 42, 43; CN-6/9/11; LIV-5/6/12; GAP-2 |
 | CT-3 | **Concurrency** | reader swarms hammering during write/fork/trim/maintenance storms; interleaved HEAD+QUERY sequencing checks | INV-20/21/23/31/41; CN-3/4; LIV-3/4 |
 | CT-4 | **Source-fault corpus** | scripted FM-SRC-1..8 scenarios incl. fork storms, deep forks, finality conflicts, equivocation | INV-12/13/14/23/24; WP-6/8; LIV-9; FM-SRC-*; GAP-3/4/5 |
-| CT-5 | **Interface conformance** | exhaustive request/response matrix against the binding: error taxonomy, watermark headers, encodings, hash-lookup matrix, boot config matrix | RP-1..16, 19/20; INV-26/43; IB-*; GAP-8/9/11/38/39 |
+| CT-5 | **Interface conformance** | exhaustive request/response matrix against the binding: error taxonomy, watermark headers, encodings, hash-lookup matrix, boot config matrix | RP-1..16, 19/20; INV-26/43; IB-*; GAP-8/9/39 |
 | CT-6 | **Performance benchmarks** | reference scenarios S1–S6; SLI capture; SLO gates; saturation knees | SLI-1..12; PF-1..9; LIV-1/3/10; GAP-13 |
 | CT-7 | **Soak / endurance** | multi-day S4 churn with fault sprinkling; space, memory, stall, residue tracking | LIV-2/7/11; RS-6/10; INV-16/17; HZ-2/5; GAP-1/6 |
 | CT-8 | **Isolation / noisy neighbor** | S6: one dataset saturated/faulted, others measured differentially | INV-35/36; LIV-8; PF-4; GAP-14 |
-| CT-9 | **Fuzzing** | source-side payload fuzz (write path) + client-side request fuzz (read path); crash/hang/leak oracles + invariant spot checks | FM-1; WP-18; RP-1/2; GAP-11/12 |
+| CT-9 | **Fuzzing** | source-side payload fuzz (write path) + client-side request fuzz (read path); crash/hang/leak oracles + invariant spot checks | FM-1; WP-18; RP-1/2; GAP-12 |
 
 Every test cites the IDs it verifies; CI reports coverage as "properties exercised", not
 lines.
@@ -227,7 +227,7 @@ INV-21/22/23 (checks in parentheses):
 6. anchored continuation across responses never breaks parent-hash chains (INV-23);
 7. watermark coherence: `first ≤ fin ≤ head` whenever reported together (INV-5/30).
 
-## 5. Traceability matrix (status @ 2026-07-12)
+## 5. Traceability matrix (status @ 2026-07-15)
 
 Legend: **C** covered, **P** partial (some storage-layer or fixture coverage exists;
 service-level black-box coverage absent), **U** untested. Rows that changed with Phase 0 name
@@ -252,7 +252,7 @@ the same property under forks, crashes and retention is the business of CT-2/CT-
 | INV-23 anchored ancestry | CT-1/4 | P | anchored continuation across responses covered; the CONFLICT path awaits CT-4 |
 | INV-24 finalized-only | CT-4 | U | |
 | INV-25 progress | CT-1/6 | P | a successful response must cover ≥ 1 block — asserted by the scanner |
-| INV-26 error soundness | CT-5 | **U — known-violated** | GAP-11, GAP-21, GAP-32, GAP-36 |
+| INV-26 error soundness | CT-5 | **P — known-violated** | `ct5_error_soundness`: unsupported dialect containment/accounting and mid-stream worker-panic abort pinned; finalized-snapshot race pinned unit-level. Anchored eval across large holes (GAP-21) reverted; shared-status families keep free-text discrimination (GAP-36/39) |
 | INV-27 range honesty | CT-1 | **C** | validator: no block outside `[from, min(to, head)]` |
 | INV-30/31 reporting | CT-1/3 | P | INV-30 asserted at quiescence; INV-31 (real-time monotonicity) untested |
 | INV-35/36 isolation | CT-8 | U | all existing tests are single-dataset |
@@ -279,7 +279,7 @@ the same property under forks, crashes and retention is the business of CT-2/CT-
 | RS-6 amplification | CT-7 | U | reclaim path fixed 2026-07 (GAP-6); bound unmeasured under churn |
 | RS-8 boot maintenance | CT-2/7 | P | unlink/orphan-purge behaviors have storage-level tests |
 | RS-10/11 residue/deletion cost | CT-7 | P | GAP-6/13 |
-| FM-1 robustness | CT-9 | **P — known-violated** | GAP-11/12/26 open; the unterminated-record class is closed (§6.1) and pinned by `ct9_source_faults` |
+| FM-1 robustness | CT-9 | **P — known-violated** | GAP-12/26 open; unsupported query and query-worker panic classes are closed (§6.1), and the unterminated-record class is pinned by `ct9_source_faults` |
 | FM-SRC-* corpus | CT-4 | U | one stale-pack crash-loop already occurred (GAP-5 class); no strike/quarantine substrate (GAP-30) |
 | FM-STOR-2/3 disk pressure | CT-7 | U | incident-derived; no automated test |
 | FM-OP-1..5 | CT-5 | U | |
@@ -288,7 +288,7 @@ the same property under forks, crashes and retention is the business of CT-2/CT-
 | OB-2..11 | all | P | query metrics exist; stall gauges pending on PR #83 (unmerged); OB-2 heartbeat, OB-6 debt accounting, OB-9 alarms, OB-11 forensics absent |
 | OB-12 index state | CT-1 | **P** | CF-wide estimated keys / live SST bytes are exported for both indexes; per-dataset enabled/count/bytes and lookup hit/miss/latency remain absent (GAP-40) |
 
-## 6. Gap register (dated 2026-07-12, informative)
+## 6. Gap register (dated 2026-07-15, informative)
 
 Known or strongly suspected divergences between this spec and the current system, from
 incident history, code-level review, and coverage analysis. Priorities: P0 = active
@@ -307,7 +307,6 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 | GAP-8 | ~~Zero-emission responses do not convey the coverage end~~ — a de-facto carrier existed all along (the coverage-end block is always emitted, header-only when unmatched) and was adopted as normative RP-9 on 2026-07-12. REMAINING: (a) a zero-emission success now *asserts* full-range coverage, but under time-budget truncation over a blockless range (explicit `to` inside a hole run) the implementation can return an empty 200 having covered only part of it — the client then silently skips the rest; (b) the comparator must implement the INV-22 boundary-marker exemption; (c) in one reachable corner RP-9's clauses are jointly unsatisfiable — an effective range whose covered part contains no stored block and whose coverage cannot legally reach the range end (an availability boundary, RP-8, or a hard `P-QUERY-TIME` stop inside a long hole run): zero emission is legal only at full coverage, and the carrier (highest stored block ≤ `L`) lies below `from`, which INV-27 forbids emitting — here the *spec*, not just the implementation, owes an answer (candidate remedies: an explicit in-band terminal coverage record — a wire change — or forbidding coverage to end inside a hole except at the range end) | RP-9, INV-22, RP-8, INV-27 | P2 | CT-5: hole-range query with explicit `to` + tight budget; assert empty-200 only with full coverage |
 | GAP-9 | `NO_DATA` responses carry no watermarks (long-poll clients learn nothing about the head from a timeout). Mechanism: both construction sites of the above-head outcome hardcode "no finalized head", so the header-attaching code is unreachable | RP-5 SHOULD, IB-6 | P3 | CT-5 header assertion |
 | GAP-10 | Mid-stream admission failures truncate silently and are not counted; truncation rate invisible | RP-15, OB-4 | P2 | CT-6 overload phase: assert truncation counter ≥ observed truncations |
-| GAP-11 | Expressible-but-unsupported dialects (`substrate`, `fuel`) parse and validate, then hit an `unimplemented!()` — the connection dies with no response (task panic; not a process exit as originally filed). More broadly, any panic inside plan execution re-panics the handler through the executor's `expect`, bypassing the whole error taxonomy and every counter (OB-5/SLI-10 blind) | RP-2, FM-1, INV-26, OB-5 | P1 | CT-5: one request per unsupported dialect; assert 4xx `UNSUPPORTED_QUERY`, live process, counted error |
 | GAP-12 | At least one payload-content class (invalid text encoding in stats-tracked fields) panics the write path; payload fuzz has never been run | FM-1, WP-18 | P1 | CT-9 source-payload fuzz with crash oracle |
 | GAP-13 | Ingest batch accumulation has content-dependent unbounded memory (no hard byte ceiling on some structures) | PF-1 | P2 | CT-6 adversarial `W-BLOCK-SIZE`/`W-ITEM-DENSITY`; RSS ceiling assertion |
 | GAP-14 | Read-side capacity (execution slots, waiter slots) is a single global pool: one dataset's query herd can starve all datasets | PF-4, LIV-8 | P2 | CT-8: herd on D′, tip-follower SLOs on D |
@@ -316,7 +315,7 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 | GAP-17 | Shutdown can take a panic-class exit path in ingestion cancellation (observed at redeploy) | LIV-12, FM-PROC-4 | P2 | CT-2 shutdown class: SIGTERM under load ×100, zero panic exits |
 | GAP-18 | Dual-writer detection exists only on some paths (finality/head updates), not all mutations | WP-15, FM-OP-3 | P3 | CT-5: two harness-driven writers, assert loser stops on every mutation type |
 | GAP-20 | `parent_number` linkage is never validated on any layer (the block trait exposes it; nothing reads it): a hash-linked run can claim an arbitrarily higher number for the next block, storing a false hole on a densely-numbered chain — a silent data gap served as if it were a slot gap. (The originally-filed non-monotonic-numbers scenario is unreachable today: the source-position advance forces ascending numbers.) | WP-2, DEF-4, INV-1 | P2 | CT-4/CT-9: hash-linked run with a number jump on a dense chain; the run MUST be rejected with no state change |
-| GAP-21 | An anchored query whose `from` sits mid-chunk above a number gap larger than the conflict-check lookback (a hard-coded 100 positions in the plan's base-block check; an empty lookback window degenerates to a plain error) fails `INTERNAL` instead of evaluating the assertion. Real trigger: Solana cluster restarts skip thousands of slots inside the window | RP-11, INV-26 | P2 | CT-5: slot-numbered chain with a >100-position hole inside one chunk; anchored query just above the hole must yield OK/CONFLICT, never 500 |
+| GAP-21 | An anchored query whose `from` sits mid-chunk above a number gap larger than the conflict-check lookback (a hard-coded 100 positions in the plan's base-block check) fails `INTERNAL` instead of evaluating the assertion. A >100-position hole with an anchor landing just above it is probably unrealistic, hence low priority. A correct all-predecessors scan was tried and reverted 2026-07-15 — it regressed `check_parent_block` into an unbounded per-chunk scan+sort; needs a lazy sort-desc + limit(100) | RP-11, INV-26 | P3 | CT-5 `ct5_anchor_is_evaluated_across_a_large_number_hole` (`#[ignore]` until fixed): >100-position hole in one chunk; anchored query just above must yield OK/CONFLICT, never 500 |
 | GAP-22 | Deep-fork handling can silently replace the finalized prefix: the fork-resolution fallback ignores `fin` (resumes from the window start instead of `⟨fin + 1, fin.hash⟩`), the composed-finality guard admits a REPLACE whose base lies at/below `fin` whenever the pack carries a finality mark ≥ current, and Window trims have dropped the anchor hash (GAP-23) so the replacement attaches unchecked. If the first replacement batch reaches past the old `fin`, the finalized prefix is replaced with no RESET event and no alarm — finalized-only clients observe two hashes at one height (INV-24 broken); otherwise the commit trips the fork-floor check ("can't fork safely") and the epoch parks on the blind 60 s retry loop. Fix: fallback → `fin + 1`; enforce the fork floor at commit unconditionally; carry the anchor hash | WP-6, INV-13/14, INV-24, FM-SRC-5, LIV-9 | **P1** | CT-4: fork with all-mismatching hints on a dataset with `fin` defined; assert REPLACE from `fin + 1` (or alarmed fault) — never a commit whose base ≤ `fin` |
 | GAP-23 | Window trims drop the anchor hash: the automatic trim passes no hash and the retained state stores `⊥`, though the correct value sits unused in the first batch's `parent_block_hash`. Disables below-window divergence detection (WP-6b has nothing to contradict) and feeds GAP-22 | INV-18, DEF-7, WP-6b | P1 | CT-1: CONFLICT hints / STATUS at the window edge after a trim; CT-4: below-window fork after a trim must RESET, not absorb silently |
 | GAP-24 | One dataset's init failure aborts the whole service: startup propagates the first controller error (kind mismatch, retention bail, corrupt state) instead of alarming that dataset and serving the rest | CN-10, FM-OP-1, INV-36, INV-43 | P1 | CT-5 boot matrix: corrupt one dataset's persisted state; assert the others serve and the broken one alarms |
@@ -327,11 +326,10 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 | GAP-29 | A stalled-but-open connection pins the response's storage snapshot indefinitely (no overall response deadline / server write timeout; only disconnects release it); pinned snapshots block physical reclaim of point-deleted data | CN-7, RP-18, HZ-9, RS-6 | P2 | CT-3/CT-7: zombie client that stops reading; assert snapshot lifetime ≤ `P-QUERY-TIME` and reclaim proceeds |
 | GAP-30 | No strike counting exists anywhere: a linkage-mismatch rejection resets the source session and re-requests in a zero-backoff hot loop; sources are never quarantined; cross-source equivocation never alarms. `P-SOURCE-STRIKES` has no substrate, so the WP-6b/FM-SRC-5 escalation rules are currently unimplementable | FM-SRC-3/4/6, WP-2 | P2 | CT-4: source serving a permanently mis-linked run; assert bounded request rate, quarantine after N strikes, alarm |
 | GAP-31 | A finality advance landing at/above the resume position while no block arrives is deferred (standalone reports are forwarded only when below the position; suppressed until the position is source-confirmed) — the finalized head stalls although the source declared the stored chain final | WP §2.4 clamping | P3 | CT-4: finality = head during a production stall; assert `fin` advances within a bound |
-| GAP-32 | Benign race → 500: a finalized query admitted while `fin` was set, with `fin` cleared by a trim/reset before the snapshot, fails `INTERNAL` ("finalized head is not available yet") instead of `NO_DATA` | INV-26, RP-6 | P3 | CT-3: interleave finalized queries with trims that clear `fin` |
 | GAP-33 | The live-stream head-number header is computed from the *current* head, not the snapshot's: a head-lowering fork between snapshot and response start yields a header below blocks actually emitted (IB-6 requires ≥ the snapshot head) | IB-6, CN-5 | P3 | CT-3/CT-4: fork lowering the head during streaming; assert header ≥ snapshot head |
 | GAP-34 | OB-1 partially unimplemented: the commit version (present in the persisted label) and the retention policy in force are not exported | OB-1 | P3 | CT-1: scrape assertion once exported |
 | GAP-35 | The runtime External instruction `"None"` parks the dataset: the controller maps it to Idle and stops ingestion even on a non-empty dataset (`RetentionStrategy::None → State::Idle`, dataset_controller.rs), while the binding documents `"None"` as Unbounded (13 §6) and WP-5 requires a non-empty dataset to keep ingesting from its window. Whether an External instruction may change the policy *mode* at all is unspecified (WP-11) | WP-5, DEF-9, WP-11, IB §6 | P2 | CT-1/CT-5: SET-RETENTION `"None"` on a non-empty External dataset; assert ingestion continues (or the instruction is refused with a defined error) — the head must keep advancing |
-| GAP-36 | `MALFORMED_REQUEST`, `RANGE_UNAVAILABLE`, `ITEM_UNAVAILABLE` and `KIND_MISMATCH` all surface as HTTP 400 with a free-text body (`api.rs error_to_response`); no machine-readable discriminant exists and IB-7 forbids keying on text — clients cannot distinguish "re-anchor upward" from "fix the request", and the CT-5 error matrix cannot verify INV-26 at the binding. 13 §5 marks the discrimination REQUIRED; the structured error body is the missing piece | INV-26, IB-7, 04 §8 | P2 | CT-5: trigger each 400 class; assert a structured field distinguishes them |
+| GAP-36 | `MALFORMED_REQUEST`, `RANGE_UNAVAILABLE`, `ITEM_UNAVAILABLE` and `KIND_MISMATCH` share HTTP 400 and retain free-text bodies for compatibility; no machine-readable discriminant exists and IB-7 forbids keying on text. Clients cannot distinguish "re-anchor upward" from "fix the request", and CT-5 cannot verify the taxonomy at the binding | INV-26, IB-7, 04 §8 | P2 | CT-5: choose a backward-compatible discriminant, trigger each 400 class, and assert clients can distinguish them without parsing text |
 | GAP-37 | PF-1's memory ceiling is not configuration-derivable on the read side: INV-25/RP-17 require emitting the first covered block whole even above `P-RESP-WEIGHT`, and nothing bounds a single block at ingest (`P-BATCH-BYTES` is a soft *batch* bound — one oversized block still stores), so per-response memory is bounded only by the largest block a source ever served. No `P-MAX-BLOCK-BYTES` exists | PF-1, RP-17/INV-25, FM-CLI-2 | P2 | CT-6/CT-9: ingest a pathological giant block, query it; assert bounded RSS and whole-block emission (INV-25) |
 | GAP-39 | A hash-lookup miss and an unknown dataset are both 404 with only a free-text body between them, and IB-7 forbids keying on text. This is worse than the GAP-36 family it belongs to: RP-19 makes "this hash is not indexed" a *deliberately uninformative* answer, so a client that cannot separate it from "this dataset does not exist" cannot tell a misconfiguration from a legitimate miss at all | INV-26, IB-7, RP-19 | P3 | CT-5: unknown dataset vs unknown hash; assert a structured discriminant |
 | GAP-40 | Hash-index CFs export only engine-wide estimated keys and live SST bytes. OB-12 still lacks per-dataset enabled state / entry count / bytes and hit-vs-miss lookup counts with latency. Because a miss is uninformative by design, an index empty for a structural reason — enabled after the window had filled, wrong kind — remains indistinguishable from one receiving only unknown hashes | OB-12, OB-6 | P3 | CT-1: scrape per-dataset state and exercise hit/miss counters once exported |
@@ -340,8 +338,10 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 
 | GAP | Statement | Closed by |
 |---|---|---|
+| GAP-11 | Unsupported `substrate` / `fuel` queries and query-worker panics escaped the HTTP error taxonomy by panicking their request task | Typed `UNSUPPORTED_QUERY` admission errors, panic containment in the query executor, CT-5 dialect requests, and an executor unit test (2026-07-15) |
 | GAP-16 | No service-level automated tests | [`crates/hotblocks-harness`](../../hotblocks-harness) + `ct1_happy_path` (Phase 0, 2026-07-12) |
 | GAP-19 | A source response whose final JSONL record carried no trailing newline panicked the line reader (`LineStream::take_final_line` left its scan position past the emptied buffer). The ingest task died, its buffered batch was lost, and the dataset parked for `P-EPOCH-RETRY` — then crash-looped, since the source served the same body on retry. Violated FM-1, LIV-2 | Found by CT-1 on the harness's first run; fixed in `crates/data-client/src/reqwest/lines.rs`; pinned by a unit test there and by `ct9_source_faults` (2026-07-12) |
+| GAP-32 | A finalized-head trim/reset race could turn an admitted finalized query into `INTERNAL` when its snapshot no longer had a finalized head | Snapshot-time absence now maps to `NO_DATA`; pinned by `finalized_snapshot_without_a_head_is_no_data` (2026-07-15) |
 | GAP-38 | `TX-BY-HASH` / `tidx` absent; fork re-inclusion ordering unimplemented | Transaction hash CF + independent flag + HTTP binding; storage transition suite and black-box ingest/reorg/re-inclusion tests (2026-07-15) |
 
 ## 7. Build order (recommended)
@@ -359,7 +359,7 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
   |---|---|
   | `Sut::crash/stop/restart` (same db, same port) → CT-2 | the CT-2 kill-point matrix |
   | `Harness::fork` + `Model::resolve_fork` + the follower's CONFLICT recovery → CT-4 | the CT-4 fork/finality corpus |
-  | `Model::predict_query` (the full outcome class) → CT-5 | the CT-5 request matrix |
+  | `Model::predict_query` + initial `ct5_error_soundness` matrix | remaining CT-5 binding, boot, and overload rows |
   | `SimFaults` injection point → CT-9 | the rest of the FM-SRC repertoire |
 
   One correctness note for whoever writes the retention tests: the comparator compares the
@@ -370,7 +370,7 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 - **Phase 1 — the P0s.** Stall harness + OB-2/3/11 signals (GAP-1); churn soak + space
   accounting via OB-6 (GAP-6). These target the two production incidents.
 - **Phase 2 — correctness core.** CT-2 crash matrix (GAP-2), CT-4 fork/finality corpus
-  (GAP-3/4/5), CT-5 error taxonomy + boot matrix (GAP-8/9/11/15).
+  (GAP-3/4/5), CT-5 remaining error taxonomy + boot matrix (GAP-8/9/15/36/39).
 - **Phase 3 — robustness.** CT-9 fuzz both surfaces (GAP-12), CT-3 concurrency swarms,
   CT-8 isolation (GAP-14), shutdown class (GAP-17).
 - **Phase 4 — performance regime.** CT-6 scenarios S1–S6, SLO gates, saturation knees,

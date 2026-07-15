@@ -5,6 +5,8 @@ use sqd_dataset::DatasetDescriptionRef;
 use sqd_query::{BlockNumber, Query};
 use sqd_storage::db::Database;
 
+use crate::errors::UnsupportedQuery;
+
 pub type DBRef = Arc<Database>;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,15 +56,18 @@ impl DatasetKind {
         }
     }
 
-    pub fn from_query(query: &Query) -> Self {
+    pub fn from_query(query: &Query) -> Result<Self, UnsupportedQuery> {
         match query {
-            Query::Eth(_) => Self::Evm,
-            Query::Solana(_) => Self::Solana,
-            Query::Bitcoin(_) => Self::Bitcoin,
-            Query::HyperliquidFills(_) => Self::HyperliquidFills,
-            Query::HyperliquidReplicaCmds(_) => Self::HyperliquidReplicaCmds,
-            Query::Tron(_) => Self::Tron,
-            _ => unimplemented!()
+            Query::Eth(_) => Ok(Self::Evm),
+            Query::Solana(_) => Ok(Self::Solana),
+            Query::Bitcoin(_) => Ok(Self::Bitcoin),
+            Query::HyperliquidFills(_) => Ok(Self::HyperliquidFills),
+            Query::HyperliquidReplicaCmds(_) => Ok(Self::HyperliquidReplicaCmds),
+            Query::Tron(_) => Ok(Self::Tron),
+            Query::Substrate(_) => Err(UnsupportedQuery {
+                query_kind: "substrate"
+            }),
+            Query::Fuel(_) => Err(UnsupportedQuery { query_kind: "fuel" })
         }
     }
 }

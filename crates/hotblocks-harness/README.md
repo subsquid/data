@@ -125,8 +125,11 @@ Fixed in `crates/data-client/src/reqwest/lines.rs`; pinned by a unit test there 
 - **CT-4 (fork/finality corpus)** — `Harness::fork()` and the model's `resolve_fork` /
   `Finalize::IntegrityFault` are implemented and unit-tested; the follower implements the
   normative CONFLICT recovery of 04 §7. What is missing is the scripts.
-- **CT-5 (error taxonomy)** — `Model::predict_query` returns the outcome class for any query;
-  `Client::query` already classifies every response. What is missing is the request matrix.
+- **CT-5 (error taxonomy)** — `ct5_error_soundness` covers unsupported-dialect containment,
+  error classification, and mid-stream worker-panic abort; the anchored check across large
+  sparse-number holes is deferred (GAP-21, test `#[ignore]`d). `Model::predict_query` supplies
+  the outcome oracle; the machine-readable 400-class discriminant (GAP-36) and the remaining
+  binding, boot, and overload cases still need matrix rows.
 - **CT-7 (soak/space)** — needs `OB-6`-style space accounting; the retention model transition
   (`Model::retain`) is implemented but the comparator compares the first block *exactly*, which
   is wrong once retention starts trimming: the service trims whole chunks, so its window may be

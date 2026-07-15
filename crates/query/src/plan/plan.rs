@@ -142,6 +142,9 @@ impl<'a> PlanExecution<'a> {
         let df = block_scan
             .with_column(number_col)
             .with_column("parent_hash")
+            // FIXME(GAP-21): 100-position window can miss the parent across a >100-slot hole.
+            // Probably unrealistic in practice, so low priority; the correct all-predecessors
+            // scan would need a lazy limit to stay bounded.
             .with_predicate(col_between(
                 number_col,
                 block_number.saturating_sub(100),

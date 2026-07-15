@@ -38,7 +38,7 @@ annotated with the relevant GAP.
 Dialects accepted in query bodies: `evm`, `solana`, `bitcoin`, `tron`,
 `hyperliquidFills`, `hyperliquidReplicaCmds` — and, expressible in the query schema but
 **not served** by this system generation, `substrate`, `fuel` (MUST map to
-`UNSUPPORTED_QUERY`; see GAP-11).
+`UNSUPPORTED_QUERY`).
 
 ## 3. Query request (DEF-13 binding)
 
@@ -87,12 +87,11 @@ below" never applies below genesis).
 |---|---|
 | success | 200 (streamed) |
 | `NO_DATA` | 204, empty body |
-| `MALFORMED_REQUEST` | 400 (syntactic/semantic request errors, range-below-window message today — see next rows) |
-| `RANGE_UNAVAILABLE` | 400 today; distinct machine-readable discrimination from other 400s is REQUIRED for conformance clients (SHOULD: structured error body) — GAP-36 |
+| `MALFORMED_REQUEST` | 400 for semantic validation; 422 for syntactically/schema-invalid JSON; free-text body today (GAP-36) |
+| `RANGE_UNAVAILABLE` | 400; indistinguishable from other 400 classes except by free text (GAP-36) |
 | `ITEM_UNAVAILABLE` | 400 (same note — GAP-36) |
 | `KIND_MISMATCH` | 400 (same note — GAP-36) |
-| `UNSUPPORTED_QUERY` | REQUIRED: 4xx without process damage — currently violated (GAP-11) |
-| schema-invalid body | 422 |
+| `UNSUPPORTED_QUERY` | 400, free-text body |
 | `FORBIDDEN` | 403 |
 | `UNKNOWN_DATASET` | 404 |
 | `NOT_FOUND` (hash lookup miss) | 404 — indistinguishable from `UNKNOWN_DATASET` except by free-text body (GAP-39) |
@@ -100,6 +99,9 @@ below" never applies below genesis).
 | `OVERLOADED` | 503 |
 | `INTERNAL` | 500 |
 
+- Except for `NO_DATA` and class-specific payloads such as `CONFLICT`, query admission errors
+  currently have a `text/plain` diagnostic body. Clients MUST NOT parse this text. A stable
+  machine-readable discriminant for classes sharing one HTTP status remains GAP-36.
 - **IB-7** Error bodies MUST NOT leak internals in a way clients must parse; conformance
   tests key on status + the structured fields named above only.
 

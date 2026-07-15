@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::{future::Future, sync::Arc, time::Instant};
 
 use anyhow::bail;
 use async_stream::try_stream;
@@ -10,7 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post}
 };
-use futures::TryStream;
+use futures::Stream;
 use serde::Serialize;
 use sqd_primitives::BlockRef;
 use sqd_query::{Query, UnexpectedBaseBlock};
@@ -23,13 +23,50 @@ use crate::{
     dataset_controller::DatasetController,
     encoding::ContentEncoding,
     errors::{
-        BlockItemIsNotAvailable, BlockRangeMissing, Busy, QueryIsAboveTheHead, QueryKindMismatch, UnknownDataset
+        BlockItemIsNotAvailable, BlockRangeMissing, Busy, QueryIsAboveTheHead, QueryKindMismatch, QueryTaskPanicked,
+        UnknownDataset, UnsupportedQuery
     },
     query::QueryResponse,
     types::{ClientId, RetentionStrategy}
 };
 
 const DEFAULT_CLIENT_ID: &str = "unknown";
+
+#[derive(Clone, Copy, Debug)]
+enum ErrorCode {
+    MalformedRequest,
+    UnsupportedQuery,
+    KindMismatch,
+    UnknownDataset,
+    RangeUnavailable,
+    ItemUnavailable,
+    NotFound,
+    NoData,
+    Conflict,
+    Overloaded,
+    Internal,
+    // Catch-all for error responses that don't set a specific code (e.g. admin endpoints).
+    Unclassified
+}
+
+impl ErrorCode {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::MalformedRequest => "MALFORMED_REQUEST",
+            Self::UnsupportedQuery => "UNSUPPORTED_QUERY",
+            Self::KindMismatch => "KIND_MISMATCH",
+            Self::UnknownDataset => "UNKNOWN_DATASET",
+            Self::RangeUnavailable => "RANGE_UNAVAILABLE",
+            Self::ItemUnavailable => "ITEM_UNAVAILABLE",
+            Self::NotFound => "NOT_FOUND",
+            Self::NoData => "NO_DATA",
+            Self::Conflict => "CONFLICT",
+            Self::Overloaded => "OVERLOADED",
+            Self::Internal => "INTERNAL",
+            Self::Unclassified => "UNCLASSIFIED"
+        }
+    }
+}
 
 macro_rules! json_ok {
     ($json:expr) => {
@@ -47,7 +84,7 @@ macro_rules! get_dataset {
     ($app:expr, $dataset_id:expr) => {
         match $app.data_service.get_dataset($dataset_id) {
             Ok(ds) => ds,
-            Err(err) => return text!(StatusCode::NOT_FOUND, "{}", err)
+            Err(err) => return error_response(StatusCode::NOT_FOUND, ErrorCode::UnknownDataset, err.to_string())
         }
     };
 }
@@ -129,7 +166,16 @@ pub async fn middleware(mut req: Request, next: axum::middleware::Next) -> impl 
         .remove::<Labels>()
         .map(|labels| labels.0)
         .unwrap_or(Vec::new());
-    labels.push(("status", response.status().as_str().to_owned()));
+    let status = response.status();
+    let error_code = response.extensions_mut().remove::<ErrorCode>();
+    // Every error keeps an error_class so none is invisible to error-rate alerting;
+    // handlers that don't set a specific code fall back to Unclassified.
+    if let Some(error_code) = error_code {
+        labels.push(("error_class", error_code.as_str().to_owned()));
+    } else if status.is_client_error() || status.is_server_error() {
+        labels.push(("error_class", ErrorCode::Unclassified.as_str().to_owned()));
+    }
+    labels.push(("status", status.as_str().to_owned()));
 
     span.in_scope(|| {
         tracing::debug!(
@@ -240,11 +286,11 @@ async fn stream_internal(
 
     let query: Query = match Json::<Query>::from_bytes(&body) {
         Ok(Json(q)) => q,
-        Err(rejection) => return rejection.into_response()
+        Err(rejection) => return error_response(rejection.status(), ErrorCode::MalformedRequest, rejection.body_text())
     };
 
     if let Err(err) = query.validate() {
-        return text!(StatusCode::BAD_REQUEST, "{}", err);
+        return error_response(StatusCode::BAD_REQUEST, ErrorCode::MalformedRequest, err.to_string());
     }
 
     let query_result = if finalized {
@@ -285,24 +331,112 @@ async fn stream_internal(
     }
 }
 
-fn stream_query_response(mut stream: QueryResponse) -> impl TryStream<Ok = Bytes, Error = BoxError> {
+/// Pack source for [`stream_query_response`]; a trait so tests can script the panic
+/// path without a live database.
+trait DataPackSource: Send + 'static {
+    fn next_pack(&mut self) -> impl Future<Output = anyhow::Result<Option<Bytes>>> + Send;
+    fn finish_stream(&mut self) -> Bytes;
+}
+
+impl DataPackSource for QueryResponse {
+    fn next_pack(&mut self) -> impl Future<Output = anyhow::Result<Option<Bytes>>> + Send {
+        self.next_data_pack()
+    }
+
+    fn finish_stream(&mut self) -> Bytes {
+        self.finish()
+    }
+}
+
+fn stream_query_response<S: DataPackSource>(mut stream: S) -> impl Stream<Item = Result<Bytes, BoxError>> {
     try_stream! {
-        while let Some(pack_result) = stream.next_data_pack().await.transpose() {
+        while let Some(pack_result) = stream.next_pack().await.transpose() {
             match pack_result {
                 Ok(bytes) => {
                     yield bytes;
                 },
-                Err(err) => {
+                Err(err) if stream_can_finish_cleanly(&err) => {
                     if !err.is::<Busy>() {
                         error!(err =? err, "terminating response stream due to query error");
                     }
-                    // we can successfully complete the response,
-                    // because partial data is never produced
-                    yield stream.finish();
+                    // Partial data is never produced: the buffer is complete up to the last block.
+                    yield stream.finish_stream();
                     return
+                }
+                Err(err) => {
+                    // Panic dropped the runner mid-stream: no trailer to emit, so abort the
+                    // body rather than close with a clean 200 that hides the missing data.
+                    crate::metrics::report_query_worker_panic();
+                    error!(err =? err, "aborting response stream after query worker panic");
+                    Err::<(), _>(err)?;
                 }
             }
         }
+    }
+}
+
+/// A failed pack finishes as a valid partial 200, except a worker panic: that drops
+/// the runner mid-stream (no trailer to emit), so such a stream must abort instead.
+fn stream_can_finish_cleanly(err: &anyhow::Error) -> bool {
+    !err.is::<QueryTaskPanicked>()
+}
+
+#[cfg(test)]
+mod stream_query_response_tests {
+    use std::collections::VecDeque;
+
+    use futures::StreamExt;
+
+    use super::*;
+
+    const CHUNK: &[u8] = b"chunk-0";
+    const FINISH: &[u8] = b"__finish__";
+
+    /// `finish_stream` returns a sentinel so a test can tell a clean finish from an abort.
+    struct ScriptedSource(VecDeque<anyhow::Result<Option<Bytes>>>);
+
+    impl DataPackSource for ScriptedSource {
+        fn next_pack(&mut self) -> impl Future<Output = anyhow::Result<Option<Bytes>>> + Send {
+            let next = self.0.pop_front().unwrap_or(Ok(None));
+            async move { next }
+        }
+
+        fn finish_stream(&mut self) -> Bytes {
+            Bytes::from_static(FINISH)
+        }
+    }
+
+    async fn drive(packs: Vec<anyhow::Result<Option<Bytes>>>) -> Vec<Result<Bytes, BoxError>> {
+        stream_query_response(ScriptedSource(packs.into())).collect().await
+    }
+
+    #[tokio::test]
+    async fn worker_panic_mid_stream_aborts_the_body() {
+        let out = drive(vec![Ok(Some(Bytes::from_static(CHUNK))), Err(QueryTaskPanicked.into())]).await;
+
+        assert!(matches!(out.first(), Some(Ok(b)) if b.as_ref() == CHUNK));
+        assert!(
+            out.last().is_some_and(|r| r.is_err()),
+            "a worker panic must abort the stream"
+        );
+        assert!(
+            !out.iter().any(|r| matches!(r, Ok(b) if b.as_ref() == FINISH)),
+            "an aborted stream must not emit a clean finish"
+        );
+    }
+
+    #[tokio::test]
+    async fn recoverable_error_mid_stream_finishes_clean() {
+        let out = drive(vec![Ok(Some(Bytes::from_static(CHUNK))), Err(Busy.into())]).await;
+
+        assert!(
+            out.iter().all(|r| r.is_ok()),
+            "a recoverable error must not abort the stream"
+        );
+        assert!(
+            out.iter().any(|r| matches!(r, Ok(b) if b.as_ref() == FINISH)),
+            "a recoverable error must finish the buffered response"
+        );
     }
 }
 
@@ -313,45 +447,85 @@ fn error_to_response(err: anyhow::Error, body: &Bytes) -> Response {
             res = res.header("x-sqd-finalized-head-number", head.number);
             res = res.header("x-sqd-finalized-head-hash", head.hash.as_str());
         }
-        return res.body(Body::empty()).unwrap();
+        return with_error_code(res.body(Body::empty()).unwrap(), ErrorCode::NoData);
     }
 
     if let Some(fork) = err.downcast_ref::<UnexpectedBaseBlock>() {
-        return (
+        let response = (
             StatusCode::CONFLICT,
             Json(BaseBlockConflict {
                 previous_blocks: &fork.prev_blocks
             })
         )
             .into_response();
+        return with_error_code(response, ErrorCode::Conflict);
     }
 
-    let status_code = if err.is::<UnknownDataset>() {
-        StatusCode::NOT_FOUND
+    let (status_code, error_code) = if err.is::<UnknownDataset>() {
+        (StatusCode::NOT_FOUND, ErrorCode::UnknownDataset)
+    } else if err.is::<UnsupportedQuery>() {
+        (StatusCode::BAD_REQUEST, ErrorCode::UnsupportedQuery)
     } else if err.is::<QueryKindMismatch>() {
-        StatusCode::BAD_REQUEST
+        (StatusCode::BAD_REQUEST, ErrorCode::KindMismatch)
     } else if err.is::<BlockRangeMissing>() {
-        StatusCode::BAD_REQUEST
+        (StatusCode::BAD_REQUEST, ErrorCode::RangeUnavailable)
     } else if err.is::<BlockItemIsNotAvailable>() {
-        StatusCode::BAD_REQUEST
+        (StatusCode::BAD_REQUEST, ErrorCode::ItemUnavailable)
     } else if err.is::<Busy>() {
-        StatusCode::SERVICE_UNAVAILABLE
+        (StatusCode::SERVICE_UNAVAILABLE, ErrorCode::Overloaded)
     } else {
         error!(
             err = ?err,
             query = %String::from_utf8_lossy(body),
             "unhandled error, returning 500"
         );
-        StatusCode::INTERNAL_SERVER_ERROR
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::Internal,
+            format!("{:?}", err)
+        );
     };
 
-    let message = if status_code == StatusCode::INTERNAL_SERVER_ERROR {
-        format!("{:?}", err)
-    } else {
-        format!("{}", err)
-    };
+    error_response(status_code, error_code, err.to_string())
+}
 
-    (status_code, message).into_response()
+fn error_response(status: StatusCode, code: ErrorCode, message: impl Into<String>) -> Response {
+    // FIXME(GAP-36): expose `code` on the HTTP binding once a backwards-compatible
+    // representation is chosen. sqd-portal forwards this body verbatim, so keep the
+    // established text/plain response for now.
+    let response = (status, message.into()).into_response();
+    with_error_code(response, code)
+}
+
+fn with_error_code(mut response: Response, code: ErrorCode) -> Response {
+    response.extensions_mut().insert(code);
+    response
+}
+
+#[cfg(test)]
+mod error_response_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn classified_errors_keep_the_plain_text_wire_format() {
+        let response = error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::UnsupportedQuery,
+            "substrate queries are not supported"
+        );
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response.headers().get("content-type").unwrap(),
+            "text/plain; charset=utf-8"
+        );
+        assert_eq!(
+            response.extensions().get::<ErrorCode>().map(|code| code.as_str()),
+            Some("UNSUPPORTED_QUERY")
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(body, "substrate queries are not supported");
+    }
 }
 
 #[derive(Serialize)]
@@ -403,7 +577,13 @@ async fn get_block_by_hash(
             .with_client_id(&client_id)
             .with_dataset_id(dataset_id)
             .with_endpoint("/hashes/{hash}/block")
-            .with_response(|| text!(StatusCode::BAD_REQUEST, "invalid hash length"));
+            .with_response(|| {
+                error_response(
+                    StatusCode::BAD_REQUEST,
+                    ErrorCode::MalformedRequest,
+                    "invalid hash length"
+                )
+            });
     }
 
     let dataset = match app.data_service.get_dataset(dataset_id) {
@@ -413,16 +593,16 @@ async fn get_block_by_hash(
                 .with_client_id(&client_id)
                 .with_dataset_id(dataset_id)
                 .with_endpoint("/hashes/{hash}/block")
-                .with_response(|| text!(StatusCode::NOT_FOUND, "{}", err));
+                .with_response(|| error_response(StatusCode::NOT_FOUND, ErrorCode::UnknownDataset, err.to_string()));
         }
     };
 
     let response = match dataset.get_block_by_hash(hash).await {
         Ok(Some(block_ref)) => json_ok!(block_ref),
-        Ok(None) => text!(StatusCode::NOT_FOUND, "block not found"),
+        Ok(None) => error_response(StatusCode::NOT_FOUND, ErrorCode::NotFound, "block not found"),
         Err(err) => {
             error!(error = ?err, dataset_id = %dataset_id, "get_block_by_hash failed");
-            text!(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Internal, "internal error")
         }
     };
 
@@ -444,7 +624,13 @@ async fn get_transaction_by_hash(
             .with_client_id(&client_id)
             .with_dataset_id(dataset_id)
             .with_endpoint("/hashes/{hash}/transaction")
-            .with_response(|| text!(StatusCode::BAD_REQUEST, "invalid hash length"));
+            .with_response(|| {
+                error_response(
+                    StatusCode::BAD_REQUEST,
+                    ErrorCode::MalformedRequest,
+                    "invalid hash length"
+                )
+            });
     }
 
     let dataset = match app.data_service.get_dataset(dataset_id) {
@@ -454,16 +640,16 @@ async fn get_transaction_by_hash(
                 .with_client_id(&client_id)
                 .with_dataset_id(dataset_id)
                 .with_endpoint("/hashes/{hash}/transaction")
-                .with_response(|| text!(StatusCode::NOT_FOUND, "{}", err));
+                .with_response(|| error_response(StatusCode::NOT_FOUND, ErrorCode::UnknownDataset, err.to_string()));
         }
     };
 
     let response = match dataset.get_transaction_by_hash(hash).await {
         Ok(Some(transaction_ref)) => json_ok!(transaction_ref),
-        Ok(None) => text!(StatusCode::NOT_FOUND, "transaction not found"),
+        Ok(None) => error_response(StatusCode::NOT_FOUND, ErrorCode::NotFound, "transaction not found"),
         Err(err) => {
             error!(error = ?err, dataset_id = %dataset_id, "get_transaction_by_hash failed");
-            text!(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Internal, "internal error")
         }
     };
 

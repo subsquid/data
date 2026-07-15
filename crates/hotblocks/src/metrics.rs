@@ -56,6 +56,7 @@ pub static HTTP_TTFB: LazyLock<Family<Labels, Histogram>> =
 
 pub static QUERY_ERROR_TOO_MANY_TASKS: LazyLock<Counter> = LazyLock::new(Default::default);
 pub static QUERY_ERROR_TOO_MANY_DATA_WAITERS: LazyLock<Counter> = LazyLock::new(Default::default);
+pub static QUERY_ERROR_WORKER_PANIC: LazyLock<Counter> = LazyLock::new(Default::default);
 
 pub static COMPLETED_QUERIES: LazyLock<Counter> = LazyLock::new(Default::default);
 
@@ -159,6 +160,10 @@ pub fn report_query_too_many_tasks_error() {
 
 pub fn report_query_too_many_data_waiters_error() {
     QUERY_ERROR_TOO_MANY_DATA_WAITERS.inc();
+}
+
+pub fn report_query_worker_panic() {
+    QUERY_ERROR_WORKER_PANIC.inc();
 }
 
 pub fn report_http_response(labels: &Vec<(&'static str, String)>, to_first_byte: Duration) {
@@ -451,6 +456,12 @@ pub fn build_metrics_registry() -> Registry {
         "query_error_too_many_data_waiters",
         "Number of queries rejected, because data is not yet available and there are too many data waiters",
         QUERY_ERROR_TOO_MANY_DATA_WAITERS.clone()
+    );
+
+    registry.register(
+        "query_error_worker_panic",
+        "Number of query worker panics that aborted an in-flight response stream",
+        QUERY_ERROR_WORKER_PANIC.clone()
     );
 
     registry.register("http_status", "Number of sent HTTP responses", HTTP_STATUS.clone());

@@ -16,7 +16,7 @@ each. "Required response" uses four verbs:
   or permanently wedge the process, nor corrupt any dataset. This includes payload
   contents (arbitrary bytes, invalid text encodings, extreme values, huge collections)
   flowing through the write path, and any query through the read path. *Tests:* CT-9 fuzz
-  (GAP-11, GAP-12).
+  (GAP-12).
 - **FM-2 (Fault classification).** Every failure is classified transient vs integrity
   (WP-17); transient → bounded-backoff retry forever; integrity → fail-safe + alarm. A
   fault MUST NOT oscillate between classifications for the same cause.

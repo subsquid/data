@@ -64,7 +64,7 @@ per row under the named scenario.
 | SLI-6 all-ready | S5 | ≤ 60 s for ~50 datasets of nominal size | ~35 s+ (same incident) |
 | SLI-7 | S5 | SLI-5/6 bounds + no data loss (INV-40) | — |
 | SLI-8 | S4 | ≤ 2.0× steady; bounded monotone convergence after churn bursts | unbounded growth in default config until 2026-07; reclaim path since fixed, bound unmeasured (GAP-6) |
-| SLI-10 INTERNAL | all | 0 per 10⁶ requests | crashes on unsupported dialects (GAP-11) |
+| SLI-10 INTERNAL | all | 0 per 10⁶ requests | unsupported dialects are classified and counted by CT-5; target not load-tested |
 | SLI-11 | S1 | inter-commit ≤ max(1 s, 1/`W-BLOCK-RATE`); no artificial multi-second quantization at high rates | batch bounds imply stepping (HZ-6) |
 | SLI-12 p99 | S3 | ≤ 2 s + one batch time | — |
 

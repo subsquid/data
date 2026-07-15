@@ -15,6 +15,30 @@ impl Display for Busy {
 impl std::error::Error for Busy {}
 
 #[derive(Debug)]
+pub struct UnsupportedQuery {
+    pub query_kind: &'static str
+}
+
+impl Display for UnsupportedQuery {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} queries are not supported", self.query_kind)
+    }
+}
+
+impl std::error::Error for UnsupportedQuery {}
+
+#[derive(Debug)]
+pub struct QueryTaskPanicked;
+
+impl Display for QueryTaskPanicked {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "query execution task panicked")
+    }
+}
+
+impl std::error::Error for QueryTaskPanicked {}
+
+#[derive(Debug)]
 pub struct UnknownDataset {
     pub dataset_id: DatasetId
 }
