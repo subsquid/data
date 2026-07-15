@@ -99,19 +99,25 @@ impl Display for ChunkId {
     }
 }
 
-/// Key for the `hash -> block number` index in `CF_BLOCK_HASHES`:
+/// Key shared by the hash-index column families:
 /// `dataset_id (48 bytes) || hash UTF-8 bytes`, the hash exactly as it appears
 /// in the Arrow `hash` column (no normalization).
-pub(crate) struct BlockHashIndexKey {
+pub(crate) struct HashIndexKey {
     bytes: Vec<u8>
 }
 
-impl BlockHashIndexKey {
+impl HashIndexKey {
     pub fn new(dataset_id: DatasetId, hash: &str) -> Self {
         let mut bytes = Vec::with_capacity(48 + hash.len());
         bytes.extend_from_slice(dataset_id.as_ref());
         bytes.extend_from_slice(hash.as_bytes());
         Self { bytes }
+    }
+
+    /// Reuses the key allocation while streaming a table into a RocksDB write batch.
+    pub fn set_hash(&mut self, hash: &str) {
+        self.bytes.truncate(48);
+        self.bytes.extend_from_slice(hash.as_bytes());
     }
 
     /// The `[start, end)` key range covering every entry of `dataset_id`.
@@ -122,7 +128,7 @@ impl BlockHashIndexKey {
     }
 }
 
-impl AsRef<[u8]> for BlockHashIndexKey {
+impl AsRef<[u8]> for HashIndexKey {
     fn as_ref(&self) -> &[u8] {
         &self.bytes
     }

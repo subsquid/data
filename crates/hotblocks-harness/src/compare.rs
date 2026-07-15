@@ -15,7 +15,7 @@ use crate::{
     chain::Chain,
     driver::{Client, Status},
     model::Model,
-    types::{BlockNumber, BlockRef}
+    types::{Block, BlockNumber, BlockRef, TransactionRef}
 };
 
 #[derive(Clone, Debug)]
@@ -113,6 +113,64 @@ pub async fn assert_hash_index_conforms(client: &Client, model: &Model) -> Resul
     } else {
         bail!(
             "the block-hash index diverged from the model:\n  - {}",
+            errs.join("\n  - ")
+        )
+    }
+}
+
+/// Materializes the transaction positions present in the chain oracle's
+/// projected block. Keeping this derivation at the binding boundary means the
+/// reference model remains kind-agnostic.
+pub fn expected_transactions(chain: &dyn Chain, block: &Block) -> Result<Vec<TransactionRef>> {
+    let emission = chain.expected_emission(block);
+    let Some(transactions) = emission.get("transactions") else {
+        return Ok(Vec::new());
+    };
+    let transactions = transactions
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("expected transactions projection is not an array"))?;
+
+    transactions
+        .iter()
+        .map(|transaction| {
+            let transaction_index = transaction
+                .get("transactionIndex")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| anyhow::anyhow!("projected transaction has no numeric transactionIndex"))?
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("projected transactionIndex does not fit u32"))?;
+            let hash = transaction
+                .get("hash")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow::anyhow!("projected transaction has no string hash"))?;
+            Ok(TransactionRef::new(block.number, transaction_index, hash))
+        })
+        .collect()
+}
+
+/// Every transaction on the canonical model branch resolves to its exact
+/// block/index position. This completeness assertion is valid only in the
+/// harness's fresh-store, always-enabled EVM scenarios (spec 12 §2).
+pub async fn assert_transaction_hash_index_conforms(client: &Client, model: &Model, chain: &dyn Chain) -> Result<()> {
+    let mut errs = Vec::new();
+    for block in &model.seg {
+        for transaction in expected_transactions(chain, block)? {
+            let expected = Some(transaction.clone());
+            let observed = client.transaction_by_hash(&transaction.hash).await?;
+            if observed != expected {
+                errs.push(format!(
+                    "hash {}: expected {expected:?}, got {observed:?}",
+                    transaction.hash
+                ));
+            }
+        }
+    }
+
+    if errs.is_empty() {
+        Ok(())
+    } else {
+        bail!(
+            "the transaction-hash index diverged from the model:\n  - {}",
             errs.join("\n  - ")
         )
     }

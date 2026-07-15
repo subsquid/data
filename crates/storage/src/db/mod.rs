@@ -15,5 +15,5 @@ pub use table_id::TableId;
 pub use write::{
     dataset_update::*,
     table_builder::*,
-    tx::{get_global_tx_restarts, get_local_tx_restarts}
+    tx::{get_global_tx_restarts, get_local_tx_restarts, HashIndexWriteMetrics}
 };

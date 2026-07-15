@@ -20,7 +20,7 @@ ran against.
 | `P-EXEC-SLOTS` | global concurrent query work units (RP-3, PF-3) | executor threads × 200 | keep; revisit per-dataset fairness (GAP-14) |
 | `P-WAITERS` | global cap on head-waiting queries (RP-5) | 64 000 | keep; same fairness note |
 | `P-SCHED-SLACK` | scheduling tolerance added to termination bounds (LIV-3/4) | — | 1 s ⚠ |
-| `P-HASH-MAXLEN` | max accepted hash length on a lookup, rejected before store access (RP-20) | 256 chars | keep |
+| `P-HASH-MAXLEN` | max accepted hash length on a lookup, rejected before store access (RP-20) | 256 UTF-8 bytes | keep |
 
 ## Write path
 
@@ -49,7 +49,7 @@ ran against.
 | `P-RECLAIM-LAG` | logical delete → physical space convergence (LIV-7) | sweep ≤ 10 s + compaction (typically minutes–hours); ≤ 7 d worst case via periodic compaction; interrupted-build residue: ∞ in default config (GAP-6) | ≤ 24 h ⚠ |
 | `P-DISK-FLOOR` | free-disk alarm/degrade threshold (FM-STOR-2) | — | define ⚠ |
 | `P-BLOCK-INDEX` | block hash index enabled (DEF-17, RS-12) | off by default (`--block-hash-index`); EVM only | keep |
-| `P-TX-INDEX` | transaction hash index enabled (DEF-17, RS-12) | absent — not implemented (GAP-38) | define ⚠; must stay independent of `P-BLOCK-INDEX` (RS-12 sizing asymmetry) |
+| `P-TX-INDEX` | transaction hash index enabled (DEF-17, RS-12) | off by default (`--transaction-hash-index`); EVM only; independent of `P-BLOCK-INDEX` | keep |
 
 ## Liveness, durability, lifecycle
 

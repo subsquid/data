@@ -4,6 +4,7 @@ use serde::de::DeserializeOwned;
 use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_data_source::{DataSource, StandardDataSource};
 use sqd_primitives::BlockNumber;
+use sqd_storage::db::DatasetId;
 
 use crate::{
     dataset_controller::ingest_generic::{IngestGeneric, IngestMessage},
@@ -11,6 +12,7 @@ use crate::{
 };
 
 pub fn ingest<'a, 'b>(
+    dataset_id: DatasetId,
     message_sender: tokio::sync::mpsc::Sender<IngestMessage>,
     sources: Vec<ReqwestDataClient>,
     dataset_kind: DatasetKind,
@@ -21,7 +23,9 @@ pub fn ingest<'a, 'b>(
         ($builder:expr) => {{
             let mut data_source = StandardDataSource::new(sources, from_json_bytes);
             data_source.set_position(first_block, parent_block_hash);
-            IngestGeneric::new(data_source, $builder, message_sender).run().boxed()
+            IngestGeneric::new(dataset_id, data_source, $builder, message_sender)
+                .run()
+                .boxed()
         }};
     }
 

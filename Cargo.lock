@@ -5026,6 +5026,7 @@ dependencies = [
  "arrow",
  "arrow-buffer",
  "borsh",
+ "criterion",
  "parking_lot",
  "proptest",
  "rand 0.9.0",

@@ -29,7 +29,7 @@ annotated with the relevant GAP.
 | FINALIZED-HEAD | `GET /datasets/{id}/finalized-head` | same shape |
 | STATUS | `GET /datasets/{id}/status` | kind, retention, first/last block (+hash/time), finalized head |
 | BLOCK-BY-HASH | `GET /datasets/{id}/hashes/{hash}/block` | `{"number":N,"hash":"…"}`; miss = `NOT_FOUND`, **not** proof of absence (RP-19) |
-| TX-BY-HASH | `GET /datasets/{id}/hashes/{hash}/transaction` | `{"blockNumber":N,"transactionIndex":i,"hash":"…"}` — **not implemented** (GAP-38) |
+| TX-BY-HASH | `GET /datasets/{id}/hashes/{hash}/transaction` | `{"blockNumber":N,"transactionIndex":i,"hash":"…"}`; miss = `NOT_FOUND`, **not** proof of absence (RP-19) |
 | METADATA | `GET /datasets/{id}/metadata` | start block, real-time flag, aliases |
 | GET-RETENTION | `GET /datasets/{id}/retention` | current policy JSON |
 | SET-RETENTION | `POST /datasets/{id}/retention` | policy JSON; only for `External` datasets, else `FORBIDDEN` (403) |

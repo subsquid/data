@@ -12,7 +12,10 @@ use prometheus_client::{
     },
     registry::Registry
 };
-use sqd_storage::db::{CF_CHUNKS, CF_DATASETS, CF_DELETED_TABLES, CF_DIRTY_TABLES, CF_TABLES, DatasetId, ReadSnapshot};
+use sqd_storage::db::{
+    CF_BLOCK_HASHES, CF_CHUNKS, CF_DATASETS, CF_DELETED_TABLES, CF_DIRTY_TABLES, CF_TABLES, CF_TRANSACTION_HASHES,
+    DatasetId, HashIndexWriteMetrics, ReadSnapshot
+};
 use tracing::error;
 
 use crate::{query::QueryExecutorCollector, types::DBRef};
@@ -73,6 +76,82 @@ pub static QUERIED_BLOCKS: LazyLock<Family<Labels, Histogram>> =
     LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(exponential_buckets(1., 2.0, 30))));
 pub static QUERIED_CHUNKS: LazyLock<Family<Labels, Histogram>> =
     LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(buckets(1., 20))));
+
+#[derive(Copy, Clone, Hash, Debug, Eq, PartialEq)]
+pub(crate) enum WriteStage {
+    Prepare,
+    Tables,
+    Commit,
+    Retention,
+    BlockHashIndex,
+    TransactionHashIndex
+}
+
+impl WriteStage {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Prepare => "prepare",
+            Self::Tables => "tables",
+            Self::Commit => "commit",
+            Self::Retention => "retention",
+            Self::BlockHashIndex => "block_hash_index",
+            Self::TransactionHashIndex => "transaction_hash_index"
+        }
+    }
+}
+
+impl EncodeLabelValue for WriteStage {
+    fn encode(&self, encoder: &mut LabelValueEncoder) -> Result<(), std::fmt::Error> {
+        encoder.write_str(self.as_str())
+    }
+}
+
+#[derive(Copy, Clone, Hash, Debug, Eq, PartialEq)]
+enum WriteOutcome {
+    Success,
+    Error
+}
+
+impl EncodeLabelValue for WriteOutcome {
+    fn encode(&self, encoder: &mut LabelValueEncoder) -> Result<(), std::fmt::Error> {
+        encoder.write_str(match self {
+            Self::Success => "success",
+            Self::Error => "error"
+        })
+    }
+}
+
+#[derive(Copy, Clone, Hash, Debug, Eq, PartialEq, EncodeLabelSet)]
+struct WriteLabels {
+    dataset: DatasetValue,
+    stage: WriteStage,
+    outcome: WriteOutcome
+}
+
+static WRITE_DURATION: LazyLock<Family<WriteLabels, Histogram>> =
+    LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(buckets(0.0001, 28))));
+
+pub(crate) fn report_write_duration(dataset_id: DatasetId, stage: WriteStage, duration: Duration, success: bool) {
+    let labels = WriteLabels {
+        dataset: DatasetValue(dataset_id),
+        stage,
+        outcome: if success {
+            WriteOutcome::Success
+        } else {
+            WriteOutcome::Error
+        }
+    };
+    WRITE_DURATION.get_or_create(&labels).observe(duration.as_secs_f64());
+}
+
+pub(crate) fn report_hash_index_write_metrics(dataset_id: DatasetId, metrics: &HashIndexWriteMetrics, success: bool) {
+    if let Some(duration) = metrics.block_hash_index_duration() {
+        report_write_duration(dataset_id, WriteStage::BlockHashIndex, duration, success);
+    }
+    if let Some(duration) = metrics.transaction_hash_index_duration() {
+        report_write_duration(dataset_id, WriteStage::TransactionHashIndex, duration, success);
+    }
+}
 
 pub fn report_query_too_many_tasks_error() {
     QUERY_ERROR_TOO_MANY_TASKS.inc();
@@ -171,7 +250,7 @@ fn collect_dataset_metrics(
 /// RocksDB write-pressure and maintenance gauges collected from intrinsic properties.
 ///
 /// Property reads happen only during a Prometheus scrape and do not require RocksDB's
-/// optional statistics collection. Labels are bounded by the five configured column
+/// optional statistics collection. Labels are bounded by the configured column
 /// families.
 #[derive(Debug)]
 pub struct RocksDbCollector {
@@ -297,7 +376,15 @@ const ROCKSDB_PER_CF: &[RocksDbPropertyMetric] = &[
     }
 ];
 
-const ROCKSDB_COLUMN_FAMILIES: &[&str] = &[CF_DATASETS, CF_CHUNKS, CF_TABLES, CF_DIRTY_TABLES, CF_DELETED_TABLES];
+const ROCKSDB_COLUMN_FAMILIES: &[&str] = &[
+    CF_DATASETS,
+    CF_CHUNKS,
+    CF_TABLES,
+    CF_DIRTY_TABLES,
+    CF_DELETED_TABLES,
+    CF_BLOCK_HASHES,
+    CF_TRANSACTION_HASHES
+];
 
 #[derive(Copy, Clone, Hash, Debug, Eq, PartialEq, EncodeLabelSet)]
 struct ColumnFamilyLabel {
@@ -372,6 +459,11 @@ pub fn build_metrics_registry() -> Registry {
         "Time to first byte of HTTP responses",
         HTTP_TTFB.clone()
     );
+    registry.register(
+        "write_duration_seconds",
+        "Write-pipeline stage duration; hash-index stages are nested within commit or retention",
+        WRITE_DURATION.clone()
+    );
 
     registry.register("stream_bytes", "Number of bytes per stream", STREAM_BYTES.clone());
     registry.register("stream_blocks", "Number of blocks per stream", STREAM_BLOCKS.clone());
@@ -440,6 +532,50 @@ mod tests {
     use sqd_storage::db::{Chunk, DatabaseSettings, DatasetId, DatasetKind};
 
     use super::*;
+
+    #[test]
+    fn write_duration_exposes_bounded_stage_and_outcome_labels() {
+        let dataset_id = DatasetId::from_str("write-metrics-test");
+        let stages = [
+            WriteStage::Prepare,
+            WriteStage::Tables,
+            WriteStage::Commit,
+            WriteStage::Retention,
+            WriteStage::BlockHashIndex,
+            WriteStage::TransactionHashIndex
+        ];
+
+        for stage in stages {
+            report_write_duration(dataset_id, stage, Duration::from_millis(1), true);
+        }
+        report_write_duration(dataset_id, WriteStage::Commit, Duration::from_millis(2), false);
+
+        let registry = build_metrics_registry();
+        let mut output = String::new();
+        prometheus_client::encoding::text::encode(&mut output, &registry).unwrap();
+
+        for stage in stages {
+            assert!(
+                output.lines().any(|line| {
+                    line.starts_with("hotblocks_write_duration_seconds_count")
+                        && line.contains("dataset=\"write-metrics-test\"")
+                        && line.contains(&format!("stage=\"{}\"", stage.as_str()))
+                        && line.contains("outcome=\"success\"")
+                }),
+                "missing successful {} stage:\n{output}",
+                stage.as_str()
+            );
+        }
+        assert!(
+            output.lines().any(|line| {
+                line.starts_with("hotblocks_write_duration_seconds_count")
+                    && line.contains("dataset=\"write-metrics-test\"")
+                    && line.contains("stage=\"commit\"")
+                    && line.contains("outcome=\"error\"")
+            }),
+            "missing error outcome:\n{output}"
+        );
+    }
 
     #[test]
     fn rocksdb_collector_exposes_global_and_per_cf_properties() {

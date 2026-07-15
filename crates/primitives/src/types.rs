@@ -16,6 +16,18 @@ pub struct BlockRef {
     pub hash: String
 }
 
+/// Position of a transaction in the canonical chain.
+#[cfg_attr(feature = "borsh", derive(borsh::BorshSerialize, borsh::BorshDeserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+#[cfg_attr(feature = "valuable", derive(valuable::Valuable))]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
+pub struct TransactionRef {
+    pub block_number: BlockNumber,
+    pub transaction_index: ItemIndex,
+    pub hash: String
+}
+
 impl BlockRef {
     pub fn set_hash(&mut self, hash: &str) {
         self.hash.clear();

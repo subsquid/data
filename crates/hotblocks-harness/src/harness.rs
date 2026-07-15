@@ -170,6 +170,12 @@ impl Harness {
         compare::assert_hash_index_conforms(&self.client, &self.model).await
     }
 
+    /// Diff the opt-in transaction-hash endpoint against every canonical
+    /// transaction in the model's projected chain.
+    pub async fn assert_transaction_hash_index_conforms(&self) -> Result<()> {
+        compare::assert_transaction_hash_index_conforms(&self.client, &self.model, &*self.chain).await
+    }
+
     /// An anchored follower positioned at the bottom of the window (04 §7).
     pub fn follower(&self) -> Follower {
         Follower::new(

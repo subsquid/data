@@ -3,12 +3,15 @@ use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 use anyhow::{anyhow, Context};
 use parking_lot::Mutex;
 use rocksdb::{ColumnFamily, ReadOptions};
-use sqd_primitives::{BlockNumber, BlockRef, Name};
+use sqd_primitives::{BlockNumber, BlockRef, Name, TransactionRef};
 
 use crate::{
     db::{
-        data::{BlockHashIndexKey, Chunk, DatasetId},
-        db::{RocksDB, RocksIterator, RocksSnapshot, CF_BLOCK_HASHES, CF_CHUNKS, CF_DATASETS, CF_TABLES},
+        data::{Chunk, DatasetId, HashIndexKey},
+        db::{
+            RocksDB, RocksIterator, RocksSnapshot, CF_BLOCK_HASHES, CF_CHUNKS, CF_DATASETS, CF_TABLES,
+            CF_TRANSACTION_HASHES
+        },
         read::chunk::ChunkIterator,
         table_id::TableId,
         DatasetLabel
@@ -40,6 +43,13 @@ impl<'a> ReadSnapshot<'a> {
         } else {
             None
         })
+    }
+
+    pub(crate) fn has_dataset(&self, dataset_id: DatasetId) -> anyhow::Result<bool> {
+        Ok(self
+            .db
+            .get_pinned_cf_opt(self.cf_handle(CF_DATASETS), dataset_id, &self.new_options())?
+            .is_some())
     }
 
     pub fn create_table_reader(&self, table_id: TableId) -> anyhow::Result<SnapshotTableReader<'_>> {
@@ -78,7 +88,13 @@ impl<'a> ReadSnapshot<'a> {
     /// Resolves a block hash via the `CF_BLOCK_HASHES` index. `Ok(None)` means
     /// the hash is not indexed (unknown, pre-index chunk, or non-indexed kind).
     pub fn find_block_by_hash(&self, dataset_id: DatasetId, hash: &str) -> anyhow::Result<Option<BlockRef>> {
-        let key = BlockHashIndexKey::new(dataset_id, hash);
+        // DROP removes the label before bounded physical index cleanup. Checking
+        // it in this same snapshot makes the logical index transition atomic.
+        if !self.has_dataset(dataset_id)? {
+            return Ok(None);
+        }
+
+        let key = HashIndexKey::new(dataset_id, hash);
         let Some(bytes) = self
             .db
             .get_pinned_cf_opt(self.cf_handle(CF_BLOCK_HASHES), &key, &self.new_options())?
@@ -92,6 +108,46 @@ impl<'a> ReadSnapshot<'a> {
             .context("CF_BLOCK_HASHES value has unexpected length, expected 8 bytes")?;
         Ok(Some(BlockRef {
             number: BlockNumber::from_be_bytes(arr),
+            hash: hash.to_string()
+        }))
+    }
+
+    /// Resolves a transaction hash via `CF_TRANSACTION_HASHES`. `Ok(None)`
+    /// means the hash is not indexed, which is deliberately not proof that the
+    /// transaction is absent from the retained window.
+    pub fn find_transaction_by_hash(
+        &self,
+        dataset_id: DatasetId,
+        hash: &str
+    ) -> anyhow::Result<Option<TransactionRef>> {
+        const VALUE_LEN: usize = 12;
+
+        // See `find_block_by_hash`: stale physical keys after DROP are never
+        // observable, and CREATE purges them before reusing a dataset ID.
+        if !self.has_dataset(dataset_id)? {
+            return Ok(None);
+        }
+
+        let key = HashIndexKey::new(dataset_id, hash);
+        let Some(bytes) =
+            self.db
+                .get_pinned_cf_opt(self.cf_handle(CF_TRANSACTION_HASHES), &key, &self.new_options())?
+        else {
+            return Ok(None);
+        };
+
+        let bytes: &[u8; VALUE_LEN] = bytes
+            .as_ref()
+            .try_into()
+            .context("CF_TRANSACTION_HASHES value has unexpected length, expected 12 bytes")?;
+        let mut block_number_bytes = [0; 8];
+        block_number_bytes.copy_from_slice(&bytes[..8]);
+        let mut transaction_index_bytes = [0; 4];
+        transaction_index_bytes.copy_from_slice(&bytes[8..]);
+
+        Ok(Some(TransactionRef {
+            block_number: BlockNumber::from_be_bytes(block_number_bytes),
+            transaction_index: u32::from_be_bytes(transaction_index_bytes),
             hash: hash.to_string()
         }))
     }

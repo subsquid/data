@@ -11,6 +11,25 @@ pub struct BlockRef {
     pub hash: String
 }
 
+/// DEF-17 transaction-hash lookup result.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransactionRef {
+    pub block_number: BlockNumber,
+    pub transaction_index: u32,
+    pub hash: String
+}
+
+impl TransactionRef {
+    pub fn new(block_number: BlockNumber, transaction_index: u32, hash: impl Into<String>) -> Self {
+        Self {
+            block_number,
+            transaction_index,
+            hash: hash.into()
+        }
+    }
+}
+
 impl BlockRef {
     pub fn new(number: BlockNumber, hash: impl Into<String>) -> Self {
         Self {
