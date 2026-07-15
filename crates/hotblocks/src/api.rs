@@ -62,6 +62,7 @@ pub fn build_api(app: App) -> Router {
         .route("/datasets/{id}/head", get(get_head))
         .route("/datasets/{id}/finalized-head", get(get_finalized_head))
         .route("/datasets/{id}/hashes/{hash}/block", get(get_block_by_hash))
+        .route("/datasets/{id}/hashes/{hash}/transaction", get(get_transaction_by_hash))
         .route("/datasets/{id}/retention", get(get_retention).post(set_retention))
         .route("/datasets/{id}/status", get(get_status))
         .route("/datasets/{id}/metadata", get(get_metadata))
@@ -72,6 +73,25 @@ pub fn build_api(app: App) -> Router {
         .layer(axum::middleware::from_fn(middleware))
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid::default()))
         .layer(Extension(Arc::new(app)))
+}
+
+const HASH_MAX_LEN: usize = 256;
+
+fn invalid_hash(hash: &str) -> bool {
+    hash.is_empty() || hash.len() > HASH_MAX_LEN
+}
+
+#[cfg(test)]
+mod hash_validation_tests {
+    use super::*;
+
+    #[test]
+    fn invalid_hash_counts_utf8_bytes_at_the_256_byte_boundary() {
+        assert!(invalid_hash(""));
+        assert!(!invalid_hash(&"x".repeat(HASH_MAX_LEN)));
+        assert!(!invalid_hash(&"é".repeat(HASH_MAX_LEN / 2)));
+        assert!(invalid_hash(&"é".repeat(HASH_MAX_LEN / 2 + 1)));
+    }
 }
 
 pub async fn middleware(mut req: Request, next: axum::middleware::Next) -> impl IntoResponse {
@@ -377,8 +397,8 @@ async fn get_block_by_hash(
     Extension(client_id): Extension<ClientId>,
     Path((dataset_id, hash)): Path<(DatasetId, String)>
 ) -> impl IntoResponse {
-    // Reject absurd lengths before touching the DB (real hashes are 64-88 chars).
-    if hash.is_empty() || hash.len() > 256 {
+    // Reject absurd lengths before touching the DB (real hashes are 64-88 bytes).
+    if invalid_hash(&hash) {
         return ResponseWithMetadata::new()
             .with_client_id(&client_id)
             .with_dataset_id(dataset_id)
@@ -410,6 +430,47 @@ async fn get_block_by_hash(
         .with_client_id(&client_id)
         .with_dataset_id(dataset_id)
         .with_endpoint("/hashes/{hash}/block")
+        .with_response(|| response)
+}
+
+async fn get_transaction_by_hash(
+    Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
+    Path((dataset_id, hash)): Path<(DatasetId, String)>
+) -> impl IntoResponse {
+    // Reject absurd lengths before touching the DB (real hashes are 64-88 bytes).
+    if invalid_hash(&hash) {
+        return ResponseWithMetadata::new()
+            .with_client_id(&client_id)
+            .with_dataset_id(dataset_id)
+            .with_endpoint("/hashes/{hash}/transaction")
+            .with_response(|| text!(StatusCode::BAD_REQUEST, "invalid hash length"));
+    }
+
+    let dataset = match app.data_service.get_dataset(dataset_id) {
+        Ok(ds) => ds,
+        Err(err) => {
+            return ResponseWithMetadata::new()
+                .with_client_id(&client_id)
+                .with_dataset_id(dataset_id)
+                .with_endpoint("/hashes/{hash}/transaction")
+                .with_response(|| text!(StatusCode::NOT_FOUND, "{}", err));
+        }
+    };
+
+    let response = match dataset.get_transaction_by_hash(hash).await {
+        Ok(Some(transaction_ref)) => json_ok!(transaction_ref),
+        Ok(None) => text!(StatusCode::NOT_FOUND, "transaction not found"),
+        Err(err) => {
+            error!(error = ?err, dataset_id = %dataset_id, "get_transaction_by_hash failed");
+            text!(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
+        }
+    };
+
+    ResponseWithMetadata::new()
+        .with_client_id(&client_id)
+        .with_dataset_id(dataset_id)
+        .with_endpoint("/hashes/{hash}/transaction")
         .with_response(|| response)
 }
 

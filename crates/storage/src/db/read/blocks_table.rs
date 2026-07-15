@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, ensure};
 use arrow::{
     array::{Array, AsArray},
     datatypes::{DataType, UInt32Type, UInt64Type}
@@ -57,8 +57,9 @@ fn find_block_row<BN: Copy + Ord>(numbers: &[BN], block: BN) -> Option<usize> {
 
 /// Streams all `(block number, hash)` pairs of a `blocks` table, reading the
 /// columns in batches so peak memory stays `O(batch)` even for large compacted
-/// chunks. `number` must be `UInt32`/`UInt64` and `hash` must be `Utf8`;
-/// anything else is a hard error rather than silently indexed garbage.
+/// chunks. `number` must be `UInt32`/`UInt64`, `hash` must be `Utf8`, and both
+/// columns must be non-null; anything else is a hard error rather than
+/// silently indexing incomplete data.
 pub fn for_each_block_hash<S: KvRead + Sync>(
     blocks_table: &TableReader<S>,
     mut visit: impl FnMut(BlockNumber, &str) -> anyhow::Result<()>
@@ -99,6 +100,11 @@ pub fn for_each_block_hash<S: KvRead + Sync>(
             hash_reader.read_slice(&mut builder, offset, len)?;
             builder.finish()
         };
+
+        ensure!(
+            numbers.null_count() == 0 && hashes.null_count() == 0,
+            "block number and hash columns must not contain nulls"
+        );
         let hashes = hashes.as_string::<i32>();
 
         match numbers.data_type() {

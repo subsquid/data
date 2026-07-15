@@ -30,7 +30,7 @@ fn log_count(b: &Block) -> u32 {
 }
 
 /// Distinct from any block hash: block numbers never reach this domain.
-fn tx_hash(b: &Block, index: u32) -> String {
+pub fn transaction_hash(b: &Block, index: u32) -> String {
     block_hash(
         b.number.wrapping_mul(1_000_003).wrapping_add(u64::from(index)),
         b.fork_id
@@ -72,7 +72,7 @@ impl Evm {
     fn projected_tx(b: &Block, index: u32) -> Value {
         json!({
             "transactionIndex": index,
-            "hash": tx_hash(b, index),
+            "hash": transaction_hash(b, index),
             "from": SENDER,
             // A plain number here, unlike every other numeric field of a transaction.
             "nonce": b.number
@@ -107,7 +107,7 @@ impl Evm {
         let mut log = Self::projected_log(b, index);
         log.as_object_mut()
             .expect("log is an object")
-            .insert("transactionHash".into(), json!(tx_hash(b, 0)));
+            .insert("transactionHash".into(), json!(transaction_hash(b, 0)));
         log
     }
 }

@@ -20,6 +20,10 @@ surface of the binding (13 §5) with bounded cardinality.
   the write pipeline stages, commit-retry counts (HZ-11), maintenance backlog size
   (HZ-2). The *existence* of a global write halt MUST be directly observable — the
   historical multi-minute freezes were diagnosable only by inference (GAP-1).
+  `hotblocks_write_duration_seconds{dataset,stage,outcome}` exposes the bounded stages
+  `prepare`, `tables`, `commit`, `retention`, `block_hash_index`, and
+  `transaction_hash_index`; hash-index samples are nested within `commit` or `retention`
+  and include work repeated by optimistic-transaction retries.
 - **OB-4 (Query metrics).** Per dataset × query class × outcome (success / each error
   class / truncation per RP-15): counts, latency distributions (TTFB, total), emitted
   bytes/blocks, coverage sizes; current in-flight and waiting counts against their caps

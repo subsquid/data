@@ -1,10 +1,14 @@
-use std::{collections::BTreeMap, ops::Add, time::Duration};
+use std::{
+    collections::BTreeMap,
+    ops::Add,
+    time::{Duration, Instant as StdInstant}
+};
 
 use anyhow::{Context, anyhow};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use sqd_data_client::reqwest::ReqwestDataClient;
-use sqd_primitives::{BlockNumber, BlockRef};
-use sqd_storage::db::{Chunk, CompactionStatus, DatasetId};
+use sqd_primitives::{BlockNumber, BlockRef, TransactionRef};
+use sqd_storage::db::{Chunk, CompactionStatus, DatasetId, HashIndexWriteMetrics};
 use tokio::{select, task::JoinHandle, time::Instant};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 
@@ -14,6 +18,7 @@ use crate::{
         ingest_generic::{IngestMessage, NewChunk},
         write_controller::WriteController
     },
+    metrics::{WriteStage, report_hash_index_write_metrics, report_write_duration},
     types::{DBRef, DatasetKind, RetentionStrategy}
 };
 
@@ -48,7 +53,9 @@ impl DatasetController {
         let mut write = WriteController::new(db.clone(), dataset_id, dataset_kind)?;
 
         if let RetentionStrategy::FromBlock { number, parent_hash } = &retention {
-            write.init_retention(*number, parent_hash.clone())?;
+            observe_storage_write(dataset_id, WriteStage::Retention, |metrics| {
+                write.init_retention(*number, parent_hash.clone(), metrics)
+            })?;
         }
 
         let (retention_sender, retention_recv) = tokio::sync::watch::channel(retention);
@@ -117,6 +124,17 @@ impl DatasetController {
             .context("get_block_by_hash task panicked")?
     }
 
+    /// Resolves a transaction hash to its canonical position through the
+    /// storage index. The synchronous RocksDB point read stays off Tokio's
+    /// runtime workers and does not consume range-query execution slots.
+    pub async fn get_transaction_by_hash(&self, hash: String) -> anyhow::Result<Option<TransactionRef>> {
+        let db = self.db.clone();
+        let dataset_id = self.dataset_id;
+        tokio::task::spawn_blocking(move || db.snapshot().find_transaction_by_hash(dataset_id, &hash))
+            .await
+            .context("get_transaction_by_hash task panicked")?
+    }
+
     pub fn enable_compaction(&self, yes: bool) {
         let _ = self.compaction_enabled_sender.send(yes);
     }
@@ -156,6 +174,7 @@ impl DatasetController {
 
 struct WriteCtx {
     db: DBRef,
+    dataset_id: DatasetId,
     write: WriteController,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
     finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>
@@ -197,23 +216,30 @@ impl WriteCtx {
 
     fn write_new_chunk(&mut self, mut new_chunk: NewChunk) -> anyhow::Result<()> {
         let desc = self.write.dataset_kind().dataset_description();
-        let mut tables = BTreeMap::new();
+        let started = StdInstant::now();
+        let tables: anyhow::Result<_> = (|| {
+            let mut tables = BTreeMap::new();
 
-        for (name, prepared) in new_chunk.tables.iter_mut() {
-            let mut builder = self.db.new_table_builder(prepared.schema());
+            for (name, prepared) in new_chunk.tables.iter_mut() {
+                let mut builder = self.db.new_table_builder(prepared.schema());
 
-            if let Some(table_desc) = desc.tables.get(name) {
-                for (&col, opts) in table_desc.options.column_options.iter() {
-                    if opts.stats_enable {
-                        builder.add_stat_by_name(col)?;
+                if let Some(table_desc) = desc.tables.get(name) {
+                    for (&col, opts) in table_desc.options.column_options.iter() {
+                        if opts.stats_enable {
+                            builder.add_stat_by_name(col)?;
+                        }
                     }
                 }
+
+                prepared.read(&mut builder, 0, prepared.num_rows())?;
+
+                tables.insert(name.to_string(), builder.finish()?);
             }
 
-            prepared.read(&mut builder, 0, prepared.num_rows())?;
-
-            tables.insert(name.to_string(), builder.finish()?);
-        }
+            Ok(tables)
+        })();
+        report_write_duration(self.dataset_id, WriteStage::Tables, started.elapsed(), tables.is_ok());
+        let tables = tables?;
 
         let chunk = Chunk::V1 {
             parent_block_hash: new_chunk.parent_block_hash,
@@ -225,11 +251,15 @@ impl WriteCtx {
             tables
         };
 
-        self.write.new_chunk(new_chunk.finalized_head.as_ref(), &chunk)
+        observe_storage_write(self.dataset_id, WriteStage::Commit, |metrics| {
+            self.write.new_chunk(new_chunk.finalized_head.as_ref(), &chunk, metrics)
+        })
     }
 
     fn retain(&mut self, from_block: BlockNumber, parent_hash: Option<String>) -> anyhow::Result<()> {
-        self.write.retain(from_block, parent_hash)?;
+        observe_storage_write(self.dataset_id, WriteStage::Retention, |metrics| {
+            self.write.retain(from_block, parent_hash, metrics)
+        })?;
         self.notify_finalized_head();
         self.notify_head();
         Ok(())
@@ -498,6 +528,7 @@ impl Ctl {
 
         let task = tokio::spawn(
             ingest(
+                self.dataset_id,
                 msg_sender,
                 self.data_sources.clone(),
                 self.dataset_kind,
@@ -529,11 +560,26 @@ impl Ctl {
 
         Ok(WriteCtx {
             db: self.db.clone(),
+            dataset_id: self.dataset_id,
             write,
             head_sender: self.head_sender.clone(),
             finalized_head_sender: self.finalized_head_sender.clone()
         })
     }
+}
+
+fn observe_storage_write<R>(
+    dataset_id: DatasetId,
+    stage: WriteStage,
+    write: impl FnOnce(&mut HashIndexWriteMetrics) -> anyhow::Result<R>
+) -> anyhow::Result<R> {
+    let mut hash_metrics = HashIndexWriteMetrics::default();
+    let started = StdInstant::now();
+    let result = write(&mut hash_metrics);
+    let success = result.is_ok();
+    report_write_duration(dataset_id, stage, started.elapsed(), success);
+    report_hash_index_write_metrics(dataset_id, &hash_metrics, success);
+    result
 }
 
 async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {

@@ -94,6 +94,15 @@ pub struct CLI {
     #[arg(long)]
     pub block_hash_index: bool,
 
+    /// Index transaction hashes of newly ingested chunks, enabling
+    /// `GET /datasets/{id}/hashes/{hash}/transaction`. EVM datasets only.
+    ///
+    /// Independent of `--block-hash-index` and off by default because this
+    /// index has one entry per transaction. No backfill; entries drain through
+    /// retention after switching it off.
+    #[arg(long)]
+    pub transaction_hash_index: bool,
+
     /// Known client IDs for metrics labeling. Client IDs not in this list
     /// will be reported as "unknown" to prevent metrics cardinality abuse.
     #[arg(long = "known-client", value_name = "ID")]
@@ -120,7 +129,8 @@ impl CLI {
             .with_max_log_file_size(self.rocksdb_max_log_file_size)
             .with_keep_log_file_num(self.rocksdb_keep_log_file_num)
             .with_periodic_compaction_secs(self.rocksdb_periodic_compaction_secs)
-            .with_block_hash_index(self.block_hash_index);
+            .with_block_hash_index(self.block_hash_index)
+            .with_transaction_hash_index(self.transaction_hash_index);
 
         if let Some(jobs) = self.rocksdb_max_background_jobs {
             settings = settings.with_max_background_jobs(jobs);

@@ -14,7 +14,7 @@ use std::time::Duration;
 use api::build_api;
 use clap::Parser;
 use cli::CLI;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, info, instrument};
 use types::DBRef;
 
 #[global_allocator]
@@ -40,12 +40,13 @@ fn main() -> anyhow::Result<()> {
             // NB: startup disk recovery (orphan purge + file unlink, gated by
             // --startup-disk-reclaim) already ran inside `build_app` -> `DataService::start`,
             // before any controller spawned.
-
             tokio::spawn(db_cleanup_task(app.db.clone()));
 
             let api = build_api(app);
 
             let listener = tokio::net::TcpListener::bind(("0.0.0.0", args.port)).await?;
+
+            info!("server started, listening at {}", listener.local_addr()?);
 
             axum::serve(listener, api)
                 .with_graceful_shutdown(shutdown_signal())

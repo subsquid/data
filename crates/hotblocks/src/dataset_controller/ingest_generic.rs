@@ -1,4 +1,7 @@
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt::{Display, Formatter},
+    time::Instant
+};
 
 use anyhow::{anyhow, ensure};
 use chrono::{DateTime, Utc};
@@ -6,9 +9,13 @@ use futures::StreamExt;
 use sqd_data_core::{BlockChunkBuilder, ChunkProcessor, PreparedChunk};
 use sqd_data_source::{DataEvent, DataSource};
 use sqd_primitives::{Block, BlockNumber, BlockRef, DataMask, DisplayBlockRefOption};
+use sqd_storage::db::DatasetId;
 use tracing::{debug, field::valuable, info};
 
-use crate::dataset_controller::write_controller::Rollback;
+use crate::{
+    dataset_controller::write_controller::Rollback,
+    metrics::{WriteStage, report_write_duration}
+};
 
 pub enum IngestMessage {
     FinalizedHead(BlockRef),
@@ -90,6 +97,7 @@ impl<CB: BlockChunkBuilder> DataBuilder<CB> {
 }
 
 pub struct IngestGeneric<DC, CB> {
+    dataset_id: DatasetId,
     message_sender: tokio::sync::mpsc::Sender<IngestMessage>,
     data_source: DC,
     builder: Option<DataBuilder<CB>>,
@@ -109,9 +117,15 @@ where
     DS: DataSource,
     CB: BlockChunkBuilder<Block = DS::Block> + Send + 'static
 {
-    pub fn new(data_source: DS, chunk_builder: CB, message_sender: tokio::sync::mpsc::Sender<IngestMessage>) -> Self {
+    pub fn new(
+        dataset_id: DatasetId,
+        data_source: DS,
+        chunk_builder: CB,
+        message_sender: tokio::sync::mpsc::Sender<IngestMessage>
+    ) -> Self {
         let first_block = data_source.get_next_block();
         Self {
+            dataset_id,
             message_sender,
             data_source,
             builder: Some(DataBuilder::new(chunk_builder)),
@@ -239,7 +253,10 @@ where
             "received new chunk"
         );
 
-        let mut tables = self.with_blocking_builder(|b| b.finish()).await?;
+        let started = Instant::now();
+        let tables = self.with_blocking_builder(|b| b.finish()).await;
+        report_write_duration(self.dataset_id, WriteStage::Prepare, started.elapsed(), tables.is_ok());
+        let mut tables = tables?;
 
         tables.retain(|&name, _| CB::Block::has_data(self.data_mask, name));
 

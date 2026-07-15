@@ -92,6 +92,23 @@ Requirements:
   two are independently enabled (`P-BLOCK-INDEX`, `P-TX-INDEX`) rather than sharing a
   switch.
 
+  A controlled Snappy/LZ4 sizing run on 2026-07-15 used identical random-looking 32-byte
+  hashes, production key/value encodings and Bloom filters. Each sample was flushed and fully
+  compacted; the figures are live SST bytes for the named index only, excluding WAL,
+  memtables and table data.
+
+  | Entries/index | Block, Snappy | Block, LZ4 | Transaction, Snappy | Transaction, LZ4 |
+  | ---: | ---: | ---: | ---: | ---: |
+  | 100,000 | 8,487,039 (84.87 B/e) | 8,486,380 (84.86 B/e) | 8,903,864 (89.04 B/e) | 8,904,184 (89.04 B/e) |
+  | 1,000,000 | 72,238,847 (72.24 B/e) | 71,885,934 (71.89 B/e) | 75,310,111 (75.31 B/e) | 75,037,601 (75.04 B/e) |
+
+  At one million entries LZ4 saves only 0.49% for `bidx` and 0.36% for `tidx`. That is not
+  enough to justify recompressing the existing block index, so `bidx` stays on Snappy while
+  the new `tidx` uses LZ4. Use **70–90 B per retained entry** as the initial planning range:
+  approximately 67 GiB per billion blocks and 70 GiB per billion transactions after
+  compaction. Reproduce with the ignored `measure_hash_index_compression_disk_size` release
+  test, then measure the deployment's real hash/key distribution and compaction state.
+
 ## 3. Interactions
 
 - **Retention × finality:** RS-2 (dominates). FINALIZE below `first(D)` is ignored (WP

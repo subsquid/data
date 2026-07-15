@@ -46,6 +46,11 @@ async fn assert_ingest_lookup(h: &mut Harness) -> Result<()> {
         None,
         "a hash outside the ingested chain must return 404"
     );
+    assert_eq!(
+        h.client.block_by_hash_status(&"é".repeat(256)).await?,
+        400,
+        "the existing block endpoint must enforce the 256-byte limit"
+    );
 
     Ok(())
 }

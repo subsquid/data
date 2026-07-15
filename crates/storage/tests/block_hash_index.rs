@@ -6,7 +6,7 @@ use arrow::{
 };
 use sqd_primitives::BlockRef;
 use sqd_storage::{
-    db::{Chunk, CompactionStatus, Database, DatabaseSettings, DatasetId, DatasetKind},
+    db::{Chunk, CompactionStatus, Database, DatabaseSettings, DatasetId, DatasetKind, HashIndexWriteMetrics},
     table::write::use_small_buffers
 };
 use tempfile::TempDir;
@@ -88,6 +88,33 @@ fn make_evm_chunk(db: &Database, first: u64, last: u64, parent_hash: &str) -> Ch
     make_evm_chunk_with(db, first, last, parent_hash, block_hash)
 }
 
+fn make_evm_chunk_with_null_hash(db: &Database) -> Chunk {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("number", DataType::UInt64, false),
+        Field::new("hash", DataType::Utf8, true),
+    ]));
+    let numbers = Arc::new(UInt64Array::from(vec![0, 1])) as ArrayRef;
+    let first_hash = block_hash(0);
+    let hashes = Arc::new(StringArray::from(vec![Some(first_hash.as_str()), None])) as ArrayRef;
+
+    let mut builder = db.new_table_builder(schema.clone());
+    let batch = RecordBatch::try_new(schema, vec![numbers, hashes]).unwrap();
+    builder.write_record_batch(&batch).unwrap();
+
+    let mut tables = BTreeMap::new();
+    tables.insert("blocks".to_owned(), builder.finish().unwrap());
+
+    Chunk::V1 {
+        first_block: 0,
+        last_block: 1,
+        last_block_hash: block_hash(1),
+        parent_block_hash: "base".to_owned(),
+        first_block_time: None,
+        last_block_time: None,
+        tables
+    }
+}
+
 fn lookup(db: &Database, dataset_id: DatasetId, hash: &str) -> Option<BlockRef> {
     db.snapshot().find_block_by_hash(dataset_id, hash).unwrap()
 }
@@ -120,6 +147,39 @@ fn index_ingest_and_lookup() {
     }
     assert_absent(&db, dataset_id, "0xdeadbeef");
     assert_absent(&db, dataset_id, &block_hash(10));
+}
+
+#[test]
+fn observed_update_reports_block_hash_index_work() {
+    let (_dir, db, dataset_id) = setup_evm_db();
+    let chunk = make_evm_chunk(&db, 0, 9, "base");
+    let mut metrics = HashIndexWriteMetrics::default();
+
+    db.update_dataset_with_hash_index_metrics(dataset_id, &mut metrics, |tx| tx.insert_chunk(&chunk))
+        .unwrap();
+
+    assert_eq!(metrics.block_hash_index_operations(), 1);
+    assert_eq!(metrics.transaction_hash_index_operations(), 0);
+    assert!(metrics.block_hash_index_duration().is_some());
+    assert!(metrics.transaction_hash_index_duration().is_none());
+    for n in 0..=9 {
+        assert_resolves(&db, dataset_id, n);
+    }
+}
+
+#[test]
+fn block_index_rejects_null_hash_without_publishing_the_chunk() {
+    let (_dir, db, dataset_id) = setup_evm_db();
+    let chunk = make_evm_chunk_with_null_hash(&db);
+
+    let err = db.insert_chunk(dataset_id, &chunk).unwrap_err();
+
+    assert!(
+        format!("{err:#}").contains("block number and hash columns must not contain nulls"),
+        "unexpected error: {err:#}"
+    );
+    assert!(db.snapshot().get_last_chunk(dataset_id).unwrap().is_none());
+    assert_absent(&db, dataset_id, &block_hash(0));
 }
 
 #[test]
