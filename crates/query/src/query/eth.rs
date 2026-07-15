@@ -584,6 +584,7 @@ request! {
         pub reward_value_non_zero: bool,
         pub transaction: bool,
         pub transaction_logs: bool,
+        pub transaction_traces: bool,
         pub subtraces: bool,
         pub parents: bool,
     }
@@ -632,6 +633,13 @@ impl TraceRequest {
         if self.transaction_logs {
             scan.join(
                 "logs",
+                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
+            );
+        }
+        if self.transaction_traces {
+            scan.join(
+                "traces",
                 vec!["block_number", "transaction_index"],
                 vec!["block_number", "transaction_index"]
             );
