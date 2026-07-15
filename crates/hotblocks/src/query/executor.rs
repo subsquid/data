@@ -1,9 +1,15 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering}
+use std::{
+    panic::{AssertUnwindSafe, catch_unwind},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering}
+    }
 };
 
-use crate::metrics::{COMPLETED_QUERIES, report_query_too_many_tasks_error};
+use crate::{
+    errors::QueryTaskPanicked,
+    metrics::{COMPLETED_QUERIES, report_query_too_many_tasks_error}
+};
 
 #[derive(Clone)]
 pub struct QueryExecutor {
@@ -64,7 +70,7 @@ impl QuerySlot {
         time.min(100)
     }
 
-    pub async fn run<R, F>(self, task: F) -> R
+    pub async fn run<R, F>(self, task: F) -> Result<R, QueryTaskPanicked>
     where
         F: FnOnce(&Self) -> R + Send + 'static,
         R: Send + 'static
@@ -73,11 +79,11 @@ impl QuerySlot {
 
         sqd_polars::POOL.spawn(move || {
             let slot = self;
-            let result = task(&slot);
+            let result = catch_unwind(AssertUnwindSafe(|| task(&slot))).map_err(|_| QueryTaskPanicked);
             let _ = tx.send(result);
         });
 
-        rx.await.expect("task panicked")
+        rx.await.unwrap_or(Err(QueryTaskPanicked))
     }
 }
 
@@ -93,5 +99,23 @@ impl QueryExecutorCollector {
 
     pub fn get_active_queries(&self) -> u64 {
         self.in_flight.load(Ordering::SeqCst) as u64
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn worker_panic_returns_an_error_and_releases_the_slot() {
+        let executor = QueryExecutor::new(1, 1);
+        let result = executor
+            .get_slot()
+            .expect("the first task must get a slot")
+            .run(|_| panic!("injected query panic"))
+            .await;
+
+        assert!(result.is_err());
+        assert!(executor.get_slot().is_some(), "the panicked task must release its slot");
     }
 }

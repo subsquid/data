@@ -58,14 +58,17 @@ pub enum Numbering {
     #[default]
     Dense,
     /// Deterministic holes: 0 to 2 slots skipped between blocks.
-    Sparse
+    Sparse,
+    /// A fixed number of positions skipped after every produced block.
+    FixedGap(u64)
 }
 
 impl Numbering {
     fn skipped_after(self, number: BlockNumber) -> u64 {
         match self {
             Numbering::Dense => 0,
-            Numbering::Sparse => Rng::new(number).below(3)
+            Numbering::Sparse => Rng::new(number).below(3),
+            Numbering::FixedGap(size) => size
         }
     }
 }

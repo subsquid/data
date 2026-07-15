@@ -114,6 +114,15 @@ pub struct RunningQuery {
     stats: RunningQueryStats
 }
 
+fn finalized_query_last_block(query: &Query, finalized_head: Option<&BlockRef>) -> anyhow::Result<BlockNumber> {
+    let Some(finalized_head) = finalized_head else {
+        bail!(QueryIsAboveTheHead { finalized_head: None })
+    };
+    Ok(query
+        .last_block()
+        .map_or(finalized_head.number, |end| end.min(finalized_head.number)))
+}
+
 impl RunningQuery {
     pub fn new(
         db: DBRef,
@@ -127,7 +136,7 @@ impl RunningQuery {
         let finalized_head = match snapshot.get_label(dataset_id)? {
             None => bail!("dataset {} does not exist", dataset_id),
             Some(label) => {
-                let kind = DatasetKind::from_query(query);
+                let kind = DatasetKind::from_query(query)?;
                 ensure!(
                     kind.storage_kind() == label.kind(),
                     QueryKindMismatch {
@@ -178,16 +187,7 @@ impl RunningQuery {
         };
 
         let last_block = if only_finalized {
-            // Cap the query's last_block to the finalized head
-            if let Some(finalized_head) = &finalized_head {
-                let capped_last = query
-                    .last_block()
-                    .map(|end| end.min(finalized_head.number))
-                    .or(Some(finalized_head.number));
-                capped_last
-            } else {
-                anyhow::bail!("Finalized head is not available yet");
-            }
+            Some(finalized_query_last_block(query, finalized_head.as_ref())?)
         } else {
             query.last_block()
         };
@@ -333,5 +333,22 @@ impl RunningQuery {
                 Some(size)
             })
             .unwrap_or(0) as usize
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finalized_snapshot_without_a_head_is_no_data() {
+        let query = Query::from_json_value(serde_json::json!({
+            "type": "evm",
+            "fromBlock": 10
+        }))
+        .unwrap();
+
+        let err = finalized_query_last_block(&query, None).unwrap_err();
+        assert!(err.is::<QueryIsAboveTheHead>());
     }
 }
