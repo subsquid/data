@@ -1,19 +1,15 @@
-use std::{collections::BTreeMap, ops::Add, time::Duration};
+use std::{ops::Add, time::Duration};
 
 use anyhow::{Context, anyhow};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use sqd_data_client::reqwest::ReqwestDataClient;
 use sqd_primitives::{BlockNumber, BlockRef};
-use sqd_storage::db::{Chunk, CompactionStatus, DatasetId};
+use sqd_storage::db::{CompactionStatus, DatasetId};
 use tokio::{select, task::JoinHandle, time::Instant};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 
 use crate::{
-    dataset_controller::{
-        ingest::ingest,
-        ingest_generic::{IngestMessage, NewChunk},
-        write_controller::WriteController
-    },
+    dataset_controller::{ingest::ingest, ingest_generic::IngestMessage, write_controller::WriteController},
     types::{DBRef, DatasetKind, RetentionStrategy}
 };
 
@@ -45,19 +41,25 @@ impl DatasetController {
         retention: RetentionStrategy,
         data_sources: Vec<ReqwestDataClient>
     ) -> anyhow::Result<Self> {
-        let mut write = WriteController::new(db.clone(), dataset_id, dataset_kind)?;
+        let (head_sender, head_receiver) = tokio::sync::watch::channel(None);
+        let (finalized_head_sender, finalized_head_receiver) = tokio::sync::watch::channel(None);
+
+        // Channels live on the controller so they outlive writer restarts; each
+        // rebuilt writer gets a sender clone and seeds it from storage.
+        let mut write = WriteController::new(
+            db.clone(),
+            dataset_id,
+            dataset_kind,
+            head_sender.clone(),
+            finalized_head_sender.clone()
+        )?;
 
         if let RetentionStrategy::FromBlock { number, parent_hash } = &retention {
             write.init_retention(*number, parent_hash.clone())?;
         }
 
         let (retention_sender, retention_recv) = tokio::sync::watch::channel(retention);
-        let (head_sender, head_receiver) = tokio::sync::watch::channel(None);
-        let (finalized_head_sender, finalized_head_receiver) = tokio::sync::watch::channel(None);
         let (compaction_enabled_sender, compaction_enabled_receiver) = tokio::sync::watch::channel(false);
-
-        let _ = head_sender.send(write.head().cloned());
-        let _ = finalized_head_sender.send(write.finalized_head().cloned());
 
         let ctl = Ctl {
             db: db.clone(),
@@ -154,112 +156,6 @@ impl DatasetController {
     }
 }
 
-struct WriteCtx {
-    db: DBRef,
-    write: WriteController,
-    head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
-    finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>
-}
-
-impl WriteCtx {
-    fn handle_ingest_msg(&mut self, msg: IngestMessage, head: Option<u64>) -> anyhow::Result<()> {
-        match msg {
-            IngestMessage::FinalizedHead(head) => {
-                self.write.finalize(&head)?;
-                self.notify_finalized_head();
-            }
-            IngestMessage::NewChunk(new_chunk) => {
-                let ctx = format!("failed to write new chunk {}", new_chunk);
-                self.write_new_chunk(new_chunk).context(ctx)?;
-                self.notify_head();
-                self.notify_finalized_head();
-                if let Some(n) = head {
-                    if self
-                        .write
-                        .first_chunk_head()
-                        .map_or(false, |h| self.write.next_block() - h.number > n)
-                    {
-                        self.retain(self.write.next_block() - n, None)?;
-                    }
-                }
-            }
-            IngestMessage::Fork {
-                prev_blocks,
-                rollback_sender
-            } => {
-                self.write.compute_rollback(&prev_blocks).map(|rollback| {
-                    let _ = rollback_sender.send(rollback);
-                })?;
-            }
-        }
-        Ok(())
-    }
-
-    fn write_new_chunk(&mut self, mut new_chunk: NewChunk) -> anyhow::Result<()> {
-        let desc = self.write.dataset_kind().dataset_description();
-        let mut tables = BTreeMap::new();
-
-        for (name, prepared) in new_chunk.tables.iter_mut() {
-            let mut builder = self.db.new_table_builder(prepared.schema());
-
-            if let Some(table_desc) = desc.tables.get(name) {
-                for (&col, opts) in table_desc.options.column_options.iter() {
-                    if opts.stats_enable {
-                        builder.add_stat_by_name(col)?;
-                    }
-                }
-            }
-
-            prepared.read(&mut builder, 0, prepared.num_rows())?;
-
-            tables.insert(name.to_string(), builder.finish()?);
-        }
-
-        let chunk = Chunk::V1 {
-            parent_block_hash: new_chunk.parent_block_hash,
-            first_block: new_chunk.first_block,
-            last_block: new_chunk.last_block,
-            last_block_hash: new_chunk.last_block_hash,
-            first_block_time: new_chunk.first_block_time,
-            last_block_time: new_chunk.last_block_time,
-            tables
-        };
-
-        self.write.new_chunk(new_chunk.finalized_head.as_ref(), &chunk)
-    }
-
-    fn retain(&mut self, from_block: BlockNumber, parent_hash: Option<String>) -> anyhow::Result<()> {
-        self.write.retain(from_block, parent_hash)?;
-        self.notify_finalized_head();
-        self.notify_head();
-        Ok(())
-    }
-
-    fn notify_head(&self) {
-        send_if_new(&self.head_sender, self.write.head().cloned());
-    }
-
-    fn notify_finalized_head(&self) {
-        send_if_new(&self.finalized_head_sender, self.write.finalized_head().cloned())
-    }
-
-    fn starts_at(&self, block_number: BlockNumber, parent_hash: &Option<String>) -> bool {
-        self.write.start_block() == block_number
-            && self.write.start_block_parent_hash() == parent_hash.as_ref().map(String::as_str)
-    }
-}
-
-fn send_if_new<T: Eq>(sender: &tokio::sync::watch::Sender<T>, value: T) {
-    sender.send_if_modified(|current| {
-        if current == &value {
-            false
-        } else {
-            *current = value;
-            true
-        }
-    });
-}
-
 enum State {
     Idle,
     Init {
@@ -343,7 +239,7 @@ impl Ctl {
     }
 
     async fn write_epoch(&mut self, maybe_write: Option<WriteController>) -> anyhow::Result<()> {
-        let mut write = self.new_write_ctx(maybe_write).await?;
+        let mut write = self.new_write(maybe_write).await?;
 
         macro_rules! blocking {
             ($body:expr) => {
@@ -364,7 +260,7 @@ impl Ctl {
             }
             RetentionStrategy::Head(n) => State::Init { head: Some(n) },
             RetentionStrategy::None => {
-                if write.write.head().is_some() {
+                if write.head().is_some() {
                     State::Init { head: None }
                 } else {
                     State::Idle
@@ -399,9 +295,9 @@ impl Ctl {
                         },
                         top = future => {
                             let n = *head;
-                            let top = write.write.head().map_or(top, |h| h.number.max(top));
+                            let top = write.head().map_or(top, |h| h.number.max(top));
                             let first_block = top.saturating_sub(n);
-                            if first_block > write.write.start_block() {
+                            if first_block > write.start_block() {
                                 blocking! {
                                     write.retain(first_block, None)
                                 }?;
@@ -468,13 +364,17 @@ impl Ctl {
         }
     }
 
-    async fn handle_retention_change(&mut self, state: &mut State, mut write: WriteCtx) -> anyhow::Result<WriteCtx> {
+    async fn handle_retention_change(
+        &mut self,
+        state: &mut State,
+        mut write: WriteController
+    ) -> anyhow::Result<WriteController> {
         // need this variable to please the compiler
         let retention = self.retention_recv.borrow_and_update().clone();
         match retention {
             RetentionStrategy::FromBlock { number, parent_hash } => {
-                let will_erase_head = write.write.head().map_or(false, |h| h.number < number) || // FromBlock is greater than current head, so everything is cleared
-                    write.write.start_block() > number; // FromBlock is less than current front, dropping everything by design
+                let will_erase_head = write.head().map_or(false, |h| h.number < number) || // FromBlock is greater than current head, so everything is cleared
+                    write.start_block() > number; // FromBlock is less than current front, dropping everything by design
                 blocking_write!(write, write.retain(number, parent_hash))?;
                 match state {
                     State::Ingest { .. } if !will_erase_head => {} // Keep ingesting, head is valid
@@ -491,7 +391,7 @@ impl Ctl {
         Ok(write)
     }
 
-    fn spawn_ingest(&self, write: &WriteCtx) -> IngestHandle {
+    fn spawn_ingest(&self, write: &WriteController) -> IngestHandle {
         let (msg_sender, msg_recv) = tokio::sync::mpsc::channel(1);
 
         let ingest_span = info_span!("ingest");
@@ -501,8 +401,8 @@ impl Ctl {
                 msg_sender,
                 self.data_sources.clone(),
                 self.dataset_kind,
-                write.write.next_block(),
-                write.write.head_hash()
+                write.next_block(),
+                write.head_hash()
             )
             .instrument(ingest_span)
         );
@@ -510,29 +410,24 @@ impl Ctl {
         IngestHandle { msg_recv, task }
     }
 
-    async fn new_write_ctx(&self, maybe_write: Option<WriteController>) -> anyhow::Result<WriteCtx> {
+    async fn new_write(&self, maybe_write: Option<WriteController>) -> anyhow::Result<WriteController> {
+        if let Some(write) = maybe_write {
+            return Ok(write);
+        }
+
         let db = self.db.clone();
         let dataset_id = self.dataset_id;
         let dataset_kind = self.dataset_kind;
+        let head_sender = self.head_sender.clone();
+        let finalized_head_sender = self.finalized_head_sender.clone();
 
-        let write = if let Some(write) = maybe_write {
-            write
-        } else {
-            let span = tracing::Span::current();
-            tokio::task::spawn_blocking(move || {
-                let _entered = span.enter();
-                WriteController::new(db, dataset_id, dataset_kind)
-            })
-            .await
-            .context("write init task panicked")??
-        };
-
-        Ok(WriteCtx {
-            db: self.db.clone(),
-            write,
-            head_sender: self.head_sender.clone(),
-            finalized_head_sender: self.finalized_head_sender.clone()
+        let span = tracing::Span::current();
+        tokio::task::spawn_blocking(move || {
+            let _entered = span.enter();
+            WriteController::new(db, dataset_id, dataset_kind, head_sender, finalized_head_sender)
         })
+        .await
+        .context("write init task panicked")?
     }
 }
 
