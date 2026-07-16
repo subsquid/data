@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::bail;
 use arrow::{
     array::RecordBatch,
     datatypes::{DataType, Field, SchemaRef}
@@ -9,6 +10,7 @@ use sqd_array::{
     item_index_cast::cast_item_index,
     schema_patch::SchemaPatch,
     slice::{AnyTableSlice, AsSlice, Slice},
+    sort::sort_table_to_indexes,
     util::build_field_offsets,
     writer::ArrayWriter
 };
@@ -43,22 +45,36 @@ impl TableWriter {
 
 enum TableReader {
     Plain(TableFile),
-    Sort(SortedTable)
+    Sort(SortedTable),
+    Mem(MemTable)
 }
 
 impl TableReader {
     fn read_column(&mut self, dst: &mut impl ArrayWriter, i: usize, offset: usize, len: usize) -> anyhow::Result<()> {
         match self {
             TableReader::Plain(reader) => reader.read_column(dst, i, offset, len),
-            TableReader::Sort(reader) => reader.read_column(dst, i, offset, len)
+            TableReader::Sort(reader) => reader.read_column(dst, i, offset, len),
+            TableReader::Mem(reader) => reader.read_column(dst, i, offset, len)
         }
     }
 
     fn into_writer(self) -> anyhow::Result<TableWriter> {
         match self {
             TableReader::Plain(reader) => reader.into_writer().map(TableWriter::Plain),
-            TableReader::Sort(reader) => reader.into_sorter().map(TableWriter::Sort)
+            TableReader::Sort(reader) => reader.into_sorter().map(TableWriter::Sort),
+            TableReader::Mem(_) => bail!("processor reuse is not supported for in-memory prepared tables")
         }
+    }
+}
+
+/// Columns materialized in output (sort-key) order.
+struct MemTable {
+    columns: Vec<AnyBuilder>
+}
+
+impl MemTable {
+    fn read_column(&self, dst: &mut impl ArrayWriter, i: usize, offset: usize, len: usize) -> anyhow::Result<()> {
+        self.columns[i].as_slice().slice(offset, len).write(dst)
     }
 }
 
@@ -178,6 +194,72 @@ impl PreparedTable {
         })
     }
 
+    /// One-batch, in-memory equivalent of `TableProcessor` push + finish — no temp files.
+    ///
+    /// `downcast` must have every table of the chunk registered ([`register_downcast`])
+    /// before any table is built. Row order within equal full sort keys is unspecified and
+    /// may differ from the spill path (unstable sort); group contents are identical, and
+    /// queries re-sort output by a row-unique primary key, so it is not client-visible.
+    pub fn from_slice(
+        records: &AnyTableSlice<'_>,
+        schema: SchemaRef,
+        desc: &TableDescription,
+        downcast: Downcast
+    ) -> anyhow::Result<Self> {
+        let block_number_columns = desc
+            .downcast
+            .block_number
+            .iter()
+            .map(|name| schema.index_of(name))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let item_index_columns = desc
+            .downcast
+            .item_index
+            .iter()
+            .map(|name| schema.index_of(name))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let sort_key = desc
+            .sort_key
+            .iter()
+            .map(|name| schema.index_of(name))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let order = (!sort_key.is_empty() && records.len() > 0).then(|| sort_table_to_indexes(records, &sort_key));
+
+        let columns = (0..records.num_columns())
+            .map(|i| {
+                let mut b = AnyBuilder::new(schema.field(i).data_type());
+                match &order {
+                    Some(order) => records.column(i).write_indexes(&mut b, order.iter().copied())?,
+                    None => records.column(i).write(&mut b)?
+                }
+                Ok(b)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        let prepared_schema = downcast_schema(
+            schema.clone(),
+            &block_number_columns,
+            &item_index_columns,
+            downcast.get_block_number_type(),
+            downcast.get_item_index_type()
+        );
+
+        Ok(Self {
+            downcast,
+            block_number_columns,
+            item_index_columns,
+            column_offsets: build_field_offsets(0, schema.fields()),
+            writer_schema: schema,
+            prepared_schema,
+            reader: TableReader::Mem(MemTable { columns }),
+            buffers: HashMap::with_capacity(3),
+            num_rows: records.len()
+        })
+    }
+
     pub fn into_processor(self) -> anyhow::Result<TableProcessor> {
         self.downcast.reset();
         Ok(TableProcessor {
@@ -260,6 +342,23 @@ impl PreparedTable {
             Ok(())
         }
     }
+}
+
+/// Register a table's downcast columns without processing it — the in-memory path must
+/// register the whole chunk before building any [`PreparedTable`].
+pub fn register_downcast(
+    records: &AnyTableSlice<'_>,
+    schema: &SchemaRef,
+    desc: &TableDescription,
+    downcast: &Downcast
+) -> anyhow::Result<()> {
+    for name in desc.downcast.block_number.iter() {
+        downcast.reg_block_number(&records.column(schema.index_of(name)?));
+    }
+    for name in desc.downcast.item_index.iter() {
+        downcast.reg_item_index(&records.column(schema.index_of(name)?));
+    }
+    Ok(())
 }
 
 fn downcast_schema(

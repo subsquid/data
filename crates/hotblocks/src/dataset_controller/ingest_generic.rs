@@ -50,6 +50,9 @@ impl Display for NewChunk {
     }
 }
 
+/// `maybe_flush` spills builder contents to the processor beyond this size.
+const SPILL_BOUND_BYTES: usize = 30 * 1024 * 1024;
+
 struct DataBuilder<CB> {
     builder: CB,
     processor: Option<ChunkProcessor>
@@ -86,6 +89,12 @@ impl<CB: BlockChunkBuilder> DataBuilder<CB> {
     }
 
     pub fn finish(&mut self) -> anyhow::Result<PreparedChunk> {
+        if self.processor.is_none() && self.builder.byte_size() <= SPILL_BOUND_BYTES {
+            // no spill and within the spill bound — skip the temp files. The bound is
+            // re-checked here: a row-count-triggered flush can carry an oversized final
+            // block that maybe_flush's byte check never saw.
+            return self.builder.prepare_in_memory();
+        }
         self.flush_to_processor()?;
         self.processor.take().unwrap().finish()
     }
@@ -225,7 +234,7 @@ where
         if self.builder_ref().num_rows() > 200_000 {
             return self.flush().await;
         }
-        if self.builder_ref().in_memory_buffered_bytes() > 30 * 1024 * 1024 {
+        if self.builder_ref().in_memory_buffered_bytes() > SPILL_BOUND_BYTES {
             return self.with_blocking_builder(|b| b.flush_to_processor()).await;
         }
         Ok(())
@@ -313,5 +322,72 @@ where
                 hash: hash.to_string()
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sqd_data::hyperliquid_fills::{model::Block, tables::HyperliquidFillsChunkBuilder};
+
+    use super::*;
+
+    fn fills_block() -> Block {
+        serde_json::from_value(serde_json::json!({
+            "header": {
+                "number": 10_000,
+                "hash": "0xabc",
+                "parentHash": "0xabb",
+                "timestamp": 1_760_000_000_000i64
+            },
+            "fills": [{
+                "fillIndex": 0,
+                "user": "0x1111111111111111111111111111111111111111",
+                "coin": "BTC",
+                "px": 123.25,
+                "sz": 0.5,
+                "side": "B",
+                "time": 1_760_000_000_000i64,
+                "startPosition": 1.25,
+                "dir": "Open Long",
+                "closedPnl": 0.25,
+                "hash": "0x2222222222222222222222222222222222222222",
+                "oid": 42,
+                "crossed": true,
+                "fee": 0.01,
+                "tid": 43,
+                "feeToken": "USDC",
+                "cloid": "x".repeat(64 * 1024)
+            }]
+        }))
+        .unwrap()
+    }
+
+    fn unspilled(over_bytes: usize) -> DataBuilder<HyperliquidFillsChunkBuilder> {
+        let mut b = DataBuilder::new(HyperliquidFillsChunkBuilder::new());
+        let block = fills_block();
+        while b.in_memory_buffered_bytes() <= over_bytes {
+            b.push_block(&block).unwrap();
+        }
+        b
+    }
+
+    /// A row-count-triggered flush can hand `finish` an unspilled builder above the spill
+    /// bound — `maybe_flush`'s byte check never saw the final block. Such a chunk must
+    /// spill instead of being copied in memory. The two paths are told apart by
+    /// `into_processor`, which in-memory tables refuse.
+    #[test]
+    fn oversized_unspilled_chunk_spills_at_finish() {
+        let mut b = unspilled(SPILL_BOUND_BYTES);
+        let mut chunk = b.finish().unwrap();
+        let (_, table) = chunk.pop_first().unwrap();
+        assert!(table.into_processor().is_ok(), "expected the spill path");
+    }
+
+    #[test]
+    fn bounded_unspilled_chunk_is_prepared_in_memory() {
+        let mut b = unspilled(1);
+        let mut chunk = b.finish().unwrap();
+        let (_, table) = chunk.pop_first().unwrap();
+        assert!(table.into_processor().is_err(), "expected the in-memory path");
     }
 }

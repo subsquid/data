@@ -97,6 +97,10 @@ impl Sut {
         self.dir.path().join("sut.log")
     }
 
+    pub fn pid(&self) -> Option<u32> {
+        self.child.as_ref().and_then(|c| c.id())
+    }
+
     /// Boot a stopped process again against the same database — the CT-2 restart primitive.
     pub async fn restart(&mut self) -> Result<()> {
         if self.child.is_some() {
