@@ -5,10 +5,18 @@ use tracing::{debug, field::valuable, info, instrument, warn};
 
 use crate::types::{DBRef, DatasetKind};
 
+/// Source position selected after resolving a fork against stored history.
+///
+/// `resume_from` always lands on a stored chunk boundary, so it may sit at or below the
+/// finalized head when the fork's common ancestor is inside a finality-straddling chunk. The
+/// finalized prefix is protected on the write path instead (see [`WriteController::new_chunk`]),
+/// which rejects a replacement that would rewrite an already-finalized block.
 #[derive(Debug)]
 pub struct Rollback {
-    pub first_block: BlockNumber,
-    pub parent_block_hash: Option<String>
+    /// Lowest block number the source may return after resolving the fork.
+    pub resume_from: BlockNumber,
+    /// Hash that must anchor the first returned block, when an anchor is known.
+    pub expected_parent_hash: Option<String>
 }
 
 #[derive(Debug)]
@@ -99,7 +107,13 @@ impl WriteController {
                 None => bail!("all passed prev blocks lie below finalized head")
             };
             if prev[pos].number == finalized_head.number {
-                ensure!(prev[pos].hash == finalized_head.hash);
+                ensure!(
+                    prev[pos].hash == finalized_head.hash,
+                    "fork hint at finalized block {} conflicts: expected {}, got {}",
+                    finalized_head.number,
+                    finalized_head.hash,
+                    prev[pos].hash
+                );
             }
             prev = &prev[pos..]
         }
@@ -124,21 +138,21 @@ impl WriteController {
             if let Some(&b) = prev_blocks.peek() {
                 if b.number == head.last_block() && b.hash == head.last_block_hash() {
                     return Ok(Rollback {
-                        first_block: b.number + 1,
-                        parent_block_hash: Some(b.hash.clone())
+                        resume_from: b.number + 1,
+                        expected_parent_hash: Some(b.hash.clone())
                     });
                 }
             } else {
                 return Ok(Rollback {
-                    first_block: head.last_block() + 1,
-                    parent_block_hash: Some(head.last_block_hash().to_string())
+                    resume_from: head.last_block() + 1,
+                    expected_parent_hash: Some(head.last_block_hash().to_string())
                 });
             }
         }
 
         Ok(Rollback {
-            first_block: self.first_block,
-            parent_block_hash: self.parent_block_hash.clone()
+            resume_from: self.first_block,
+            expected_parent_hash: self.parent_block_hash.clone()
         })
     }
 
@@ -366,20 +380,54 @@ impl WriteController {
         let finalized_head = self
             .db
             .update_dataset_with_hash_index_metrics(self.dataset_id, metrics, |tx| {
-                let new_finalized_head = match (finalized_head, tx.label().finalized_head()) {
-                    (Some(new), None) => Some(new),
-                    (Some(new), Some(current)) if new.number >= current.number => Some(new),
-                    (_, Some(current)) if current.number < chunk.first_block() => Some(current),
-                    (_, Some(_)) => bail!(
-                        "can't fork safely, because fork base is below the current finalized head \
-                    and finalized head of the data pack is below the current"
-                    ),
+                let current_finalized_head = tx.label().finalized_head().cloned();
+
+                // A fork whose common ancestor sits inside a finality-straddling chunk resumes at
+                // that chunk's boundary, at or below `fin`, so the replacement can reach into the
+                // finalized region. Permit it only when it reproduces the finalized block exactly:
+                // it must span `fin` (else the swap would momentarily drop the finalized block) and
+                // carry `fin`'s hash unchanged. A mismatch is a source equivocating below its own
+                // finality and is refused, leaving the accepted prefix intact (INV-12/13/14).
+                if let Some(current) = current_finalized_head.as_ref()
+                    && chunk.first_block() <= current.number
+                {
+                    ensure!(
+                        chunk.last_block() >= current.number,
+                        "replacement chunk {}-{} would drop finalized block {} without reproducing it",
+                        chunk.first_block(),
+                        chunk.last_block(),
+                        current.number
+                    );
+                    if let Err(actual) = tx.validate_parent_block_hash(chunk, current.number + 1, &current.hash)? {
+                        bail!(
+                            "replacement would rewrite finalized block {}: expected hash {}, got {}",
+                            current.number,
+                            current.hash,
+                            actual
+                        );
+                    }
+                }
+
+                let new_finalized_head = match (finalized_head, current_finalized_head.as_ref()) {
+                    (Some(new), Some(current)) if new.number < current.number => Some(current.clone()),
+                    (Some(new), Some(current)) if new.number == current.number => {
+                        ensure!(
+                            new.hash == current.hash,
+                            "finalized hash mismatch at block {}: expected {}, got {}",
+                            current.number,
+                            current.hash,
+                            new.hash
+                        );
+                        Some(current.clone())
+                    }
+                    (Some(new), _) => Some(new.clone()),
+                    (None, Some(current)) => Some(current.clone()),
                     (None, None) => None
                 };
 
                 let new_finalized_head = new_finalized_head.map(|head| {
                     if head.number < chunk.last_block() {
-                        head.clone()
+                        head
                     } else {
                         get_chunk_head(&chunk)
                     }
@@ -410,5 +458,267 @@ fn get_chunk_head(chunk: &Chunk) -> BlockRef {
     BlockRef {
         number: chunk.last_block(),
         hash: chunk.last_block_hash().to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use sqd_storage::db::{DatabaseSettings, HashIndexWriteMetrics};
+
+    use super::*;
+
+    fn chunk(first_block: BlockNumber, last_block: BlockNumber, parent_hash: &str, last_hash: &str) -> Chunk {
+        Chunk::V1 {
+            first_block,
+            last_block,
+            last_block_hash: last_hash.to_string(),
+            parent_block_hash: parent_hash.to_string(),
+            first_block_time: None,
+            last_block_time: None,
+            tables: Default::default()
+        }
+    }
+
+    fn setup() -> anyhow::Result<(tempfile::TempDir, DBRef, DatasetId, WriteController)> {
+        let db_dir = tempfile::tempdir()?;
+        let db = Arc::new(DatabaseSettings::default().open(db_dir.path())?);
+        let dataset_id = DatasetId::from_str("finality-regression");
+        let write = WriteController::new(db.clone(), dataset_id, DatasetKind::Evm)?;
+        Ok((db_dir, db, dataset_id, write))
+    }
+
+    fn seed_chain(write: &mut WriteController, metrics: &mut HashIndexWriteMetrics) -> anyhow::Result<(Chunk, Chunk)> {
+        let first = chunk(0, 5, "genesis", "old-5");
+        let second = chunk(6, 9, "old-5", "old-9");
+        write.new_chunk(None, &first, metrics)?;
+        write.new_chunk(None, &second, metrics)?;
+        Ok((first, second))
+    }
+
+    #[test]
+    fn replacement_rewriting_the_finalized_block_is_rejected() -> anyhow::Result<()> {
+        // Arrange: block 5 is finalized on the original chain.
+        let (_db_dir, db, dataset_id, mut write) = setup()?;
+        let mut metrics = HashIndexWriteMetrics::default();
+        let (first, second) = seed_chain(&mut write, &mut metrics)?;
+        let current_finalized = BlockRef {
+            number: 5,
+            hash: "old-5".to_string()
+        };
+        write.finalize(&current_finalized)?;
+
+        // Act: an honest reorg would resume at a boundary below fin, but this replacement reaches
+        // the finalized height carrying a different hash there — a source equivocating below finality.
+        let replacement = chunk(0, 5, "other-genesis", "new-5");
+        let new_finalized = BlockRef {
+            number: 5,
+            hash: "new-5".to_string()
+        };
+        let result = write.new_chunk(Some(&new_finalized), &replacement, &mut metrics);
+
+        // Assert (INV-12/13/14): the finalized block is immutable and rejection is atomic.
+        assert!(
+            result.is_err(),
+            "replacement rewriting the finalized block was accepted"
+        );
+        assert_eq!(write.finalized_head(), Some(&current_finalized));
+
+        let snapshot = db.snapshot();
+        let stored = snapshot
+            .list_chunks(dataset_id, 0, None)
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        assert_eq!(stored, vec![first, second]);
+        assert_eq!(
+            snapshot
+                .get_label(dataset_id)?
+                .and_then(|label| label.finalized_head().cloned()),
+            Some(current_finalized)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn composed_finality_rejects_hash_change_at_fixed_height() -> anyhow::Result<()> {
+        // Arrange: the finalized block is the boundary of the first stored chunk.
+        let (_db_dir, db, dataset_id, mut write) = setup()?;
+        let mut metrics = HashIndexWriteMetrics::default();
+        let (first, second) = seed_chain(&mut write, &mut metrics)?;
+        let current_finalized = BlockRef {
+            number: 5,
+            hash: "old-5".to_string()
+        };
+        write.finalize(&current_finalized)?;
+
+        // Act: a normal append carries a conflicting hash at the already-finalized height.
+        let append = chunk(10, 12, "old-9", "old-12");
+        let conflicting_finality = BlockRef {
+            number: 5,
+            hash: "other-5".to_string()
+        };
+        let result = write.new_chunk(Some(&conflicting_finality), &append, &mut metrics);
+
+        // Assert (INV-12): fixed-height finality is immutable and the append is not partially committed.
+        assert!(result.is_err(), "finalized hash changed at a fixed height");
+        assert_eq!(write.finalized_head(), Some(&current_finalized));
+
+        let snapshot = db.snapshot();
+        let stored = snapshot
+            .list_chunks(dataset_id, 0, None)
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        assert_eq!(stored, vec![first, second]);
+        assert_eq!(
+            snapshot
+                .get_label(dataset_id)?
+                .and_then(|label| label.finalized_head().cloned()),
+            Some(current_finalized)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn replacement_below_finalized_that_misses_it_is_rejected() -> anyhow::Result<()> {
+        // Arrange: finality lies strictly inside [6, 9].
+        let (_db_dir, db, dataset_id, mut write) = setup()?;
+        let mut metrics = HashIndexWriteMetrics::default();
+        let (first, second) = seed_chain(&mut write, &mut metrics)?;
+        let current_finalized = BlockRef {
+            number: 7,
+            hash: "old-7".to_string()
+        };
+        write.finalize(&current_finalized)?;
+
+        // Act: a partial replacement reaches below the finalized height but stops before reproducing
+        // it — accepting it would drop the finalized block until a later flush caught up.
+        let replacement = chunk(6, 6, "old-5", "new-6");
+        let result = write.new_chunk(None, &replacement, &mut metrics);
+
+        // Assert: refuse so the finalized block is never transiently absent, atomically.
+        assert!(
+            result.is_err(),
+            "replacement that drops the finalized block was accepted"
+        );
+        assert_eq!(write.finalized_head(), Some(&current_finalized));
+        let snapshot = db.snapshot();
+        let stored = snapshot
+            .list_chunks(dataset_id, 0, None)
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        assert_eq!(stored, vec![first, second]);
+        Ok(())
+    }
+
+    #[test]
+    fn rollback_without_matching_hints_resumes_from_window_start() -> anyhow::Result<()> {
+        // Arrange: finality lies inside a storage chunk and every supplied fork hint mismatches.
+        let (_db_dir, _db, _dataset_id, mut write) = setup()?;
+        let mut metrics = HashIndexWriteMetrics::default();
+        seed_chain(&mut write, &mut metrics)?;
+        write.finalize(&BlockRef {
+            number: 4,
+            hash: "old-4".to_string()
+        })?;
+        let hints = vec![
+            BlockRef {
+                number: 5,
+                hash: "fork-5".to_string()
+            },
+            BlockRef {
+                number: 9,
+                hash: "fork-9".to_string()
+            },
+        ];
+
+        // Act.
+        let rollback = write.compute_rollback(&hints)?;
+
+        // Assert: with no matching boundary the fallback is the window start; the finalized prefix is
+        // guarded on the write path (new_chunk), not by clamping the resume position.
+        assert_eq!(rollback.resume_from, write.start_block());
+        assert_eq!(rollback.expected_parent_hash, None);
+        Ok(())
+    }
+
+    #[test]
+    fn rollback_from_straddling_chunk_resumes_at_chunk_boundary() -> anyhow::Result<()> {
+        // Arrange: finality lies strictly inside [6, 9], and the lowest hint is in that chunk.
+        let (_db_dir, _db, _dataset_id, mut write) = setup()?;
+        let mut metrics = HashIndexWriteMetrics::default();
+        seed_chain(&mut write, &mut metrics)?;
+        write.finalize(&BlockRef {
+            number: 7,
+            hash: "old-7".to_string()
+        })?;
+        let hints = vec![BlockRef {
+            number: 8,
+            hash: "fork-8".to_string()
+        }];
+
+        // Act: the hint mismatches inside the chunk that straddles finality.
+        let rollback = write.compute_rollback(&hints)?;
+
+        // Assert: resume at the straddling chunk's lower boundary (block 6, below fin); new_chunk then
+        // verifies the finalized block survives the whole-chunk rewrite. Previously this clamped to 8
+        // (fin + 1), a mid-chunk position insert_fork could not satisfy — the wedge.
+        assert_eq!(rollback.resume_from, 6);
+        assert_eq!(rollback.expected_parent_hash.as_deref(), Some("old-5"));
+        Ok(())
+    }
+
+    #[test]
+    fn rollback_with_all_hints_below_finalized_head_is_refused() -> anyhow::Result<()> {
+        // Arrange: finality at 7; every fork hint lies strictly below it.
+        let (_db_dir, _db, _dataset_id, mut write) = setup()?;
+        let mut metrics = HashIndexWriteMetrics::default();
+        seed_chain(&mut write, &mut metrics)?;
+        write.finalize(&BlockRef {
+            number: 7,
+            hash: "old-7".to_string()
+        })?;
+        let hints = vec![
+            BlockRef {
+                number: 3,
+                hash: "fork-3".to_string()
+            },
+            BlockRef {
+                number: 5,
+                hash: "fork-5".to_string()
+            },
+        ];
+
+        // Act + Assert: a fork that cannot reach up to finality is refused, never resumed below it.
+        let err = write.compute_rollback(&hints).unwrap_err();
+        assert!(
+            err.to_string().contains("below finalized head"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rollback_with_conflicting_hint_at_finalized_height_is_refused() -> anyhow::Result<()> {
+        // Arrange: finality at 7; a hint sits exactly at 7 but disagrees on its hash.
+        let (_db_dir, _db, _dataset_id, mut write) = setup()?;
+        let mut metrics = HashIndexWriteMetrics::default();
+        seed_chain(&mut write, &mut metrics)?;
+        write.finalize(&BlockRef {
+            number: 7,
+            hash: "old-7".to_string()
+        })?;
+        let hints = vec![
+            BlockRef {
+                number: 7,
+                hash: "fork-7".to_string()
+            },
+            BlockRef {
+                number: 9,
+                hash: "fork-9".to_string()
+            },
+        ];
+
+        // Act + Assert: an equivocation at the finalized height is refused, never absorbed.
+        let err = write.compute_rollback(&hints).unwrap_err();
+        assert!(err.to_string().contains("finalized block 7"), "unexpected error: {err}");
+        Ok(())
     }
 }

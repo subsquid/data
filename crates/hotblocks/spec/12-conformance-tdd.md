@@ -4,11 +4,13 @@ This document turns the spec into a test program: the reference model (oracle), 
 harness architecture, the test-class taxonomy, the traceability matrix, and the dated gap
 register that seeds the hardening backlog.
 
-Statuses and the gap register reflect the state of knowledge as of **2026-07-12** and are
+Statuses and the gap register reflect the state of knowledge as of **2026-07-15** and are
 expected to change; everything else in this document is stable methodology.
 
 The harness described here exists: [`crates/hotblocks-harness`](../../hotblocks-harness).
-Phase 0 of §7 is done — CT-1 runs a happy-path script green against the real binary.
+Phase 0 of §7 is done — CT-1 runs a happy-path script green against the real binary, and CT-4
+now includes finality-equivocation regressions for both deep-window and straddling-chunk fallback,
+plus an honest-reorg recovery that must converge rather than wedge.
 
 ## 1. Harness architecture
 
@@ -229,9 +231,9 @@ INV-21/22/23 (checks in parentheses):
 
 ## 5. Traceability matrix (status @ 2026-07-15)
 
-Legend: **C** covered, **P** partial (some storage-layer or fixture coverage exists;
-service-level black-box coverage absent), **U** untested. Rows that changed with Phase 0 name
-the test that moved them; unless a row says otherwise, "covered" means *on the happy path* —
+Legend: **C** covered, **P** partial (some paths or layers are covered; the full class is not),
+**U** untested. Rows that changed name the test that moved them; unless a row says otherwise,
+"covered" means *on the happy path* —
 the same property under forks, crashes and retention is the business of CT-2/CT-4.
 
 | Property | CT class | Status | Note |
@@ -242,15 +244,15 @@ the same property under forks, crashes and retention is the business of CT-2/CT-
 | INV-7 provenance | CT-1/6 | **C** | `ct1_happy_path`: what the source served is read back, payload included |
 | INV-10 atomic transitions | CT-2/3 | U | |
 | INV-11 append | CT-1 | **C** | |
-| INV-12/13 finality monotone/immutable | CT-1/4 | **P — known-violated** | monotone advance observed; composed-finality REPLACE below `fin` admitted (GAP-22); regression/conflict paths await CT-4 |
-| INV-14 fork floor | CT-4 | **U — known-violated** | GAP-3; composed-finality bypass (GAP-22) |
+| INV-12/13 finality monotone/immutable | CT-1/4 | **P** | monotone advance in CT-1; two `ct4_finality` scenarios + write-controller regressions pin finalized-prefix immutability, fixed-height hash immutability and atomic rejection; stale/regressing finality and fork-storm boundary cases remain |
+| INV-14 fork floor | CT-4 | **P — known-violated** | `ct4_finality` covers all-mismatching-hint fallback at both the retained-window floor and a finality-straddling chunk; below-window RESET and trimmed-anchor cases remain (GAP-3/23) |
 | INV-15/18 retention trim/anchor | CT-1 | **U — known-violated** | INV-18: trims drop the anchor hash (GAP-23), restart rebuilds it wrong (GAP-2); comparator needs RS-4 slack first (see §7) |
 | INV-16 frame | CT-1/7 | U | |
 | INV-17 maintenance transparency | CT-7 | P | merge-equivalence tested storage-level |
 | INV-20 snapshot isolation | CT-3 | P | single-threaded snapshot test only |
 | INV-21/22 response shape/completeness | CT-1/5/6 | P | structural validators + emission diff under `include_all`; coverage cuts and filtered emission await CT-5; comparator must implement the RP-9 marker exemption (spec change 2026-07-12) |
-| INV-23 anchored ancestry | CT-1/4 | P | anchored continuation across responses covered; the CONFLICT path awaits CT-4 |
-| INV-24 finalized-only | CT-4 | U | |
+| INV-23 anchored ancestry | CT-1/4 | P | anchored continuation across responses, finality-conflict rejection, and honest reorg recovery above finality covered; the broader fork corpus remains |
+| INV-24 finalized-only | CT-4 | P | `ct4_finality` pins once-finalized content across source equivocation with a public full-window scan; a dedicated `QUERY-FINALIZED` poller and the broader fork corpus remain |
 | INV-25 progress | CT-1/6 | P | a successful response must cover ≥ 1 block — asserted by the scanner |
 | INV-26 error soundness | CT-5 | **P — known-violated** | `ct5_error_soundness`: unsupported dialect containment/accounting and mid-stream worker-panic abort pinned; finalized-snapshot race pinned unit-level. Anchored eval across large holes (GAP-21) reverted; shared-status families keep free-text discrimination (GAP-36/39) |
 | INV-27 range honesty | CT-1 | **C** | validator: no block outside `[from, min(to, head)]` |
@@ -316,8 +318,7 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 | GAP-18 | Dual-writer detection exists only on some paths (finality/head updates), not all mutations | WP-15, FM-OP-3 | P3 | CT-5: two harness-driven writers, assert loser stops on every mutation type |
 | GAP-20 | `parent_number` linkage is never validated on any layer (the block trait exposes it; nothing reads it): a hash-linked run can claim an arbitrarily higher number for the next block, storing a false hole on a densely-numbered chain — a silent data gap served as if it were a slot gap. (The originally-filed non-monotonic-numbers scenario is unreachable today: the source-position advance forces ascending numbers.) | WP-2, DEF-4, INV-1 | P2 | CT-4/CT-9: hash-linked run with a number jump on a dense chain; the run MUST be rejected with no state change |
 | GAP-21 | An anchored query whose `from` sits mid-chunk above a number gap larger than the conflict-check lookback (a hard-coded 100 positions in the plan's base-block check) fails `INTERNAL` instead of evaluating the assertion. A >100-position hole with an anchor landing just above it is probably unrealistic, hence low priority. A correct all-predecessors scan was tried and reverted 2026-07-15 — it regressed `check_parent_block` into an unbounded per-chunk scan+sort; needs a lazy sort-desc + limit(100) | RP-11, INV-26 | P3 | CT-5 `ct5_anchor_is_evaluated_across_a_large_number_hole` (`#[ignore]` until fixed): >100-position hole in one chunk; anchored query just above must yield OK/CONFLICT, never 500 |
-| GAP-22 | Deep-fork handling can silently replace the finalized prefix: the fork-resolution fallback ignores `fin` (resumes from the window start instead of `⟨fin + 1, fin.hash⟩`), the composed-finality guard admits a REPLACE whose base lies at/below `fin` whenever the pack carries a finality mark ≥ current, and Window trims have dropped the anchor hash (GAP-23) so the replacement attaches unchecked. If the first replacement batch reaches past the old `fin`, the finalized prefix is replaced with no RESET event and no alarm — finalized-only clients observe two hashes at one height (INV-24 broken); otherwise the commit trips the fork-floor check ("can't fork safely") and the epoch parks on the blind 60 s retry loop. Fix: fallback → `fin + 1`; enforce the fork floor at commit unconditionally; carry the anchor hash | WP-6, INV-13/14, INV-24, FM-SRC-5, LIV-9 | **P1** | CT-4: fork with all-mismatching hints on a dataset with `fin` defined; assert REPLACE from `fin + 1` (or alarmed fault) — never a commit whose base ≤ `fin` |
-| GAP-23 | Window trims drop the anchor hash: the automatic trim passes no hash and the retained state stores `⊥`, though the correct value sits unused in the first batch's `parent_block_hash`. Disables below-window divergence detection (WP-6b has nothing to contradict) and feeds GAP-22 | INV-18, DEF-7, WP-6b | P1 | CT-1: CONFLICT hints / STATUS at the window edge after a trim; CT-4: below-window fork after a trim must RESET, not absorb silently |
+| GAP-23 | Window trims drop the anchor hash: the automatic trim passes no hash and the retained state stores `⊥`, though the correct value sits unused in the first batch's `parent_block_hash`. Disables below-window divergence detection (WP-6b has nothing to contradict); it was also one precondition of the now-closed GAP-22 | INV-18, DEF-7, WP-6b | P1 | CT-1: CONFLICT hints / STATUS at the window edge after a trim; CT-4: below-window fork after a trim must RESET, not absorb silently |
 | GAP-24 | One dataset's init failure aborts the whole service: startup propagates the first controller error (kind mismatch, retention bail, corrupt state) instead of alarming that dataset and serving the rest | CN-10, FM-OP-1, INV-36, INV-43 | P1 | CT-5 boot matrix: corrupt one dataset's persisted state; assert the others serve and the broken one alarms |
 | GAP-25 | Downward retention (`from < first(D)`) executes as an *implicit, unobservable* RESET (WP §2.5 as amended 2026-07-12 legalizes the destruction, but requires OB-9 observability) — no event, indistinguishable from a trim; and the boot-time `Pinned` equivalent aborts the entire service (via GAP-24) instead of a dataset-level refusal | WP §2.5, OB-9, INV-43 | P2 | CT-1: SET-RETENTION below `first`; assert a RESET observable + serving continuity; CT-5: boot with lowered `Pinned.from` |
 | GAP-26 | A block timestamp outside the datetime-conversion range kills the ingest flush — the conversion exists only for a log line — and the dataset enters a permanent crash-loop on redelivery | FM-1, WP-18, CN-8 | P1 | CT-9: serve a block with `time = i64::MAX`; the dataset must ingest it and keep serving |
@@ -341,6 +342,7 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 | GAP-11 | Unsupported `substrate` / `fuel` queries and query-worker panics escaped the HTTP error taxonomy by panicking their request task | Typed `UNSUPPORTED_QUERY` admission errors, panic containment in the query executor, CT-5 dialect requests, and an executor unit test (2026-07-15) |
 | GAP-16 | No service-level automated tests | [`crates/hotblocks-harness`](../../hotblocks-harness) + `ct1_happy_path` (Phase 0, 2026-07-12) |
 | GAP-19 | A source response whose final JSONL record carried no trailing newline panicked the line reader (`LineStream::take_final_line` left its scan position past the emptied buffer). The ingest task died, its buffered batch was lost, and the dataset parked for `P-EPOCH-RETRY` — then crash-looped, since the source served the same body on retry. Violated FM-1, LIV-2 | Found by CT-1 on the harness's first run; fixed in `crates/data-client/src/reqwest/lines.rs`; pinned by a unit test there and by `ct9_source_faults` (2026-07-12) |
+| GAP-22 | Fork-resolution fallback and composed finality could silently replace the finalized prefix | PR #96: fork resolution resumes at a stored chunk boundary (never a mid-chunk `fin + 1`), and the write path admits a replacement reaching to/below `fin` only when it reproduces the finalized block's hash there — otherwise it refuses atomically. This closes the silent replace while avoiding the wedge a `fin + 1` clamp causes when finality sits inside a chunk (`insert_fork` cannot split it). Pinned by three `ct4_finality` scenarios (deep-window and straddling-chunk equivocation refused; honest reorg above finality recovers) plus seven write-controller unit tests (2026-07-16). Remaining below-window anchor and source-alarm work is tracked by GAP-23/GAP-5/GAP-30. The write-path guard assumes re-ingest never flushes a chunk ending strictly below `fin` — else it refuses the whole-chunk rewrite and the dataset takes the bounded 60 s loop; today's 200k-row / mask-change / `MaybeOnHead` flushers satisfy this on any source with homogeneous per-block data availability |
 | GAP-32 | A finalized-head trim/reset race could turn an admitted finalized query into `INTERNAL` when its snapshot no longer had a finalized head | Snapshot-time absence now maps to `NO_DATA`; pinned by `finalized_snapshot_without_a_head_is_no_data` (2026-07-15) |
 | GAP-38 | `TX-BY-HASH` / `tidx` absent; fork re-inclusion ordering unimplemented | Transaction hash CF + independent flag + HTTP binding; storage transition suite and black-box ingest/reorg/re-inclusion tests (2026-07-15) |
 
@@ -352,13 +354,12 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 
   Delivered as [`crates/hotblocks-harness`](../../hotblocks-harness), driving the real
   binary as a child process over the binding of 13. Its README records the design decisions the
-  next phases must not undo. Three things the later phases need are built but unexercised, and
-  three are missing:
+  next phases must not undo. The current harness support and remaining corpus are:
 
-  | Built, awaiting scripts | Missing |
+  | Harness support | Remaining |
   |---|---|
   | `Sut::crash/stop/restart` (same db, same port) → CT-2 | the CT-2 kill-point matrix |
-  | `Harness::fork` + `Model::resolve_fork` + the follower's CONFLICT recovery → CT-4 | the CT-4 fork/finality corpus |
+  | `Harness::fork`, explicit finalized-prefix equivocation, `Model::resolve_fork` and follower CONFLICT recovery → CT-4 | `ct4_finality` is the first script; successful reorg, below-window RESET, malformed finality and alarm cases remain |
   | `Model::predict_query` + initial `ct5_error_soundness` matrix | remaining CT-5 binding, boot, and overload rows |
   | `SimFaults` injection point → CT-9 | the rest of the FM-SRC repertoire |
 

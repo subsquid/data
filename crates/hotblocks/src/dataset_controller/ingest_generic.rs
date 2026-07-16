@@ -167,7 +167,11 @@ where
     }
 
     async fn handle_fork(&mut self, prev_blocks: Vec<BlockRef>) -> anyhow::Result<()> {
-        info!(upstream_blocks = valuable(&prev_blocks), "fork received");
+        info!(
+            stream_from = self.first_block,
+            upstream_blocks = valuable(&prev_blocks),
+            "fork received"
+        );
 
         let (rollback_sender, rollback_recv) = tokio::sync::oneshot::channel();
 
@@ -182,16 +186,16 @@ where
         let rollback = rollback_recv.await?;
 
         info!(
-            block_number = rollback.first_block,
-            parent_block_hash =? rollback.parent_block_hash,
+            resume_from = rollback.resume_from,
+            expected_parent_hash =? rollback.expected_parent_hash,
             "resetting ingest position"
         );
 
         self.buffered_blocks = 0;
         self.finalized_head = None;
-        self.first_block = rollback.first_block;
+        self.first_block = rollback.resume_from;
         self.data_source
-            .set_position(rollback.first_block, rollback.parent_block_hash.as_deref());
+            .set_position(rollback.resume_from, rollback.expected_parent_hash.as_deref());
 
         Ok(())
     }

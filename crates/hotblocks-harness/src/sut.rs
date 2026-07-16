@@ -39,6 +39,8 @@ pub struct DatasetSpec {
     pub id: String,
     pub kind: String,
     pub retention: Retention,
+    /// Preserve response-aligned chunks for tests that exercise physical layout boundaries.
+    pub disable_compaction: bool,
     pub sources: Vec<String>
 }
 
@@ -235,6 +237,7 @@ impl Sut {
                 Retention::Api => yaml.push_str("  retention_strategy: Api\n"),
                 Retention::None => yaml.push_str("  retention_strategy: None\n")
             }
+            yaml.push_str(&format!("  disable_compaction: {}\n", ds.disable_compaction));
             yaml.push_str("  data_sources:\n");
             for src in &ds.sources {
                 yaml.push_str(&format!("    - \"{src}\"\n"));
