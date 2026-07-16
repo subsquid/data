@@ -9,6 +9,7 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
+use serde_json::Value;
 use sqd_hotblocks_harness::{
     chain::{Chain, Evm, HlFills, Solana},
     driver::FollowStep,
@@ -22,6 +23,49 @@ const PATIENCE: Duration = Duration::from_secs(30);
 #[tokio::test(flavor = "multi_thread")]
 async fn ct1_evm() -> Result<()> {
     ct1(Arc::new(Evm), Numbering::Dense).await
+}
+
+struct EvmChangingOptionalMask;
+
+impl Chain for EvmChangingOptionalMask {
+    fn config_kind(&self) -> &'static str {
+        Evm.config_kind()
+    }
+
+    fn storage_kind(&self) -> &'static str {
+        Evm.storage_kind()
+    }
+
+    fn dialect(&self) -> &'static str {
+        Evm.dialect()
+    }
+
+    fn source_block(&self, block: &sqd_hotblocks_harness::types::Block) -> Value {
+        let mut value = Evm.source_block(block);
+        if block.number % 2 == 0 {
+            value
+                .as_object_mut()
+                .expect("EVM source block is an object")
+                .remove("traces");
+        }
+        value
+    }
+
+    fn scan_query(&self, from: u64, to: Option<u64>, expected_parent: Option<&str>) -> Value {
+        Evm.scan_query(from, to, expected_parent)
+    }
+
+    fn expected_emission(&self, block: &sqd_hotblocks_harness::types::Block) -> Value {
+        Evm.expected_emission(block)
+    }
+}
+
+/// Every block flips between a full EVM data mask and one without traces. The ingest path
+/// must flush at every transition without dropping or duplicating any blocks or required
+/// tables.
+#[tokio::test(flavor = "multi_thread")]
+async fn ct1_evm_changing_optional_mask() -> Result<()> {
+    ct1(Arc::new(EvmChangingOptionalMask), Numbering::Dense).await
 }
 
 /// Solana numbers blocks by time-based slots, and a slot that produced nothing leaves a hole.

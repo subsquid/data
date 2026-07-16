@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use sqd_array::slice::AnyTableSlice;
 
-use crate::ChunkProcessor;
+use crate::{ChunkProcessor, PreparedChunk};
 
 pub trait BlockChunkBuilder: ChunkBuilder {
     type Block;
@@ -24,6 +24,10 @@ pub trait ChunkBuilder {
     fn new_chunk_processor(&self) -> anyhow::Result<ChunkProcessor>;
 
     fn submit_to_processor(&self, processor: &mut ChunkProcessor) -> anyhow::Result<()>;
+
+    /// In-memory equivalent of `new_chunk_processor()` + submit + `finish()`; clears the
+    /// builder on success. No temp files.
+    fn prepare_in_memory(&mut self) -> anyhow::Result<PreparedChunk>;
 }
 
 #[macro_export]
@@ -98,6 +102,34 @@ macro_rules! chunk_builder {
                 Ok(())
             }
 
+            pub fn prepare_in_memory(&mut self) -> anyhow::Result<sqd_data_core::PreparedChunk> {
+                use sqd_array::slice::*;
+                let downcast = sqd_data_core::Downcast::new();
+                // downcast is chunk-wide: register all tables before building any
+                $(
+                sqd_data_core::register_downcast(
+                    &self.$table.as_slice(),
+                    &self.$table.schema(),
+                    $builder::table_description(),
+                    &downcast
+                )?;
+                )*
+                let mut tables = std::collections::BTreeMap::new();
+                $(
+                tables.insert(
+                    stringify!($table),
+                    sqd_data_core::PreparedTable::from_slice(
+                        &self.$table.as_slice(),
+                        self.$table.schema(),
+                        $builder::table_description(),
+                        downcast.clone()
+                    )?
+                );
+                )*
+                self.clear();
+                Ok(tables)
+            }
+
             pub fn dataset_description() -> sqd_dataset::DatasetDescriptionRef {
                 use sqd_dataset::*;
                 use std::sync::{Arc, LazyLock};
@@ -144,6 +176,10 @@ macro_rules! chunk_builder {
 
             fn submit_to_processor(&self, processor: &mut sqd_data_core::ChunkProcessor) -> anyhow::Result<()> {
                 self.submit_to_processor(processor)
+            }
+
+            fn prepare_in_memory(&mut self) -> anyhow::Result<sqd_data_core::PreparedChunk> {
+                self.prepare_in_memory()
             }
         }
 

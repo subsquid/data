@@ -63,6 +63,24 @@ COPY --from=hotblocks-retain-builder /out/sqd-hotblocks-retain .
 ENTRYPOINT ["/app/sqd-hotblocks-retain"]
 
 
+FROM builder AS flush-bench-builder
+ARG TARGETARCH
+# `cargo bench --no-run` emits target/release/deps/flush_spill-<hash>; the cache mount may
+# hold stale hashes, so take the newest non-.d artifact.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/app/target,id=cargo-target-${TARGETARCH},sharing=locked \
+    cargo bench -p sqd-data --bench flush_spill --no-run \
+    && mkdir -p /out \
+    && cp "$(ls -t target/release/deps/flush_spill-* | grep -v '\.d$' | head -1)" /out/flush_spill
+
+
+FROM debian:bookworm-slim AS flush-bench
+WORKDIR /app
+COPY --from=flush-bench-builder /out/flush_spill .
+ENTRYPOINT ["/app/flush_spill"]
+
+
 FROM builder AS archive-builder
 ARG TARGETARCH
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
@@ -73,6 +91,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     && cp target/release/sqd-archive /out/
 
 
+# keep this stage last: it is the default target of a bare `docker build .`
 FROM debian:bookworm-slim AS sqd-archive
 RUN apt-get update && apt-get install ca-certificates -y
 WORKDIR /app
