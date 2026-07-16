@@ -36,6 +36,7 @@ url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+reqwest = { workspace = true }
 sqd-hotblocks-harness = { path = "../hotblocks-harness" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

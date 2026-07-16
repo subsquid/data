@@ -1,4 +1,8 @@
-use std::{future::Future, sync::Arc, time::Instant};
+use std::{
+    future::Future,
+    sync::{Arc, LazyLock},
+    time::Instant
+};
 
 use anyhow::bail;
 use async_stream::try_stream;
@@ -6,7 +10,7 @@ use axum::{
     BoxError, Extension, Json, Router,
     body::{Body, Bytes},
     extract::{Path, Request},
-    http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::{get, post}
 };
@@ -131,6 +135,40 @@ mod hash_validation_tests {
     }
 }
 
+/// Names the replica that served a response. A Service load-balances across replicas behind
+/// one ClusterIP, so a caller cannot otherwise tell them apart. The portal logs this and
+/// strips every `x-internal-*` header before responding, so it never reaches a client.
+const INSTANCE_HEADER: HeaderName = HeaderName::from_static("x-internal-hotblocks-instance");
+
+/// An empty or unrepresentable name resolves to `unknown`, never to an empty value: the
+/// portal reads this as a name or as `unknown`, and must never have to treat "" as either.
+fn instance_header(hostname: Option<&str>) -> HeaderValue {
+    hostname
+        .filter(|name| !name.is_empty())
+        .and_then(|name| HeaderValue::from_str(name).ok())
+        .unwrap_or_else(|| HeaderValue::from_static("unknown"))
+}
+
+/// Kubernetes sets HOSTNAME to the pod name.
+static INSTANCE: LazyLock<HeaderValue> = LazyLock::new(|| instance_header(std::env::var("HOSTNAME").ok().as_deref()));
+
+#[cfg(test)]
+mod instance_header_tests {
+    use super::*;
+
+    #[test]
+    fn hostname_names_the_instance() {
+        assert_eq!(instance_header(Some("hotblocks-db-0")), "hotblocks-db-0");
+    }
+
+    #[test]
+    fn absent_empty_and_unrepresentable_all_collapse_to_unknown() {
+        assert_eq!(instance_header(None), "unknown");
+        assert_eq!(instance_header(Some("")), "unknown");
+        assert_eq!(instance_header(Some("pod\nname")), "unknown");
+    }
+}
+
 pub async fn middleware(mut req: Request, next: axum::middleware::Next) -> impl IntoResponse {
     let method = req.method().to_string();
     let path = req.uri().path().to_string();
@@ -160,6 +198,8 @@ pub async fn middleware(mut req: Request, next: axum::middleware::Next) -> impl 
     let span = tracing::span!(tracing::Level::INFO, "http_request", request_id);
     let mut response = next.run(req).instrument(span.clone()).await;
     let latency = start.elapsed();
+
+    response.headers_mut().insert(INSTANCE_HEADER, INSTANCE.clone());
 
     let mut labels = response
         .extensions_mut()
