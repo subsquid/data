@@ -48,6 +48,7 @@ impl DatasetController {
         dataset_id: DatasetId,
         dataset_kind: DatasetKind,
         retention: RetentionStrategy,
+        max_blocks: Option<u64>,
         data_sources: Vec<ReqwestDataClient>
     ) -> anyhow::Result<Self> {
         let mut write = WriteController::new(db.clone(), dataset_id, dataset_kind)?;
@@ -71,6 +72,7 @@ impl DatasetController {
             dataset_id,
             dataset_kind,
             data_sources,
+            max_blocks,
             retention_recv,
             head_sender,
             finalized_head_sender
@@ -193,12 +195,9 @@ impl WriteCtx {
                 self.notify_head();
                 self.notify_finalized_head();
                 if let Some(n) = head {
-                    if self
-                        .write
-                        .first_chunk_head()
-                        .map_or(false, |h| self.write.next_block() - h.number > n)
-                    {
-                        self.retain(self.write.next_block() - n, None)?;
+                    let first_chunk_head = self.write.first_chunk_head().map(|h| h.number);
+                    if let Some(floor) = trim_floor(first_chunk_head, self.write.next_block(), n) {
+                        self.retain(floor, None)?;
                     }
                 }
             }
@@ -290,6 +289,16 @@ fn send_if_new<T: Eq>(sender: &tokio::sync::watch::Sender<T>, value: T) {
     });
 }
 
+// Returns the new floor when the tail has to be trimmed to keep
+// `max_blocks` behind the tip, or `None` when the window still fits.
+//
+// `max_blocks` is a soft limit. Since `retain()` only drops whole chunks, trimming
+// may keep a part of the first chunk.
+fn trim_floor(first_chunk_head: Option<BlockNumber>, next_block: BlockNumber, max_blocks: u64) -> Option<BlockNumber> {
+    let first_chunk_head = first_chunk_head?;
+    (next_block - first_chunk_head > max_blocks).then(|| next_block - max_blocks)
+}
+
 enum State {
     Idle,
     Init {
@@ -325,6 +334,10 @@ struct Ctl {
     dataset_id: DatasetId,
     dataset_kind: DatasetKind,
     data_sources: Vec<ReqwestDataClient>,
+    // Safety cap on retained blocks for Api-controlled datasets: even if the portal
+    // stops advancing the floor, the tail is trimmed to keep roughly this many blocks
+    // behind the tip. `None` means grow indefinitely.
+    max_blocks: Option<u64>,
     retention_recv: tokio::sync::watch::Receiver<RetentionStrategy>,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
     finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>
@@ -385,17 +398,18 @@ impl Ctl {
         let retention = self.retention_recv.borrow_and_update().clone();
         let mut state = match retention {
             RetentionStrategy::FromBlock { number, parent_hash } => {
+                let (number, parent_hash) = self.clamp_floor(&write, number, parent_hash);
                 if !write.starts_at(number, &parent_hash) {
                     blocking! {
                         write.retain(number, parent_hash)
                     }?;
                 }
-                State::Init { head: None }
+                State::Init { head: self.max_blocks }
             }
             RetentionStrategy::Head(n) => State::Init { head: Some(n) },
             RetentionStrategy::None => {
                 if write.write.head().is_some() {
-                    State::Init { head: None }
+                    State::Init { head: self.max_blocks }
                 } else {
                     State::Idle
                 }
@@ -498,17 +512,32 @@ impl Ctl {
         }
     }
 
+    // Don't allow auto-moving the floor backwards because it causes a full resync.
+    fn clamp_floor(
+        &self,
+        write: &WriteCtx,
+        number: BlockNumber,
+        parent_hash: Option<String>
+    ) -> (BlockNumber, Option<String>) {
+        if self.max_blocks.is_some() && number < write.write.start_block() {
+            (write.write.start_block(), None)
+        } else {
+            (number, parent_hash)
+        }
+    }
+
     async fn handle_retention_change(&mut self, state: &mut State, mut write: WriteCtx) -> anyhow::Result<WriteCtx> {
         // need this variable to please the compiler
         let retention = self.retention_recv.borrow_and_update().clone();
         match retention {
             RetentionStrategy::FromBlock { number, parent_hash } => {
+                let (number, parent_hash) = self.clamp_floor(&write, number, parent_hash);
                 let will_erase_head = write.write.head().map_or(false, |h| h.number < number) || // FromBlock is greater than current head, so everything is cleared
                     write.write.start_block() > number; // FromBlock is less than current front, dropping everything by design
                 blocking_write!(write, write.retain(number, parent_hash))?;
                 match state {
                     State::Ingest { .. } if !will_erase_head => {} // Keep ingesting, head is valid
-                    _ => *state = State::Init { head: None }       // New ingest needed
+                    _ => *state = State::Init { head: self.max_blocks } // New ingest needed
                 }
             }
             RetentionStrategy::Head(n) => match state {
@@ -706,5 +735,28 @@ async fn compaction_loop(db: DBRef, dataset_id: DatasetId, mut enabled: tokio::s
                 return;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::trim_floor;
+
+    #[test]
+    fn nothing_is_trimmed_while_the_window_fits() {
+        assert_eq!(trim_floor(None, 500, 100), None);
+        // The whole dataset is one chunk [0..50], well inside the cap.
+        assert_eq!(trim_floor(Some(50), 51, 100), None);
+        // Exactly at the cap: the first chunk still has a block in the window.
+        assert_eq!(trim_floor(Some(0), 100, 100), None);
+    }
+
+    #[test]
+    fn the_tail_is_trimmed_once_the_first_chunk_leaves_the_window() {
+        // First chunk ends at 0, so trimming starts one block past the cap.
+        assert_eq!(trim_floor(Some(0), 101, 100), Some(1));
+        // The soft-limit overshoot: [0..150K] under a 100K cap survives until 250K.
+        assert_eq!(trim_floor(Some(150_000), 250_000, 100_000), None);
+        assert_eq!(trim_floor(Some(150_000), 250_001, 100_000), Some(150_001));
     }
 }

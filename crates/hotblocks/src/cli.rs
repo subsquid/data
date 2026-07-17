@@ -156,7 +156,7 @@ impl CLI {
 
         let api_controlled_datasets = datasets
             .iter()
-            .filter_map(|(id, cfg)| (cfg.retention_strategy == RetentionConfig::Api).then_some(*id))
+            .filter_map(|(id, cfg)| matches!(cfg.retention_strategy, RetentionConfig::Api { .. }).then_some(*id))
             .collect();
 
         let data_service = DataService::start(db.clone(), datasets, self.startup_disk_reclaim)
