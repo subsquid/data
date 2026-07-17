@@ -19,10 +19,8 @@ pub enum RetentionConfig {
     },
     // Moving window that keeps up to N blocks
     Head(u64),
-    // Retention is set dynamically from the portal. `max_blocks`, if set, caps
-    // storage at N blocks behind the tip as a safety net for when the portal
-    // stops advancing the floor. Accepts both the bare `Api` form and the
-    // `Api: { max_blocks: N }` form.
+    // Retention is set dynamically from the portal. `max_blocks` is a soft cap
+    // applied when the portal stops advancing the floor, see `Ctl::max_blocks`.
     Api {
         max_blocks: Option<u64>
     },
@@ -31,14 +29,10 @@ pub enum RetentionConfig {
 
 const RETENTION_VARIANTS: &[&str] = &["FromBlock", "Head", "Api", "None"];
 
-// `RetentionConfig` is read through `serde_yaml`'s `singleton_map_recursive`,
-// which represents non-unit variants as a single-key map and unit variants as a
-// bare string. A struct variant alone could therefore not accept the bare `Api`
-// string, so deserialization is implemented by hand to allow both `Api` and
-// `Api: { max_blocks: N }`.
-//
-// This can be reverted to a normal derived `Deserialize` once the bare `Api`
-// form is no longer used in any config.
+// Hand-written to accept both the bare `Api` string and `Api: { max_blocks: N }`.
+// The config is read through `singleton_map_recursive`, which encodes unit
+// variants as strings and struct variants as maps, so a derived impl can accept
+// only one of the two forms. Can be derived again once no config uses bare `Api`.
 impl<'de> Deserialize<'de> for RetentionConfig {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
@@ -135,56 +129,36 @@ impl DatasetConfig {
 mod tests {
     use super::*;
 
-    fn parse(yaml: &str) -> RetentionConfig {
-        // Mirror how the field is read inside `read_config_file`.
+    // Mirror how the field is read inside `read_config_file`.
+    fn parse(yaml: &str) -> Result<RetentionConfig, serde_yaml::Error> {
         let deser = serde_yaml::Deserializer::from_str(yaml);
-        serde_yaml::with::singleton_map_recursive::deserialize(deser).unwrap()
+        serde_yaml::with::singleton_map_recursive::deserialize(deser)
     }
 
     #[test]
-    fn bare_api_is_uncapped() {
-        assert_eq!(parse("Api"), RetentionConfig::Api { max_blocks: None });
-    }
-
-    #[test]
-    fn api_with_max_blocks() {
+    fn api_accepts_both_forms() {
+        assert_eq!(parse("Api").unwrap(), RetentionConfig::Api { max_blocks: None });
+        assert_eq!(parse("Api: {}").unwrap(), RetentionConfig::Api { max_blocks: None });
         assert_eq!(
-            parse("Api:\n  max_blocks: 100000"),
+            parse("Api:\n  max_blocks: 100000").unwrap(),
             RetentionConfig::Api {
                 max_blocks: Some(100000)
             }
         );
-    }
-
-    #[test]
-    fn api_with_empty_map_is_uncapped() {
-        assert_eq!(parse("Api: {}"), RetentionConfig::Api { max_blocks: None });
+        assert!(parse("Api:\n  max_blcks: 5").is_err());
     }
 
     #[test]
     fn other_strategies_still_parse() {
-        assert_eq!(parse("None"), RetentionConfig::None);
-        assert_eq!(parse("Head: 2000"), RetentionConfig::Head(2000));
+        assert_eq!(parse("None").unwrap(), RetentionConfig::None);
+        assert_eq!(parse("Head: 2000").unwrap(), RetentionConfig::Head(2000));
         assert_eq!(
-            parse("FromBlock:\n  number: 10\n  parent_hash: '0xabc'"),
+            parse("FromBlock:\n  number: 10\n  parent_hash: '0xabc'").unwrap(),
             RetentionConfig::FromBlock {
                 number: 10,
                 parent_hash: Some("0xabc".to_owned())
             }
         );
-    }
-
-    #[test]
-    fn unknown_strategy_is_rejected() {
-        let deser = serde_yaml::Deserializer::from_str("Bogus");
-        let res: Result<RetentionConfig, _> = serde_yaml::with::singleton_map_recursive::deserialize(deser);
-        assert!(res.is_err());
-    }
-
-    #[test]
-    fn unknown_field_is_rejected() {
-        let deser = serde_yaml::Deserializer::from_str("Api:\n  max_blcks: 5");
-        let res: Result<RetentionConfig, _> = serde_yaml::with::singleton_map_recursive::deserialize(deser);
-        assert!(res.is_err());
+        assert!(parse("Bogus").is_err());
     }
 }
