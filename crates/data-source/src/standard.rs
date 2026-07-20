@@ -77,11 +77,10 @@ impl<F> DataSourceState<F> {
                         }
                     }
                     Poll::Ready(Ok(BlockStreamResponse::Fork(prev_blocks))) => {
+                        let req = req.clone();
+                        ep.on_fork_signal(req.first_block, &prev_blocks);
                         ep.error_counter = 0;
-                        ep.state = EndpointState::Fork {
-                            req: req.clone(),
-                            prev_blocks
-                        };
+                        ep.state = EndpointState::Fork { req, prev_blocks };
                     }
                     Poll::Ready(Err(err)) => ep.on_error(err),
                     Poll::Pending => return Poll::Pending
@@ -220,7 +219,20 @@ impl<C: DataClient> Endpoint<C> {
         }
     }
 
+    // A source answers 409 only at `head + 1 == from`, so in-spec hints top out at `from - 1`.
+    fn on_fork_signal(&self, from: BlockNumber, prev_blocks: &[BlockRef]) {
+        let standing = match prev_blocks.last() {
+            Some(top) if top.number < from.saturating_sub(1) => "above_tip",
+            // Empty hints are a malformed 409 the reqwest client already rejects; counting them
+            // as `at_tip` keeps the defect bucket clean of shapes it cannot speak to.
+            _ => "at_tip"
+        };
+        crate::metrics::record_ingest_fork_signal(&self.client.source_label(), standing);
+    }
+
     fn on_error(&mut self, error: anyhow::Error) {
+        crate::metrics::record_ingest_source_error(&self.client.source_label(), self.client.error_kind(&error));
+
         let backoff = [0, 100, 200, 500, 1000, 2000, 5000, 10000];
         let pause = backoff[std::cmp::min(self.error_counter, backoff.len() - 1)];
         if pause > 0 {

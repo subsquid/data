@@ -2,7 +2,7 @@ use std::{ops::Add, time::Duration};
 
 use anyhow::{Context, anyhow};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
-use sqd_data_client::reqwest::ReqwestDataClient;
+use sqd_data_client::{DataClient, reqwest::ReqwestDataClient};
 use sqd_primitives::{BlockNumber, BlockRef, TransactionRef};
 use sqd_storage::db::{CompactionStatus, DatasetId};
 use tokio::{select, task::JoinHandle, time::Instant};
@@ -248,6 +248,7 @@ impl Ctl {
             match self.write_epoch(std::mem::take(&mut maybe_write)).await {
                 Ok(_) => return,
                 Err(err) => {
+                    crate::metrics::report_dataset_epoch_failure(self.dataset_id, &err);
                     error!(reason = ?err, "dataset update task failed, will restart it in 1 minute");
                     tokio::time::sleep(Duration::from_secs(60)).await
                 }
@@ -489,6 +490,14 @@ async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
                         }
                     },
                     Some((Err(err), ci)) => {
+                        // The probe gates ingestion, and its only exit on total failure is
+                        // `completed > 0`. With every source down it spins here forever, so
+                        // `on_error` never runs and the counter would read zero through the
+                        // whole stall — the one outage it exists to expose.
+                        sqd_data_source::metrics::record_ingest_source_error(
+                            &clients[ci].source_label(),
+                            clients[ci].error_kind(&err)
+                        );
                         if clients[ci].is_retryable(&err) {
                             warn!(
                                 reason =? err,

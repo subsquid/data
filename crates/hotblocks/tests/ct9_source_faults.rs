@@ -9,8 +9,10 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use sqd_hotblocks_harness::{
-    chain::HlFills,
-    harness::{Harness, HarnessConfig}
+    chain::{Chain, Evm, HlFills},
+    driver::Client,
+    harness::{Harness, HarnessConfig},
+    sut::{DatasetSpec, Retention, Sut, SutConfig}
 };
 
 const START: u64 = 1_000;
@@ -53,4 +55,59 @@ async fn run(h: &mut Harness) -> Result<()> {
         "sanity: the service was never restarted by the harness"
     );
     Ok(())
+}
+
+/// Total outage is the one source fault the ingest counter could not see. The head probe gates
+/// ingestion and its only exit on total failure is `completed > 0`, so with every source down it
+/// spins there forever, `StandardDataSource` is never constructed and `on_error` never runs — the
+/// counter would read zero through precisely the outage it exists to expose, while the service
+/// stays up and scraped.
+///
+/// The assertion keys on `source` rather than `kind` so it also pins the label as the full
+/// endpoint: a host-only label collapses every source of every dataset into one series.
+#[tokio::test(flavor = "multi_thread")]
+async fn ct9_a_total_source_outage_is_counted_before_ingestion_starts() -> Result<()> {
+    const DS: &str = "outage";
+
+    // Bound to claim a port, then released: probes are refused rather than left hanging.
+    let dead = std::net::TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
+
+    let sut = Sut::start(SutConfig::new(
+        env!("CARGO_BIN_EXE_sqd-hotblocks"),
+        vec![DatasetSpec {
+            id: DS.to_string(),
+            kind: Evm.config_kind().to_string(),
+            // `Head` is what routes the dataset through the probe at all.
+            retention: Retention::Head(100),
+            sources: vec![format!("http://127.0.0.1:{dead}/{DS}")]
+        }]
+    ))
+    .await?;
+
+    let client = Client::new(sut.base_url(), DS)?;
+    let source = format!("127.0.0.1:{dead}/{DS}");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+
+    loop {
+        let metrics = client.metrics().await?;
+        if metrics
+            .get("hotblocks_ingest_source_errors_total", Some(("source", &source)))
+            .unwrap_or_default()
+            > 0.0
+        {
+            assert!(
+                metrics
+                    .get("hotblocks_ingest_source_errors_total", Some(("kind", "connect")))
+                    .unwrap_or_default()
+                    > 0.0,
+                "a refused connection must classify as `connect`"
+            );
+            return Ok(());
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "ingestion stalled on an unreachable source without counting a single error"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }

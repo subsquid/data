@@ -18,7 +18,7 @@ use sqd_storage::db::{
 };
 use tracing::error;
 
-use crate::{query::QueryExecutorCollector, types::DBRef};
+use crate::{errors::UnapplicableFork, query::QueryExecutorCollector, types::DBRef};
 
 #[derive(Copy, Clone, Hash, Debug, Default, Ord, PartialOrd, Eq, PartialEq, EncodeLabelSet)]
 struct DatasetLabel {
@@ -127,6 +127,29 @@ struct WriteLabels {
     dataset: DatasetValue,
     stage: WriteStage,
     outcome: WriteOutcome
+}
+
+#[derive(Copy, Clone, Hash, Debug, Eq, PartialEq, EncodeLabelSet)]
+struct EpochFailureLabels {
+    dataset: DatasetValue,
+    reason: &'static str
+}
+
+static DATASET_EPOCH_FAILURES: LazyLock<Family<EpochFailureLabels, Counter>> = LazyLock::new(Default::default);
+
+pub(crate) fn report_dataset_epoch_failure(dataset_id: DatasetId, err: &anyhow::Error) {
+    // Never label by message — it carries block numbers and hashes.
+    let reason = if err.chain().any(|e| e.is::<UnapplicableFork>()) {
+        "unapplicable_fork"
+    } else {
+        "other"
+    };
+    DATASET_EPOCH_FAILURES
+        .get_or_create(&EpochFailureLabels {
+            dataset: DatasetValue(dataset_id),
+            reason
+        })
+        .inc();
 }
 
 static WRITE_DURATION: LazyLock<Family<WriteLabels, Histogram>> =
@@ -462,6 +485,31 @@ pub fn build_metrics_registry() -> Registry {
         "query_error_worker_panic",
         "Number of query worker panics that aborted an in-flight response stream",
         QUERY_ERROR_WORKER_PANIC.clone()
+    );
+
+    registry.register(
+        "ingest_source_errors",
+        "Upstream data source ingestion errors, by source endpoint (host:port/path) and kind \
+         (connect/timeout/http/decode/io/request/other). Covers both the pre-ingest head probe \
+         and the stream loop",
+        sqd_data_source::metrics::INGEST_SOURCE_ERRORS.clone()
+    );
+
+    registry.register(
+        "ingest_fork_signals",
+        "Fork signals from upstream data sources, by source endpoint and whether the source \
+         held the contested position (standing=at_tip) or contested one above its own tip \
+         (standing=above_tip). GAP-21: an honest source can also land in above_tip when its \
+         hint window misses the parent across a hole wider than 100 positions",
+        sqd_data_source::metrics::INGEST_FORK_SIGNALS.clone()
+    );
+
+    registry.register(
+        "dataset_epoch_failures",
+        "Dataset update task failures, by dataset and cause; each one parks ingestion for \
+         60s before a full restart. reason=unapplicable_fork is a divergence reaching below \
+         finalized data",
+        DATASET_EPOCH_FAILURES.clone()
     );
 
     registry.register("http_status", "Number of sent HTTP responses", HTTP_STATUS.clone());

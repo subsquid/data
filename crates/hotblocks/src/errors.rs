@@ -38,6 +38,20 @@ impl Display for QueryTaskPanicked {
 
 impl std::error::Error for QueryTaskPanicked {}
 
+/// Divergence reaching below finalized data. Kills the update task, which then parks for a minute.
+#[derive(Debug)]
+pub struct UnapplicableFork {
+    pub reason: &'static str
+}
+
+impl Display for UnapplicableFork {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "received fork can not be applied: {}", self.reason)
+    }
+}
+
+impl std::error::Error for UnapplicableFork {}
+
 #[derive(Debug)]
 pub struct UnknownDataset {
     pub dataset_id: DatasetId

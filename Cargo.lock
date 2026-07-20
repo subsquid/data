@@ -4878,6 +4878,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures",
+ "prometheus-client 0.24.0",
  "sqd-data-client",
  "sqd-primitives",
  "tokio",
