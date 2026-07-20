@@ -80,7 +80,12 @@ impl Numbering {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SimFaults {
     /// Serve a JSONL body whose final record is not newline-terminated.
-    pub unterminated_final_line: bool
+    pub unterminated_final_line: bool,
+    /// Answer a parent assertion naming a position above the tip with a fork signal instead of
+    /// no-data. RP-5b confines the signal to `from == tip + 1`, the one position where the
+    /// assertion is evaluable; a source doing it higher reports a divergence it cannot have
+    /// observed, and a source that is merely behind starts looking like a forked one.
+    pub fork_signal_above_tip: bool
 }
 
 /// Counters a test can assert on (how the SUT actually drove the source).
@@ -179,6 +184,8 @@ impl SourceSim {
     /// Turn a source-side fault on or off (FM-SRC-*).
     pub fn inject_fault(&self, dataset: &str, f: impl FnOnce(&mut SimFaults)) {
         self.with(dataset, |d| f(&mut d.faults));
+        // Without it a peer parked in the long poll serves one more request under the old behavior.
+        self.bump();
     }
 
     fn with<T>(&self, dataset: &str, f: impl FnOnce(&mut DatasetSim) -> T) -> T {
@@ -352,14 +359,19 @@ impl DatasetSim {
                     return Reply::Fork(self.hints_ending_at(parent_pos));
                 }
                 None => {
-                    // Above our tip: it claims blocks we do not have — disagree, hint at our tip.
+                    // Strictly above our tip, so the assertion names a position we have not
+                    // reached: not evaluable, and RP-5b confines the fork signal to the one
+                    // position where it is (`from == tip + 1`, handled above). A source that is
+                    // merely *behind* must say it has nothing yet — answering "you are on the
+                    // wrong chain" is how a lagging endpoint gets mistaken for a forked one.
+                    // Below our history: unverifiable, serve as-is (the `⊥`-anchor case).
                     if let Some(tip) = self.tip_number()
                         && parent_pos > tip
+                        && self.faults.fork_signal_above_tip
                     {
                         self.stats.fork_signals += 1;
                         return Reply::Fork(self.hints_ending_at(tip));
                     }
-                    // Below our history: unverifiable, serve as-is (the `⊥`-anchor case).
                 }
             }
         }
@@ -568,6 +580,38 @@ mod tests {
             START + 2,
             "hints end at the disputed position"
         );
+    }
+
+    /// RP-5b confines the fork signal to `from == tip + 1`; above it the honest answer is "nothing
+    /// yet". Answering "wrong chain" makes a source that is *behind* look like one that
+    /// *disagrees* — the distinction every multi-source script rests on, so the default is pinned
+    /// here too, not just the fault.
+    #[tokio::test]
+    async fn answers_no_data_above_its_tip_unless_the_fault_is_injected() {
+        let sim = sim().await;
+        sim.produce(DS, 5);
+        let url = format!("{}/stream", sim.base_url(DS));
+        let req = json!({"fromBlock": START + 10, "parentBlockHash": "0xnot-our-block"});
+
+        let res = reqwest::Client::new().post(&url).json(&req).send().await.unwrap();
+        assert_eq!(
+            res.status(),
+            StatusCode::NO_CONTENT,
+            "a source below the asked position is behind, not disagreeing"
+        );
+        assert_eq!(sim.stats(DS).fork_signals, 0);
+
+        sim.inject_fault(DS, |f| f.fork_signal_above_tip = true);
+
+        let res = reqwest::Client::new().post(&url).json(&req).send().await.unwrap();
+        assert_eq!(res.status(), StatusCode::CONFLICT);
+        let body: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(
+            body["previousBlocks"].as_array().unwrap().last().unwrap()["number"],
+            START + 4,
+            "the fault reports a divergence at a tip it never reached past"
+        );
+        assert_eq!(sim.stats(DS).fork_signals, 1);
     }
 
     #[tokio::test]
