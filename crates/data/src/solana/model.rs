@@ -203,6 +203,7 @@ impl sqd_primitives::Block for Block {
     }
 
     fn timestamp(&self) -> Option<i64> {
-        self.header.timestamp.map(|seconds| seconds * 1000)
+        // saturate: an absurd source value must not panic (debug) or wrap into a plausible date
+        self.header.timestamp.map(|seconds| seconds.saturating_mul(1000))
     }
 }

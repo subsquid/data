@@ -344,7 +344,8 @@ impl sqd_primitives::Block for Block {
     }
 
     fn timestamp(&self) -> Option<i64> {
-        Some(self.header.timestamp * 1000)
+        // saturate: an absurd source value must not panic (debug) or wrap into a plausible date
+        Some(self.header.timestamp.saturating_mul(1000))
     }
 
     fn data_availability_mask(&self) -> DataMask {
