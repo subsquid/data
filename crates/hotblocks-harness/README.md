@@ -22,6 +22,7 @@ is what makes the crash/restart and shutdown classes expressible at all.
 ```bash
 cargo test -p sqd-hotblocks-harness          # the harness's own unit tests (model, chain, simulator)
 cargo test -p sqd-hotblocks --test ct1_happy_path   # CT-1 — the Phase 0 exit criterion
+cargo test -p sqd-hotblocks --test ct4_finality     # CT-4 — finalized-prefix equivocation
 cargo test -p sqd-hotblocks --test ct9_source_faults
 ```
 
@@ -33,7 +34,7 @@ reusable lives here, so a future soak or benchmark runner can use it outside `ca
 
 | Module | What it is | Spec |
 |---|---|---|
-| [`sim`](src/sim.rs) | source simulator: scripted chain, fork signals, finality headers, fault knobs | 13 §7, DEF-12 |
+| [`sim`](src/sim.rs) | source simulator: scripted chain, fork signals, finality headers, fault knobs including explicit finalized-prefix equivocation | 13 §7, DEF-12 |
 | [`model`](src/model.rs) | the reference model — the oracle. Block-exact, well-formedness asserted after every transition | 12 §2 |
 | [`driver`](src/driver.rs) | client: the read binding, the structural validators, the anchored follower and backfill scanner | 04 §7, 12 §4 |
 | [`compare`](src/compare.rs) | quiescence comparator: diffs every observable, collects *all* violations before failing | 12 §1 |
@@ -122,9 +123,12 @@ Fixed in `crates/data-client/src/reqwest/lines.rs`; pinned by a unit test there 
 - **CT-2 (crash/restart)** — `Sut::crash()`, `Sut::stop()`, `Sut::restart()` already exist and
   keep the same database directory and port across boots. What is missing is the kill-point
   matrix.
-- **CT-4 (fork/finality corpus)** — `Harness::fork()` and the model's `resolve_fork` /
-  `Finalize::IntegrityFault` are implemented and unit-tested; the follower implements the
-  normative CONFLICT recovery of 04 §7. What is missing is the scripts.
+- **CT-4 (fork/finality corpus)** — `ct4_finality` drives source-equivocation faults through the
+  real binary at both the retained-window floor and a deterministic two-chunk layout with finality
+  strictly inside the second chunk. Both prove rollback resumes at `fin + 1` and the accepted
+  finalized prefix remains unchanged. `Harness::fork()`, the model's `resolve_fork` /
+  `Finalize::IntegrityFault`, and the follower's normative CONFLICT recovery of 04 §7 support the
+  remaining successful-reorg, below-window, malformed-finality, fork-storm and alarm scripts.
 - **CT-5 (error taxonomy)** — `ct5_error_soundness` covers unsupported-dialect containment,
   error classification, and mid-stream worker-panic abort; the anchored check across large
   sparse-number holes is deferred (GAP-21, test `#[ignore]`d). `Model::predict_query` supplies

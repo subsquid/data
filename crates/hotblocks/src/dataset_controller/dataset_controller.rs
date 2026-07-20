@@ -18,7 +18,7 @@ use crate::{
         ingest_generic::{IngestMessage, NewChunk},
         write_controller::WriteController
     },
-    metrics::{WriteStage, report_hash_index_write_metrics, report_write_duration},
+    metrics::{WriteStage, report_hash_index_write_metrics, report_ingest_fork, report_write_duration},
     types::{DBRef, DatasetKind, RetentionStrategy}
 };
 
@@ -205,6 +205,7 @@ impl WriteCtx {
                 prev_blocks,
                 rollback_sender
             } => {
+                report_ingest_fork(self.dataset_id);
                 self.write.compute_rollback(&prev_blocks).map(|rollback| {
                     let _ = rollback_sender.send(rollback);
                 })?;

@@ -87,6 +87,8 @@ pub struct SimFaults {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SimStats {
     pub stream_requests: u64,
+    /// `fromBlock` on the most recent request, for rollback-position assertions.
+    pub last_stream_from: Option<BlockNumber>,
     pub blocks_served: u64,
     pub fork_signals: u64,
     pub no_data: u64,
@@ -159,6 +161,18 @@ impl SourceSim {
         let blocks = self.try_with(dataset, |d| d.fork(from, len))?;
         self.bump();
         Ok(blocks)
+    }
+
+    /// Fault injection for CT-4/FM-SRC-5: replace a suffix that includes the source's own
+    /// finalized head and claim the replacement tip as final.
+    ///
+    /// Unlike [`Self::fork`], this deliberately violates source finality. It has no model-side
+    /// counterpart: the last accepted model state remains the oracle while the SUT rejects the
+    /// equivocating source.
+    pub fn equivocate_finalized_prefix(&self, dataset: &str, from: BlockNumber, len: u32) -> Result<()> {
+        self.try_with(dataset, |d| d.equivocate_finalized_prefix(from, len))?;
+        self.bump();
+        Ok(())
     }
 
     /// Declare `number` (and everything below it) final.
@@ -301,22 +315,49 @@ impl DatasetSim {
     }
 
     fn fork(&mut self, from: BlockNumber, len: u32) -> Result<Vec<Block>> {
+        self.validate_fork_position(from)?;
+        ensure!(
+            self.fin.as_ref().is_none_or(|f| f.number < from),
+            "the script forks at or below the source's own finalized head — an equivocating source \
+             belongs to the CT-4 fault corpus, not to a well-formed script"
+        );
+        Ok(self.replace_suffix(from, len))
+    }
+
+    fn equivocate_finalized_prefix(&mut self, from: BlockNumber, len: u32) -> Result<()> {
+        self.validate_fork_position(from)?;
+        ensure!(len > 0, "a finality-equivocation fault must mint a replacement tip");
+        let finalized = self
+            .fin
+            .as_ref()
+            .context("a finality-equivocation fault requires an existing finalized head")?;
+        ensure!(
+            from <= finalized.number,
+            "equivocation at {from} does not replace finalized block {}",
+            finalized.number
+        );
+
+        let replacement = self.replace_suffix(from, len);
+        self.fin = Some(replacement.last().expect("a non-empty replacement has a tip").as_ref());
+        Ok(())
+    }
+
+    fn validate_fork_position(&self, from: BlockNumber) -> Result<()> {
         ensure!(
             from >= self.start,
             "fork at {from} is below the source's first block {}",
             self.start
         );
         ensure!(from <= self.next_number(), "fork at {from} is above the source's chain");
-        ensure!(
-            self.fin.as_ref().is_none_or(|f| f.number < from),
-            "the script forks at or below the source's own finalized head — an equivocating source \
-             belongs to the CT-4 fault corpus, not to a well-formed script"
-        );
+        Ok(())
+    }
+
+    fn replace_suffix(&mut self, from: BlockNumber, len: u32) -> Vec<Block> {
         let keep = self.chain.partition_point(|b| b.number < from);
         self.chain.truncate(keep);
         self.fork_id = self.next_fork_id;
         self.next_fork_id += 1;
-        Ok(self.produce(len))
+        self.produce(len)
     }
 
     fn finalize(&mut self, number: BlockNumber) -> Result<BlockRef> {
@@ -342,6 +383,7 @@ impl DatasetSim {
 
     fn respond(&mut self, req: &StreamReq) -> Reply {
         self.stats.stream_requests += 1;
+        self.stats.last_stream_from = Some(req.from_block);
 
         let parent_pos = req.from_block.saturating_sub(1);
         if let Some(asserted) = &req.parent_block_hash {

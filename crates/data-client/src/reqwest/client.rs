@@ -36,9 +36,7 @@ pub struct ReqwestDataClient {
 
 impl Debug for ReqwestDataClient {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReqwestDataClient")
-            .field("url", &self.url.as_str())
-            .finish()
+        f.write_str(self.url.as_str())
     }
 }
 

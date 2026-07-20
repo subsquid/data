@@ -60,6 +60,8 @@ pub static QUERY_ERROR_WORKER_PANIC: LazyLock<Counter> = LazyLock::new(Default::
 
 pub static COMPLETED_QUERIES: LazyLock<Counter> = LazyLock::new(Default::default);
 
+static INGEST_FORKS: LazyLock<Family<DatasetLabel, Counter>> = LazyLock::new(Default::default);
+
 pub static STREAM_DURATIONS: LazyLock<Family<Labels, Histogram>> =
     LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(exponential_buckets(0.01, 2.0, 20))));
 pub static STREAM_BYTES: LazyLock<Family<Labels, Histogram>> =
@@ -152,6 +154,10 @@ pub(crate) fn report_hash_index_write_metrics(dataset_id: DatasetId, metrics: &H
     if let Some(duration) = metrics.transaction_hash_index_duration() {
         report_write_duration(dataset_id, WriteStage::TransactionHashIndex, duration, success);
     }
+}
+
+pub(crate) fn report_ingest_fork(dataset_id: DatasetId) {
+    INGEST_FORKS.get_or_create(&dataset_label!(dataset_id)).inc();
 }
 
 pub fn report_query_too_many_tasks_error() {
@@ -508,6 +514,11 @@ pub fn build_metrics_registry() -> Registry {
         "completed_queries",
         "Number of completed queries",
         COMPLETED_QUERIES.clone()
+    );
+    registry.register(
+        "ingest_forks",
+        "Fork/rollback events resolved during ingestion",
+        INGEST_FORKS.clone()
     );
 
     top_registry
