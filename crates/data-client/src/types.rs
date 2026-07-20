@@ -45,4 +45,14 @@ pub trait DataClient: Send + Sync + Debug + Unpin {
     fn get_finalized_head(&self) -> BoxFuture<'static, anyhow::Result<Option<BlockRef>>>;
 
     fn is_retryable(&self, err: &anyhow::Error) -> bool;
+
+    /// Error class for the `ingest_source_errors` metric label.
+    fn error_kind(&self, _err: &anyhow::Error) -> &'static str {
+        "other"
+    }
+
+    /// Source identity (host) for the `ingest_source_errors` metric label.
+    fn source_label(&self) -> String {
+        "unknown".to_string()
+    }
 }

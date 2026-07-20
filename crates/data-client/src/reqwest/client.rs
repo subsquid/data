@@ -226,6 +226,46 @@ impl DataClient for ReqwestDataClient {
     fn is_retryable(&self, err: &anyhow::Error) -> bool {
         self.is_retryable(err)
     }
+
+    fn error_kind(&self, err: &anyhow::Error) -> &'static str {
+        for cause in err.chain() {
+            if cause.downcast_ref::<UnexpectedHttpStatus>().is_some() {
+                return "http";
+            }
+            if let Some(reqwest_error) = cause.downcast_ref::<reqwest::Error>() {
+                if reqwest_error.is_timeout() {
+                    return "timeout";
+                }
+                if reqwest_error.is_connect() {
+                    return "connect";
+                }
+                if reqwest_error.is_status() {
+                    return "http";
+                }
+                if reqwest_error.is_body() || reqwest_error.is_decode() {
+                    return "decode";
+                }
+                if reqwest_error.is_request() {
+                    return "request";
+                }
+            }
+            if cause.downcast_ref::<std::io::Error>().is_some() {
+                return "io";
+            }
+        }
+        "other"
+    }
+
+    // Host alone collapses endpoints that differ only by port or dataset path. Built by hand
+    // rather than from `Url::authority()`, which carries userinfo straight into the label.
+    fn source_label(&self) -> String {
+        let host = self.url.host_str().unwrap_or("unknown");
+        let path = self.url.path().trim_end_matches('/');
+        match self.url.port() {
+            Some(port) => format!("{host}:{port}{path}"),
+            None => format!("{host}{path}")
+        }
+    }
 }
 
 #[derive(Debug)]

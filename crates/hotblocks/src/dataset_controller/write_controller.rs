@@ -8,6 +8,7 @@ use tracing::{debug, field::valuable, info, instrument, warn};
 
 use crate::{
     dataset_controller::ingest_generic::{IngestMessage, NewChunk},
+    errors::UnapplicableFork,
     metrics::{WriteStage, report_hash_index_write_metrics, report_write_duration},
     types::{DBRef, DatasetKind}
 };
@@ -139,10 +140,17 @@ impl WriteController {
         if let Some(finalized_head) = label.finalized_head() {
             let pos = match prev.iter().position(|b| b.number >= finalized_head.number) {
                 Some(pos) => pos,
-                None => bail!("all passed prev blocks lie below finalized head")
+                None => bail!(UnapplicableFork {
+                    reason: "all passed prev blocks lie below finalized head"
+                })
             };
             if prev[pos].number == finalized_head.number {
-                ensure!(prev[pos].hash == finalized_head.hash);
+                ensure!(
+                    prev[pos].hash == finalized_head.hash,
+                    UnapplicableFork {
+                        reason: "fork disagrees with the finalized head hash"
+                    }
+                );
             }
             prev = &prev[pos..]
         }

@@ -193,3 +193,87 @@ async fn ct4_a_caught_up_source_changes_nothing() -> Result<()> {
 
     Ok(())
 }
+
+/// The wedge above is invisible twice over: the fork signal is an `Ok` that never reaches
+/// `on_error`, and the park is an `error!` a crash-looping pod may never ship. Neither GAP-41 nor
+/// GAP-5 is fixed here — this pins that both became countable, so a head held back by a lying
+/// source reads differently from a hung service.
+///
+/// Not `#[ignore]`d unlike its neighbours: observability holds, conformance does not.
+#[tokio::test(flavor = "multi_thread")]
+async fn ct4_a_fork_signal_above_the_tip_and_the_park_it_causes_are_observable() -> Result<()> {
+    let mut h = Harness::start(config(3)).await?;
+
+    h.produce(20)?;
+    h.finalize_with_lag(5)?;
+    h.settle().await?;
+
+    for peer in &h.peers {
+        peer.inject_fault(&h.dataset, |f| f.fork_signal_above_tip = true);
+    }
+
+    for _ in 0..12 {
+        h.produce_ahead(10)?;
+        h.finalize_with_lag(5)?;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // No `settle` — the epoch is serving out `P-EPOCH-RETRY`, which is the thing being measured.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let metrics = h.client.metrics().await?;
+
+    let above_tip = metrics
+        .get("hotblocks_ingest_fork_signals_total", Some(("standing", "above_tip")))
+        .unwrap_or_default();
+    assert!(above_tip > 0.0, "a fork signalled above the source's own tip");
+
+    assert!(
+        metrics
+            .get("hotblocks_ingest_fork_signals_total", Some(("standing", "at_tip")))
+            .is_none(),
+        "no source held the contested position"
+    );
+
+    let parked = metrics
+        .get(
+            "hotblocks_dataset_epoch_failures_total",
+            Some(("reason", "unapplicable_fork"))
+        )
+        .unwrap_or_default();
+    assert!(parked > 0.0, "the park must name the divergence as its cause");
+
+    Ok(())
+}
+
+/// The other half: an honest reorg must land in `at_tip`. Without it the label above is
+/// unfalsifiable — a discriminator stuck on `above_tip` would pass that script and then cry
+/// source defect on every ordinary reorg in production.
+#[tokio::test(flavor = "multi_thread")]
+async fn ct4_an_honest_reorg_is_not_attributed_to_the_source() -> Result<()> {
+    let mut h = Harness::start(config(1)).await?;
+
+    h.produce(20)?;
+    h.settle().await?;
+
+    h.fork(1_010, 10)?;
+    h.finalize_with_lag(5)?;
+    h.settle().await?;
+    h.assert_conforms().await?;
+
+    let metrics = h.client.metrics().await?;
+
+    let at_tip = metrics
+        .get("hotblocks_ingest_fork_signals_total", Some(("standing", "at_tip")))
+        .unwrap_or_default();
+    assert!(at_tip > 0.0, "the reorg reaches the service as a fork signal");
+
+    assert!(
+        metrics
+            .get("hotblocks_ingest_fork_signals_total", Some(("standing", "above_tip")))
+            .is_none(),
+        "the source signalled where it stood — attributing this to a defect would make the \
+         metric fire on every reorg"
+    );
+
+    Ok(())
+}
