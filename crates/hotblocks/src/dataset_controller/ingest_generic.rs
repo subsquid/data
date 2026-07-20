@@ -3,7 +3,7 @@ use std::{
     time::Instant
 };
 
-use anyhow::{anyhow, ensure};
+use anyhow::ensure;
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use sqd_data_core::{BlockChunkBuilder, ChunkProcessor, PreparedChunk};
@@ -250,14 +250,15 @@ where
         let last_block = self.last_block;
         let last_block_hash = self.last_block_hash.clone();
 
-        let last_block_time = DateTime::<Utc>::from_timestamp_millis(self.last_block_time.unwrap_or(0))
-            .ok_or_else(|| anyhow!("block time is out of range"))?;
+        // informational only (DEF-4, CN-8): an unrepresentable value must not fail the flush
+        let last_block_time = DateTime::<Utc>::from_timestamp_millis(self.last_block_time.unwrap_or(0));
 
         debug!(
             first_block = first_block,
             last_block = last_block,
             last_block_hash = %last_block_hash,
-            last_block_time = %last_block_time.format("%Y-%m-%dT%H:%M:%S%.3fZ"),
+            last_block_time = ?last_block_time,
+            last_block_time_ms = ?self.last_block_time,
             finalized_head = valuable(&self.finalized_head),
             "received new chunk"
         );
