@@ -75,6 +75,15 @@ block is emitted (RP-9); a filter-sparse query returning nothing tells the clien
 how far it got (GAP-8). Scanning with `include_all` sidesteps that, so the harness can always
 advance. Do not "optimize" it away.
 
+**A source asked above its tip answers no-data, not a fork.** RP-5b confines the fork signal
+to `from == tip + 1` — the one position where the parent assertion is evaluable against a block
+the source actually holds. The simulator used to signal a fork at *any* position above its tip,
+which made a source that is merely **behind** indistinguishable from one that **disagrees**; with
+several endpoints per dataset that is the difference between a laggard and a reorg. The old
+behavior is kept as an explicit fault (`SimFaults::fork_signal_above_tip`), because a real source
+doing it wedges the service — one such endpoint out of three is enough
+(`ct4_a_single_source_signalling_a_fork_above_its_tip_does_not_park_ingestion`).
+
 **Numbering may be sparse.** Solana numbers blocks by time-based slots and a slot that produced
 nothing leaves a hole, so contiguous *numbering* is not an invariant — being parent and child is
 (`Block::parent_number`). The service agrees: it links batches and chunks by hash and never by
@@ -124,7 +133,13 @@ Fixed in `crates/data-client/src/reqwest/lines.rs`; pinned by a unit test there 
   matrix.
 - **CT-4 (fork/finality corpus)** — `Harness::fork()` and the model's `resolve_fork` /
   `Finalize::IntegrityFault` are implemented and unit-tested; the follower implements the
-  normative CONFLICT recovery of 04 §7. What is missing is the scripts.
+  normative CONFLICT recovery of 04 §7. What is missing is most of the scripts.
+  `ct4_lagging_source` covers the multi-endpoint shape production actually runs — several
+  sources per dataset, one of them behind (`HarnessConfig::sources`, `Harness::produce_ahead`).
+  Note `Harness::fork()` refuses to run with peers configured: reorging one endpoint of several
+  is a source *disagreement*, and what the service should do with it is the fork-consensus
+  question (`StandardDataSource::poll_next_event` — majority, or all-active, or a 2 s timeout).
+  That deserves a deliberate script, not an accidental one.
 - **CT-5 (error taxonomy)** — `ct5_error_soundness` covers unsupported-dialect containment,
   error classification, and mid-stream worker-panic abort; the anchored check across large
   sparse-number holes is deferred (GAP-21, test `#[ignore]`d). `Model::predict_query` supplies
