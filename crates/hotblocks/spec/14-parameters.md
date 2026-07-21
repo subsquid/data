@@ -62,7 +62,7 @@ ran against.
 | `P-ALARM` | integrity fault → observable alarm (WP-17, LIV-9b, OB-9) | ∞ (no alarm states exist: GAP-5) | ≤ 10 s ⚠ |
 | `P-STARTUP-ACCEPT` | process start → accepting connections (LIV-5a, SLI-5) | ~35 s observed (GAP-7) | ≤ 3 s ⚠ |
 | `P-STARTUP-READY(state)` | per-dataset readable bound (LIV-5b, SLI-6) | — | budget curve vs state size ⚠ |
-| `P-SHUTDOWN` | drain-and-exit bound (LIV-12) | — | ≤ 30 s ⚠ |
+| `P-SHUTDOWN` | drain-and-exit bound (LIV-12) | `--pre-drain-grace-secs` 25 s + `--drain-timeout-secs` 25 s since 2026-07-21 (GAP-17), bounded in-process at last; the deployment's 5 s grace is still below the sum, so the exit remains SIGKILL until the chart is raised | deployment grace ≥ `pre_drain_grace + drain_timeout`; drain deadline ≥ `P-QUERY-TIME` + `P-SCHED-SLACK` ⚠ |
 | `P-DUR-PROCESS` | commits lost on process crash (CN-6) | 0 | 0 |
 | `P-DUR-SYSTEM` | commit-suffix loss window on host/power failure (CN-6b) | bounded, engine-managed (not explicitly configured) | make explicit ⚠ |
 | `P-QUIESCENCE` | harness settling period before model comparison (12 §1) | — | 2× `P-CLEANUP-PERIOD` ⚠ |
