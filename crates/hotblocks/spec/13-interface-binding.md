@@ -34,6 +34,7 @@ annotated with the relevant GAP.
 | GET-RETENTION | `GET /datasets/{id}/retention` | current policy JSON |
 | SET-RETENTION | `POST /datasets/{id}/retention` | policy JSON; only for `External` datasets, else `FORBIDDEN` (403) |
 | observability | `GET /metrics` (+ engine-diagnostic routes) | OB surface, text formats |
+| readiness | `GET /ready` | rotation gate (OB-8), distinct from the `/` liveness signal: 503 for the whole pre-drain grace window so the orchestrator withdraws the endpoint before anything closes (LIV-12). Process-level only — per-dataset readability (LIV-5c) is still absent (GAP-7) |
 
 Dialects accepted in query bodies: `evm`, `solana`, `bitcoin`, `tron`,
 `hyperliquidFills`, `hyperliquidReplicaCmds` — and, expressible in the query schema but
@@ -71,8 +72,13 @@ below" never applies below genesis).
   projected, and anchored continuation (RP-10) therefore requires projecting them.
 - **IB-5** The success status is committed before streaming begins; admission-time errors
   therefore arrive as proper error statuses, while post-admission failures surface as
-  RP-15 truncation (stream ends early; already-sent prefix remains valid JSONL). See
-  GAP-10 for the observability obligation.
+  RP-15 truncation (stream ends early; already-sent prefix remains valid JSONL). At this
+  binding a truncation is a *server-side end*, not a dropped connection: the codec stream
+  and the chunked body MUST both be terminated, so that the client sees a short but
+  well-framed response, exactly as at a budget stop (RP-15). A reset connection leaves a
+  half-written codec frame the client cannot decode at all — a transport failure, not a
+  truncation, and not licensed by this clause (GAP-17). See GAP-10 for the observability
+  obligation.
 - **IB-6** Response watermark headers (success): finalized head number+hash when defined,
   and a head-number header (for the live stream: at least the snapshot head; may be
   fresher per CN-5). `NO_DATA` (204) SHOULD carry the same watermark headers — currently

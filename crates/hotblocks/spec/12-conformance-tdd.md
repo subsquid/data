@@ -227,7 +227,7 @@ INV-21/22/23 (checks in parentheses):
 6. anchored continuation across responses never breaks parent-hash chains (INV-23);
 7. watermark coherence: `first ≤ fin ≤ head` whenever reported together (INV-5/30).
 
-## 5. Traceability matrix (status @ 2026-07-20)
+## 5. Traceability matrix (status @ 2026-07-21)
 
 Legend: **C** covered, **P** partial (some storage-layer or fixture coverage exists;
 service-level black-box coverage absent), **U** untested. Rows that changed with Phase 0 name
@@ -267,14 +267,14 @@ the same property under forks, crashes and retention is the business of CT-2/CT-
 | RP-19/20 lookup contract | CT-5 | **P** | hit/miss, disabled-index behavior, over-limit rejection before dataset lookup, and the 256-byte boundary are pinned; the NOT_FOUND vs UNKNOWN_DATASET split remains open (GAP-39) |
 | LIV-1/2 progress/stall | CT-6/7 | **U — known-violated** | GAP-1 |
 | LIV-3 query termination | CT-3/6 | U | |
-| LIV-4 waiter termination | CT-1/3 | P | `ct1_happy_path`: a query above the head answers `NO_DATA` within `P-HEAD-WAIT` |
+| LIV-4 waiter termination | CT-1/3 | **P — known-violated** | `ct1_happy_path`: a query above the head answers `NO_DATA` within `P-HEAD-WAIT`. The shutdown clause is unimplemented — the wait is a fixed timeout that never learns of the signal, so waiters are released by expiry rather than released *on* shutdown (GAP-17) |
 | LIV-5/6 startup/recovery | CT-2/6 | **U — known-violated** | GAP-7; `Sut::last_startup` records SLI-5 per boot |
 | LIV-7 reclamation | CT-7 | U | runtime reclaim on by default since 2026-07 (GAP-6 residual: boot-gated residue purge); convergence unmeasured |
 | LIV-8 isolation | CT-8 | **U — known-violated** | GAP-1/14 |
 | LIV-9 fork convergence/alarm | CT-4 | **U — known-violated** | GAP-5 now has a deterministic repro (`ct4_a_single_source_signalling_a_fork_above_its_tip_does_not_park_ingestion`): one bad source of three parks ingestion — no alarm, no recovery |
 | LIV-10 overload recovery | CT-6 | U | |
 | LIV-11 retention keep-up | CT-7 | U | |
-| LIV-12 shutdown | CT-2 | **U — known-suspect** | GAP-17; `Sut::stop` measures the drain |
+| LIV-12 shutdown | CT-2 | **P — known-violated** | `ct2_shutdown` drives the real binary through SIGTERM and pins unready-before-grace, continued serving during grace, the hard drain deadline with an in-flight long-poll, bounded exit and success status. The clean-truncation and ingest-wind-down halves are still open and the deployed grace still forces SIGKILL (GAP-17) |
 | RS-3/4 window floor/excess | CT-1/7 | U | |
 | RS-6 amplification | CT-7 | U | reclaim path fixed 2026-07 (GAP-6); bound unmeasured under churn |
 | RS-8 boot maintenance | CT-2/7 | P | unlink/orphan-purge behaviors have storage-level tests |
@@ -288,7 +288,7 @@ the same property under forks, crashes and retention is the business of CT-2/CT-
 | OB-2..11 | all | P | query metrics exist; stall gauges pending on PR #83 (unmerged); OB-2 heartbeat, OB-6 debt accounting, OB-9 alarms, OB-11 forensics absent |
 | OB-12 index state | CT-1 | **P** | CF-wide estimated keys / live SST bytes are exported for both indexes; per-dataset enabled/count/bytes and lookup hit/miss/latency remain absent (GAP-40) |
 
-## 6. Gap register (dated 2026-07-20, informative)
+## 6. Gap register (dated 2026-07-21, informative)
 
 Known or strongly suspected divergences between this spec and the current system, from
 incident history, code-level review, and coverage analysis. Priorities: P0 = active
@@ -312,7 +312,7 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 | GAP-14 | Read-side capacity (execution slots, waiter slots) is a single global pool: one dataset's query herd can starve all datasets | PF-4, LIV-8 | P2 | CT-8: herd on D′, tip-follower SLOs on D |
 | GAP-15 | No explicit store-format compatibility gate at boot; incompatibility surfaces as runtime decode errors | CN-12, INV-43 | P3 | CT-5 boot matrix with future-format fixture |
 | GAP-16 | ~~The service layer has essentially zero automated tests~~ — **closed by Phase 0**, see §6.1 | all | — | done |
-| GAP-17 | Shutdown can take a panic-class exit path in ingestion cancellation (observed at redeploy) | LIV-12, FM-PROC-4 | P2 | CT-2 shutdown class: SIGTERM under load ×100, zero panic exits |
+| GAP-17 | Shutdown can take a panic-class exit path in ingestion cancellation (observed at redeploy). **2026-07-21 addendum**: replica replacement is client-visible, in two ways that must not be conflated. (a) *Idle pooled connection* — at SIGTERM the server closes keep-alive connections at once while the endpoint removal is still propagating (chart: grace 5 s, no `preStop`, no readiness probe at all), so the portal POSTs into a socket already gone: 502 burst observed one second after SIGTERM with a Ready sibling idle. Nothing was admitted, so LIV-12 does permit it, and masking it belongs outside this spec — portal replay on a fresh connection (`sqd-portal` 13-conformance GAP-22) plus a chart `preStop`. (b) *Active stream cut* — **not** permitted: RP-15 requires the truncation to be "observationally identical to a budget stop", and a process kill leaves an unterminated chunked body and a half-written codec frame, so the client cannot decode the prefix at all, let alone as valid JSONL (IB-5's looser paraphrase is not a licence). A response that has already committed 200 and emitted bytes is unreplayable by any client, so (b) is fixable only here. And (b) is not rare: the drain floor already equals `P-HEAD-WAIT`, because head-waiters run a fixed 5 s timeout with no knowledge of the signal (`query/service.rs`) in violation of LIV-4's explicit shutdown clause — that is the whole 5 s grace, so under tip-follower load the exit is SIGKILL, i.e. FM-PROC-1, and the "clean path" this entry once assumed is not taken in production at all. The drain is also unbounded from the inside: `axum::serve(..).with_graceful_shutdown` carries no deadline and GAP-29 (no response deadline; a stalled reader pins its response) means nothing bounds `P-SHUTDOWN` whatever the grace is. Lastly the RP-15 escape hatch owes a truncation counter that does not exist (GAP-10). **Partly closed 2026-07-21**: SIGTERM now runs the same two-phase sequence as the portal (sqd-portal#113) — `/ready` reports 503 for `--pre-drain-grace-secs` while everything else serves normally, then the drain runs under a hard `--drain-timeout-secs`; SIGINT stays on the default handler so dev Ctrl-C is unaffected. That answers (a) and bounds `P-SHUTDOWN` from the inside, but only takes effect once the chart probes `/ready` and raises the grace above the sum of the two. Still open: (b), since a stream cut at the deadline is still a reset rather than an RP-15 end; LIV-4's shutdown clause, since waiters still sit out their fixed timeout; and the original ingest-cancellation path | LIV-12, LIV-4, RP-15, FM-PROC-4 | **P1** (was P2 on the "bounded or rare" premise; the addendum removes it — it fires on every replica replacement and the clean path is never taken under load) | CT-2 shutdown class: SIGTERM under load ×100 — zero panic exits, exit ≤ `P-SHUTDOWN`, every cut stream decodes as a valid JSONL prefix, every long-poll released ≤ `P-HEAD-WAIT` |
 | GAP-18 | Dual-writer detection exists only on some paths (finality/head updates), not all mutations | WP-15, FM-OP-3 | P3 | CT-5: two harness-driven writers, assert loser stops on every mutation type |
 | GAP-20 | `parent_number` linkage is never validated on any layer (the block trait exposes it; nothing reads it): a hash-linked run can claim an arbitrarily higher number for the next block, storing a false hole on a densely-numbered chain — a silent data gap served as if it were a slot gap. (The originally-filed non-monotonic-numbers scenario is unreachable today: the source-position advance forces ascending numbers.) | WP-2, DEF-4, INV-1 | P2 | CT-4/CT-9: hash-linked run with a number jump on a dense chain; the run MUST be rejected with no state change |
 | GAP-21 | An anchored query whose `from` sits mid-chunk above a number gap larger than the conflict-check lookback (a hard-coded 100 positions in the plan's base-block check) fails `INTERNAL` instead of evaluating the assertion. A >100-position hole with an anchor landing just above it is probably unrealistic, hence low priority. A correct all-predecessors scan was tried and reverted 2026-07-15 — it regressed `check_parent_block` into an unbounded per-chunk scan+sort; needs a lazy sort-desc + limit(100) | RP-11, INV-26 | P3 | CT-5 `ct5_anchor_is_evaluated_across_a_large_number_hole` (`#[ignore]` until fixed): >100-position hole in one chunk; anchored query just above must yield OK/CONFLICT, never 500 |
@@ -358,7 +358,7 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 
   | Built, awaiting scripts | Missing |
   |---|---|
-  | `Sut::crash/stop/restart` (same db, same port) → CT-2 | the CT-2 kill-point matrix |
+  | `Sut::crash/stop/restart` (same db, same port); `ct2_shutdown` exercises the bounded SIGTERM path | the remaining CT-2 kill-point matrix |
   | `Harness::fork` + `Model::resolve_fork` + the follower's CONFLICT recovery → CT-4 | the CT-4 fork/finality corpus |
   | `Model::predict_query` + initial `ct5_error_soundness` matrix | remaining CT-5 binding, boot, and overload rows |
   | `SimFaults` injection point → CT-9 | the rest of the FM-SRC repertoire |
@@ -370,10 +370,12 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 
 - **Phase 1 — the P0s.** Stall harness + OB-2/3/11 signals (GAP-1); churn soak + space
   accounting via OB-6 (GAP-6). These target the two production incidents.
-- **Phase 2 — correctness core.** CT-2 crash matrix (GAP-2), CT-4 fork/finality corpus
-  (GAP-3/4/5), CT-5 remaining error taxonomy + boot matrix (GAP-8/9/15/36/39).
+- **Phase 2 — correctness core.** CT-2 crash matrix (GAP-2) and shutdown class (GAP-17 —
+  pulled forward from Phase 3: it is client-visible on every replica replacement), CT-4
+  fork/finality corpus (GAP-3/4/5), CT-5 remaining error taxonomy + boot matrix
+  (GAP-8/9/15/36/39).
 - **Phase 3 — robustness.** CT-9 fuzz both surfaces (GAP-12), CT-3 concurrency swarms,
-  CT-8 isolation (GAP-14), shutdown class (GAP-17).
+  CT-8 isolation (GAP-14).
 - **Phase 4 — performance regime.** CT-6 scenarios S1–S6, SLO gates, saturation knees,
   baselines (GAP-7/13); wire into CI with tolerances.
 

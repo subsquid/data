@@ -30,6 +30,18 @@ pub const CF_DELETED_TABLES: Name = "DELETED_TABLES";
 pub const CF_BLOCK_HASHES: Name = "BLOCK_HASHES";
 pub const CF_TRANSACTION_HASHES: Name = "TRANSACTION_HASHES";
 
+/// Every column family [`DatabaseSettings::open`] creates. Pinned by a test, because a
+/// family missing here would silently keep [`Database::flush_all`] from retiring the WAL.
+const ALL_CFS: [Name; 7] = [
+    CF_DATASETS,
+    CF_CHUNKS,
+    CF_TABLES,
+    CF_DIRTY_TABLES,
+    CF_DELETED_TABLES,
+    CF_BLOCK_HASHES,
+    CF_TRANSACTION_HASHES
+];
+
 /// Whole-file rewrite cadence for `CF_TABLES`. RocksDB leaves `periodic_compaction_seconds`
 /// disabled for leveled compaction without a compaction filter, so the effective baseline
 /// is the separate 30-day `ttl` default. 7 days buys ~4x that rewrite rate.
@@ -534,6 +546,21 @@ impl Database {
         Ok(())
     }
 
+    /// Flush every memtable, so the next boot has almost no WAL to replay. Every family has
+    /// to go: a WAL file lives until the last one that wrote into it has flushed.
+    ///
+    /// Costs the memtables and nothing else -- unlike closing the database, which waits out
+    /// the background compactions. That is the trade at exit: pay a bounded flush here
+    /// rather than an unbounded close, and never close at all.
+    pub fn flush_all(&self) -> anyhow::Result<()> {
+        let cfs: Vec<_> = ALL_CFS
+            .iter()
+            .map(|name| self.db.cf_handle(name).expect("column family opened at startup"))
+            .collect();
+        self.db.flush_cfs_opt(&cfs, &rocksdb::FlushOptions::default())?;
+        Ok(())
+    }
+
     /// Force a full compaction of the table-data column family. Test support: production
     /// relies on background compaction. Rewrites files, so it needs scratch space -- the
     /// very thing that deadlocks on the full disk [`Database::reclaim_disk_space`] exists for.
@@ -679,6 +706,49 @@ mod tests {
     fn measure_hash_index_compression_disk_size() {
         measure_hash_index_compression(rocksdb::DBCompressionType::Snappy, "snappy");
         measure_hash_index_compression(rocksdb::DBCompressionType::Lz4, "lz4");
+    }
+
+    fn active_memtable_entries(db: &Database, cf_name: &str) -> u64 {
+        db.get_int_property(cf_name, "rocksdb.num-entries-active-mem-table")
+            .unwrap()
+            .unwrap()
+    }
+
+    #[test]
+    fn flush_all_empties_every_memtable() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = DatabaseSettings::default().open(dir.path()).unwrap();
+
+        for cf_name in ALL_CFS {
+            db.db.put_cf(db.db.cf_handle(cf_name).unwrap(), b"k", b"v").unwrap();
+            assert_ne!(active_memtable_entries(&db, cf_name), 0, "{cf_name} was not written");
+        }
+
+        db.flush_all().unwrap();
+
+        for cf_name in ALL_CFS {
+            assert_eq!(
+                active_memtable_entries(&db, cf_name),
+                0,
+                "{cf_name} still holds the WAL"
+            );
+        }
+    }
+
+    #[test]
+    fn all_cfs_covers_every_family_the_database_opens() {
+        let dir = tempfile::tempdir().unwrap();
+        // Dropped at once: `list_cf` needs the LOCK back.
+        DatabaseSettings::default().open(dir.path()).unwrap();
+
+        let mut opened = RocksDB::list_cf(&RocksOptions::default(), dir.path()).unwrap();
+        opened.retain(|name| name != "default");
+        opened.sort();
+
+        let mut expected: Vec<_> = ALL_CFS.iter().map(|name| name.to_string()).collect();
+        expected.sort();
+
+        assert_eq!(opened, expected);
     }
 
     #[test]

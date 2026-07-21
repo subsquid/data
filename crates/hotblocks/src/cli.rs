@@ -48,6 +48,16 @@ pub struct CLI {
     #[arg(long, default_value = "3000")]
     pub port: u16,
 
+    /// After SIGTERM, keep serving for this long while `/ready` reports 503, so the
+    /// orchestrator withdraws our endpoint before any connection closes.
+    #[arg(long, value_name = "SECS", default_value = "25")]
+    pub pre_drain_grace_secs: u64,
+
+    /// Hard cap on the drain that follows. The orchestrator's kill timeout must exceed
+    /// `pre_drain_grace + drain_timeout`.
+    #[arg(long, value_name = "SECS", default_value = "25")]
+    pub drain_timeout_secs: u64,
+
     /// Enable rocksdb stats collection
     #[arg(long)]
     pub rocksdb_stats: bool,

@@ -1,6 +1,9 @@
 use std::{
     future::Future,
-    sync::{Arc, LazyLock},
+    sync::{
+        Arc, LazyLock,
+        atomic::{AtomicBool, Ordering}
+    },
     time::Instant
 };
 
@@ -95,7 +98,7 @@ macro_rules! get_dataset {
 
 type AppRef = Arc<App>;
 
-pub fn build_api(app: App) -> Router {
+pub fn build_api(app: App, shutting_down: Arc<AtomicBool>) -> Router {
     Router::new()
         .route("/", get(|| async { "Welcome to SQD hot block data service!" }))
         .route("/datasets/{id}/stream", post(stream))
@@ -114,6 +117,19 @@ pub fn build_api(app: App) -> Router {
         .layer(axum::middleware::from_fn(middleware))
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid::default()))
         .layer(Extension(Arc::new(app)))
+        // Routed after the layers deliberately: axum leaves later routes unwrapped, and the
+        // grace window's 503s are a rotation signal, not faults -- inside `middleware` they
+        // would land in `http_status` as `error_class="Unclassified"` on every termination.
+        .route("/ready", get(get_readiness).layer(Extension(shutting_down)))
+}
+
+/// Rotation gate, not liveness: 503 from the moment shutdown starts. Per-dataset
+/// readability (LIV-5c) is not modelled -- serving is gated on full init today (GAP-7).
+async fn get_readiness(Extension(shutting_down): Extension<Arc<AtomicBool>>) -> impl IntoResponse {
+    if shutting_down.load(Ordering::Relaxed) {
+        return (StatusCode::SERVICE_UNAVAILABLE, "Shutting down").into_response();
+    }
+    (StatusCode::OK, "Ready").into_response()
 }
 
 const HASH_MAX_LEN: usize = 256;
@@ -419,6 +435,24 @@ fn stream_query_response<S: DataPackSource>(mut stream: S) -> impl Stream<Item =
 /// the runner mid-stream (no trailer to emit), so such a stream must abort instead.
 fn stream_can_finish_cleanly(err: &anyhow::Error) -> bool {
     !err.is::<QueryTaskPanicked>()
+}
+
+#[cfg(test)]
+mod readiness_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn ready_flips_to_503_once_shutdown_starts() {
+        let shutting_down = Arc::new(AtomicBool::new(false));
+
+        let res = get_readiness(Extension(shutting_down.clone())).await.into_response();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        shutting_down.store(true, Ordering::Relaxed);
+
+        let res = get_readiness(Extension(shutting_down)).await.into_response();
+        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
 }
 
 #[cfg(test)]
