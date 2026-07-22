@@ -17,13 +17,14 @@ pub fn ingest<'a, 'b>(
     sources: Vec<ReqwestDataClient>,
     dataset_kind: DatasetKind,
     first_block: BlockNumber,
-    parent_block_hash: Option<&'a str>
+    parent_block_hash: Option<&'a str>,
+    spill_bound_bytes: usize
 ) -> BoxFuture<'b, anyhow::Result<()>> {
     macro_rules! run {
         ($builder:expr) => {{
             let mut data_source = StandardDataSource::new(sources, from_json_bytes);
             data_source.set_position(first_block, parent_block_hash);
-            IngestGeneric::new(dataset_id, data_source, $builder, message_sender)
+            IngestGeneric::new(dataset_id, data_source, $builder, message_sender, spill_bound_bytes)
                 .run()
                 .boxed()
         }};

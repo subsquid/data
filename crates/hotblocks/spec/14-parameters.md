@@ -27,7 +27,7 @@ ran against.
 | Parameter | Role | Observed | Target |
 |---|---|---|---|
 | `P-BATCH-ROWS` | batch flush bound, rows (WP-3, HZ-6) | 200 000 rows | keep |
-| `P-BATCH-BYTES` | batch flush bound, bytes (WP-3, PF-1) | ~30 MB (soft) | hard ceiling ⚠ (GAP-13) |
+| `P-BATCH-BYTES` | batch flush bound, bytes (WP-3, PF-1) | `--spill-bound-bytes`, 30 MB by default (soft) | hard ceiling ⚠ (GAP-13) |
 | `P-MAX-BLOCK-BYTES` | ceiling on one block's encoded size, enforced at ingest (WP-2 rejection + source fault); what makes the read-side "+ one block" allowance (RP-17, INV-25) and PF-1's ceiling finite | absent — a single oversized block stores (the batch bound is soft) and must later be emitted whole (GAP-37) | define ⚠ |
 | `P-FORK-CONSENSUS` | arbitration timeout before accepting a fork signal (WP-4) | 2 s | keep |
 | `P-SOURCE-BACKOFF` | per-source retry backoff schedule (WP-17, FM-SRC-1) | 0→10 s exponential steps | keep |
