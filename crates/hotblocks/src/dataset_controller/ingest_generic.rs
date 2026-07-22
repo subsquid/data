@@ -50,19 +50,22 @@ impl Display for NewChunk {
     }
 }
 
-/// `maybe_flush` spills builder contents to the processor beyond this size.
-const SPILL_BOUND_BYTES: usize = 30 * 1024 * 1024;
+/// Default for `--spill-bound-bytes`: `maybe_flush` spills builder contents to the
+/// processor beyond this size.
+pub(crate) const DEFAULT_SPILL_BOUND_BYTES: usize = 30 * 1024 * 1024;
 
 struct DataBuilder<CB> {
     builder: CB,
-    processor: Option<ChunkProcessor>
+    processor: Option<ChunkProcessor>,
+    spill_bound_bytes: usize
 }
 
 impl<CB: BlockChunkBuilder> DataBuilder<CB> {
-    pub fn new(builder: CB) -> Self {
+    pub fn new(builder: CB, spill_bound_bytes: usize) -> Self {
         Self {
             builder,
-            processor: None
+            processor: None,
+            spill_bound_bytes
         }
     }
 
@@ -89,7 +92,7 @@ impl<CB: BlockChunkBuilder> DataBuilder<CB> {
     }
 
     pub fn finish(&mut self) -> anyhow::Result<PreparedChunk> {
-        if self.processor.is_none() && self.builder.byte_size() <= SPILL_BOUND_BYTES {
+        if self.processor.is_none() && self.builder.byte_size() <= self.spill_bound_bytes {
             // no spill and within the spill bound — skip the temp files. The bound is
             // re-checked here: a row-count-triggered flush can carry an oversized final
             // block that maybe_flush's byte check never saw.
@@ -130,14 +133,15 @@ where
         dataset_id: DatasetId,
         data_source: DS,
         chunk_builder: CB,
-        message_sender: tokio::sync::mpsc::Sender<IngestMessage>
+        message_sender: tokio::sync::mpsc::Sender<IngestMessage>,
+        spill_bound_bytes: usize
     ) -> Self {
         let first_block = data_source.get_next_block();
         Self {
             dataset_id,
             message_sender,
             data_source,
-            builder: Some(DataBuilder::new(chunk_builder)),
+            builder: Some(DataBuilder::new(chunk_builder, spill_bound_bytes)),
             finalized_head: None,
             buffered_blocks: 0,
             parent_block_hash: String::new(),
@@ -234,7 +238,7 @@ where
         if self.builder_ref().num_rows() > 200_000 {
             return self.flush().await;
         }
-        if self.builder_ref().in_memory_buffered_bytes() > SPILL_BOUND_BYTES {
+        if self.builder_ref().in_memory_buffered_bytes() > self.builder_ref().spill_bound_bytes {
             return self.with_blocking_builder(|b| b.flush_to_processor()).await;
         }
         Ok(())
@@ -363,10 +367,12 @@ mod tests {
         .unwrap()
     }
 
-    fn unspilled(over_bytes: usize) -> DataBuilder<HyperliquidFillsChunkBuilder> {
-        let mut b = DataBuilder::new(HyperliquidFillsChunkBuilder::new());
+    const TEST_BOUND: usize = 256 * 1024;
+
+    fn unspilled(bound: usize, fill_over_bytes: usize) -> DataBuilder<HyperliquidFillsChunkBuilder> {
+        let mut b = DataBuilder::new(HyperliquidFillsChunkBuilder::new(), bound);
         let block = fills_block();
-        while b.in_memory_buffered_bytes() <= over_bytes {
+        while b.in_memory_buffered_bytes() <= fill_over_bytes {
             b.push_block(&block).unwrap();
         }
         b
@@ -378,7 +384,7 @@ mod tests {
     /// `into_processor`, which in-memory tables refuse.
     #[test]
     fn oversized_unspilled_chunk_spills_at_finish() {
-        let mut b = unspilled(SPILL_BOUND_BYTES);
+        let mut b = unspilled(TEST_BOUND, TEST_BOUND);
         let mut chunk = b.finish().unwrap();
         let (_, table) = chunk.pop_first().unwrap();
         assert!(table.into_processor().is_ok(), "expected the spill path");
@@ -386,7 +392,7 @@ mod tests {
 
     #[test]
     fn bounded_unspilled_chunk_is_prepared_in_memory() {
-        let mut b = unspilled(1);
+        let mut b = unspilled(TEST_BOUND, 1);
         let mut chunk = b.finish().unwrap();
         let (_, table) = chunk.pop_first().unwrap();
         assert!(table.into_processor().is_err(), "expected the in-memory path");

@@ -27,7 +27,8 @@ impl DataService {
     pub async fn start(
         db: DBRef,
         datasets: BTreeMap<DatasetId, DatasetConfig>,
-        disk_reclaim: bool
+        disk_reclaim: bool,
+        spill_bound_bytes: usize
     ) -> anyhow::Result<Self> {
         let unconfigured: Vec<DatasetId> = db
             .get_all_datasets()?
@@ -75,7 +76,16 @@ impl DataService {
                 };
 
                 tokio::task::spawn_blocking(move || {
-                    DatasetController::new(db, dataset_id, cfg.kind, retention, max_blocks, data_sources).map(|c| {
+                    DatasetController::new(
+                        db,
+                        dataset_id,
+                        cfg.kind,
+                        retention,
+                        max_blocks,
+                        data_sources,
+                        spill_bound_bytes
+                    )
+                    .map(|c| {
                         c.enable_compaction(!cfg.disable_compaction);
                         Arc::new(c)
                     })

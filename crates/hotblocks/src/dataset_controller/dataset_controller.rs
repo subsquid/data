@@ -40,7 +40,8 @@ impl DatasetController {
         dataset_kind: DatasetKind,
         retention: RetentionStrategy,
         max_blocks: Option<u64>,
-        data_sources: Vec<ReqwestDataClient>
+        data_sources: Vec<ReqwestDataClient>,
+        spill_bound_bytes: usize
     ) -> anyhow::Result<Self> {
         let (head_sender, head_receiver) = tokio::sync::watch::channel(None);
         let (finalized_head_sender, finalized_head_receiver) = tokio::sync::watch::channel(None);
@@ -70,7 +71,8 @@ impl DatasetController {
             max_blocks,
             retention_recv,
             head_sender,
-            finalized_head_sender
+            finalized_head_sender,
+            spill_bound_bytes
         };
 
         let task = tokio::spawn(ctl.run(write).in_current_span());
@@ -210,7 +212,8 @@ struct Ctl {
     max_blocks: Option<u64>,
     retention_recv: tokio::sync::watch::Receiver<RetentionStrategy>,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
-    finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>
+    finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
+    spill_bound_bytes: usize
 }
 
 macro_rules! warn_on_tx_restart {
@@ -437,7 +440,8 @@ impl Ctl {
                 self.data_sources.clone(),
                 self.dataset_kind,
                 write.next_block(),
-                write.head_hash()
+                write.head_hash(),
+                self.spill_bound_bytes
             )
             .instrument(ingest_span)
         );

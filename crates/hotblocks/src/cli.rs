@@ -113,6 +113,17 @@ pub struct CLI {
     #[arg(long)]
     pub transaction_hash_index: bool,
 
+    /// Chunks that never grew past this many buffered bytes are prepared in
+    /// memory at flush; larger ones spill to temp files while accumulating.
+    /// 0 forces the temp-file path for every chunk.
+    #[arg(
+        long,
+        value_name = "BYTES",
+        env = "SQD_SPILL_BOUND_BYTES",
+        default_value_t = crate::dataset_controller::DEFAULT_SPILL_BOUND_BYTES
+    )]
+    pub spill_bound_bytes: usize,
+
     /// Known client IDs for metrics labeling. Client IDs not in this list
     /// will be reported as "unknown" to prevent metrics cardinality abuse.
     #[arg(long = "known-client", value_name = "ID")]
@@ -169,7 +180,7 @@ impl CLI {
             .filter_map(|(id, cfg)| matches!(cfg.retention_strategy, RetentionConfig::Api { .. }).then_some(*id))
             .collect();
 
-        let data_service = DataService::start(db.clone(), datasets, self.startup_disk_reclaim)
+        let data_service = DataService::start(db.clone(), datasets, self.startup_disk_reclaim, self.spill_bound_bytes)
             .await
             .map(Arc::new)?;
 
