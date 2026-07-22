@@ -12,7 +12,10 @@ use std::{
 use anyhow::Context;
 use clap::Parser;
 use cli::Cli;
-use tokio::time::Instant;
+use tokio::{
+    signal::unix::{SignalKind, signal},
+    time::Instant
+};
 use types::{DatasetId, DatasetsConfig};
 use url::Url;
 
@@ -31,17 +34,29 @@ fn main() -> anyhow::Result<()> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
-        .block_on(
-            HotblocksRetain::new(
+        .block_on(async {
+            let mut retain = HotblocksRetain::new(
                 args.hotblocks_url,
                 args.status_url,
                 args.datasets_url,
                 datasets,
                 Duration::from_secs(args.datasets_update_interval_secs),
                 Duration::from_secs(args.retain_delay_secs)
-            )
-            .run()
-        )?;
+            );
+
+            // We run as PID 1, which Linux gives no default signal dispositions: without a
+            // handler installed SIGTERM is ignored outright, not fatal. SIGINT is left alone
+            // so a dev Ctrl-C keeps working.
+            let mut sigterm = signal(SignalKind::terminate()).context("failed to install the SIGTERM handler")?;
+
+            tokio::select! {
+                res = retain.run() => res,
+                _ = sigterm.recv() => {
+                    tracing::info!("SIGTERM received, exiting");
+                    Ok(())
+                }
+            }
+        })?;
 
     Ok(())
 }
