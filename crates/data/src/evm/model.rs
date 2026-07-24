@@ -227,7 +227,7 @@ pub struct TraceActionCreate {
     pub from: HexBytes,
     pub value: Option<HexBytes>,
     pub gas: HexBytes,
-    pub init: HexBytes,
+    pub init: Option<HexBytes>,
     pub creation_method: Option<String>
 }
 

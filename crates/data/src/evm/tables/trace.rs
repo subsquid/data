@@ -83,8 +83,8 @@ impl TraceBuilder {
             self.create_from.append(&action.from);
             self.create_value.append_option(action.value.as_deref());
             self.create_gas.append(&action.gas);
-            self.create_init.append(&action.init);
-            self.create_init_size.append(action.init.len() as u64);
+            self.create_init.append_option(action.init.as_deref());
+            self.create_init_size.append(action.init.as_ref().map_or(0, |v| v.len()) as u64);
             if let Some(res) = result {
                 self.create_result_gas_used.append(&res.gas_used);
                 self.create_result_code.append_option(res.code.as_deref());
