@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
-FROM rust:1.89-bookworm AS rust
+# rust-toolchain.toml is not copied into the build context, so this base image
+# version IS the container toolchain — keep it in lockstep with the pin there.
+FROM rust:1.94-bookworm AS rust
 
 
 FROM rust AS builder
@@ -79,6 +81,23 @@ FROM debian:bookworm-slim AS flush-bench
 WORKDIR /app
 COPY --from=flush-bench-builder /out/flush_spill .
 ENTRYPOINT ["/app/flush_spill"]
+
+
+FROM builder AS mdbx-spike-builder
+ARG TARGETARCH
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/app/target,id=cargo-target-${TARGETARCH},sharing=locked \
+    cargo build -p mdbx-spike --release \
+    && mkdir -p /out \
+    && cp target/release/mdbx-spike /out/
+
+
+# ADR 0002 churn bench; run matrix in crates/mdbx-spike/README.md
+FROM debian:bookworm-slim AS mdbx-spike
+WORKDIR /app
+COPY --from=mdbx-spike-builder /out/mdbx-spike .
+ENTRYPOINT ["/app/mdbx-spike"]
 
 
 FROM builder AS archive-builder

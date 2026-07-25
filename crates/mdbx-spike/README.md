@@ -11,9 +11,52 @@ seam the ADR claims ports verbatim.
 
 ## Decision runs (Linux only)
 
-Write amplification comes from `/proc/self/io`; macOS gives latency and
-footprint only, and its fsync (`F_FULLFSYNC`) makes sync-cadence tails
-unrepresentative. On a prod-class NVMe box:
+Write amplification comes from cgroup `io.stat` (authoritative; `/proc/self/io`
+write_bytes counts page dirtying, not proven device traffic). macOS gives
+latency and footprint only, and its fsync (`F_FULLFSYNC`) makes sync-cadence
+tails unrepresentative.
+
+### Getting it onto prod-class hardware
+
+```bash
+git push -u origin spike/libmdbx
+gh workflow run docker.yaml --ref spike/libmdbx -f target=mdbx-spike -f tag=<tag>
+# image: subsquid/data-mdbx-spike:<tag>
+```
+
+Run as a Job pinned to an idle prod-class NVMe node (fill the hostname at run
+time; keep node names out of this public repo). `emptyDir` lands on the node's
+NVMe. Set real resource requests — a zero-request pod is the first eviction
+candidate on a full node.
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata: { name: mdbx-spike }
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector: { kubernetes.io/hostname: <idle-prod-node> }
+      containers:
+        - name: spike
+          image: subsquid/data-mdbx-spike:<tag>
+          args: ["--engine", "mdbx", "--dir", "/data/spike",
+                 "--datasets", "45", "--chunks", "2000", "--compress"]
+          resources:
+            requests: { cpu: "8", memory: 8Gi }
+            limits: { memory: 16Gi }
+          volumeMounts: [{ name: data, mountPath: /data }]
+      volumes:
+        - name: data
+          emptyDir: {}
+```
+
+Collect with `kubectl logs job/mdbx-spike`; record results in
+`docs/measurements/` with node/namespace/pod names scrubbed.
+
+### Run matrix
 
 ```bash
 # free-run churn, engine amplification at matched stored volume

@@ -196,6 +196,25 @@ fn proc_io() -> Option<(u64, u64)> {
     None
 }
 
+/// proc write_bytes counts page dirtying, not proven device traffic
+/// (see docs/measurements/2026-07-16-flush-bench); cgroup io.stat is the
+/// authoritative number when running in a pod.
+fn cgroup_io() -> Option<(u64, u64)> {
+    let text = std::fs::read_to_string("/sys/fs/cgroup/io.stat").ok()?;
+    let mut read = 0u64;
+    let mut write = 0u64;
+    for line in text.lines() {
+        for field in line.split_whitespace() {
+            if let Some(v) = field.strip_prefix("rbytes=") {
+                read += v.parse::<u64>().unwrap_or(0);
+            } else if let Some(v) = field.strip_prefix("wbytes=") {
+                write += v.parse::<u64>().unwrap_or(0);
+            }
+        }
+    }
+    Some((read, write))
+}
+
 fn mb(bytes: u64) -> f64 {
     bytes as f64 / 1e6
 }
@@ -235,6 +254,7 @@ fn main() -> Result<()> {
     }
 
     let io_before = proc_io();
+    let cg_before = cgroup_io();
     let started = Instant::now();
     let done = AtomicBool::new(false);
     let peak_file = AtomicU64::new(0);
@@ -293,6 +313,7 @@ fn main() -> Result<()> {
     engine.sync()?;
     let usage = engine.disk_usage()?;
     let io_after = proc_io();
+    let cg_after = cgroup_io();
 
     let mut commit_us = Vec::new();
     let mut merge_us = Vec::new();
@@ -351,6 +372,19 @@ fn main() -> Result<()> {
             );
         }
         _ => println!("os io: /proc/self/io unavailable (run on Linux for write amplification)")
+    }
+    match (cg_before, cg_after) {
+        (Some((r0, w0)), Some((r1, w1))) => {
+            let (dr, dw) = (r1.saturating_sub(r0), w1.saturating_sub(w0));
+            println!(
+                "cgroup io (authoritative): read={:.1} MB write={:.1} MB, write_amp vs stored: {:.2}x, vs raw: {:.2}x",
+                mb(dr),
+                mb(dw),
+                dw as f64 / stored.max(1) as f64,
+                dw as f64 / logical.max(1) as f64
+            );
+        }
+        _ => println!("cgroup io: io.stat unavailable (fine outside a cgroup v2 pod)")
     }
 
     Ok(())
