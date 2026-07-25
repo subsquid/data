@@ -94,7 +94,12 @@ struct Args {
 
     /// mdbx page size
     #[arg(long, default_value_t = 65_536)]
-    mdbx_page: usize
+    mdbx_page: usize,
+
+    /// durable-sync cadence; bounds SafeNoSync file growth ≈ churn × this
+    /// window (0 = off, file grows until exit)
+    #[arg(long, default_value_t = 1000)]
+    sync_every_ms: u64
 }
 
 static NEXT_TABLE_ID: AtomicU64 = AtomicU64::new(1);
@@ -248,6 +253,14 @@ fn main() -> Result<()> {
                 std::thread::sleep(Duration::from_millis(500));
             }
         });
+        let syncer = (args.sync_every_ms > 0).then(|| {
+            scope.spawn(move || {
+                while !done.load(Ordering::Relaxed) {
+                    let _ = engine.periodic_sync();
+                    std::thread::sleep(Duration::from_millis(args.sync_every_ms));
+                }
+            })
+        });
         let reader = (args.reader_hold_secs > 0).then(|| {
             scope.spawn(move || {
                 while !done.load(Ordering::Relaxed) {
@@ -266,6 +279,9 @@ fn main() -> Result<()> {
 
         done.store(true, Ordering::Relaxed);
         sampler.join().expect("sampler panicked");
+        if let Some(s) = syncer {
+            s.join().expect("syncer panicked");
+        }
         if let Some(r) = reader {
             r.join().expect("reader panicked");
         }

@@ -95,6 +95,17 @@ impl Engine {
         Ok(())
     }
 
+    /// SafeNoSync parks freed pages until the next durable point, so without a
+    /// sync cadence the file balloons; rocks needs nothing (WAL is its cadence).
+    pub fn periodic_sync(&self) -> Result<()> {
+        if let Engine::Mdbx(e) = self {
+            for env in &e.envs {
+                env.sync(true)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn disk_usage(&self) -> Result<DiskUsage> {
         match self {
             Engine::Mdbx(e) => e.disk_usage(),
