@@ -1309,6 +1309,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "convert_case"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1594,6 +1603,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b42b6fa04a440b495c8b04d0e71b707c585f83cb9cb28cf8cd0d976c315e31b4"
 dependencies = [
  "powerfmt",
+]
+
+[[package]]
+name = "derive_more"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d751e9e49156b02b44f9c1815bcb94b984cdcc4396ecc32521c739452808b134"
+dependencies = [
+ "derive_more-impl",
+]
+
+[[package]]
+name = "derive_more-impl"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
+dependencies = [
+ "convert_case 0.10.0",
+ "proc-macro2",
+ "quote",
+ "rustc_version",
+ "syn 2.0.98",
+ "unicode-xid",
 ]
 
 [[package]]
@@ -2469,7 +2501,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02df3085f97750c1f8deb1b56aeb168f242f303e363aee16284821c0a14ff90e"
 dependencies = [
- "convert_case",
+ "convert_case 0.6.0",
  "litrs",
 ]
 
@@ -2685,6 +2717,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa"
 
 [[package]]
+name = "libmdbx"
+version = "0.6.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1da773dcce45661428e2b51ca984eb3c64c08f2aa54865397e4b77d1f61c9f07"
+dependencies = [
+ "bitflags 2.8.0",
+ "derive_more",
+ "indexmap",
+ "libc",
+ "mdbx-sys",
+ "parking_lot",
+ "sealed",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "librocksdb-sys"
 version = "0.17.3+10.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2808,6 +2856,30 @@ checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
 dependencies = [
  "cfg-if",
  "digest",
+]
+
+[[package]]
+name = "mdbx-spike"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "libmdbx",
+ "lz4_flex",
+ "rocksdb",
+ "sqd-storage",
+ "tempfile",
+]
+
+[[package]]
+name = "mdbx-sys"
+version = "13.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4002b9ffed3dd01364ab005bca653a99b8f550ca4cd755470a9d3a31a44f466"
+dependencies = [
+ "bindgen",
+ "cc",
+ "libc",
 ]
 
 [[package]]
@@ -4491,6 +4563,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sealed"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22f968c5ea23d555e670b449c1c5e7b2fc399fdaec1d304a17cd48e288abc107"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
+]
+
+[[package]]
 name = "sec1"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4986,7 +5069,7 @@ dependencies = [
  "anyhow",
  "arrow",
  "bytes",
- "convert_case",
+ "convert_case 0.6.0",
  "dashmap 6.1.0",
  "divan",
  "faster-hex",
@@ -5675,6 +5758,12 @@ name = "unicode-width"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fc81956842c57dac11422a97c3b8195a1ff727f06e85c84ed2e8aa277c9a0fd"
+
+[[package]]
+name = "unicode-xid"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unsafe-libyaml"
