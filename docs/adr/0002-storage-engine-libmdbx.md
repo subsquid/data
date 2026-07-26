@@ -1,11 +1,15 @@
 # ADR 0002 — Replace RocksDB with libmdbx in hotblocks storage
 
 Status: proposed — spike done 2026-07-26, write gate passed
-([measurements](../measurements/2026-07-26-mdbx-churn-bench.md)); flips to
-accepted after Stage 0 (spec amendment) plus a Stage 1 vertical slice — real
-table build → chunk merge → retention → crash recovery through the mdbx seam,
-with the checksummed codec and MAP_FULL / stale-reader / kill-9 / cold-read /
-online-reset tests · Date: 2026-07-25 · Scope:
+([measurements](../measurements/2026-07-26-mdbx-churn-bench.md)); Stage 0
+(spec amendment) landed 2026-07-26; flips to accepted after the Stage 1
+vertical slice — real table build → chunk merge → retention → crash recovery
+through the mdbx seam, with the checksummed codec and MAP_FULL /
+stale-reader / kill-9 / cold-read-smoke / online-reset tests. The
+production-size cold-cache read gate is deliberately *not* an acceptance
+gate: it bounds rollout (Stage 4, before Stage 5), and the accept-time read
+exposure is bounded instead by the measured production scan bracket
+(Measurements). · Date: 2026-07-25 · Scope:
 `sqd-storage`, `sqd-hotblocks`, `crates/hotblocks/spec`
 
 ## Context
@@ -78,11 +82,24 @@ cost ×1.
    scale next to a 10 s query budget while today's legitimate tail (233 s
    streams) exceeds `P-QUERY-TIME` anyway — so the deadline must bound the
    *response lifecycle*, owned by the service (or park/re-establish the
-   snapshot), with `mdbx_env_set_hsr` as the space-pressure backstop that
-   names the laggard reader and can kill its txn before the file grows.
-   GAP-29 stays open as its own P2.
-2. **Direct I/O** is on in production (`--rocksdb-disable-direct-io` unset) and is
-   incompatible with an mmap engine; page-cache behavior must be re-validated.
+   snapshot), with `mdbx_env_set_hsr` as the space-pressure backstop. The
+   backstop *names* the laggard — in-process it cannot safely abort another
+   thread's txn, so the kill is the service cancelling that response; hsr
+   detects, the deadline enforces. GAP-29 stays open as its own P2.
+2. **Memory regime** (corrected 2026-07-26: an earlier revision claimed
+   production runs direct I/O — false; the chart passes
+   `--rocksdb-disable-direct-io` on every stack, so production reads are
+   buffered and the page cache already lives inside the cgroup limit).
+   What the port changes is the cache split, not the regime: today an 8 GiB
+   *uncompressed* block cache (anon) + page cache of compressed SSTs;
+   under mdbx the block cache disappears and the compressed file page cache
+   is the only cache, with decode on every read. Consequences to carry:
+   the freed 8 GiB anon budget is the natural size bound for the deferred
+   decompressed-page LRU; `working_set` ≈ limit is the *normal* steady
+   state under mmap (active file pages count), so leak detection moves to
+   anon RSS and pressure alerting to memory PSI + major-fault rate; and
+   Stage 4 must run under the production values — 12 G request / 64 G
+   limit, 2-CPU request — not an unconstrained bench box.
 3. **File high-water (measured, wave runs 15–17).** mdbx recycles freed pages
    but returns nothing to the filesystem: across the retention-wave runs tail
    truncation never fired even with an armed `shrink_threshold` and 80–93% of
@@ -96,8 +113,42 @@ cost ×1.
    growth across 27 k post-wave
    commits at constant live, so the bloat does not compound; untouched pages
    occupy no RAM and tree depth tracks the live set. The rocks reference
-   reclaims the same wave for 3.7× the device writes — that is the trade
-   being made. Consequences and the reclaim plan: see "Disk policy" below.
+   reclaims the same wave for ~3.5× the device writes (parity-corrected;
+   measurements "Verdict") — that is the trade being made. Consequences and
+   the reclaim plan: see "Disk policy" below.
+4. **Hash indexes are a random-insert stream the spike never modeled.**
+   `CF_BLOCK_HASHES`/`CF_TRANSACTION_HASHES` are hash-keyed; mainnet-internal
+   runs both today (mainnet runs neither). An LSM absorbs random inserts in
+   the memtable; a B+tree COWs a leaf path (~3–4 × 4 KiB pages when leaves
+   are cold) *per touched leaf per txn* — at a per-transaction index this
+   can rival the data stream itself. Before Stage 2, either price it (bench
+   extension: random-key inserts at internal's tx rate) or restructure
+   (per-chunk index tables — append-pattern writes, lookups fan out over
+   chunks; or batch-sorted inserts across several chunks). The Stage 4
+   envelope must include the internal shape (both indexes on).
+
+## Binding (decided 2026-07-26)
+
+Port on **vorot93 `libmdbx` 0.6.x** (crates.io; `mdbx-sys` exact-pinned at
+13.11.0 = C v0.13.11) — the crate the spike measured on. It covers geometry,
+SafeNoSync + `sync(force)`, `last_pgno`/freelist; the gaps — `mdbx_env_set_hsr`,
+`MDBX_opt_sync_period`/`sync_bytes`, `mdbx_env_copy` — are single FFI calls
+shimmed over the pinned sys crate (bindgen already exposes the full
+`^(MDBX|mdbx)_.*` surface). Runners-up, for the record: *reth-libmdbx* is
+technically strongest (C 0.13.12, wired read-tx timeouts, safe hsr/sync_period)
+but is not on crates.io — a git dependency on the reth monorepo, pinned to
+tags whose cadence serves reth; its timeout scale is wrong for us anyway (the
+read deadline is service-owned, porting note 1). *signet-libmdbx* 0.8.3 is
+rejected: its sys crate has never been re-released — production C frozen at
+0.13.7, *missing the 0.13.8 SIGBUS-on-full-filesystem fix* that sits directly
+on our MAP_FULL path — and its advertised read-timeout support is dead code
+(feature undeclared, module unwired). Supply-chain posture: all bindings
+vendor the C amalgamation, so a C fix ships only when the binding re-vendors;
+vorot93 is single-maintainer with a multi-year ~1–2-month lag record.
+Upstream now releases from SourceCraft (RF-hosted; GitHub is a mirror) —
+review vendored-C diffs on every bump. Watch item: libmdbx 0.14.x goes
+stable 2026-08-08 with native defragmentation and `mdbx_txn_checkpoint` —
+re-evaluate at Stage 3, it may hand DP-3 compact-swap a supported primitive.
 
 ## Disk policy (per-dataset env)
 
@@ -119,14 +170,29 @@ generalize NET-896 rather than replace it.
   device rate × sync cadence; the free-run wave peaked at 2.0×, run 15):
   leave that headroom, or accept a gap-mode blip while the burst runs.
   Deployment check: Σ quotas plus an operating reserve MUST fit the volume
-  (boot refusal otherwise, INV-43) — per-env quotas alone do not bound the
-  shared volume.
+  (INV-43) — per-env quotas alone do not bound the shared volume. The
+  refusal is dataset-scoped: the dataset(s) whose addition or quota raise
+  created the overcommit are refused and alarmed while the admitted set
+  boots (N2/GAP-24 containment — a config mistake on dataset 46 must not
+  take down 45); whole-pod startup failure is reserved for an overcommit
+  with no identifiable marginal dataset.
 - **DP-2 Ring past the floor.** The effective floor is the max of every
   governing bound: the instructed floor, NET-896's position cap
-  (`next(D) − max_blocks`), and a byte watermark (~90% of quota, measured
-  against occupied pages — allocated minus freelist — never against the
-  file, which is a permanent high-water and would pin gap-mode forever
-  after the first peak). Trimming
+  (`next(D) − max_blocks`), and a byte watermark (~90% of quota). The
+  watermark needs **two signals**, because "free" and "reusable" diverge
+  exactly when it matters: the *retention* signal is occupied pages
+  (allocated minus freelist — never the file, which is a permanent
+  high-water and would pin gap-mode forever after the first peak); the
+  *availability* signal is reusable headroom = growth headroom
+  (`max_size − file`) plus the freelist share actually recyclable now —
+  excluding pages parked behind the oldest reader txn and pages freed
+  since the last durable sync (SafeNoSync parks them until the next sync;
+  the stale-reader run held 8.3 GB of file against 33 MB live with nearly
+  the whole file "free"). Occupied low + headroom low means parking, and
+  trimming more data does not help — the escalation ladder on a
+  low-headroom signal is: force a durable sync (unparks SafeNoSync frees)
+  → cancel laggard readers (service deadline; hsr names them, porting
+  note 1) → trim → pause + alarm (FM-STOR-6). Trimming
   past the downstream floor keeps the head fresh and opens a temporary
   coverage gap between the archive's top and our tail: queries in the hole
   get `RANGE_UNAVAILABLE`, every other dataset is untouched, and the gap
@@ -173,6 +239,10 @@ reth's mdbx + static-files split; its own ADR.
 
 ## Decision
 
+*(Written 2026-07-25; the spike it commissioned is done. Kept as the record —
+with one premise overturned by the runs: 64 KiB pages fail the write gate,
+4 KiB pass. The port plan carries the corrected geometry.)*
+
 Do not port yet. Run a 1–2 week spike and decide on numbers:
 
 1. Implement `KvRead`/`KvWrite`/`KvReadCursor` over libmdbx (64 KiB pages match
@@ -188,13 +258,21 @@ Do not port yet. Run a 1–2 week spike and decide on numbers:
 Proceed to the port only if the spike shows device writes dropping ≥3× without
 head-freshness regressions.
 
-The write gate passed (Measurements). Reads did not get a gate and must:
+The write gate passed (Measurements). Reads did not get a spike gate:
 app-LZ4 scans measured 18× p50 over rocks on page-cache-hot runs (the C
-decoder cuts it ~6×; engine paths are comparable and tails tighter), while
-production serves ~62 GB live under direct I/O. Stage 4 therefore carries a
-read gate: cold-cache S1/S2 query mix at production live size under the
-cgroup memory limit — SLI-2/3 within agreed bounds of the rocks baseline,
-major faults and PSI captured.
+decoder cuts it ~6×; engine paths are comparable and tails tighter). The
+accept-time exposure is bounded by production numbers instead: at the
+measured query mix the decode ceiling is ~0.15 core/pod (Measurements,
+scan bracket) — decode CPU cannot invert the ADR 0001 win even with no
+decompressed-page cache. What production cannot bound today is cold-cache
+behavior at full live size, so Stage 4 carries the read gate as a
+*rollout* gate: cold-cache S1/S2 query mix at production live size under
+the production memory values (porting note 2) — SLI-2/3 within agreed
+bounds of the rocks baseline, major faults and PSI captured. Abort
+criterion: if SLI-2/3 breach and a decompressed-page LRU sized within the
+freed ~8 GiB block-cache budget does not restore them, the port stops
+before Stage 5 — rocks stays, the seam and codec remain as the
+measurement record.
 
 ## Measurements
 
@@ -208,6 +286,16 @@ major faults and PSI captured.
   (LSM ~10× on compressed bytes ≈ COW ~2.5× on 4×-inflated bytes). The spike
   must therefore run with LZ4 at the `BufferPageWriter::write_page` seam from
   day one.
+- **Production read-scan bracket** (2026-07-26, VictoriaMetrics, 30 m rates).
+  Mainnet: ~6.3 k queried blocks/s per pod over a ~2.8 M-block window holding
+  ~68 GB live SST → ~98 KB raw per block → **≤ ~620 MB/s raw scanned per pod**
+  as the upper bound (assumes every queried block reads all its tables; the
+  response-byte lower bound is ~4.2 MB/s). At in-service C-`lz4` decode
+  (~0.25 ms/MB, decoder shoot-out) the ceiling is **~0.15 core/pod**;
+  morpho ≈ 0.06, internal ≈ 0.02. The deferred-LRU trigger (~2 cores) is
+  unreachable at today's mix by an order of magnitude. The bracket collapses
+  to a real number once the raw-scanned-bytes counter ships (Stage 2
+  observability) — the same counter is the post-port LRU-trigger SLI.
 
 ## Spec compliance (checked 2026-07-26)
 
@@ -305,13 +393,23 @@ draining and dataset-aware portal retry).
   decoded by C `lz4` into pooled buffers (measured 5.8× over `lz4_flex`
   safe-decode on the decision-runs Xeon, spike page shape; flex without
   safe-decode is only 2.0× — not worth the unsafe path); read deadline
-  owned by the service, bounding the response lifecycle (porting note 1 —
-  no binding feature to lean on), with `mdbx_env_set_hsr` as the
-  space-pressure backstop. Differential tests against the rocks backend,
-  corruption-injection tests on the codec, and a CT-2 kill matrix at the
-  seam (SafeNoSync loss window ≤ the sync cadence — pin `P-DUR-SYSTEM`,
-  today "make explicit ⚠", to it). Exit: the vertical slice the accepted
-  flip waits on (Status).
+  owned by the service, bounding the response lifecycle (porting note 1),
+  with `mdbx_env_set_hsr` via the Binding FFI shim as the space-pressure
+  backstop. **Bounded write txns as a stated invariant**: table builds keep
+  the 8 MiB sub-commit granularity, the writer lock is released between
+  sub-commits, and head flushes interleave — a merge holds the writer one
+  sub-commit at a time, never for the whole rebuild. Differential tests
+  against the rocks backend, corruption-injection tests on the codec, and
+  a CT-2 kill matrix at the seam. kill-9 verifies integrity and recovery
+  only — under SafeNoSync dirty pages survive process death in the page
+  cache, so the loss window it observes is ~zero; the real loss window is
+  a *system*-crash property (CN-6b) resting on mdbx's steady-sync-point
+  guarantee under `NoWriteMap` (dm-log-writes power-cut injection stays
+  optional hardening). Pin `P-DUR-SYSTEM`, today "make explicit ⚠", to
+  **sync cadence + max write-txn hold** — durable sync serializes behind
+  the writer lock, so the hold bound is part of the durability claim, and
+  the cadence itself joins the parameter registry. Exit: the vertical
+  slice the accepted flip waits on (Status).
 - **Stage 2 — db layer (~2–3 wk).** The ~1300 lines of
   `crates/storage/src/db/*`: transactions, snapshots, label/meta (persist
   the retention bound — N6), chunk index, metrics, CLI, shutdown. Delete the
@@ -320,6 +418,12 @@ draining and dataset-aware portal retry).
   `reclaim-measure`); keep the dirty-table journal and the startup orphan
   purge — multi-commit table builds still leave committed orphans at a
   crash (RS-10). Fix N5 anchor carry-over in the trim path it touches.
+  Decide the hash-index layout before porting those CFs (porting note 4):
+  keep global hash-keyed tables only if the priced random-insert stream
+  fits the write win; otherwise per-chunk index tables (append writes,
+  fan-out lookups) or batch-sorted inserts. Ship the raw-scanned-bytes
+  counter (the Measurements bracket's replacement and the LRU-trigger
+  SLI).
 - **Stage 3 — disk policy (~1 wk).** DP-1 quota config; DP-2 = extend
   NET-896's trim with the byte watermark (effective floor = max of
   instructed, position cap, byte bound) + gap-mode flag/alarm + observable
@@ -330,16 +434,19 @@ draining and dataset-aware portal retry).
   stuck-consumer and online-reset CT in `crates/hotblocks-harness`; S4
   churn-soak on a prod-class node against the rocks baseline (the Decision
   step 2 envelope: device writes, head-flush tails under ingest × merge ×
-  retention, wave high-water). Run the Decision read gate: cold-cache S1/S2
-  at production live size under the cgroup memory limit, SLI-2/3 against
-  the rocks baseline with major-fault and PSI capture (the spike's read
-  runs were page-cache-hot by construction). Measure per-pod raw-scan
-  bytes/s and the decode-CPU share at the production query mix; a
-  decompressed-page LRU
-  (coherence is trivial — chunk tables are immutable) stays deferred behind
-  a trigger: decode CPU > ~2 cores/pod or read p99 against SLO. Portal
-  contract check: a gap range must pass
-  through as `RANGE_UNAVAILABLE`, not break the portal (cross-repo).
+  retention, wave high-water) — merges run *concurrently* with ingest (the
+  bench's `--concurrent-merges` shape; inline merges measure no writer-lock
+  queueing) and the matrix includes the internal shape with both hash
+  indexes on (porting note 4). Run the Decision read gate: cold-cache S1/S2
+  at production live size under the production memory values (porting
+  note 2), SLI-2/3 against the rocks baseline with major-fault and PSI
+  capture (the spike's read runs were page-cache-hot by construction).
+  Confirm the decode-CPU share against the Measurements bracket via the
+  Stage 2 raw-scan counter; the decompressed-page LRU (coherence is
+  trivial — chunk tables are immutable) stays deferred behind its trigger:
+  decode CPU > ~2 cores/pod or read p99 against SLO. Portal contract
+  check: a gap range must pass through as `RANGE_UNAVAILABLE`, not break
+  the portal (cross-repo).
 - **Stage 5 — rollout (~1 wk).** Blue/green on an empty volume:
   internal → morpho → mainnet; watch device writes (expect ≥3× drop), commit
   tails, env file/live/quota, gap-mode. mmap makes `working_set` read as
@@ -357,16 +464,18 @@ check fails.
   leveling): reduces but keeps the multiplier, keeps stalls and the reclaim
   machinery; the workload shape (rolling window, append keys, big values) is the
   textbook non-LSM case.
-- **Vanilla LMDB**: fixed map size must be pre-declared and nothing in the system
-  bounds disk today (`P-DISK-FLOOR` undefined); 4 KiB pages force overflow chains
-  for every table page. libmdbx auto-grows and supports 64 KiB pages.
+- **Vanilla LMDB**: fixed map size must be pre-declared — no growth/shrink
+  geometry to hang `P-DISK-QUOTA` on — and there is no HSR hook for the
+  stale-reader backstop. (The original draft also held its 4 KiB pages
+  against it; the spike made that moot — 4 KiB won the write gate and the
+  3-contiguous-page overflow runs allocate fine under churn.)
 - **Reduce the application chunk-merge churn instead**: engine-independent and
   worth doing regardless, but it cannot remove LSM leveling amplification on the
   ingest stream itself.
 - **An engine that reclaims disk online** (staying on RocksDB, fjall, SQLite
   `auto_vacuum`, redb `compact()`): online reclaim is compaction under another
   name — every candidate pays the rewrite multiplier this ADR removes (the wave
-  A/B prices it: rocks returns the file to ~live for 3.7× the device writes).
+  A/B prices it: rocks returns the file to ~live for ~3.5× the device writes).
   With deletes already partitioned by age, unlink-based reclaim (DP-3, and the
   sealed-tier escalation) is the structural answer if high-water hoarding ever
   bites.

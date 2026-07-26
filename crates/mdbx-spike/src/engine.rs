@@ -361,11 +361,18 @@ const CF_TABLES: &str = "tables";
 
 impl RocksEngine {
     /// Mirrors production `tables_cf_options`: LZ4, dynamic level bytes,
-    /// compact-on-deletion collector, dedicated block cache.
+    /// compact-on-deletion collector, dedicated block cache — and the
+    /// db-level options that shape device writes: Zstd WAL compression and
+    /// max_background_jobs=8 (prod runs cores clamped to 2..=8; the bench
+    /// container has 8). Runs 01–17 predate the WAL/jobs parity and
+    /// overstate rocks device writes by the uncompressed-WAL term (≈ raw).
     pub fn open(root: &Path, cache_mb: usize) -> Result<Self> {
         let mut db_opts = rocksdb::Options::default();
         db_opts.create_if_missing(true);
         db_opts.create_missing_column_families(true);
+        db_opts.set_wal_compression_type(rocksdb::DBCompressionType::Zstd);
+        db_opts.set_max_background_jobs(8);
+        db_opts.set_max_subcompactions(4);
 
         let mut cf_opts = rocksdb::Options::default();
         let mut block = rocksdb::BlockBasedOptions::default();

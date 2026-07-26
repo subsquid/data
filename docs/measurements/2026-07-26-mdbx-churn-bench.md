@@ -12,10 +12,12 @@ Device-write numbers below are cgroup `io.stat` after excluding stacked md/dm
 devices (they re-count bytes already charged to the physical NVMe); on every
 run the corrected figure matched `/proc/self/io` write_bytes to <1%.
 
-Two reference caveats: the rocks reference runs buffered I/O where production
-runs direct I/O — device-write totals are unaffected, page-cache read
-behavior differs (the read runs are scoped to CPU cost for exactly that
-reason); and peak-file is sampled at 500 ms — exact for mdbx (the file only
+Two reference caveats: the rocks reference runs buffered I/O — which,
+corrected 2026-07-26, *matches* production (the chart passes
+`--rocksdb-disable-direct-io` on every stack; an earlier ADR 0002 revision
+claimed production ran direct I/O) — though the read runs stay scoped to
+CPU cost, since the bench cache geometry differs from prod's 8 GiB block
+cache; and peak-file is sampled at 500 ms — exact for mdbx (the file only
 grows), able to undershoot a rocks transient between compactions.
 
 Workload shape per the run matrix in `crates/mdbx-spike/README.md`: 45
@@ -30,17 +32,26 @@ post-LZ4; rocks compresses internally).
 
 | run | engine | mdbx page | elapsed | commits/s | device writes | amp vs raw | commit p50/p90/p99/max |
 |---|---|---|---|---|---|---|---|
-| 02 | rocks | — | 64.0 s | 1406 | 49.0 GB | 3.16× | 18.8 / 31.7 / 212 / 286 ms |
+| 02 | rocks (pre-parity) | — | 64.0 s | 1406 | 49.0 GB | 3.16× | 18.8 / 31.7 / 212 / 286 ms |
+| 18 | rocks (**prod parity**) | — | 98.0 s | 918 | 47.1 GB | 3.04× | 37.5 / 52.7 / 126 / 239 ms |
 | 01 | mdbx | 64 KiB | 53.0 s | 1697 | 69.5 GB | 4.49× | 14.5 / 31.4 / 438 / 1360 ms |
 | 06 | mdbx | 16 KiB | 25.5 s | 3529 | 24.3 GB | 1.57× | 6.5 / 13.7 / 32.6 / 2042 ms |
 | 07 | mdbx | 4 KiB | 20.9 s | 4305 | 13.3 GB | 0.86× | 6.0 / 12.6 / 29.4 / 758 ms |
 
 Page size is the whole story. At 64 KiB every COW leaf write costs a full
 page for a ~10 KiB value, and mdbx writes **1.4× more** than the rocks
-reference. At 4 KiB it writes **3.7× less** — the ADR 0002 gate (≥3×) passes,
+reference. At 4 KiB it writes **3.5× less** — the ADR 0002 gate (≥3×) passes,
 and throughput more than doubles on top. Free-run max-latency tails (0.7–2 s)
 are growth-step/sync stalls at 25–70× production pace; they do not appear at
 production pace (below).
+
+Run 18 re-runs the reference at production parity after external review
+caught the gap (runs 01–17 rocks lacked Zstd WAL compression and ran the
+default 2 background jobs; prod sets both — `db.rs` `db_options`). Free-run
+the correction nets out to −4%: the ~11 GB the compressed WAL saves is eaten
+by the extra in-window compaction eight jobs complete (elapsed 64→98 s —
+free-running 45 writers now share 8 CPUs with 8 compaction jobs, which is
+also why its commit p50 doubles). Gate ratio 49.0→47.1 GB: **3.54×**, robust.
 
 ## Production pace — latency under merge contention
 
@@ -49,7 +60,8 @@ production pace (below).
 
 | run | engine | config | device writes | amp vs raw | commit p50/p90/p99/max | file / live |
 |---|---|---|---|---|---|---|
-| 08 | rocks | — | 20.8 GB | 4.48× | 275 µs / 388 µs / 2.4 ms / 37.5 ms | 183 MB / 123 MB |
+| 08 | rocks (pre-parity) | — | 20.8 GB | 4.48× | 275 µs / 388 µs / 2.4 ms / 37.5 ms | 183 MB / 123 MB |
+| 19 | rocks (**prod parity**) | — | 12.5 GB | 2.69× | 524 µs / 669 µs / 3.5 ms / 42.8 ms | 135 MB / 123 MB |
 | 03 | mdbx | 64 KiB, 1 env | 13.6 GB | 2.93× | 215 µs / 697 µs / 7.9 ms / 55 ms | 268 MB / 142 MB |
 | 04 | mdbx | 64 KiB, env/dataset | 9.7 GB | 2.09× | 174 µs / 248 µs / 463 µs / 12.8 ms | 12.1 GB / 189 MB |
 | 09 | mdbx | 4 KiB, 1 env | 3.8 GB | 0.81× | 174 µs / 486 µs / 4.0 ms / 20.6 ms | 268 MB / 143 MB |
@@ -57,17 +69,50 @@ production pace (below).
 
 Notes:
 
-- Rocks amplification is *worse* at production pace than free-running (4.48×
-  vs 3.16×): compact-on-deletion and periodic flushes churn more per stored
-  byte when writes trickle in.
-- At production pace with 4 KiB pages mdbx writes **5.5× less** than the
-  rocks reference single-env and **6.3× less** with per-dataset envs, with
-  better tails in both configs.
+- **Parity matters most exactly here.** Free-run the WAL correction nets out
+  (run 18); at production pace the uncompressed WAL was ~40% of the old
+  reference's device writes — run 19 lands at 12.5 GB (amp 2.69× vs 4.48×),
+  and the mdbx advantage honestly reads **3.3× (single env) / 3.8×
+  (env-per-dataset)**, not the 5.5–6.3× the pre-parity reference suggested.
+  The gate still passes; the Zstd WAL work moves rocks' commit p50 to
+  ~2× mdbx's and its tails stay compaction-shaped (p99 3.5 ms vs 1.1 ms).
+- The pre-parity claim "rocks amplification is worse at production pace than
+  free-running" (4.48× vs 3.16×) was mostly the uncompressed-WAL artifact:
+  at trickle pace the WAL is the dominant write stream, free-running it is
+  compaction. On the parity reference the ordering inverts — paced 2.69×
+  vs free-run 3.04×.
 - Per-dataset envs are the latency winner (no cross-dataset writer-lock
   contention, syncs naturally staggered) but cost a file-footprint floor:
   45 envs × ~268 MB = 12.1 GB for <200 MB live, driven by the 256 MiB
   `growth_step` — page size does not move it (runs 04 and 10 land on the
   same file size). Growth-step tuning is a real porting decision.
+
+## Concurrent merges — head commits vs the writer lock (runs 20–21)
+
+External review caught that runs 01–17 merged *inline* in the worker loop:
+with env-per-dataset, commits never waited on a writer lock held by a
+running merge, so those latency tables measure no head-behind-merge
+queueing — while production's `compaction_loop` merges concurrently with
+ingest. `--concurrent-merges` moves each merge to a background thread
+(max 1 in flight per dataset) and re-runs the paced shape:
+
+| run | engine | config | device writes | commit p50/p90/p99/max | merge p50/p99/max |
+|---|---|---|---|---|---|
+| 20 | mdbx | 4 KiB, env/dataset, concurrent | 3.28 GB (0.71×) | 128 µs / 204 µs / **323 µs** / 14.1 ms | 0.6 / 9.7 / 15.1 ms |
+| 21 | rocks | prod parity, concurrent | 13.0 GB (2.81×) | 577 µs / 987 µs / 3.9 ms / 60.2 ms | 4.8 / 57.1 / 113.5 ms |
+| 10 | mdbx | same as 20, inline (reference) | 3.3 GB (0.71×) | 116 µs / 198 µs / 1.1 ms / 11.0 ms | — |
+
+Device writes are unchanged for mdbx and the commit p99 stays
+sub-millisecond under contention; the commit *max* is exactly one merge-txn
+hold (14.1 ms commit vs 15.1 ms merge max) — a queued head flush waits out
+the running merge txn, nothing more. That bound is the load-bearing fact:
+it scales with merge-txn size, which is why the port carries the
+bounded-write-txn invariant (8 MiB sub-commits, lock released between —
+ADR Stage 1) and the S4 envelope re-asserts it at production merge sizes.
+The feared trade also inverts: rocks has no writer lock to queue on, yet
+its head tails under the same concurrent-merge load are ~12× worse at p99
+and ~4× at max (compaction jitter) — the lock mdbx pays for is cheaper
+than the compaction rocks pays with. Write ratio in this shape: 3.97×.
 
 ## Read latency under production write load
 
@@ -182,17 +227,30 @@ still serves the churn (at 4 KiB pages every ~10.6 KiB value needs a
 ## Verdict vs the ADR 0002 gate
 
 With 4 KiB pages, app-level LZ4 and a 1 s sync cadence, libmdbx clears the
-gate on the churn shape: 3.7× fewer device writes free-running and 5.5–6.3×
-fewer at production pace, with better commit tails than the rocks reference
-in every paced config. 64 KiB pages — the initial default — *fail* the gate
+gate on the churn shape against the **production-parity** reference (runs
+18–19: Zstd WAL + 8 background jobs): **3.5× fewer device writes
+free-running and 3.3–3.8× fewer at production pace**, with better commit
+tails in every paced config. The pre-parity reference (runs 02/08, no WAL
+compression) overstated the paced advantage as 5.5–6.3× — the free-run
+ratio barely moved. 64 KiB pages — the initial default — *fail* the gate
 by writing 1.4× more than rocks; the recommendation is page-size 4 KiB (or
 16 KiB if read-scan cost proves dominant, at 2× the device writes).
+
+One scale caveat on the gate: bench live is ~150 MB against production's
+~68 GB. LSM leveling amplification grows with live size (more levels, more
+rewrite generations) while mdbx COW spine depth grows logarithmically — the
+error is in mdbx's favor, but the production-size magnitude is confirmed
+only by the S4 soak (ADR Stage 4), not by this bench. The bench also models
+neither metadata CFs nor the hash indexes (ADR porting note 4 — a
+random-insert stream that an LSM absorbs and a B+tree pays leaf-path COW
+for; internal runs both indexes).
 
 The wave runs close the reclaim question: the mdbx file is a permanent
 high-water mark (~1.35× peak stored live at paced rate, plus a sync-cadence
 parking window on free-run bursts; tail truncation never fires) but does
-not creep at constant live, while rocks buys its reclaim for 3.7× the
-device writes. Consequences are codified as ADR 0002 "Disk policy": per-env
+not creep at constant live, while rocks buys its reclaim for ~3.5× the
+device writes (wave run 17 ran the pre-parity reference; the free-run
+parity correction is −4%). Consequences are codified as ADR 0002 "Disk policy": per-env
 `max_size` quota, ring-past-the-floor trimming under quota pressure (coverage
 gap instead of unbounded growth), and env-granular defrag (reset-reingest
 required, compact-swap optional).

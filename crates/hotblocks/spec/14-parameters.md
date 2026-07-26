@@ -68,7 +68,8 @@ ran against.
 | `P-STARTUP-READY(state)` | per-dataset readable bound (LIV-5b, SLI-6) | — | budget curve vs state size ⚠ |
 | `P-SHUTDOWN` | drain-and-exit bound (LIV-12) | `--pre-drain-grace-secs` 25 s + `--drain-timeout-secs` 25 s since 2026-07-21 (GAP-17), bounded in-process at last; the deployment's 5 s grace is still below the sum, so the exit remains SIGKILL until the chart is raised | deployment grace ≥ `pre_drain_grace + drain_timeout`; drain deadline ≥ `P-QUERY-TIME` + `P-SCHED-SLACK` ⚠ |
 | `P-DUR-PROCESS` | commits lost on process crash (CN-6) | 0 | 0 |
-| `P-DUR-SYSTEM` | commit-suffix loss window on host/power failure (CN-6b) | bounded, engine-managed (not explicitly configured) | make explicit ⚠ |
+| `P-DUR-SYSTEM` | commit-suffix loss window on host/power failure (CN-6b) | bounded, engine-managed (not explicitly configured) | make explicit ⚠; under ADR 0002 = `P-DUR-SYNC-CADENCE` + max write-txn hold |
+| `P-DUR-SYNC-CADENCE` | durable-sync period per env under `SafeNoSync` (ADR 0002); also the free-page parking window that sizes the RS-6b burst term | — (engine-managed today) | ~1 s ⚠ |
 | `P-QUIESCENCE` | harness settling period before model comparison (12 §1) | — | 2× `P-CLEANUP-PERIOD` ⚠ |
 | `P-RECOVERY-SETTLE` | post-overload return-to-normal bound (LIV-10) | — | ≤ 30 s ⚠ |
 

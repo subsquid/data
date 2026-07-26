@@ -77,6 +77,13 @@ struct Args {
     #[arg(long, default_value_t = 8)]
     merge_fanin: usize,
 
+    /// run merges on a background thread (max 1 in flight per dataset), so
+    /// commits contend with the merge for the env writer lock — the
+    /// production compaction_loop shape; inline merges (runs 01–17) never
+    /// exercise that contention
+    #[arg(long, default_value_t = false)]
+    concurrent_merges: bool,
+
     /// retention window in chunks per dataset; 0 = keep everything
     #[arg(long, default_value_t = 64)]
     window: usize,
@@ -133,13 +140,41 @@ struct WorkerOut {
     delete_us: Vec<u64>
 }
 
-fn run_worker(
-    engine: &Engine,
+struct PendingMerge<'scope> {
+    handle: std::thread::ScopedJoinHandle<'scope, Result<u64>>,
+    batch: Vec<u64>,
+    new_id: u64,
+    n_chunks: usize,
+    moved_bytes: u64
+}
+
+/// Joins the in-flight merge and applies its bookkeeping: the merged entry
+/// enters `live` and the registry swaps sources for the merged table (readers
+/// keep hitting the sources until then — the production read-vs-merge race).
+fn finish_merge(
+    pending: &mut Option<PendingMerge<'_>>,
+    live: &mut VecDeque<(u64, usize, u64)>,
+    reg: &std::sync::Mutex<Vec<u64>>,
+    out: &mut WorkerOut
+) -> Result<()> {
+    let Some(p) = pending.take() else { return Ok(()) };
+    let us = p.handle.join().expect("merge thread panicked")?;
+    out.merge_us.push(us);
+    live.push_back((p.new_id, p.n_chunks, p.moved_bytes));
+    let mut g = reg.lock().expect("registry");
+    g.retain(|t| !p.batch.contains(t));
+    g.push(p.new_id);
+    Ok(())
+}
+
+fn run_worker<'scope>(
+    engine: &'scope Engine,
     args: &Args,
     ds: usize,
-    reg: &std::sync::Mutex<Vec<u64>>,
+    reg: &'scope std::sync::Mutex<Vec<u64>>,
     wave_done: &AtomicUsize,
-    tail_file: &AtomicU64
+    tail_file: &AtomicU64,
+    scope: &'scope std::thread::Scope<'scope, '_>
 ) -> Result<WorkerOut> {
     let mut rng = Rng::new(0x5EED ^ ((ds as u64) << 17));
     let mut out = WorkerOut {
@@ -152,6 +187,7 @@ fn run_worker(
     let mut unmerged: Vec<u64> = Vec::new();
     let mut live_chunks = 0usize;
     let mut in_tail = false;
+    let mut pending: Option<PendingMerge<'scope>> = None;
 
     for i in 0..args.chunks {
         let id = NEXT_TABLE_ID.fetch_add(1, Ordering::Relaxed);
@@ -183,22 +219,53 @@ fn run_worker(
         reg.lock().expect("registry").push(id);
 
         if args.merge_fanin > 0 && unmerged.len() >= args.merge_fanin {
-            let new_id = NEXT_TABLE_ID.fetch_add(1, Ordering::Relaxed);
-            let t0 = Instant::now();
-            engine.merge_tables(ds, &unmerged, new_id)?;
-            out.merge_us.push(t0.elapsed().as_micros() as u64);
-            let mut moved_bytes = 0u64;
-            for _ in 0..unmerged.len() {
-                if let Some((_, _, b)) = live.pop_back() {
-                    moved_bytes += b;
+            if args.concurrent_merges {
+                finish_merge(&mut pending, &mut live, reg, &mut out)?;
+                let batch = std::mem::take(&mut unmerged);
+                let new_id = NEXT_TABLE_ID.fetch_add(1, Ordering::Relaxed);
+                // sources leave `live` now so retention can't trim them out
+                // from under the merge txn; they re-enter as one entry at join
+                let mut moved_bytes = 0u64;
+                let mut n_chunks = 0usize;
+                live.retain(|(id, n, b)| {
+                    let merged = batch.contains(id);
+                    if merged {
+                        moved_bytes += *b;
+                        n_chunks += *n;
+                    }
+                    !merged
+                });
+                let batch2 = batch.clone();
+                let handle = scope.spawn(move || {
+                    let t0 = Instant::now();
+                    engine.merge_tables(ds, &batch2, new_id)?;
+                    Ok(t0.elapsed().as_micros() as u64)
+                });
+                pending = Some(PendingMerge {
+                    handle,
+                    batch,
+                    new_id,
+                    n_chunks,
+                    moved_bytes
+                });
+            } else {
+                let new_id = NEXT_TABLE_ID.fetch_add(1, Ordering::Relaxed);
+                let t0 = Instant::now();
+                engine.merge_tables(ds, &unmerged, new_id)?;
+                out.merge_us.push(t0.elapsed().as_micros() as u64);
+                let mut moved_bytes = 0u64;
+                for _ in 0..unmerged.len() {
+                    if let Some((_, _, b)) = live.pop_back() {
+                        moved_bytes += b;
+                    }
                 }
+                live.push_back((new_id, unmerged.len(), moved_bytes));
+                let mut g = reg.lock().expect("registry");
+                g.retain(|t| !unmerged.contains(t));
+                g.push(new_id);
+                drop(g);
+                unmerged.clear();
             }
-            live.push_back((new_id, unmerged.len(), moved_bytes));
-            let mut g = reg.lock().expect("registry");
-            g.retain(|t| !unmerged.contains(t));
-            g.push(new_id);
-            drop(g);
-            unmerged.clear();
         }
 
         let frac = i as f64 / args.chunks as f64;
@@ -231,6 +298,7 @@ fn run_worker(
             std::thread::sleep(Duration::from_millis(args.paced_ms));
         }
     }
+    finish_merge(&mut pending, &mut live, reg, &mut out)?;
     Ok(out)
 }
 
@@ -399,7 +467,9 @@ fn main() -> Result<()> {
             .collect();
 
         let handles: Vec<_> = (0..args.datasets)
-            .map(|ds| scope.spawn(move || run_worker(engine, args, ds, &registry[ds], wave_done, tail_file)))
+            .map(|ds| {
+                scope.spawn(move || run_worker(engine, args, ds, &registry[ds], wave_done, tail_file, scope))
+            })
             .collect();
         let outs = handles
             .into_iter()
