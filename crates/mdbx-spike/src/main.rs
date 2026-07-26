@@ -10,7 +10,7 @@ mod kv_mdbx;
 use std::{
     collections::VecDeque,
     path::PathBuf,
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     time::{Duration, Instant}
 };
 
@@ -81,6 +81,11 @@ struct Args {
     #[arg(long, default_value_t = 64)]
     window: usize,
 
+    /// grow the window to this many chunks for the middle of the run
+    /// (commits 20%..50%), then trim back — a downstream-stall wave; 0 = off
+    #[arg(long, default_value_t = 0)]
+    window_wave: usize,
+
     /// per-dataset delay between commits; 0 = free-run
     #[arg(long, default_value_t = 0)]
     paced_ms: u64,
@@ -89,12 +94,24 @@ struct Args {
     #[arg(long, default_value_t = 0)]
     reader_hold_secs: u64,
 
+    /// concurrent readers, each scanning a random live table per iteration
+    #[arg(long, default_value_t = 0)]
+    readers: usize,
+
+    /// per-reader delay between scans; 0 = free-run
+    #[arg(long, default_value_t = 0)]
+    read_paced_ms: u64,
+
     #[arg(long, default_value_t = 64 << 30)]
     max_db_bytes: usize,
 
     /// mdbx page size
     #[arg(long, default_value_t = 65_536)]
     mdbx_page: usize,
+
+    /// mdbx geometry growth step
+    #[arg(long, default_value_t = 256)]
+    growth_step_mb: usize,
 
     /// durable-sync cadence; bounds SafeNoSync file growth ≈ churn × this
     /// window (0 = off, file grows until exit)
@@ -105,6 +122,10 @@ struct Args {
 static NEXT_TABLE_ID: AtomicU64 = AtomicU64::new(1);
 static LOGICAL_RAW: AtomicU64 = AtomicU64::new(0);
 static STORED: AtomicU64 = AtomicU64::new(0);
+// logical live stored bytes (workers add on commit, subtract on trim) — the
+// race-free reference for what the wave peak *should* occupy on disk
+static LIVE_STORED: AtomicU64 = AtomicU64::new(0);
+static PEAK_LIVE_STORED: AtomicU64 = AtomicU64::new(0);
 
 struct WorkerOut {
     commit_us: Vec<u64>,
@@ -112,22 +133,31 @@ struct WorkerOut {
     delete_us: Vec<u64>
 }
 
-fn run_worker(engine: &Engine, args: &Args, ds: usize) -> Result<WorkerOut> {
+fn run_worker(
+    engine: &Engine,
+    args: &Args,
+    ds: usize,
+    reg: &std::sync::Mutex<Vec<u64>>,
+    wave_done: &AtomicUsize,
+    tail_file: &AtomicU64
+) -> Result<WorkerOut> {
     let mut rng = Rng::new(0x5EED ^ ((ds as u64) << 17));
     let mut out = WorkerOut {
         commit_us: Vec::with_capacity(args.chunks),
         merge_us: Vec::new(),
         delete_us: Vec::new()
     };
-    // (table_id, chunks it holds), oldest first
-    let mut live: VecDeque<(u64, usize)> = VecDeque::new();
+    // (table_id, chunks it holds, stored bytes), oldest first
+    let mut live: VecDeque<(u64, usize, u64)> = VecDeque::new();
     let mut unmerged: Vec<u64> = Vec::new();
     let mut live_chunks = 0usize;
+    let mut in_tail = false;
 
-    for _ in 0..args.chunks {
+    for i in 0..args.chunks {
         let id = NEXT_TABLE_ID.fetch_add(1, Ordering::Relaxed);
         let mut entries: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(args.pages_per_commit + 1);
         entries.push((meta_key(id), vec![0u8; 64]));
+        let mut chunk_bytes = 64u64;
         for idx in 0..args.pages_per_commit {
             let raw = gen_page(&mut rng, args.page_bytes, args.dup);
             LOGICAL_RAW.fetch_add(raw.len() as u64, Ordering::Relaxed);
@@ -137,6 +167,7 @@ fn run_worker(engine: &Engine, args: &Args, ds: usize) -> Result<WorkerOut> {
                 raw
             };
             STORED.fetch_add(value.len() as u64, Ordering::Relaxed);
+            chunk_bytes += value.len() as u64;
             entries.push((page_key(id, idx as u32), value));
         }
 
@@ -144,29 +175,56 @@ fn run_worker(engine: &Engine, args: &Args, ds: usize) -> Result<WorkerOut> {
         engine.write_chunk(ds, &entries)?;
         out.commit_us.push(t0.elapsed().as_micros() as u64);
 
-        live.push_back((id, 1));
+        let g = LIVE_STORED.fetch_add(chunk_bytes, Ordering::Relaxed) + chunk_bytes;
+        PEAK_LIVE_STORED.fetch_max(g, Ordering::Relaxed);
+        live.push_back((id, 1, chunk_bytes));
         live_chunks += 1;
         unmerged.push(id);
+        reg.lock().expect("registry").push(id);
 
         if args.merge_fanin > 0 && unmerged.len() >= args.merge_fanin {
             let new_id = NEXT_TABLE_ID.fetch_add(1, Ordering::Relaxed);
             let t0 = Instant::now();
             engine.merge_tables(ds, &unmerged, new_id)?;
             out.merge_us.push(t0.elapsed().as_micros() as u64);
+            let mut moved_bytes = 0u64;
             for _ in 0..unmerged.len() {
-                live.pop_back();
+                if let Some((_, _, b)) = live.pop_back() {
+                    moved_bytes += b;
+                }
             }
-            live.push_back((new_id, unmerged.len()));
+            live.push_back((new_id, unmerged.len(), moved_bytes));
+            let mut g = reg.lock().expect("registry");
+            g.retain(|t| !unmerged.contains(t));
+            g.push(new_id);
+            drop(g);
             unmerged.clear();
         }
 
-        while args.window > 0 && live_chunks > args.window {
-            let Some((old, n)) = live.pop_front() else { break };
+        let frac = i as f64 / args.chunks as f64;
+        let window = if args.window_wave > 0 && (0.2..0.5).contains(&frac) {
+            args.window_wave.max(args.window)
+        } else {
+            args.window
+        };
+        while window > 0 && live_chunks > window {
+            let Some((old, n, bytes)) = live.pop_front() else { break };
             live_chunks -= n;
+            LIVE_STORED.fetch_sub(bytes, Ordering::Relaxed);
             unmerged.retain(|t| *t != old);
             let t0 = Instant::now();
             engine.delete_tables(ds, &[old])?;
             out.delete_us.push(t0.elapsed().as_micros() as u64);
+            reg.lock().expect("registry").retain(|t| *t != old);
+        }
+        if args.window_wave > 0 && !in_tail && frac >= 0.5 {
+            in_tail = true;
+            // last worker through the trim snapshots the post-wave file size
+            if wave_done.fetch_add(1, Ordering::Relaxed) + 1 == args.datasets {
+                if let Ok(u) = engine.disk_usage() {
+                    tail_file.store(u.file_bytes.max(1), Ordering::Relaxed);
+                }
+            }
         }
 
         if args.paced_ms > 0 {
@@ -204,6 +262,11 @@ fn cgroup_io() -> Option<(u64, u64)> {
     let mut read = 0u64;
     let mut write = 0u64;
     for line in text.lines() {
+        // stacked devices (md 9:*, dm 253:*) re-count bytes already charged
+        // to the physical device below them
+        if line.starts_with("9:") || line.starts_with("253:") {
+            continue;
+        }
         for field in line.split_whitespace() {
             if let Some(v) = field.strip_prefix("rbytes=") {
                 read += v.parse::<u64>().unwrap_or(0);
@@ -239,7 +302,8 @@ fn main() -> Result<()> {
                 n_envs,
                 sync_mode,
                 args.mdbx_page,
-                args.max_db_bytes
+                args.max_db_bytes,
+                args.growth_step_mb << 20
             )?)
         }
         EngineKind::Rocks => Engine::Rocks(RocksEngine::open(&args.dir, 256)?)
@@ -258,12 +322,21 @@ fn main() -> Result<()> {
     let started = Instant::now();
     let done = AtomicBool::new(false);
     let peak_file = AtomicU64::new(0);
+    let wave_done = AtomicUsize::new(0);
+    // file size once every worker finished its post-wave trim; growth past
+    // this at constant live = the freelist failing to serve the churn
+    let tail_file = AtomicU64::new(0);
+    let registry: Vec<std::sync::Mutex<Vec<u64>>> =
+        (0..args.datasets).map(|_| std::sync::Mutex::new(Vec::new())).collect();
 
-    let (outs, peak) = std::thread::scope(|scope| {
+    let (outs, reads, peak) = std::thread::scope(|scope| {
         let engine = &engine;
         let args = &args;
         let done = &done;
         let peak_file = &peak_file;
+        let wave_done = &wave_done;
+        let tail_file = &tail_file;
+        let registry = &registry;
 
         let sampler = scope.spawn(move || {
             while !done.load(Ordering::Relaxed) {
@@ -289,8 +362,44 @@ fn main() -> Result<()> {
             })
         });
 
+        let scanners: Vec<_> = (0..args.readers)
+            .map(|r| {
+                scope.spawn(move || {
+                    let mut rng = Rng::new(0x0EAD ^ ((r as u64) << 9));
+                    let mut scan_us = Vec::new();
+                    let mut pages = 0usize;
+                    let mut raw = 0u64;
+                    let mut misses = 0usize;
+                    while !done.load(Ordering::Relaxed) {
+                        let ds = (rng.next() as usize) % args.datasets;
+                        let id = {
+                            let g = registry[ds].lock().expect("registry");
+                            (!g.is_empty()).then(|| g[(rng.next() as usize) % g.len()])
+                        };
+                        let Some(id) = id else {
+                            std::thread::sleep(Duration::from_millis(1));
+                            continue;
+                        };
+                        let t0 = Instant::now();
+                        match engine.scan_table(ds, id, args.compress) {
+                            Ok((0, _)) | Err(_) => misses += 1,
+                            Ok((p, r)) => {
+                                scan_us.push(t0.elapsed().as_micros() as u64);
+                                pages += p;
+                                raw += r;
+                            }
+                        }
+                        if args.read_paced_ms > 0 {
+                            std::thread::sleep(Duration::from_millis(args.read_paced_ms));
+                        }
+                    }
+                    (scan_us, pages, raw, misses)
+                })
+            })
+            .collect();
+
         let handles: Vec<_> = (0..args.datasets)
-            .map(|ds| scope.spawn(move || run_worker(engine, args, ds)))
+            .map(|ds| scope.spawn(move || run_worker(engine, args, ds, &registry[ds], wave_done, tail_file)))
             .collect();
         let outs = handles
             .into_iter()
@@ -305,12 +414,21 @@ fn main() -> Result<()> {
         if let Some(r) = reader {
             r.join().expect("reader panicked");
         }
-        (outs, peak_file.load(Ordering::Relaxed))
+        let reads: Vec<_> = scanners
+            .into_iter()
+            .map(|h| h.join().expect("scanner panicked"))
+            .collect();
+        (outs, reads, peak_file.load(Ordering::Relaxed))
     });
     let outs = outs?;
 
     let elapsed = started.elapsed();
     engine.sync()?;
+    if args.window_wave > 0 {
+        // rocks keeps compacting after the last flush; give the wave A/B a
+        // comparable end state (mdbx files are static by then)
+        std::thread::sleep(Duration::from_secs(10));
+    }
     let usage = engine.disk_usage()?;
     let io_after = proc_io();
     let cg_after = cgroup_io();
@@ -346,12 +464,48 @@ fn main() -> Result<()> {
             r.count, r.p50, r.p90, r.p99, r.max
         );
     }
+    if args.readers > 0 {
+        let mut scan_us = Vec::new();
+        let (mut pages, mut raw, mut misses) = (0usize, 0u64, 0usize);
+        for (us, p, r, m) in reads {
+            scan_us.extend(us);
+            pages += p;
+            raw += r;
+            misses += m;
+        }
+        let rep = latency_report(scan_us);
+        println!(
+            "read: n={} p50={}us p90={}us p99={}us max={}us, pages/scan={:.1}, raw {:.1} MB, misses={}",
+            rep.count,
+            rep.p50,
+            rep.p90,
+            rep.p99,
+            rep.max,
+            pages as f64 / rep.count.max(1) as f64,
+            mb(raw),
+            misses
+        );
+    }
     println!(
         "disk: file={:.1} MB (peak {:.1} MB), live={:.1} MB",
         mb(usage.file_bytes),
         mb(peak.max(usage.file_bytes)),
         mb(usage.live_bytes)
     );
+    if args.window_wave > 0 {
+        let base = tail_file.load(Ordering::Relaxed);
+        if base == 0 {
+            println!("wave: post-wave baseline not captured (run too short?)");
+        } else {
+            println!(
+                "wave: stored live peak={:.1} MB, file@post-wave={:.1} MB, file@end={:.1} MB, post-wave growth={:.1} MB",
+                mb(PEAK_LIVE_STORED.load(Ordering::Relaxed)),
+                mb(base),
+                mb(usage.file_bytes),
+                mb(usage.file_bytes.saturating_sub(base))
+            );
+        }
+    }
     println!("engine: {}", engine.describe());
     if let Engine::Mdbx(e) = &engine {
         let (entries, raw) = e.verify_scan(args.compress)?;

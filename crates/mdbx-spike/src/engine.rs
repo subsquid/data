@@ -4,7 +4,11 @@
 //! the worst case ADR 0002 worries about (writer lock held for a whole
 //! chunk-merge), so the bench must charge for it.
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::Path,
+    sync::{Mutex, MutexGuard}
+};
 
 use anyhow::Result;
 use libmdbx::{Database, DatabaseOptions, Mode, NoWriteMap, PageSize, ReadWriteOptions, SyncMode, WriteFlags};
@@ -67,6 +71,16 @@ impl Engine {
         }
     }
 
+    /// One query-shaped read: fresh snapshot, seek to the table prefix, cursor
+    /// over its pages, hand back raw bytes (app LZ4 for mdbx, engine LZ4 for
+    /// rocks). Returns (pages, raw_bytes); 0 pages = table vanished.
+    pub fn scan_table(&self, ds: usize, id: u64, compressed: bool) -> Result<(usize, u64)> {
+        match self {
+            Engine::Mdbx(e) => e.scan_table(ds, id, compressed),
+            Engine::Rocks(e) => e.scan_table(id)
+        }
+    }
+
     pub fn hold_reader(&self, secs: u64) -> Result<()> {
         match self {
             Engine::Mdbx(e) => {
@@ -85,11 +99,7 @@ impl Engine {
 
     pub fn sync(&self) -> Result<()> {
         match self {
-            Engine::Mdbx(e) => {
-                for env in &e.envs {
-                    env.sync(true)?;
-                }
-            }
+            Engine::Mdbx(e) => e.locked_sync()?,
             Engine::Rocks(e) => e.db.flush()?
         }
         Ok(())
@@ -99,9 +109,7 @@ impl Engine {
     /// sync cadence the file balloons; rocks needs nothing (WAL is its cadence).
     pub fn periodic_sync(&self) -> Result<()> {
         if let Engine::Mdbx(e) = self {
-            for env in &e.envs {
-                env.sync(true)?;
-            }
+            e.locked_sync()?;
         }
         Ok(())
     }
@@ -137,12 +145,24 @@ impl Engine {
 
 pub struct MdbxEngine {
     envs: Vec<Database<NoWriteMap>>,
+    /// mdbx_env_sync concurrent with a SafeNoSync commit trips the always-on
+    /// ENSURE(legal4overwrite) in dxb_sync_locked (libmdbx 0.13.11), so durable
+    /// sync is serialized with write txns — commits pay the fsync wait, which
+    /// is the honest cost a port would carry.
+    write_locks: Vec<Mutex<()>>,
     page_size: usize,
     root: std::path::PathBuf
 }
 
 impl MdbxEngine {
-    pub fn open(root: &Path, n_envs: usize, sync_mode: SyncMode, page_size: usize, max_bytes: usize) -> Result<Self> {
+    pub fn open(
+        root: &Path,
+        n_envs: usize,
+        sync_mode: SyncMode,
+        page_size: usize,
+        max_bytes: usize,
+        growth_step: usize
+    ) -> Result<Self> {
         let mut envs = Vec::with_capacity(n_envs);
         for i in 0..n_envs {
             let path = root.join(format!("env{i}"));
@@ -153,15 +173,19 @@ impl MdbxEngine {
                     sync_mode,
                     min_size: Some(0),
                     max_size: Some(max_bytes as isize),
-                    growth_step: Some(256 << 20),
-                    shrink_threshold: None
+                    growth_step: Some(growth_step as isize),
+                    // explicit, so wave runs can answer whether tail truncation
+                    // ever fires under churn (mdbx can shrink only a free tail)
+                    shrink_threshold: Some(2 * growth_step as isize)
                 }),
                 ..Default::default()
             };
             envs.push(Database::open_with_options(&path, options)?);
         }
+        let write_locks = (0..n_envs).map(|_| Mutex::new(())).collect();
         Ok(Self {
             envs,
+            write_locks,
             page_size,
             root: root.to_owned()
         })
@@ -171,7 +195,22 @@ impl MdbxEngine {
         &self.envs[ds % self.envs.len()]
     }
 
+    fn write_lock(&self, ds: usize) -> MutexGuard<'_, ()> {
+        self.write_locks[ds % self.envs.len()]
+            .lock()
+            .expect("write lock poisoned")
+    }
+
+    pub fn locked_sync(&self) -> Result<()> {
+        for (env, lock) in self.envs.iter().zip(&self.write_locks) {
+            let _g = lock.lock().expect("write lock poisoned");
+            env.sync(true)?;
+        }
+        Ok(())
+    }
+
     fn write_chunk(&self, ds: usize, entries: &[(Vec<u8>, Vec<u8>)]) -> Result<()> {
+        let _g = self.write_lock(ds);
         let txn = self.env(ds).begin_rw_txn()?;
         let table = txn.open_table(None)?;
         {
@@ -185,6 +224,7 @@ impl MdbxEngine {
     }
 
     fn merge_tables(&self, ds: usize, old: &[u64], new_id: u64) -> Result<usize> {
+        let _g = self.write_lock(ds);
         let txn = self.env(ds).begin_rw_txn()?;
         let table = txn.open_table(None)?;
 
@@ -220,6 +260,7 @@ impl MdbxEngine {
     }
 
     fn delete_tables(&self, ds: usize, ids: &[u64]) -> Result<usize> {
+        let _g = self.write_lock(ds);
         let txn = self.env(ds).begin_rw_txn()?;
         let table = txn.open_table(None)?;
 
@@ -245,6 +286,31 @@ impl MdbxEngine {
         }
         txn.commit()?;
         Ok(deleted)
+    }
+
+    fn scan_table(&self, ds: usize, id: u64, compressed: bool) -> Result<(usize, u64)> {
+        let txn = self.env(ds).begin_ro_txn()?;
+        let table = txn.open_table(None)?;
+        let reader = MdbxTableReader::new(&txn, table);
+        let mut cur = reader.new_cursor();
+        let prefix = table_prefix(id);
+        cur.seek(&prefix)?;
+        let mut pages = 0usize;
+        let mut raw = 0u64;
+        while cur.is_valid() && cur.key().starts_with(&prefix) {
+            if is_page_key(cur.key()) {
+                if compressed {
+                    let v = lz4_flex::decompress_size_prepended(cur.value())
+                        .map_err(|e| anyhow::anyhow!("page decompress failed: {e}"))?;
+                    raw += v.len() as u64;
+                } else {
+                    raw += cur.value().len() as u64;
+                }
+                pages += 1;
+            }
+            cur.next()?;
+        }
+        Ok((pages, raw))
     }
 
     /// Walks env0 through the `KvRead` seam and decompresses page values —
@@ -386,6 +452,26 @@ impl RocksEngine {
         }
         self.db.write(batch)?;
         Ok(deleted)
+    }
+
+    fn scan_table(&self, id: u64) -> Result<(usize, u64)> {
+        let prefix = table_prefix(id);
+        let mut iter = self.db.raw_iterator_cf(self.cf());
+        iter.seek(prefix);
+        let mut pages = 0usize;
+        let mut raw = 0u64;
+        while iter.valid() {
+            let k = iter.key().expect("valid");
+            if !k.starts_with(&prefix) {
+                break;
+            }
+            if is_page_key(k) {
+                raw += iter.value().expect("valid").len() as u64;
+                pages += 1;
+            }
+            iter.next();
+        }
+        Ok((pages, raw))
     }
 
     fn int_prop(&self, name: &str) -> u64 {

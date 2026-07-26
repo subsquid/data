@@ -69,12 +69,40 @@ mdbx-spike --engine mdbx --dir /nvme/spike --datasets 45 --chunks 600 --compress
 
 # stale-reader file growth (GAP-29 shape)
 mdbx-spike --engine mdbx --dir /nvme/spike --datasets 8 --chunks 2000 --compress --reader-hold-secs 60
+
+# retention wave (downstream-stall shape): file high-water + post-wave reuse;
+# single env only — per-dataset envs hide the signal under the 256 MiB
+# growth-step floor unless --growth-step-mb is lowered
+mdbx-spike --engine mdbx --dir /nvme/spike --datasets 45 --chunks 2000 --compress --mdbx-page 4096 --window-wave 640
+mdbx-spike --engine mdbx --dir /nvme/spike --datasets 45 --chunks 1200 --compress --mdbx-page 4096 --window-wave 300 --paced-ms 250
+mdbx-spike --engine rocks --dir /nvme/spike --datasets 45 --chunks 2000 --window-wave 640
 ```
 
 Gate per ADR 0002: proceed only if device writes drop ≥3× vs the rocks
 reference without head-freshness (commit tail) regressions.
 
-## Findings so far (local, macOS)
+## Findings
+
+Linux decision runs: [2026-07-26 measurements](../../docs/measurements/2026-07-26-mdbx-churn-bench.md).
+Headline: the gate outcome is a page-size decision — 64 KiB pages write 1.4×
+*more* to the device than the rocks reference, 4 KiB pages write 3.7× less
+and pass. Two hard-won constraints:
+
+- `mdbx_env_sync` from a cadence thread racing `SafeNoSync` commits aborts
+  the process on the always-on `ENSURE(legal4overwrite)` (libmdbx 0.13.11,
+  Linux; never reproduced on macOS). Durable sync is now serialized with
+  write txns per env, so commit tails include the fsync wait — the cost a
+  port would carry.
+- cgroup `io.stat` re-counts bytes on stacked block devices (md/dm); the
+  bench skips major 9/253 lines and cross-checks against `/proc/self/io`.
+- Wave runs (15–17): the mdbx file is a permanent high-water mark — ~1.35×
+  peak stored live plus growth-step rounding; tail truncation never fires
+  even with an armed `shrink_threshold` (80–93% of pages free at end). Reuse
+  holds: zero post-wave growth at paced rate, exactly one growth step
+  free-running. The rocks reference reclaims back to ~live for 3.7× the
+  device writes.
+
+Earlier local findings (macOS):
 
 - Generated pages hit 4.00× LZ4 at `--dup 6` vs the measured 4.03× on prod
   `CF_TABLES`.
@@ -82,14 +110,14 @@ reference without head-freshness (commit tail) regressions.
   without a sync cadence ballooned the file to 110× the live data. With the
   default 1 s cadence it stayed at one growth step. Cadence and growth-step
   tuning is a real porting decision, not a knob to default.
-- `mdbx_env_sync` contends with writers; at 18× prod pace on macOS that put
-  fsync into commit tails. Needs re-measuring on Linux where fdatasync is
-  ~1 ms, and staggering across envs in per-dataset mode.
 
 ## Model simplifications
 
 - Merges are single-level (N fresh chunks → one table, never re-merged);
   production `compaction_loop` re-merges up to 200k rows. Understates app-level
   churn equally for both engines.
-- The read side of queries is absent; `--reader-hold-secs` covers only the
-  freelist-pinning effect of long readers.
+- `--readers N` adds query-shaped reads (random live table: snapshot, prefix
+  seek, cursor scan, decompress), but the bench's live set fits page cache,
+  so read numbers compare engine CPU paths, not disk-bound reads.
+  `--reader-hold-secs` covers only the freelist-pinning effect of long
+  readers.
