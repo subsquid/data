@@ -50,10 +50,15 @@ pub enum Engine {
 }
 
 impl Engine {
-    pub fn write_chunk(&self, ds: usize, entries: &[(Vec<u8>, Vec<u8>)]) -> Result<()> {
+    pub fn write_chunk(
+        &self,
+        ds: usize,
+        entries: &[(Vec<u8>, Vec<u8>)],
+        hash_inserts: Option<std::ops::Range<u64>>
+    ) -> Result<()> {
         match self {
-            Engine::Mdbx(e) => e.write_chunk(ds, entries),
-            Engine::Rocks(e) => e.write_chunk(entries)
+            Engine::Mdbx(e) => e.write_chunk(ds, entries, hash_inserts),
+            Engine::Rocks(e) => e.write_chunk(ds, entries, hash_inserts)
         }
     }
 
@@ -64,10 +69,26 @@ impl Engine {
         }
     }
 
-    pub fn delete_tables(&self, ds: usize, ids: &[u64]) -> Result<usize> {
+    pub fn delete_tables(
+        &self,
+        ds: usize,
+        ids: &[u64],
+        hash_deletes: Option<std::ops::Range<u64>>
+    ) -> Result<usize> {
         match self {
-            Engine::Mdbx(e) => e.delete_tables(ds, ids),
-            Engine::Rocks(e) => e.delete_tables(ids)
+            Engine::Mdbx(e) => e.delete_tables(ds, ids, hash_deletes),
+            Engine::Rocks(e) => e.delete_tables(ds, ids, hash_deletes)
+        }
+    }
+
+    /// Bulk-builds the hash-index tree to `count` entries before the timed
+    /// run: sorted batches, so the build is append-cheap and the *stream*
+    /// runs against a tree of realistic depth (a small tree understates
+    /// random-insert COW by orders of magnitude).
+    pub fn preseed_hashes(&self, ds: usize, count: u64) -> Result<()> {
+        match self {
+            Engine::Mdbx(e) => e.preseed_hashes(ds, count),
+            Engine::Rocks(e) => e.preseed_hashes(ds, count)
         }
     }
 
@@ -209,7 +230,12 @@ impl MdbxEngine {
         Ok(())
     }
 
-    fn write_chunk(&self, ds: usize, entries: &[(Vec<u8>, Vec<u8>)]) -> Result<()> {
+    fn write_chunk(
+        &self,
+        ds: usize,
+        entries: &[(Vec<u8>, Vec<u8>)],
+        hash_inserts: Option<std::ops::Range<u64>>
+    ) -> Result<()> {
         let _g = self.write_lock(ds);
         let txn = self.env(ds).begin_rw_txn()?;
         let table = txn.open_table(None)?;
@@ -219,7 +245,33 @@ impl MdbxEngine {
                 writer.put(k, v)?;
             }
         }
+        if let Some(range) = hash_inserts {
+            // hash keys live in the same tree under the 0xFF sentinel —
+            // COW-equivalent to a named subtable, disjoint from table prefixes
+            let mut keys: Vec<[u8; 32]> = range.map(|i| crate::data::hkey(ds, i)).collect();
+            keys.sort_unstable();
+            let table = txn.open_table(None)?;
+            for k in &keys {
+                txn.put(&table, k, [0u8; 12], WriteFlags::UPSERT)?;
+            }
+        }
         txn.commit()?;
+        Ok(())
+    }
+
+    fn preseed_hashes(&self, ds: usize, count: u64) -> Result<()> {
+        for start in (0..count).step_by(100_000) {
+            let end = (start + 100_000).min(count);
+            let mut keys: Vec<[u8; 32]> = (start..end).map(|i| crate::data::hkey(ds, i)).collect();
+            keys.sort_unstable();
+            let _g = self.write_lock(ds);
+            let txn = self.env(ds).begin_rw_txn()?;
+            let table = txn.open_table(None)?;
+            for k in &keys {
+                txn.put(&table, k, [0u8; 12], WriteFlags::UPSERT)?;
+            }
+            txn.commit()?;
+        }
         Ok(())
     }
 
@@ -259,10 +311,20 @@ impl MdbxEngine {
         Ok(moved.len())
     }
 
-    fn delete_tables(&self, ds: usize, ids: &[u64]) -> Result<usize> {
+    fn delete_tables(
+        &self,
+        ds: usize,
+        ids: &[u64],
+        hash_deletes: Option<std::ops::Range<u64>>
+    ) -> Result<usize> {
         let _g = self.write_lock(ds);
         let txn = self.env(ds).begin_rw_txn()?;
         let table = txn.open_table(None)?;
+        if let Some(range) = hash_deletes {
+            for i in range {
+                txn.del(&table, crate::data::hkey(ds, i), None)?;
+            }
+        }
 
         let mut keys: Vec<Vec<u8>> = Vec::new();
         {
@@ -358,6 +420,7 @@ pub struct RocksEngine {
 }
 
 const CF_TABLES: &str = "tables";
+const CF_HASHES: &str = "hashes";
 
 impl RocksEngine {
     /// Mirrors production `tables_cf_options`: LZ4, dynamic level bytes,
@@ -382,10 +445,24 @@ impl RocksEngine {
         cf_opts.set_level_compaction_dynamic_level_bytes(true);
         cf_opts.add_compact_on_deletion_collector_factory(128 * 1024, 64 * 1024, 0.5);
 
+        // mirrors production `hash_index_cf_options`: bloom, LZ4, deletion
+        // collector, dynamic level bytes
+        let mut hash_opts = rocksdb::Options::default();
+        let mut hash_block = rocksdb::BlockBasedOptions::default();
+        hash_block.set_bloom_filter(10.0, false);
+        hash_block.set_optimize_filters_for_memory(true);
+        hash_opts.set_block_based_table_factory(&hash_block);
+        hash_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+        hash_opts.set_level_compaction_dynamic_level_bytes(true);
+        hash_opts.add_compact_on_deletion_collector_factory(128 * 1024, 64 * 1024, 0.5);
+
         let db = rocksdb::DB::open_cf_descriptors(
             &db_opts,
             root,
-            vec![rocksdb::ColumnFamilyDescriptor::new(CF_TABLES, cf_opts)]
+            vec![
+                rocksdb::ColumnFamilyDescriptor::new(CF_TABLES, cf_opts),
+                rocksdb::ColumnFamilyDescriptor::new(CF_HASHES, hash_opts),
+            ]
         )?;
         Ok(Self {
             db,
@@ -397,12 +474,38 @@ impl RocksEngine {
         self.db.cf_handle(CF_TABLES).expect("tables cf")
     }
 
-    fn write_chunk(&self, entries: &[(Vec<u8>, Vec<u8>)]) -> Result<()> {
+    fn cf_h(&self) -> &rocksdb::ColumnFamily {
+        self.db.cf_handle(CF_HASHES).expect("hashes cf")
+    }
+
+    fn write_chunk(
+        &self,
+        ds: usize,
+        entries: &[(Vec<u8>, Vec<u8>)],
+        hash_inserts: Option<std::ops::Range<u64>>
+    ) -> Result<()> {
         let mut batch = rocksdb::WriteBatch::default();
         for (k, v) in entries {
             batch.put_cf(self.cf(), k, v);
         }
+        if let Some(range) = hash_inserts {
+            for i in range {
+                batch.put_cf(self.cf_h(), crate::data::hkey(ds, i), [0u8; 12]);
+            }
+        }
         self.db.write(batch)?;
+        Ok(())
+    }
+
+    fn preseed_hashes(&self, ds: usize, count: u64) -> Result<()> {
+        for start in (0..count).step_by(100_000) {
+            let end = (start + 100_000).min(count);
+            let mut batch = rocksdb::WriteBatch::default();
+            for i in start..end {
+                batch.put_cf(self.cf_h(), crate::data::hkey(ds, i), [0u8; 12]);
+            }
+            self.db.write(batch)?;
+        }
         Ok(())
     }
 
@@ -440,8 +543,18 @@ impl RocksEngine {
         Ok(moved.len())
     }
 
-    fn delete_tables(&self, ids: &[u64]) -> Result<usize> {
+    fn delete_tables(
+        &self,
+        ds: usize,
+        ids: &[u64],
+        hash_deletes: Option<std::ops::Range<u64>>
+    ) -> Result<usize> {
         let mut batch = rocksdb::WriteBatch::default();
+        if let Some(range) = hash_deletes {
+            for i in range {
+                batch.delete_cf(self.cf_h(), crate::data::hkey(ds, i));
+            }
+        }
         let mut deleted = 0usize;
         let mut iter = self.db.raw_iterator_cf(self.cf());
         for id in ids {

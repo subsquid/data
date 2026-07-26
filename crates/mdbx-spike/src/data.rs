@@ -18,6 +18,21 @@ impl Rng {
     }
 }
 
+/// Deterministic hash-index key for (dataset, counter): a 0xFF sentinel byte
+/// (sorts after every 16-byte table prefix, so the hash range shares the mdbx
+/// tree without colliding) + 31 uniformly random bytes — the block/tx-hash
+/// insert pattern, reproducible so deletes can re-derive their keys.
+pub fn hkey(ds: usize, i: u64) -> [u8; 32] {
+    let seed = ((ds as u64) << 33).wrapping_add(i).wrapping_mul(0x9E3779B97F4A7C15);
+    let mut rng = Rng::new(seed);
+    let mut out = [0u8; 32];
+    for c in out.chunks_exact_mut(8) {
+        c.copy_from_slice(&rng.next().to_le_bytes());
+    }
+    out[0] = 0xFF;
+    out
+}
+
 /// One fresh random word per `dup` words; LZ4 ratio lands near `dup`.
 pub fn gen_page(rng: &mut Rng, len: usize, dup: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(len);

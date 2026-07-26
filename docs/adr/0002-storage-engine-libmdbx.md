@@ -116,16 +116,21 @@ cost ×1.
    reclaims the same wave for ~3.5× the device writes (parity-corrected;
    measurements "Verdict") — that is the trade being made. Consequences and
    the reclaim plan: see "Disk policy" below.
-4. **Hash indexes are a random-insert stream the spike never modeled.**
-   `CF_BLOCK_HASHES`/`CF_TRANSACTION_HASHES` are hash-keyed; mainnet-internal
-   runs both today (mainnet runs neither). An LSM absorbs random inserts in
-   the memtable; a B+tree COWs a leaf path (~3–4 × 4 KiB pages when leaves
-   are cold) *per touched leaf per txn* — at a per-transaction index this
-   can rival the data stream itself. Before Stage 2, either price it (bench
-   extension: random-key inserts at internal's tx rate) or restructure
-   (per-chunk index tables — append-pattern writes, lookups fan out over
-   chunks; or batch-sorted inserts across several chunks). The Stage 4
-   envelope must include the internal shape (both indexes on).
+4. **Hash indexes must not port as global hash-keyed tables — priced, runs
+   22–26.** `CF_BLOCK_HASHES`/`CF_TRANSACTION_HASHES` are hash-keyed;
+   mainnet-internal runs both today (mainnet runs neither). An LSM absorbs
+   random inserts in the memtable; a B+tree COWs a leaf path per touched
+   leaf per txn. Measured at internal's shape (300 entries/commit against a
+   1 M-entry tree): the index stream costs mdbx **27× its own data stream**
+   (+31.2 GB vs a 1.17 GB baseline; rocks pays +4.0 GB for the same) —
+   with global tables mdbx writes 4.5× *more* than rocks and the whole
+   Context table inverts. Write-behind batching recovers only 26% at
+   K=16 and buys 26 ms flush tails. The port therefore restructures:
+   per-chunk index tables written append-shaped with the chunk
+   (~270× cheaper), lookups fan out over chunk tables (bounded by chunk
+   count; per-chunk bloom if the fan-out ever hurts) — or the feature is
+   explicitly kept off mdbx-backed deployments. The Stage 4 envelope still
+   includes the internal shape (both indexes on, per-chunk layout).
 
 ## Binding (decided 2026-07-26)
 
@@ -418,12 +423,12 @@ draining and dataset-aware portal retry).
   `reclaim-measure`); keep the dirty-table journal and the startup orphan
   purge — multi-commit table builds still leave committed orphans at a
   crash (RS-10). Fix N5 anchor carry-over in the trim path it touches.
-  Decide the hash-index layout before porting those CFs (porting note 4):
-  keep global hash-keyed tables only if the priced random-insert stream
-  fits the write win; otherwise per-chunk index tables (append writes,
-  fan-out lookups) or batch-sorted inserts. Ship the raw-scanned-bytes
-  counter (the Measurements bracket's replacement and the LRU-trigger
-  SLI).
+  Hash-index layout is decided by measurement (porting note 4, runs
+  22–26): per-chunk index tables written with the chunk — global
+  hash-keyed tables cost 27× the data stream and are rejected; the
+  `hashes/{hash}` endpoints re-implement as fan-out over chunk index
+  tables. Ship the raw-scanned-bytes counter (the Measurements bracket's
+  replacement and the LRU-trigger SLI).
 - **Stage 3 — disk policy (~1 wk).** DP-1 quota config; DP-2 = extend
   NET-896's trim with the byte watermark (effective floor = max of
   instructed, position cap, byte bound) + gap-mode flag/alarm + observable

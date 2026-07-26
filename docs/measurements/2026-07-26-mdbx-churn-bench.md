@@ -114,6 +114,50 @@ its head tails under the same concurrent-merge load are ~12× worse at p99
 and ~4× at max (compaction jitter) — the lock mdbx pays for is cheaper
 than the compaction rocks pays with. Write ratio in this shape: 3.97×.
 
+## Hash-index random-insert stream (runs 22–26, ADR porting note 4)
+
+`CF_BLOCK_HASHES`/`CF_TRANSACTION_HASHES` are hash-keyed — uniformly random
+inserts, one per transaction, enabled on mainnet-internal today. An LSM
+absorbs them in the memtable; a B+tree COWs a leaf path per touched leaf per
+txn. Priced here: 16 datasets at production pace with concurrent merges,
+plus a hash stream of 300 entries/commit (~internal's per-chunk tx count,
+32 B keys / 12 B values) inserted in the commit txn and deleted with the
+chunk at retention, against a **preseeded 1 M-entry tree per dataset**
+(~21 k leaves — a small tree understates the cost by orders of magnitude;
+prod tidx is 10–100× deeper). mdbx keeps hash keys in the same tree under a
+sentinel prefix (COW-equivalent to a named subtable); rocks gets a dedicated
+CF mirroring production (`hash_index_cf_options`: bloom, LZ4, deletion
+collector).
+
+| run | engine | hash stream | device writes | Δ index cost | commit p50/p99/max | delete p50 |
+|---|---|---|---|---|---|---|
+| 25 | mdbx | — | 1.17 GB | — | 132 µs / 418 µs / 5.9 ms | 86 µs |
+| 22 | mdbx | per-commit (K=1) | 32.34 GB | **+31.2 GB** | 1.58 ms / 2.7 ms / 125 ms | 10.7 ms |
+| 23 | mdbx | write-behind K=16 | 23.97 GB | +22.8 GB | 213 µs / 26 ms / 64 ms | 8.8 ms |
+| 26 | rocks | — | 3.13 GB | — | 583 µs / 3.1 ms / 22.8 ms | 515 µs |
+| 24 | rocks | per-commit (K=1) | 7.13 GB | **+4.0 GB** | 1.28 ms / 4.5 ms / 16.7 ms | 4.6 ms |
+
+- **The index stream inverts the engine decision on this shape.** The same
+  stream costs mdbx +31.2 GB (27× its own data stream; ~3.25 MB per commit =
+  ~600 random leaf COWs × 4 KiB, matching the model) vs rocks +4.0 GB —
+  total 32.3 vs 7.1 GB, i.e. with global hash tables mdbx writes **4.5×
+  more** than rocks. The raw index churn is ~127 MB — mdbx pays ~245× on it.
+- **Write-behind batching does not rescue it**: K=16 saves only 26% (4 800
+  sorted keys still touch mostly-distinct leaves of a 21 k-leaf tree) and
+  moves the cost into flush-commit tails (p99 26 ms). Amortization arrives
+  only when a batch approaches the tree width — hours of accumulation at
+  this rate.
+- Latency degrades across the board under K=1: commit p50 12× (132 µs →
+  1.58 ms), delete p50 124× (86 µs → 10.7 ms — 300 random-key deletes COW
+  as many leaves as inserts).
+- Conclusion: under mdbx the hash indexes MUST NOT port as global
+  hash-keyed tables. The append-shaped restructure — per-chunk index
+  tables written with the chunk (~12 KB/commit here, ~270× cheaper) and
+  lookups fanning out over chunk tables (bounded by chunk count; per-chunk
+  bloom if the fan-out ever hurts) — or an explicit decision to keep the
+  feature rocks-side/elsewhere. ADR porting note 4 and Stage 2 carry the
+  verdict.
+
 ## Read latency under production write load
 
 8 readers, each scanning one random live table per 10 ms (~700–780 scans/s

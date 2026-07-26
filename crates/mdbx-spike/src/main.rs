@@ -84,6 +84,23 @@ struct Args {
     #[arg(long, default_value_t = false)]
     concurrent_merges: bool,
 
+    /// pre-build the hash-index tree to this many entries per dataset before
+    /// the timed run; the random-insert cost only shows against a tree much
+    /// larger than one batch (ADR 0002 porting note 4). 0 = no hash stream
+    #[arg(long, default_value_t = 0)]
+    hash_preseed: u64,
+
+    /// hash-index entries inserted per chunk commit (same txn/batch as the
+    /// commit — the production shape; ~tx count per chunk) and deleted with
+    /// the chunk when retention prunes it
+    #[arg(long, default_value_t = 0)]
+    hash_per_commit: u64,
+
+    /// accumulate hash inserts and flush every K commits, sorted, in that
+    /// commit's txn — the write-behind design candidate; 1 = per-commit
+    #[arg(long, default_value_t = 1)]
+    hash_flush_every: u64,
+
     /// retention window in chunks per dataset; 0 = keep everything
     #[arg(long, default_value_t = 64)]
     window: usize,
@@ -140,12 +157,25 @@ struct WorkerOut {
     delete_us: Vec<u64>
 }
 
+/// A live table: id, how many chunks it holds, stored bytes, and the
+/// [c_lo, c_hi) chunk-counter span whose hash-index entries it owns.
+#[derive(Clone, Copy)]
+struct LiveEntry {
+    id: u64,
+    chunks: usize,
+    bytes: u64,
+    c_lo: u64,
+    c_hi: u64
+}
+
 struct PendingMerge<'scope> {
     handle: std::thread::ScopedJoinHandle<'scope, Result<u64>>,
     batch: Vec<u64>,
     new_id: u64,
     n_chunks: usize,
-    moved_bytes: u64
+    moved_bytes: u64,
+    c_lo: u64,
+    c_hi: u64
 }
 
 /// Joins the in-flight merge and applies its bookkeeping: the merged entry
@@ -153,14 +183,20 @@ struct PendingMerge<'scope> {
 /// keep hitting the sources until then — the production read-vs-merge race).
 fn finish_merge(
     pending: &mut Option<PendingMerge<'_>>,
-    live: &mut VecDeque<(u64, usize, u64)>,
+    live: &mut VecDeque<LiveEntry>,
     reg: &std::sync::Mutex<Vec<u64>>,
     out: &mut WorkerOut
 ) -> Result<()> {
     let Some(p) = pending.take() else { return Ok(()) };
     let us = p.handle.join().expect("merge thread panicked")?;
     out.merge_us.push(us);
-    live.push_back((p.new_id, p.n_chunks, p.moved_bytes));
+    live.push_back(LiveEntry {
+        id: p.new_id,
+        chunks: p.n_chunks,
+        bytes: p.moved_bytes,
+        c_lo: p.c_lo,
+        c_hi: p.c_hi
+    });
     let mut g = reg.lock().expect("registry");
     g.retain(|t| !p.batch.contains(t));
     g.push(p.new_id);
@@ -182,12 +218,16 @@ fn run_worker<'scope>(
         merge_us: Vec::new(),
         delete_us: Vec::new()
     };
-    // (table_id, chunks it holds, stored bytes), oldest first
-    let mut live: VecDeque<(u64, usize, u64)> = VecDeque::new();
+    // oldest first
+    let mut live: VecDeque<LiveEntry> = VecDeque::new();
     let mut unmerged: Vec<u64> = Vec::new();
     let mut live_chunks = 0usize;
     let mut in_tail = false;
     let mut pending: Option<PendingMerge<'scope>> = None;
+    // chunk i owns hash-index counters [P + i·n, P + (i+1)·n)
+    let hp = args.hash_preseed;
+    let hn = args.hash_per_commit;
+    let hk = args.hash_flush_every.max(1);
 
     for i in 0..args.chunks {
         let id = NEXT_TABLE_ID.fetch_add(1, Ordering::Relaxed);
@@ -207,13 +247,23 @@ fn run_worker<'scope>(
             entries.push((page_key(id, idx as u32), value));
         }
 
+        let hash_inserts = (hn > 0 && (i as u64 + 1) % hk == 0).then(|| {
+            let hi = i as u64 + 1;
+            hp + (hi - hk) * hn..hp + hi * hn
+        });
         let t0 = Instant::now();
-        engine.write_chunk(ds, &entries)?;
+        engine.write_chunk(ds, &entries, hash_inserts)?;
         out.commit_us.push(t0.elapsed().as_micros() as u64);
 
         let g = LIVE_STORED.fetch_add(chunk_bytes, Ordering::Relaxed) + chunk_bytes;
         PEAK_LIVE_STORED.fetch_max(g, Ordering::Relaxed);
-        live.push_back((id, 1, chunk_bytes));
+        live.push_back(LiveEntry {
+            id,
+            chunks: 1,
+            bytes: chunk_bytes,
+            c_lo: i as u64,
+            c_hi: i as u64 + 1
+        });
         live_chunks += 1;
         unmerged.push(id);
         reg.lock().expect("registry").push(id);
@@ -227,11 +277,15 @@ fn run_worker<'scope>(
                 // from under the merge txn; they re-enter as one entry at join
                 let mut moved_bytes = 0u64;
                 let mut n_chunks = 0usize;
-                live.retain(|(id, n, b)| {
-                    let merged = batch.contains(id);
+                let mut c_lo = u64::MAX;
+                let mut c_hi = 0u64;
+                live.retain(|e| {
+                    let merged = batch.contains(&e.id);
                     if merged {
-                        moved_bytes += *b;
-                        n_chunks += *n;
+                        moved_bytes += e.bytes;
+                        n_chunks += e.chunks;
+                        c_lo = c_lo.min(e.c_lo);
+                        c_hi = c_hi.max(e.c_hi);
                     }
                     !merged
                 });
@@ -246,7 +300,9 @@ fn run_worker<'scope>(
                     batch,
                     new_id,
                     n_chunks,
-                    moved_bytes
+                    moved_bytes,
+                    c_lo,
+                    c_hi
                 });
             } else {
                 let new_id = NEXT_TABLE_ID.fetch_add(1, Ordering::Relaxed);
@@ -254,12 +310,22 @@ fn run_worker<'scope>(
                 engine.merge_tables(ds, &unmerged, new_id)?;
                 out.merge_us.push(t0.elapsed().as_micros() as u64);
                 let mut moved_bytes = 0u64;
+                let mut c_lo = u64::MAX;
+                let mut c_hi = 0u64;
                 for _ in 0..unmerged.len() {
-                    if let Some((_, _, b)) = live.pop_back() {
-                        moved_bytes += b;
+                    if let Some(e) = live.pop_back() {
+                        moved_bytes += e.bytes;
+                        c_lo = c_lo.min(e.c_lo);
+                        c_hi = c_hi.max(e.c_hi);
                     }
                 }
-                live.push_back((new_id, unmerged.len(), moved_bytes));
+                live.push_back(LiveEntry {
+                    id: new_id,
+                    chunks: unmerged.len(),
+                    bytes: moved_bytes,
+                    c_lo,
+                    c_hi
+                });
                 let mut g = reg.lock().expect("registry");
                 g.retain(|t| !unmerged.contains(t));
                 g.push(new_id);
@@ -275,14 +341,15 @@ fn run_worker<'scope>(
             args.window
         };
         while window > 0 && live_chunks > window {
-            let Some((old, n, bytes)) = live.pop_front() else { break };
-            live_chunks -= n;
-            LIVE_STORED.fetch_sub(bytes, Ordering::Relaxed);
-            unmerged.retain(|t| *t != old);
+            let Some(e) = live.pop_front() else { break };
+            live_chunks -= e.chunks;
+            LIVE_STORED.fetch_sub(e.bytes, Ordering::Relaxed);
+            unmerged.retain(|t| *t != e.id);
+            let hash_deletes = (hn > 0).then(|| hp + e.c_lo * hn..hp + e.c_hi * hn);
             let t0 = Instant::now();
-            engine.delete_tables(ds, &[old])?;
+            engine.delete_tables(ds, &[e.id], hash_deletes)?;
             out.delete_us.push(t0.elapsed().as_micros() as u64);
-            reg.lock().expect("registry").retain(|t| *t != old);
+            reg.lock().expect("registry").retain(|t| *t != e.id);
         }
         if args.window_wave > 0 && !in_tail && frac >= 0.5 {
             in_tail = true;
@@ -383,6 +450,29 @@ fn main() -> Result<()> {
         let sample = gen_page(&mut rng, args.page_bytes, args.dup);
         let ratio = sample.len() as f64 / lz4_flex::compress_prepend_size(&sample).len() as f64;
         println!("sample page lz4 ratio: {ratio:.2}x (prod tables: 4.03x)");
+    }
+
+    if args.hash_per_commit > 0 {
+        println!(
+            "hash stream: preseed={} per_commit={} flush_every={}",
+            args.hash_preseed, args.hash_per_commit, args.hash_flush_every
+        );
+    }
+    if args.hash_preseed > 0 {
+        let t0 = Instant::now();
+        let per_ds = args.hash_preseed;
+        std::thread::scope(|s| {
+            let engine = &engine;
+            let handles: Vec<_> = (0..args.datasets)
+                .map(|ds| s.spawn(move || engine.preseed_hashes(ds, per_ds)))
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().expect("preseed panicked"))
+                .collect::<Result<Vec<_>>>()
+        })?;
+        engine.sync()?;
+        println!("hash preseed done in {:.1}s", t0.elapsed().as_secs_f64());
     }
 
     let io_before = proc_io();

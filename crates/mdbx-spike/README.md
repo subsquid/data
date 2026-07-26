@@ -76,6 +76,16 @@ mdbx-spike --engine mdbx --dir /nvme/spike --datasets 8 --chunks 2000 --compress
 mdbx-spike --engine mdbx --dir /nvme/spike --datasets 45 --chunks 2000 --compress --mdbx-page 4096 --window-wave 640
 mdbx-spike --engine mdbx --dir /nvme/spike --datasets 45 --chunks 1200 --compress --mdbx-page 4096 --window-wave 300 --paced-ms 250
 mdbx-spike --engine rocks --dir /nvme/spike --datasets 45 --chunks 2000 --window-wave 640
+
+# head commits vs a concurrently running merge (production compaction_loop
+# shape; inline merges never contend for the env writer lock)
+mdbx-spike --engine mdbx --dir /nvme/spike --datasets 45 --chunks 600 --compress --paced-ms 750 --mdbx-page 4096 --per-dataset-env --concurrent-merges
+
+# hash-index random-insert stream (ADR 0002 porting note 4): preseed builds
+# a realistic-depth tree, then every commit inserts/deletes hash keys in the
+# commit/retention txns; --hash-flush-every K prices the write-behind
+# batching candidate. Compare against the same run without the stream.
+mdbx-spike --engine mdbx --dir /nvme/spike --datasets 16 --chunks 600 --compress --paced-ms 750 --mdbx-page 4096 --per-dataset-env --concurrent-merges --hash-preseed 1000000 --hash-per-commit 300
 ```
 
 Gate per ADR 0002: proceed only if device writes drop ≥3× vs the rocks
@@ -103,6 +113,11 @@ and pass. Two hard-won constraints:
   holds: zero post-wave growth at paced rate, exactly one growth step
   free-running. The rocks reference reclaims back to ~live for 3.7× the
   device writes.
+- Hash-index runs (22–26): a global hash-keyed table is a no-go under mdbx —
+  the random-insert stream costs 27× the data stream (rocks pays 1.3× of
+  its own baseline for the same), write-behind batching at K=16 recovers
+  only 26%, and commit/delete latencies degrade 12×/124×. The port uses
+  per-chunk index tables (ADR 0002 porting note 4).
 
 Earlier local findings (macOS):
 
