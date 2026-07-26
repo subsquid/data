@@ -1,8 +1,11 @@
 # ADR 0002 — Replace RocksDB with libmdbx in hotblocks storage
 
-Status: proposed — spike done 2026-07-26, gate passed
+Status: proposed — spike done 2026-07-26, write gate passed
 ([measurements](../measurements/2026-07-26-mdbx-churn-bench.md)); flips to
-accepted at Stage 0 (spec amendment) completion · Date: 2026-07-25 · Scope:
+accepted after Stage 0 (spec amendment) plus a Stage 1 vertical slice — real
+table build → chunk merge → retention → crash recovery through the mdbx seam,
+with the checksummed codec and MAP_FULL / stale-reader / kill-9 / cold-read /
+online-reset tests · Date: 2026-07-25 · Scope:
 `sqd-storage`, `sqd-hotblocks`, `crates/hotblocks/spec`
 
 ## Context
@@ -45,11 +48,16 @@ cost ×1.
 - **Disk (×2)**: device writes expected to drop severalfold — but only with
   application-level page compression in place, because libmdbx does not compress
   and the measured LZ4 ratio on `CF_TABLES` is 4× (see Measurements). The seam
-  for it already exists (`BufferPageWriter::write_page`). The entire deferred-space
+  for it already exists (`BufferPageWriter::write_page`). The engine-reclaim
   machinery (10 s point-delete sweep, deletion-collector, periodic compaction,
   startup `DeleteFilesInRange`, the `TableId` watermark, `reclaim-measure`)
-  becomes unnecessary: pages free at commit. RS-5/6/10, LIV-7 and GAP-6 close by
-  construction.
+  becomes unnecessary: pages free at commit. Not the application half: table
+  builds flush in 8 MiB sub-commits before the chunk metadata publishes
+  (`TableStorage::put`), so a crash leaves committed orphan pages the engine
+  cannot recognize — the dirty-table journal and the startup orphan purge
+  survive the port (cheaper there: one delete txn at boot, no compaction
+  wait). RS-5/6, LIV-7 and GAP-6 close by construction; RS-10 stays
+  app-level.
 - **Migration (×1)**: no data conversion exists to pay for. The store is fully
   re-ingestable from upstream (NG1 "not an archive"; DEF-17 hash indexes are
   expendable; GAP-28 Api retention floors are memory-only and re-pushed by
@@ -63,14 +71,16 @@ cost ×1.
 ## Porting notes (not blockers)
 
 1. **GAP-29 (zombie readers)** costs more under libmdbx — one stale read txn
-   blocks reuse of every page freed after it started — but the engine ships the
-   containment: the reth `libmdbx` binding aborts read transactions past
-   `MaxReadTransactionDuration` (~5 min default; the stalled query errors out
-   through the existing abort path), and `mdbx_env_set_hsr` fires under space
-   pressure, naming the laggard reader and letting the callback kill its txn
-   before the file grows. Measured reader tail today (233 s max/day) sits under
-   both bounds. No hotblocks-side deadline machinery is required; GAP-29 stays
-   open as its own P2.
+   blocks reuse of every page freed after it started. The containment must be
+   application-owned: the published `signet-libmdbx` 0.8.3 ships no working
+   read-timeout (its `timer.rs` is an unwired dead file, no feature flag),
+   and reth-libmdbx's `MaxReadTransactionDuration` (~5 min) is the wrong
+   scale next to a 10 s query budget while today's legitimate tail (233 s
+   streams) exceeds `P-QUERY-TIME` anyway — so the deadline must bound the
+   *response lifecycle*, owned by the service (or park/re-establish the
+   snapshot), with `mdbx_env_set_hsr` as the space-pressure backstop that
+   names the laggard reader and can kill its txn before the file grows.
+   GAP-29 stays open as its own P2.
 2. **Direct I/O** is on in production (`--rocksdb-disable-direct-io` unset) and is
    incompatible with an mmap engine; page-cache behavior must be re-validated.
 3. **File high-water (measured, wave runs 15–17).** mdbx recycles freed pages
@@ -79,8 +89,11 @@ cost ×1.
    pages free — the file is the high-water mark of the working set,
    permanently. Working-set spikes are real (retention is downstream-driven; a
    stalled consumer grows the window at ~2.5 MB/s stored pod-wide ≈ 9 GB/h).
-   Measured shape: file ≈ 1.35× peak stored live plus 256 MiB growth-step
-   rounding, and reuse is intact — zero file growth across 27 k post-wave
+   Measured shape at production pace: file ≈ 1.35× peak stored live plus
+   256 MiB growth-step rounding (paced wave run 16); a free-run burst
+   additionally parks freed pages up to the sync cadence (≈ device rate ×
+   cadence) and peaked at 2.0× (run 15). Reuse is intact — zero file
+   growth across 27 k post-wave
    commits at constant live, so the bloat does not compound; untouched pages
    occupy no RAM and tree depth tracks the live set. The rocks reference
    reclaims the same wave for 3.7× the device writes — that is the trade
@@ -101,18 +114,33 @@ generalize NET-896 rather than replace it.
 
 - **DP-1 Quota.** Geometry `max_size` = the dataset's disk budget, enforced
   by the engine. Sizing from the waves: intended peak window ×1.4, rounded up
-  to the growth step.
+  to the growth step — the paced-churn shape (run 16). Catch-up and
+  reset-reingest bursts add the SafeNoSync parking term on top (≈ per-env
+  device rate × sync cadence; the free-run wave peaked at 2.0×, run 15):
+  leave that headroom, or accept a gap-mode blip while the burst runs.
+  Deployment check: Σ quotas plus an operating reserve MUST fit the volume
+  (boot refusal otherwise, INV-43) — per-env quotas alone do not bound the
+  shared volume.
 - **DP-2 Ring past the floor.** The effective floor is the max of every
   governing bound: the instructed floor, NET-896's position cap
-  (`next(D) − max_blocks`), and a byte watermark (~90% of quota). Trimming
+  (`next(D) − max_blocks`), and a byte watermark (~90% of quota, measured
+  against occupied pages — allocated minus freelist — never against the
+  file, which is a permanent high-water and would pin gap-mode forever
+  after the first peak). Trimming
   past the downstream floor keeps the head fresh and opens a temporary
   coverage gap between the archive's top and our tail: queries in the hole
   get `RANGE_UNAVAILABLE`, every other dataset is untouched, and the gap
   closes from below as the archive catches up from its own source. Shipped
   semantics are kept — soft whole-chunk trims, downward instructions
-  clamped while a cap governs (no resync loops), but the clamp becomes
-  observable instead of silent. `MDBX_MAP_FULL` is the backstop: emergency
-  trim, retry the commit. Precondition (must hold): no archive ingests
+  clamped on any position-capped dataset (the byte bound clamps only while
+  it governs — no resync loops), but the clamp becomes observable instead
+  of silent. `MDBX_MAP_FULL` is the backstop, not the plan: deletes
+  themselves need COW pages and can return `MAP_FULL` on an exhausted map,
+  so the watermark must trim early enough that the emergency-trim txn still
+  fits the remaining freelist (headroom guarantee, `TXN_FULL`-bounded
+  batches); if even the trim cannot commit, the dataset degrades to
+  pause + alarm (FM-STOR-6), never a crash loop. After a successful
+  emergency trim, retry the commit. Precondition (must hold): no archive ingests
   through hotblocks (NG1) — otherwise trimming past the floor would hole
   the archive permanently.
 - **DP-3 Defrag, env-granular.** The reclaim unit is the env file, not pages
@@ -159,6 +187,14 @@ Do not port yet. Run a 1–2 week spike and decide on numbers:
 
 Proceed to the port only if the spike shows device writes dropping ≥3× without
 head-freshness regressions.
+
+The write gate passed (Measurements). Reads did not get a gate and must:
+app-LZ4 scans measured 18× p50 over rocks on page-cache-hot runs (the C
+decoder cuts it ~6×; engine paths are comparable and tails tighter), while
+production serves ~62 GB live under direct I/O. Stage 4 therefore carries a
+read gate: cold-cache S1/S2 query mix at production live size under the
+cgroup memory limit — SLI-2/3 within agreed bounds of the rocks baseline,
+major faults and PSI captured.
 
 ## Measurements
 
@@ -229,8 +265,11 @@ behavior already in production:
    floor below `first(D)` is clamped up, silently — necessarily, because a
    dataset in gap mode would otherwise resync-loop against a stuck archive
    (the portal keeps re-asking for the pre-gap floor). RS-13 carves the
-   exception: while a cap governs, downward instructions clamp instead of
-   RESET, and the clamp is observable (today it is silent).
+   exception to match the ship: on a position-capped dataset downward
+   instructions always clamp (`clamp_floor` keys on the cap's presence, not
+   its governance), while the byte bound clamps only while it governs — so
+   the WP §2.5 RESET stays reachable once every dataset carries a quota —
+   and the clamp is observable (today it is silent).
 
 Plus observability and conformance rows: OB-6 gains env file/live/quota
 gauges and the gap-mode flag + gap width; CT-7 gains the wave scenario (the
@@ -238,31 +277,49 @@ harness analog of spike run 16); CT-8 gains stuck-consumer (one dataset's
 floor frozen forever — assert the quota ceiling, the gap alarm, untouched
 neighbors); a CT covers online env reset (LIV-5b scoped to one dataset).
 
-Three pre-existing audit findings become port prerequisites because DP leans
+Four pre-existing audit findings become port prerequisites because DP leans
 on them: **N5/GAP-2** (anchor hash dropped on Window trims — INV-18; PR #77's
 `trim_floor` passes `None` for the hash too, so the new path has the same
 one-line bug to fix), **N6** (External retention bound not durable — persists
 in the label the port rewrites anyway), **N2/GAP-24** (one dataset's boot
 failure kills the whole service — per-env containment is the natural fix and
-DP-4 acceptance depends on it).
+DP-4 acceptance depends on it), and **GAP-7** (readiness is all-or-nothing:
+`/ready` gates on full init and models no per-dataset readability — RS-14's
+online reset is inoperable without per-dataset readiness plus snapshot-handle
+draining and dataset-aware portal retry).
 
 ## Port plan
 
-- **Stage 0 — spec amendment (docs, ~2 d).** The six items above + OB/CT
-  rows + parameter registry; spec CI green; flip this ADR to accepted.
+- **Stage 0 — spec amendment (docs, ~2 d).** The seven items above (the
+  parameter registry is item 6) + OB/CT rows; cross-references checked by
+  hand — no spec CI gate exists yet. The accepted flip additionally waits
+  on the Stage 1 vertical slice (Status).
 - **Stage 1 — engine seam (~1 wk).** `kv_mdbx` from the spike into
   `crates/storage` as a real backend: env-per-dataset, 4 KiB pages,
   SafeNoSync with per-env serialized durable sync (the abort constraint),
   geometry from config (`P-DISK-QUOTA` as `max_size`, tuned growth step,
-  armed shrink threshold), LZ4 at `BufferPageWriter::write_page`, read-txn
-  deadline via the binding (`signet-libmdbx`, `read-tx-timeouts`).
-  Differential tests against the rocks backend.
+  armed shrink threshold), LZ4 at `BufferPageWriter::write_page` behind a
+  versioned page codec — header with raw length and checksum, because mdbx
+  has no data-page checksums (meta `validator_id` is reserved-zero) while
+  RocksDB verifies blocks on every read: FM-STOR-4 regresses without it —
+  decoded by C `lz4` into pooled buffers (measured 5.8× over `lz4_flex`
+  safe-decode on the decision-runs Xeon, spike page shape; flex without
+  safe-decode is only 2.0× — not worth the unsafe path); read deadline
+  owned by the service, bounding the response lifecycle (porting note 1 —
+  no binding feature to lean on), with `mdbx_env_set_hsr` as the
+  space-pressure backstop. Differential tests against the rocks backend,
+  corruption-injection tests on the codec, and a CT-2 kill matrix at the
+  seam (SafeNoSync loss window ≤ the sync cadence — pin `P-DUR-SYSTEM`,
+  today "make explicit ⚠", to it). Exit: the vertical slice the accepted
+  flip waits on (Status).
 - **Stage 2 — db layer (~2–3 wk).** The ~1300 lines of
   `crates/storage/src/db/*`: transactions, snapshots, label/meta (persist
   the retention bound — N6), chunk index, metrics, CLI, shutdown. Delete the
-  deferred-space machinery (10 s sweep, deletion collector, periodic
+  engine-reclaim machinery (10 s sweep, deletion collector, periodic
   compaction, startup `DeleteFilesInRange`, `TableId` watermark,
-  `reclaim-measure`). Fix N5 anchor carry-over in the trim path it touches.
+  `reclaim-measure`); keep the dirty-table journal and the startup orphan
+  purge — multi-commit table builds still leave committed orphans at a
+  crash (RS-10). Fix N5 anchor carry-over in the trim path it touches.
 - **Stage 3 — disk policy (~1 wk).** DP-1 quota config; DP-2 = extend
   NET-896's trim with the byte watermark (effective floor = max of
   instructed, position cap, byte bound) + gap-mode flag/alarm + observable
@@ -273,7 +330,15 @@ DP-4 acceptance depends on it).
   stuck-consumer and online-reset CT in `crates/hotblocks-harness`; S4
   churn-soak on a prod-class node against the rocks baseline (the Decision
   step 2 envelope: device writes, head-flush tails under ingest × merge ×
-  retention, wave high-water). Portal contract check: a gap range must pass
+  retention, wave high-water). Run the Decision read gate: cold-cache S1/S2
+  at production live size under the cgroup memory limit, SLI-2/3 against
+  the rocks baseline with major-fault and PSI capture (the spike's read
+  runs were page-cache-hot by construction). Measure per-pod raw-scan
+  bytes/s and the decode-CPU share at the production query mix; a
+  decompressed-page LRU
+  (coherence is trivial — chunk tables are immutable) stays deferred behind
+  a trigger: decode CPU > ~2 cores/pod or read p99 against SLO. Portal
+  contract check: a gap range must pass
   through as `RANGE_UNAVAILABLE`, not break the portal (cross-repo).
 - **Stage 5 — rollout (~1 wk).** Blue/green on an empty volume:
   internal → morpho → mainnet; watch device writes (expect ≥3× drop), commit
