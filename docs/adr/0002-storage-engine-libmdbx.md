@@ -130,7 +130,8 @@ cost ×1.
    (~270× cheaper), lookups fan out over chunk tables (bounded by chunk
    count; per-chunk bloom if the fan-out ever hurts) — or the feature is
    explicitly kept off mdbx-backed deployments. The Stage 4 envelope still
-   includes the internal shape (both indexes on, per-chunk layout).
+   includes the internal shape (both indexes on, per-chunk layout). Full
+   design and prior art: "Hash-index design" below.
 
 ## Binding (decided 2026-07-26)
 
@@ -154,6 +155,81 @@ Upstream now releases from SourceCraft (RF-hosted; GitHub is a mirror) —
 review vendored-C diffs on every bump. Watch item: libmdbx 0.14.x goes
 stable 2026-08-08 with native defragmentation and `mdbx_txn_checkpoint` —
 re-evaluate at Stage 3, it may hand DP-3 compact-swap a supported primitive.
+
+## Hash-index design (per-chunk; priced 2026-07-26, runs 22–26)
+
+**Why the global table fails under mdbx — the mechanism.** A tx hash is a
+uniformly random key; in a COW B+tree the unit of write is the page, and in
+a large tree each entry of a batch lands on a *distinct* leaf (300 random
+keys vs ~21 k leaves collide rarely). One chunk commit therefore rewrites
+~300 leaves for inserts plus ~300 for the pruned chunk's deletes ≈ 600 ×
+4 KiB ≈ 2.4 MB of device writes for ~26 KB of payload — measured 27× the
+entire data stream (245× on the index churn itself), inverting the engine
+decision. The data stream is immune for the same reason in reverse: chunk
+keys are append-shaped (fresh `table_id` range), so pages are created
+adjacent and written once. An LSM absorbs the same random inserts in its
+memtable and sorts them on flush — rocks paid +4.0 GB where mdbx paid
++31.2 GB.
+
+**Design: the index is one more table of the chunk.** Stop maintaining one
+sorted-by-hash order over the whole window; keep many small sorted runs,
+one per chunk, that are only ever created and dropped — never edited.
+
+- *Layout.* Key `table_id ‖ tag_hash ‖ hash(32 B)` → value 8 B (block
+  number) / 12 B (block + tx index). A fresh `table_id` puts the whole
+  chunk index into a contiguous fresh key range: ~300 sorted entries ≈
+  3–4 new adjacent leaves per commit — ~270× cheaper than the global
+  table, and never touched again (chunks are immutable).
+- *Write path.* The source stays `for_each_*_hash` at chunk build
+  (`tx.rs:311–328`); sort in memory, write through the normal table-build
+  path with its 8 MiB sub-commits. The optimistic staging with scans and
+  retries goes away.
+- *Deletion disappears as a class.* Retention drops the chunk's key
+  ranges; the index dies with them (a sequential range-delete). Today's
+  delete path re-reads the dying chunk to re-derive keys for the global
+  CF (`tx.rs:361–393`) — deleted code.
+- *Reorg/REPLACE.* Consistency for free: the index is atomic with its
+  chunk, so the global-CF obligation to purge the forked branch's hashes
+  (dangling positions otherwise) vanishes structurally.
+- *Merge.* `compaction_loop` merge-sorts the sources' sorted runs into
+  the merged chunk's index — ~0.3% of chunk bytes, riding the existing
+  merge stream.
+- *Lookup.* Fan-out: snapshot → live chunks (`CF_CHUNKS` enumerates) →
+  point-get `index_table_id ‖ hash` per chunk, newest first, early exit.
+  O(1) → O(chunks): ~50–150 chunks ⇒ ~0.1–1 ms hot, ~10–15 ms cold; a
+  miss pays the full fan-out. `Ok(None)` semantics and the no-backfill
+  property are unchanged (chunks without an index table are skipped). No
+  decode on this path — index entries are raw KV in the tree, not codec
+  pages (the LZ4 seam covers column pages only); today's rocks hash CFs
+  decompress a block per lookup, so the port removes decode here. A cold
+  fan-out touches ~0.5–1.8 MB of page cache (spine + one leaf per chunk);
+  spines stay resident.
+- *Escalation, behind a trigger like the read LRU:* per-chunk bloom
+  (~10 bits/entry, stored as one more entry of the chunk's index table,
+  lazily RAM-cached) → expected cost = in-RAM filter checks + 1 real get.
+  Ship fan-out first; add blooms only if the endpoint p99 or miss
+  read-amp misbehaves.
+- *Spec.* DEF-17 (indexes expendable) stands; a chunk-scoped note and a
+  CT for fan-out + mixed-window miss semantics ride Stage 2.
+
+**Prior art — reth/erigon run the same global table and survive it; their
+mitigations do not transfer.** reth's `TransactionHashNumbers` is one
+global mdbx table, viable because (a) the bulk volume bypasses random
+inserts entirely — the `TransactionLookup` stage accumulates into ETL
+collectors (500 MB sorted spills, 5 M-tx batches) and writes mdbx in
+sorted order, in append mode when the table is empty; batch ≫ tree width
+is where batching actually amortizes (our K=16 recovered 26% — a rolling
+tip cannot accumulate for hours); (b) the live tip is ~25 random
+inserts/s on L1 with *zero deletes* — an archive index, kept whole by
+full nodes for `eth_getTransactionByHash` — vs our thousands/s plus equal
+deletes across 45 datasets, permanently; (c) reth moved *data* to static
+files but kept the *index* global because their lookup is a hot O(1) RPC
+over thousands of segments — fan-out is unaffordable there and affordable
+here (rare endpoint, 50–150 chunks). The symmetry: reth pays the
+global-table write tax because it cannot afford fan-out reads; we take
+fan-out reads because we cannot afford the write tax. Per-chunk index
+runs are the static-file idea applied to the index itself — the same
+split the sealed-tier escalation below already cites.
 
 ## Disk policy (per-dataset env)
 
