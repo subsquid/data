@@ -12,7 +12,7 @@ between them.
 |---|---|---|
 | `Window(k)` | availability floor RS-3 + excess bound RS-4 (space exception: RS-13) | automatic, after commits that advance `next(D)` |
 | `Pinned(from, h?)` | everything ≥ `from` kept; anchor asserted at boot (WP-9 refusal on mismatch); never trimmed by space — pauses instead (RS-13) | only when `from` is raised by reconfiguration |
-| `External` | everything ≥ last instructed bound kept, within the space bounds of RS-13; unbounded until first instruction; a *downward* instruction is a destructive re-bootstrap (RESET, WP §2.5) — clamped instead of executed while a space bound governs (RS-13) | SET-RETENTION (WP-11); position cap / space watermark (RS-13) |
+| `External` | everything ≥ last instructed bound kept, within the space bounds of RS-13; unbounded until first instruction; a *downward* instruction is a destructive re-bootstrap (RESET, WP §2.5) — clamped instead of executed while a space bound governs or a position cap is configured (RS-13) | SET-RETENTION (WP-11); position cap / space watermark (RS-13) |
 | `Unbounded` | nothing trimmed; never trimmed by space — pauses instead (RS-13) | never |
 
 - **RS-2 (Retention dominates finality).** Trimming ignores `fin`: finalized blocks below
@@ -29,15 +29,27 @@ between them.
     the policy bound (RS-3/WP-10, or the WP-11 instructed bound), the position
     cap `next(D) − P-MAX-BLOCKS` (`External` only, where configured), and the
     byte bound derived from the dataset's quota watermark
-    (`P-DISK-WATERMARK × P-DISK-QUOTA`). A trim to the effective bound is an
+    (`P-DISK-WATERMARK × P-DISK-QUOTA`, compared against *occupied* storage —
+    allocated minus reusable pages — never against the file, which under a
+    high-water engine never shrinks (RS-6b) and would pin gap-mode forever
+    after one peak). A trim to the effective bound is an
     ordinary RETAIN — INV-15/18 hold, the anchor hash is carried. While a
     space bound governs (effective > policy bound) the dataset is in
     **gap-mode**: onset, exit, and the gap width MUST be observable
     (OB-6/OB-9). In gap-mode a retention instruction below `first(D)` is
     clamped to `first(D)` instead of executing the WP §2.5 downward RESET —
     honoring it would re-bootstrap in a loop against the very consumer lag
-    that opened the gap; the clamp MUST be observable. Instructions at or
-    above `first(D)` apply normally.
+    that opened the gap; the clamp MUST be observable. Where a position cap
+    is *configured*, the clamp applies even outside gap-mode: the cap is a
+    standing election of freshness over depth, and the instructed floor
+    tracks downstream coverage, so an instruction below `first(D)` signals
+    the same consumer lag whether or not the cap is the bound currently
+    governing (shipped semantics — PR #77's `clamp_floor` keys on the cap's
+    presence, not its governance). The byte bound clamps only while it
+    governs: under a quota-per-dataset regime every dataset carries
+    `P-DISK-QUOTA`, and quota-configured must not mean the WP §2.5 downward
+    RESET is unreachable. Instructions at or above `first(D)` apply
+    normally.
   - *Promises* (`Pinned`, `Unbounded`): space never triggers a trim. At the
     watermark the dataset alarms (OB-9); at the quota its writes pause
     (FM-STOR-6) — reads keep serving, other datasets are unaffected
@@ -84,7 +96,9 @@ Requirements:
 - **RS-6 (Amplification bound).** Two bounds, per dataset where the storage layout
   permits attribution:
   (a) *hard quota* — where `P-DISK-QUOTA` is configured, the dataset's `disk_bytes`
-  MUST NOT exceed it, ever; this is the bound RS-13 and FM-STOR-6 enforce against;
+  MUST NOT exceed it, ever; this is the bound RS-13 and FM-STOR-6 enforce against.
+  Σ of configured quotas plus an operating reserve MUST fit the volume — a boot-time
+  check (INV-43): per-dataset quotas alone do not bound the shared volume;
   (b) *amplification ratchet* — in steady state,
   `disk_bytes ≤ P-SPACE-AMP × peak_live_bytes + P-SPACE-CONST`, where
   `peak_live_bytes` is the maximum `live_bytes` since the dataset's storage was last

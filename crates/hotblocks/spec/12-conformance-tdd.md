@@ -206,8 +206,8 @@ weaken to soundness or it will fail on correct behavior.
 | CT-4 | **Source-fault corpus** | scripted FM-SRC-1..8 scenarios incl. fork storms, deep forks, finality conflicts, equivocation | INV-12/13/14/23/24; WP-6/8; LIV-9; FM-SRC-*; GAP-3/4/5 |
 | CT-5 | **Interface conformance** | exhaustive request/response matrix against the binding: error taxonomy, watermark headers, encodings, hash-lookup matrix, boot config matrix | RP-1..16, 19/20; INV-26/43; IB-*; GAP-8/9/39 |
 | CT-6 | **Performance benchmarks** | reference scenarios S1–S6; SLI capture; SLO gates; saturation knees | SLI-1..12; PF-1..9; LIV-1/3/10; GAP-13 |
-| CT-7 | **Soak / endurance** | multi-day S4 churn with fault sprinkling; space, memory, stall, residue tracking | LIV-2/7/11; RS-6/10; INV-16/17; HZ-2/5; GAP-1/6 |
-| CT-8 | **Isolation / noisy neighbor** | S6: one dataset saturated/faulted, others measured differentially | INV-35/36; LIV-8; PF-4; GAP-14 |
+| CT-7 | **Soak / endurance** | multi-day S4 churn with fault sprinkling; space, memory, stall, residue tracking; retention wave (consumer stall grows the window, then trims back — high-water and post-wave reuse, the harness analog of the ADR 0002 spike run 16) | LIV-2/7/11; RS-6/10/13; INV-16/17; HZ-2/5; GAP-1/6 |
+| CT-8 | **Isolation / noisy neighbor** | S6: one dataset saturated/faulted, others measured differentially; stuck consumer on a capped dataset (quota holds, gap-mode alarms, neighbors' tails unaffected); online dataset storage reset (RS-14) with unavailability scoped to the one dataset (LIV-5b) | INV-35/36; LIV-8; RS-13/14; FM-STOR-6; PF-4; GAP-14/42/43 |
 | CT-9 | **Fuzzing** | source-side payload fuzz (write path) + client-side request fuzz (read path); crash/hang/leak oracles + invariant spot checks | FM-1; WP-18; RP-1/2; GAP-12 |
 
 Every test cites the IDs it verifies; CI reports coverage as "properties exercised", not

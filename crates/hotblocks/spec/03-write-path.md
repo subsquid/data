@@ -179,9 +179,11 @@ history cannot be re-acquired through RETAIN.
   re-acquired in place (there is no downward backfill), so in self-healing modes
   (`Window`, `External` runtime application) the instruction MUST be executed as
   `RESET(⟨from − 1, h?⟩)`: the window is discarded and re-ingested from `from` upward.
-  Exception (RS-13): while a space or position cap governs the dataset (gap-mode), the
-  instruction is clamped to `first(D)` instead — observable, never silent — because the
-  RESET would re-bootstrap in a loop against the very consumer lag that opened the gap.
+  Exception (RS-13): while a space bound governs the dataset (gap-mode) — and, where a
+  position cap is configured, unconditionally — the instruction is clamped to `first(D)`
+  instead — observable, never silent — because the RESET would re-bootstrap in a loop
+  against the very consumer lag that opened the gap (on a capped dataset a downward
+  instruction signals that lag even when the cap is not the governing bound).
   Like every RESET this MUST be observable (OB-9) — a downward `SET-RETENTION` is a
   destructive re-bootstrap, not a widening, and controllers MUST treat it as such
   (FM-OP-4). During boot validation of a `Pinned` policy whose `from` lies below the
@@ -218,8 +220,9 @@ history cannot be re-acquired through RETAIN.
   the trim has happened. Between the two, GET-RETENTION reports the *instructed* bound —
   an acknowledged instruction is never silently forgotten (CN-9; violated today, GAP-28) —
   and `ver` advances with the RETAIN/RESET commit itself, not at acceptance. Application
-  is subject to RS-13: while a space bound governs, a downward instruction is clamped —
-  recorded and observable, applied as `first(D)` (§2.5 exception). What
+  is subject to RS-13: while a space bound governs — or whenever a position cap is
+  configured — a downward instruction is clamped: recorded and observable, applied as
+  `first(D)` (§2.5 exception). What
   instruction payloads other than a block bound mean for an External dataset (policy-mode
   changes, e.g. the binding's `"None"`) is unspecified, and the current behavior diverges
   from the binding's reading (GAP-35).

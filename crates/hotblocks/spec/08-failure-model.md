@@ -46,7 +46,7 @@ each. "Required response" uses four verbs:
 | FM-STOR-3 | Disk full (hard) | fail-safe: no committed-state corruption (INV-40 holds for the pre-full history); recovery path documented; startup after freeing space restores service |
 | FM-STOR-4 | Detected corruption of stored state (checksum/decode failure) | fail-safe + alarm per dataset (CN-10): the damaged dataset stops, others serve; corruption MUST be detected (never returned as data), and MUST NOT silently disable global functions (e.g. reclamation for everyone) without alarm (GAP-6 adjacent) |
 | FM-STOR-5 | Partial write persisted at crash (torn build) | mask: invisible by CN-2/INV-40; residue collected (RS-10) |
-| FM-STOR-6 | Per-dataset quota exhausted (`P-DISK-QUOTA`) | degrade per RS-13: self-healing policies trim to the effective bound (gap-mode, alarmed); promise policies — or any dataset at the `P-REORG-KEEP` ring floor — pause writes (alarmed, LIV-2-exempt for that dataset), reads keep serving, other datasets unaffected (FM-3, INV-35/36); recovery: operator action or RS-14 reset |
+| FM-STOR-6 | Per-dataset quota exhausted (`P-DISK-QUOTA`) | degrade per RS-13: self-healing policies trim to the effective bound (gap-mode, alarmed); promise policies — or any dataset at the `P-REORG-KEEP` ring floor, or one whose emergency trim itself cannot commit (deletes need COW pages at a full map) — pause writes (alarmed, LIV-2-exempt for that dataset), reads keep serving, other datasets unaffected (FM-3, INV-35/36); recovery: operator action or RS-14 reset |
 
 ## 3. Process faults (FM-PROC)
 
