@@ -96,8 +96,10 @@ and pass. Two hard-won constraints:
 - cgroup `io.stat` re-counts bytes on stacked block devices (md/dm); the
   bench skips major 9/253 lines and cross-checks against `/proc/self/io`.
 - Wave runs (15–17): the mdbx file is a permanent high-water mark — ~1.35×
-  peak stored live plus growth-step rounding; tail truncation never fires
-  even with an armed `shrink_threshold` (80–93% of pages free at end). Reuse
+  peak stored live plus growth-step rounding at paced rate (free-run bursts
+  park up to a sync-cadence window of churn on top: 2.0× on the free-run
+  wave); tail truncation never fires even with an armed `shrink_threshold`
+  (80–93% of pages free at end). Reuse
   holds: zero post-wave growth at paced rate, exactly one growth step
   free-running. The rocks reference reclaims back to ~live for 3.7× the
   device writes.

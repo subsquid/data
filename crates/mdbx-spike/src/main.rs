@@ -349,7 +349,7 @@ fn main() -> Result<()> {
         let syncer = (args.sync_every_ms > 0).then(|| {
             scope.spawn(move || {
                 while !done.load(Ordering::Relaxed) {
-                    let _ = engine.periodic_sync();
+                    engine.periodic_sync().expect("periodic durable sync failed");
                     std::thread::sleep(Duration::from_millis(args.sync_every_ms));
                 }
             })

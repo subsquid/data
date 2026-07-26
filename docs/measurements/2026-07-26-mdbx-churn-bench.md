@@ -12,6 +12,12 @@ Device-write numbers below are cgroup `io.stat` after excluding stacked md/dm
 devices (they re-count bytes already charged to the physical NVMe); on every
 run the corrected figure matched `/proc/self/io` write_bytes to <1%.
 
+Two reference caveats: the rocks reference runs buffered I/O where production
+runs direct I/O — device-write totals are unaffected, page-cache read
+behavior differs (the read runs are scoped to CPU cost for exactly that
+reason); and peak-file is sampled at 500 ms — exact for mdbx (the file only
+grows), able to undershoot a rocks transient between compactions.
+
 Workload shape per the run matrix in `crates/mdbx-spike/README.md`: 45
 datasets, 4 pages × ~43 KiB per commit, merge fan-in 8, retention window 64,
 `SafeNoSync` + 1 s durable-sync cadence, app-level LZ4 for mdbx (4.00× on
@@ -85,9 +91,16 @@ cache, so this compares engine read-path CPU cost, not disk-bound reads.
 - The gap in runs 12/13 is entirely the app-compression precondition:
   ~1.4 ms per MB scanned in `lz4_flex` safe decode (~700 MB/s single-thread).
   RocksDB hides the same work inside its uncompressed block cache. Runs 12
-  and 13 are identical, so the cost is per-scan CPU, not env contention. A
-  faster decoder (C lz4 is 3–5×) or a small decompressed-page cache closes
-  it if per-request read volume makes it matter.
+  and 13 are identical, so the cost is per-scan CPU, not env contention.
+  Decoder shoot-out on the same generated page shape, hot single-thread on
+  this node (2026-07-26; an M2 Max agrees on the ratios within ~10%):
+  C `lz4` into a reused buffer 7.7 GB/s = **5.8×** over the `lz4_flex`
+  safe-decode-with-alloc used here (1.3 GB/s); `lz4_flex` without
+  safe-decode only 2.0×. The hot-loop safe figure (0.76 ms/MB) vs the
+  in-situ ~1.4 ms/MB above shows ~1.9× of mmap-cold + cursor overhead that
+  any decoder keeps — in service expect C `lz4` at ~0.25 ms/MB, not 0.13.
+  A small decompressed-page cache stays the fallback if per-request read
+  volume still makes decode matter.
 - Readers do not perturb writes on either engine (commit percentiles match
   the reader-less runs), and reads never miss the write path's mutex: max
   scan stayed ≤8 ms while commits, merges and 1 s durable syncs ran.
@@ -98,8 +111,11 @@ Run 05: 8 datasets free-running 60 s with a read txn held 60 s in a loop
 (64 KiB pages): file ballooned to **8.3 GB against 33 MB live** (freelist
 126 248 of 126 757 pages), commit max 1.24 s on file-extension stalls. Growth
 ≈ device-write rate × reader-hold duration, confirming the ADR 0002 estimate:
-long readers park the entire churn window. At production pace (~30 MB/s
-device) a 60 s reader pins ~2 GB per env.
+long readers park the entire churn window. At production pace a 60 s reader
+parks ~0.5 GB in a shared 4 KiB env (8.4 MB/s device, run 09), ~10 MB per
+env in the recommended per-dataset layout (7.3 MB/s pod-wide across 45
+envs, run 10), and ~1.8 GB only in the 64 KiB single-env shape (30 MB/s,
+run 03).
 
 ## Retention wave — file high-water and post-wave reuse
 
@@ -130,10 +146,14 @@ still serves the churn (at 4 KiB pages every ~10.6 KiB value needs a
   production-like cadence. Free-running overshot by exactly one growth step
   (the burst outran the 1 s durable cadence — the known SafeNoSync parking,
   bounded by cadence), then held.
-- **Sizing rule**: file ≈ 1.35× peak-ever stored live, rounded up to the
-  256 MiB growth step (run 16: 805.3 MB = exactly 3 steps for 582 MB peak
-  live). Volumes must budget that per env, permanently; `max_size` geometry
-  turns the budget into a hard quota (`MDBX_MAP_FULL` as backpressure).
+- **Sizing rule (paced)**: file ≈ 1.35× peak-ever stored live, rounded up to
+  the 256 MiB growth step (run 16: 805.3 MB = exactly 3 steps for 582 MB
+  peak live). Free-run bursts add the SafeNoSync parking term — roughly
+  device-write rate × sync cadence — on top: run 15 peaked at 2.0× peak
+  live, and the no-wave free-run file (run 07, 1342 MB over ~145 MB live)
+  is almost entirely parking. Volumes must budget the paced figure plus
+  catch-up-burst parking per env, permanently; `max_size` geometry turns
+  the budget into a hard quota (`MDBX_MAP_FULL` as backpressure).
 - **What rocks charges for its reclaim**: same logical churn (15.48 GB raw),
   rocks wrote 49.2 GB to the device vs mdbx's 13.2 GB (3.7×) and its
   free-run tails under the wave were brutal (commit p99 200 ms, merge p99
@@ -169,8 +189,9 @@ by writing 1.4× more than rocks; the recommendation is page-size 4 KiB (or
 16 KiB if read-scan cost proves dominant, at 2× the device writes).
 
 The wave runs close the reclaim question: the mdbx file is a permanent
-high-water mark (~1.35× peak stored live; tail truncation never fires) but
-does not creep at constant live, while rocks buys its reclaim for 3.7× the
+high-water mark (~1.35× peak stored live at paced rate, plus a sync-cadence
+parking window on free-run bursts; tail truncation never fires) but does
+not creep at constant live, while rocks buys its reclaim for 3.7× the
 device writes. Consequences are codified as ADR 0002 "Disk policy": per-env
 `max_size` quota, ring-past-the-floor trimming under quota pressure (coverage
 gap instead of unbounded growth), and env-granular defrag (reset-reingest
