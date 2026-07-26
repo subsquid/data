@@ -1,6 +1,9 @@
 # ADR 0002 — Replace RocksDB with libmdbx in hotblocks storage
 
-Status: proposed (spike pending) · Date: 2026-07-25 · Scope: `sqd-storage`, `sqd-hotblocks`
+Status: proposed — spike done 2026-07-26, gate passed
+([measurements](../measurements/2026-07-26-mdbx-churn-bench.md)); flips to
+accepted at Stage 0 (spec amendment) completion · Date: 2026-07-25 · Scope:
+`sqd-storage`, `sqd-hotblocks`, `crates/hotblocks/spec`
 
 ## Context
 
@@ -70,6 +73,75 @@ cost ×1.
    open as its own P2.
 2. **Direct I/O** is on in production (`--rocksdb-disable-direct-io` unset) and is
    incompatible with an mmap engine; page-cache behavior must be re-validated.
+3. **File high-water (measured, wave runs 15–17).** mdbx recycles freed pages
+   but returns nothing to the filesystem: across the retention-wave runs tail
+   truncation never fired even with an armed `shrink_threshold` and 80–93% of
+   pages free — the file is the high-water mark of the working set,
+   permanently. Working-set spikes are real (retention is downstream-driven; a
+   stalled consumer grows the window at ~2.5 MB/s stored pod-wide ≈ 9 GB/h).
+   Measured shape: file ≈ 1.35× peak stored live plus 256 MiB growth-step
+   rounding, and reuse is intact — zero file growth across 27 k post-wave
+   commits at constant live, so the bloat does not compound; untouched pages
+   occupy no RAM and tree depth tracks the live set. The rocks reference
+   reclaims the same wave for 3.7× the device writes — that is the trade
+   being made. Consequences and the reclaim plan: see "Disk policy" below.
+
+## Disk policy (per-dataset env)
+
+Decided on the wave runs and one hard requirement: **one stuck dataset must
+never stop the rest**. The product half of this policy already shipped:
+PR #77 (NET-896, merged 2026-07-17) lets `Api { max_blocks }` datasets
+sacrifice the tail past the portal floor to keep the head fresh — a cap in
+block *positions*, opt-in per dataset, soft (whole-chunk trims), with
+downward portal instructions clamped to `first(D)` so gap mode does not
+resync-loop. What remains unbounded is bytes (blocks vary in size),
+uncapped datasets, and the shared volume itself — and none of it is
+observable yet. The port closes the class by construction; DP-2/DP-4
+generalize NET-896 rather than replace it.
+
+- **DP-1 Quota.** Geometry `max_size` = the dataset's disk budget, enforced
+  by the engine. Sizing from the waves: intended peak window ×1.4, rounded up
+  to the growth step.
+- **DP-2 Ring past the floor.** The effective floor is the max of every
+  governing bound: the instructed floor, NET-896's position cap
+  (`next(D) − max_blocks`), and a byte watermark (~90% of quota). Trimming
+  past the downstream floor keeps the head fresh and opens a temporary
+  coverage gap between the archive's top and our tail: queries in the hole
+  get `RANGE_UNAVAILABLE`, every other dataset is untouched, and the gap
+  closes from below as the archive catches up from its own source. Shipped
+  semantics are kept — soft whole-chunk trims, downward instructions
+  clamped while a cap governs (no resync loops), but the clamp becomes
+  observable instead of silent. `MDBX_MAP_FULL` is the backstop: emergency
+  trim, retry the commit. Precondition (must hold): no archive ingests
+  through hotblocks (NG1) — otherwise trimming past the floor would hole
+  the archive permanently.
+- **DP-3 Defrag, env-granular.** The reclaim unit is the env file, not pages
+  — in-file defragmentation is compaction under another name and is exactly
+  the write stream this ADR removes. Two mechanisms:
+  - *reset-reingest* (required): drop the env dir, re-ingest the window from
+    upstream — the boot path narrowed to one dataset. Minutes, pod stays up,
+    the sibling replica covers. Sufficient for every reclaim case (slack
+    return, quota shrink, decommission).
+  - *compact-swap* (optional tooling, later): take the env's write lock (the
+    sync-serialization mutex the port already carries), `mdbx_env_copy` with
+    `MDBX_CP_COMPACT` (sequential, ~seconds per live-GB, transient ~live of
+    extra space), swap files, reopen. Freshness dip of seconds, no upstream
+    traffic. Neither `libmdbx` 0.6.6 nor `signet-libmdbx` 0.8.3 wraps
+    env-copy — needs a one-call FFI shim over `mdbx-sys` or an upstream PR.
+  Trigger on pressure, not cadence: `file − live > max(abs, k × live)`
+  sustained *and* node headroom low → worst offender first, one env at a
+  time, never both replicas of a dataset at once. `max_size` can only be
+  lowered onto a file that already fits — quota shrink implies defrag first.
+- **DP-4 Observability & acceptance.** Per-dataset gauges for file/live/quota
+  bytes, gap-mode flag + gap width, slack alert. Port acceptance: resetting a
+  single env runs online with other datasets' commit tails unaffected
+  (CT-covered in the harness), and the portal serves `RANGE_UNAVAILABLE`
+  across the hole instead of failing (prior art: the portal crash-looped on
+  an unexpected hotblocks response).
+
+Escalation if env-granular defrag becomes routine: sealed immutable chunk
+files from the terminal `compaction_loop` merge, retention by `unlink` —
+reth's mdbx + static-files split; its own ADR.
 
 ## Decision
 
@@ -101,6 +173,119 @@ head-freshness regressions.
   must therefore run with LZ4 at the `BufferPageWriter::write_page` seam from
   day one.
 
+## Spec compliance (checked 2026-07-26)
+
+The disk policy was audited against `crates/hotblocks/spec/`. The *doctrine*
+already points this way: RS-2 lets retention trim finalized data because this
+is "a bounded hot store, not an archive" (NG1), and DP-2 extends the same
+dominance one level up — space bounds retention. The read path needs no
+changes at all: a query below the new `first` is already specified
+(`RANGE_UNAVAILABLE`, RP-4) with the client rule "re-anchor upward", and the
+ring trim is mechanically an ordinary `RETAIN` (INV-15/18 and WP §2.5 apply
+unchanged). The isolation doctrine (INV-35/36, LIV-8, FM-3) is what DP-1
+finally makes enforceable — today LIV-8 is marked known-violated (GAP-1).
+
+The *letter* conflicts in seven places; amending them is Stage 0 below and
+the gate for flipping this ADR to accepted. Half of DP-2 is not a proposal
+at all: PR #77 (NET-896) shipped the position cap on 2026-07-17 — five days
+*after* the spec audit — so part of Stage 0 is reconciling the spec with
+behavior already in production:
+
+1. **RS-1/RS-3.** `External` guarantees "everything ≥ instructed bound
+   kept" — factually stale since PR #77; `Window` floors "err on the side
+   of keeping more, never less". DP-2 trims past both under pressure. Fix:
+   new **RS-13 (space dominates retention)** — the effective bound is the
+   max of the instructed bound, the position cap (`max_blocks`, shipped),
+   and the byte bound (quota watermark, the port); while any space bound
+   governs, the dataset is in an alarmed, observable gap-mode.
+2. **INV-44.** Data may leave only via "RETAIN *per policy*". With RS-13 the
+   space bound becomes part of policy semantics, so INV-44 needs a pointer,
+   not a new destructive path.
+3. **RS-6 + SLI-8.** `disk ≤ P-SPACE-AMP × live + const` (target ≤ 2.0×) is
+   violated by the measured mdbx high-water (5.6–16.6× vs *current* live
+   after a wave). Restate per dataset: hard bound `env ≤ P-DISK-QUOTA`
+   always; the amplification bound holds against *peak* live since the last
+   env reset (ratchet), restored tight by DP-3.
+4. **LIV-7.** "Disk returns to within RS-6": deletion *debt* converges
+   faster than today (pages free at the next durable point — no sweep, no
+   compaction wait), but the *file* converges only through DP-3; restate
+   against the RS-6 ratchet.
+5. **FM-STOR-2.** The documented degrade is "writes MAY pause". Replace with
+   ring-mode: writes continue, floor overridden, gap alarmed;
+   `MDBX_MAP_FULL` backstop = emergency trim + retry. The recovery-path
+   clause ("no scratch space proportional to reclaimable data") is satisfied
+   by reset-reingest and NOT by compact-swap — the latter stays routine
+   tooling, never the FM-STOR-2/3 recovery path.
+6. **Parameters.** New `P-DISK-QUOTA(D)`, `P-DISK-WATERMARK` (soft
+   fraction), `P-REORG-KEEP` (minimum span the ring may never trim into —
+   the INV-14 interaction: under pressure the window must still absorb a
+   realistic reorg, else RESET+alarm), plus registering the shipped
+   `max_blocks` (positions, DEF-9). `P-DISK-FLOOR` stays as the node-level
+   threshold. A quota below the minimum viable span is an INV-43 boot
+   refusal, not a runtime surprise.
+7. **WP §2.5 / WP-11 (downward instructions).** The audit's N3 resolution
+   made a downward SET-RETENTION an explicit alarmed RESET. PR #77's
+   `clamp_floor` deliberately breaks that for capped datasets: a portal
+   floor below `first(D)` is clamped up, silently — necessarily, because a
+   dataset in gap mode would otherwise resync-loop against a stuck archive
+   (the portal keeps re-asking for the pre-gap floor). RS-13 carves the
+   exception: while a cap governs, downward instructions clamp instead of
+   RESET, and the clamp is observable (today it is silent).
+
+Plus observability and conformance rows: OB-6 gains env file/live/quota
+gauges and the gap-mode flag + gap width; CT-7 gains the wave scenario (the
+harness analog of spike run 16); CT-8 gains stuck-consumer (one dataset's
+floor frozen forever — assert the quota ceiling, the gap alarm, untouched
+neighbors); a CT covers online env reset (LIV-5b scoped to one dataset).
+
+Three pre-existing audit findings become port prerequisites because DP leans
+on them: **N5/GAP-2** (anchor hash dropped on Window trims — INV-18; PR #77's
+`trim_floor` passes `None` for the hash too, so the new path has the same
+one-line bug to fix), **N6** (External retention bound not durable — persists
+in the label the port rewrites anyway), **N2/GAP-24** (one dataset's boot
+failure kills the whole service — per-env containment is the natural fix and
+DP-4 acceptance depends on it).
+
+## Port plan
+
+- **Stage 0 — spec amendment (docs, ~2 d).** The six items above + OB/CT
+  rows + parameter registry; spec CI green; flip this ADR to accepted.
+- **Stage 1 — engine seam (~1 wk).** `kv_mdbx` from the spike into
+  `crates/storage` as a real backend: env-per-dataset, 4 KiB pages,
+  SafeNoSync with per-env serialized durable sync (the abort constraint),
+  geometry from config (`P-DISK-QUOTA` as `max_size`, tuned growth step,
+  armed shrink threshold), LZ4 at `BufferPageWriter::write_page`, read-txn
+  deadline via the binding (`signet-libmdbx`, `read-tx-timeouts`).
+  Differential tests against the rocks backend.
+- **Stage 2 — db layer (~2–3 wk).** The ~1300 lines of
+  `crates/storage/src/db/*`: transactions, snapshots, label/meta (persist
+  the retention bound — N6), chunk index, metrics, CLI, shutdown. Delete the
+  deferred-space machinery (10 s sweep, deletion collector, periodic
+  compaction, startup `DeleteFilesInRange`, `TableId` watermark,
+  `reclaim-measure`). Fix N5 anchor carry-over in the trim path it touches.
+- **Stage 3 — disk policy (~1 wk).** DP-1 quota config; DP-2 = extend
+  NET-896's trim with the byte watermark (effective floor = max of
+  instructed, position cap, byte bound) + gap-mode flag/alarm + observable
+  clamp + `MAP_FULL` backstop + `P-REORG-KEEP` guard + INV-43 boot check;
+  DP-3 reset-reingest as a dataset-scoped observable RESET; DP-4 gauges and
+  alerts.
+- **Stage 4 — conformance & perf (~1 wk, overlaps 3).** CT-7 wave, CT-8
+  stuck-consumer and online-reset CT in `crates/hotblocks-harness`; S4
+  churn-soak on a prod-class node against the rocks baseline (the Decision
+  step 2 envelope: device writes, head-flush tails under ingest × merge ×
+  retention, wave high-water). Portal contract check: a gap range must pass
+  through as `RANGE_UNAVAILABLE`, not break the portal (cross-repo).
+- **Stage 5 — rollout (~1 wk).** Blue/green on an empty volume:
+  internal → morpho → mainnet; watch device writes (expect ≥3× drop), commit
+  tails, env file/live/quota, gap-mode. mmap makes `working_set` read as
+  page cache — dashboards must not mistake it for a leak. Rollback =
+  previous image on the old volume (the store is re-ingestable).
+
+Sums to ~5–7 weeks against the 3–6 week code estimate above. Deliberately
+out of scope, recorded: the compact-swap FFI shim (DP-3 optional tooling),
+the sealed-tier ADR, and portal-side gap handling if the Stage 4 contract
+check fails.
+
 ## Alternatives considered
 
 - **Tune RocksDB harder** (universal compaction, larger memtables, relaxed
@@ -113,3 +298,10 @@ head-freshness regressions.
 - **Reduce the application chunk-merge churn instead**: engine-independent and
   worth doing regardless, but it cannot remove LSM leveling amplification on the
   ingest stream itself.
+- **An engine that reclaims disk online** (staying on RocksDB, fjall, SQLite
+  `auto_vacuum`, redb `compact()`): online reclaim is compaction under another
+  name — every candidate pays the rewrite multiplier this ADR removes (the wave
+  A/B prices it: rocks returns the file to ~live for 3.7× the device writes).
+  With deletes already partitioned by age, unlink-based reclaim (DP-3, and the
+  sealed-tier escalation) is the structural answer if high-water hoarding ever
+  bites.
