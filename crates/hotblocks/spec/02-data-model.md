@@ -121,6 +121,11 @@ prefix**; blocks above it are the **volatile suffix**, subject to replacement by
 | `External` | The lower bound is set at runtime by the retention controller via the SET-RETENTION operation. Until first set: unbounded, and a dataset that is *empty* at activation defers ingestion until the first instruction (WP-5). |
 | `Unbounded` | Never trim. |
 
+All four policies are additionally subject to the space bounds of RS-13 (09 §1):
+self-healing policies (`Window`, `External`) may be trimmed past their bound under
+space pressure — observably; promise policies (`Pinned`, `Unbounded`) are never
+trimmed by space and pause at their quota instead (FM-STOR-6).
+
 **DEF-10 (Version order).** For one dataset, committed states are totally ordered by
 `ver`. "Later state" always means greater `ver`, never a comparison of head numbers (a
 fork can lower the head number while increasing `ver`).

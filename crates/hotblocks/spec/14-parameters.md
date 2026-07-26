@@ -44,10 +44,14 @@ ran against.
 | `P-RETENTION-APPLY` | External instruction → committed trim (WP-11, LIV-11) | prompt (unbounded formally) | ≤ 60 s ⚠ |
 | `P-CLEANUP-PERIOD` | deferred logical-deletion sweep cadence (RS-5) | 10 s | keep |
 | `P-CLEANUP-BACKOFF` | sweep retry after failure | 30 s | keep |
-| `P-SPACE-AMP` | steady-state disk/live amplification bound (RS-6, SLI-8) | bounded since 2026-07 (PR #79: point-delete sweep + compaction); unmeasured (CT-7, GAP-6) | ≤ 2.0× ⚠ |
+| `P-SPACE-AMP` | steady-state disk/live amplification bound (RS-6b ratchet vs peak live, SLI-8) | bounded since 2026-07 (PR #79: point-delete sweep + compaction); unmeasured (CT-7, GAP-6) | ≤ 2.0× ⚠ |
 | `P-SPACE-CONST` | fixed overhead allowance (RS-6) | — | size per deployment ⚠ |
 | `P-RECLAIM-LAG` | logical delete → physical space convergence (LIV-7) | sweep ≤ 10 s + compaction (typically minutes–hours); ≤ 7 d worst case via periodic compaction; interrupted-build residue: ∞ in default config (GAP-6) | ≤ 24 h ⚠ |
-| `P-DISK-FLOOR` | free-disk alarm/degrade threshold (FM-STOR-2) | — | define ⚠ |
+| `P-DISK-FLOOR` | free-disk alarm/degrade threshold, node level (FM-STOR-2) | — | define ⚠ |
+| `P-MAX-BLOCKS` | optional per-dataset position cap for `External` (RS-13) | shipped 2026-07-17 (PR #77 `Api.max_blocks`): soft, whole-chunk trims; clamp and gap-mode silent (GAP-42) | keep; make observable (GAP-42) |
+| `P-DISK-QUOTA` | hard per-dataset disk bound (RS-6a, RS-13, FM-STOR-6) | absent — no byte bound exists (GAP-43) | define per dataset ⚠ |
+| `P-DISK-WATERMARK` | quota fraction at which the RS-13 space bound engages | — | ~0.9 ⚠ |
+| `P-REORG-KEEP` | minimum positions behind `next(D)` that RS-13 never trims (INV-14 interaction) | — | per chain, ≥ realistic reorg depth ⚠ |
 | `P-BLOCK-INDEX` | block hash index enabled (DEF-17, RS-12) | off by default (`--block-hash-index`); EVM only | keep |
 | `P-TX-INDEX` | transaction hash index enabled (DEF-17, RS-12) | off by default (`--transaction-hash-index`); EVM only; independent of `P-BLOCK-INDEX` | keep |
 

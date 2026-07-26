@@ -10,20 +10,54 @@ between them.
 
 | Policy | Guarantee | Trim trigger |
 |---|---|---|
-| `Window(k)` | availability floor RS-3 + excess bound RS-4 | automatic, after commits that advance `next(D)` |
-| `Pinned(from, h?)` | everything ≥ `from` kept; anchor asserted at boot (WP-9 refusal on mismatch) | only when `from` is raised by reconfiguration |
-| `External` | everything ≥ last instructed bound kept; unbounded until first instruction; a *downward* instruction is a destructive re-bootstrap (RESET, WP §2.5) | SET-RETENTION (WP-11) |
-| `Unbounded` | nothing trimmed | never |
+| `Window(k)` | availability floor RS-3 + excess bound RS-4 (space exception: RS-13) | automatic, after commits that advance `next(D)` |
+| `Pinned(from, h?)` | everything ≥ `from` kept; anchor asserted at boot (WP-9 refusal on mismatch); never trimmed by space — pauses instead (RS-13) | only when `from` is raised by reconfiguration |
+| `External` | everything ≥ last instructed bound kept, within the space bounds of RS-13; unbounded until first instruction; a *downward* instruction is a destructive re-bootstrap (RESET, WP §2.5) — clamped instead of executed while a space bound governs (RS-13) | SET-RETENTION (WP-11); position cap / space watermark (RS-13) |
+| `Unbounded` | nothing trimmed; never trimmed by space — pauses instead (RS-13) | never |
 
 - **RS-2 (Retention dominates finality).** Trimming ignores `fin`: finalized blocks below
   the retention bound are deleted, and `fin` becomes `⊥` when the window passes above it
   (03 §2.5). Rationale: this is a bounded hot store, not an archive (NG1). Consequence
   for clients: "finalized" means *irreversible while retained*, not *retained forever*
   (INV-24 note).
+- **RS-13 (Space dominates retention).** RS-2's bounded-store doctrine, one
+  level up: a dataset's space budget outranks its retention promise — for the
+  policies that can afford it. Policies split into two classes:
+  - *Self-healing* (`Window`, `External`): trimmed data is re-acquirable — it
+    exists (or will) in the archival tier, and clients below the cut re-anchor
+    upward (RP-4). For these the **effective trim bound** is the maximum of
+    the policy bound (RS-3/WP-10, or the WP-11 instructed bound), the position
+    cap `next(D) − P-MAX-BLOCKS` (`External` only, where configured), and the
+    byte bound derived from the dataset's quota watermark
+    (`P-DISK-WATERMARK × P-DISK-QUOTA`). A trim to the effective bound is an
+    ordinary RETAIN — INV-15/18 hold, the anchor hash is carried. While a
+    space bound governs (effective > policy bound) the dataset is in
+    **gap-mode**: onset, exit, and the gap width MUST be observable
+    (OB-6/OB-9). In gap-mode a retention instruction below `first(D)` is
+    clamped to `first(D)` instead of executing the WP §2.5 downward RESET —
+    honoring it would re-bootstrap in a loop against the very consumer lag
+    that opened the gap; the clamp MUST be observable. Instructions at or
+    above `first(D)` apply normally.
+  - *Promises* (`Pinned`, `Unbounded`): space never triggers a trim. At the
+    watermark the dataset alarms (OB-9); at the quota its writes pause
+    (FM-STOR-6) — reads keep serving, other datasets are unaffected
+    (INV-35/36), and recovery is an operator action (raise the quota, raise
+    the policy bound, or DROP). This is WP-9/INV-43's doctrine at runtime:
+    pinned history is never destroyed silently.
+
+  Ring floor, both classes: the effective bound never rises into the last
+  `P-REORG-KEEP` positions below `next(D)` — trimming closer would strip the
+  reorg-absorption depth INV-14 relies on. A self-healing dataset whose quota
+  cannot hold even that span degrades like a promise (pause + alarm) rather
+  than trim further; a *configured* quota that cannot hold
+  `P-REORG-KEEP + P-RETENTION-SLACK` worth of data is a boot-time refusal
+  (INV-43), not a runtime surprise.
 - **RS-3 (Availability floor).** For `Window(k)`: at every committed state,
   all blocks in `[next(D) − k, next(D) − 1] ∩ [window start after initial fill, ∞)` are
   present and queryable (an interval of *positions* — DEF-9; on a slot-numbered chain it
-  holds ≤ `k` blocks). Trimming MUST err on the side of keeping more, never less.
+  holds ≤ `k` blocks). Trimming MUST err on the side of keeping more, never less. The
+  single sanctioned exception is RS-13's space bound — alarmed and observable, never
+  silent.
 - **RS-4 (Excess bound).** For `Window(k)`: eventually (once steady-state is reached and
   within `P-RETENTION-APPLY` of each trigger), `first(D) ≥ next(D) − k − P-RETENTION-SLACK`.
   Slack exists because trimming may be batch-granular; it is bounded, not best-effort.
@@ -47,10 +81,20 @@ Requirements:
   immediate and cheap; physical reclamation is asynchronous. Between the two, deleted
   data is `debt_bytes` — invisible to all reads (INV-41 keeps live readers safe via
   versioning, not via keeping data visible).
-- **RS-6 (Amplification bound).** In steady state,
-  `disk_bytes ≤ P-SPACE-AMP × live_bytes + P-SPACE-CONST`. This MUST hold under
-  continuous churn (window datasets trim continuously — churn IS the steady state).
-  Unbounded `debt_bytes` growth under any configuration is a defect. (GAP-6 history:
+- **RS-6 (Amplification bound).** Two bounds, per dataset where the storage layout
+  permits attribution:
+  (a) *hard quota* — where `P-DISK-QUOTA` is configured, the dataset's `disk_bytes`
+  MUST NOT exceed it, ever; this is the bound RS-13 and FM-STOR-6 enforce against;
+  (b) *amplification ratchet* — in steady state,
+  `disk_bytes ≤ P-SPACE-AMP × peak_live_bytes + P-SPACE-CONST`, where
+  `peak_live_bytes` is the maximum `live_bytes` since the dataset's storage was last
+  reset (RS-14). For an engine that reclaims in place, peak and current live coincide
+  and this is the familiar `P-SPACE-AMP × live_bytes`; for a copy-on-write engine whose
+  file is a high-water mark, current live may sit far below the file — that slack is
+  bounded by the peak term and returned by RS-14, not by background reclaim.
+  Both MUST hold under continuous churn (window datasets trim continuously — churn IS
+  the steady state), and unbounded `debt_bytes` growth under any configuration is a
+  defect in either reading. (GAP-6 history:
   until 2026-07 the system reclaimed physically only in an optional boot mode and default
   configurations violated this clause; routine reclaim now runs in default
   configurations — deferred point deletes swept every `P-CLEANUP-PERIOD` plus engine
@@ -109,10 +153,23 @@ Requirements:
   compaction. Reproduce with the ignored `measure_hash_index_compression_disk_size` release
   test, then measure the deployment's real hash/key distribution and compaction state.
 
+- **RS-14 (Dataset storage reset).** The store MUST support resetting one dataset's
+  physical storage online: drop the dataset's physical artifacts and re-acquire its
+  window per policy — a dataset-scoped RESET (a sanctioned INV-44 path, observable per
+  OB-9). Bounds: unavailability is confined to that dataset (LIV-5b-scoped readiness;
+  other datasets' progress and tails unaffected, LIV-8), and the operation MUST be
+  effective at a full quota without scratch space proportional to the dataset's data
+  (the drop precedes the re-acquisition — the same clause as RS-8). This is the
+  sanctioned return path for RS-6's high-water slack and the recovery verb of
+  FM-STOR-6.
+
 ## 3. Interactions
 
 - **Retention × finality:** RS-2 (dominates). FINALIZE below `first(D)` is ignored (WP
   §2.4).
+- **Retention × space:** RS-13 (space dominates — self-healing policies only; promise
+  policies convert space pressure into a write-pause, FM-STOR-6, never a trim). The
+  high-water return path is RS-14.
 - **Retention × forks:** the fork floor is the window start (INV-14): retention determines
   how deep a reorg can be absorbed in place. Operators choosing `k` MUST size it above the
   chain's realistic reorg depth; deeper reorgs are RESET events (alarmed).
