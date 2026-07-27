@@ -91,6 +91,15 @@ pub struct CLI {
     #[arg(long, value_name = "N", default_value = "2")]
     pub rocksdb_max_write_buffers: i32,
 
+    /// Target size of the LSM base level. With ~60 GB live and the default
+    /// multiplier of 10, this decides how many levels deep the ladder runs, and
+    /// a byte is rewritten once per level it descends. The default 256 MB is
+    /// smaller than one 512 MB memtable's flush, so L0 currently arrives larger
+    /// than the level it merges into. Unmeasured at production scale -- see
+    /// docs/measurements/2026-07-27-rocksdb-memtable-tuning.md before setting it.
+    #[arg(long, value_name = "MB", default_value = "256")]
+    pub rocksdb_level_base_mb: usize,
+
     /// Rewrite every table SST older than this, collecting dead data that never made a file
     /// tombstone-dense enough for the deletion collector. Lower means faster reclaim and
     /// proportionally more write amplification. 0 disables it, leaving RocksDB's 30-day
@@ -165,6 +174,7 @@ impl CLI {
             .with_periodic_compaction_secs(self.rocksdb_periodic_compaction_secs)
             .with_write_buffer_mb(self.rocksdb_write_buffer_mb)
             .with_max_write_buffers(self.rocksdb_max_write_buffers)
+            .with_level_base_mb(self.rocksdb_level_base_mb)
             .with_block_hash_index(self.block_hash_index)
             .with_transaction_hash_index(self.transaction_hash_index);
 
