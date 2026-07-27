@@ -58,6 +58,8 @@ pub struct DatabaseSettings {
     chunk_cache_size: usize,
     data_cache_size: usize,
     with_rocksdb_stats: bool,
+    write_buffer_mb: usize,
+    max_write_buffers: i32,
     direct_io: bool,
     cache_index_and_filter_blocks: bool,
     max_log_file_size: usize,
@@ -84,6 +86,9 @@ impl Default for DatabaseSettings {
             chunk_cache_size: 64,
             data_cache_size: 256,
             with_rocksdb_stats: false,
+            // RocksDB's own defaults; the CLI carries the deployed values
+            write_buffer_mb: 64,
+            max_write_buffers: 2,
             direct_io: false,
             cache_index_and_filter_blocks: false,
             max_log_file_size: 10,
@@ -115,6 +120,16 @@ impl DatabaseSettings {
 
     pub fn with_direct_io(mut self, yes: bool) -> Self {
         self.direct_io = yes;
+        self
+    }
+
+    pub fn with_write_buffer_mb(mut self, mb: usize) -> Self {
+        self.write_buffer_mb = mb;
+        self
+    }
+
+    pub fn with_max_write_buffers(mut self, n: i32) -> Self {
+        self.max_write_buffers = n;
         self
     }
 
@@ -238,6 +253,10 @@ impl DatabaseSettings {
         }
         // Bound space amplification (default since RocksDB 8.4; pinned -- load-bearing here).
         options.set_level_compaction_dynamic_level_bytes(true);
+        // Scoped to this CF deliberately: it takes essentially all the write volume, so the
+        // memory cost (write_buffer_mb x max_write_buffers) is paid once rather than per CF.
+        options.set_write_buffer_size(self.write_buffer_mb << 20);
+        options.set_max_write_buffer_number(self.max_write_buffers);
         if !self.auto_compactions {
             options.set_disable_auto_compactions(true);
         }
