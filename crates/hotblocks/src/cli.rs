@@ -78,6 +78,19 @@ pub struct CLI {
     #[arg(long, value_name = "N")]
     pub rocksdb_max_background_jobs: Option<usize>,
 
+    /// `CF_TABLES` memtable size. RocksDB's 64 MB default flushes small L0 files
+    /// continuously; the resulting compaction churn is most of the device write
+    /// bill, and writes stop whenever the flush of one buffer has not finished
+    /// before the next fills (measured: `immutable_memtables` pegged at the
+    /// ceiling on every stalled pod). See docs/measurements/2026-07-27-*.
+    #[arg(long, value_name = "MB", default_value = "64")]
+    pub rocksdb_write_buffer_mb: usize,
+
+    /// `CF_TABLES` memtables before writes stop. The default 2 leaves exactly one
+    /// buffer of headroom while its predecessor flushes.
+    #[arg(long, value_name = "N", default_value = "2")]
+    pub rocksdb_max_write_buffers: i32,
+
     /// Rewrite every table SST older than this, collecting dead data that never made a file
     /// tombstone-dense enough for the deletion collector. Lower means faster reclaim and
     /// proportionally more write amplification. 0 disables it, leaving RocksDB's 30-day
@@ -150,6 +163,8 @@ impl CLI {
             .with_max_log_file_size(self.rocksdb_max_log_file_size)
             .with_keep_log_file_num(self.rocksdb_keep_log_file_num)
             .with_periodic_compaction_secs(self.rocksdb_periodic_compaction_secs)
+            .with_write_buffer_mb(self.rocksdb_write_buffer_mb)
+            .with_max_write_buffers(self.rocksdb_max_write_buffers)
             .with_block_hash_index(self.block_hash_index)
             .with_transaction_hash_index(self.transaction_hash_index);
 
