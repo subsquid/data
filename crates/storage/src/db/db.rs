@@ -60,6 +60,7 @@ pub struct DatabaseSettings {
     with_rocksdb_stats: bool,
     write_buffer_mb: usize,
     max_write_buffers: i32,
+    level_base_mb: usize,
     direct_io: bool,
     cache_index_and_filter_blocks: bool,
     max_log_file_size: usize,
@@ -89,6 +90,7 @@ impl Default for DatabaseSettings {
             // RocksDB's own defaults; the CLI carries the deployed values
             write_buffer_mb: 64,
             max_write_buffers: 2,
+            level_base_mb: 256,
             direct_io: false,
             cache_index_and_filter_blocks: false,
             max_log_file_size: 10,
@@ -130,6 +132,11 @@ impl DatabaseSettings {
 
     pub fn with_max_write_buffers(mut self, n: i32) -> Self {
         self.max_write_buffers = n;
+        self
+    }
+
+    pub fn with_level_base_mb(mut self, mb: usize) -> Self {
+        self.level_base_mb = mb;
         self
     }
 
@@ -257,6 +264,10 @@ impl DatabaseSettings {
         // memory cost (write_buffer_mb x max_write_buffers) is paid once rather than per CF.
         options.set_write_buffer_size(self.write_buffer_mb << 20);
         options.set_max_write_buffer_number(self.max_write_buffers);
+        // Sets how many levels the ladder has, and a byte is rewritten once per level.
+        // Wants to be >= level0_file_num_compaction_trigger x the compressed flush size,
+        // or L0 arrives larger than the level it merges into.
+        options.set_max_bytes_for_level_base((self.level_base_mb as u64) << 20);
         if !self.auto_compactions {
             options.set_disable_auto_compactions(true);
         }
