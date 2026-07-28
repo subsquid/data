@@ -12,13 +12,19 @@ Device-write numbers below are cgroup `io.stat` after excluding stacked md/dm
 devices (they re-count bytes already charged to the physical NVMe); on every
 run the corrected figure matched `/proc/self/io` write_bytes to <1%.
 
-Two reference caveats: the rocks reference runs buffered I/O — which,
-corrected 2026-07-26, *matches* production (the chart passes
-`--rocksdb-disable-direct-io` on every stack; an earlier ADR 0002 revision
-claimed production ran direct I/O) — though the read runs stay scoped to
-CPU cost, since the bench cache geometry differs from prod's 8 GiB block
-cache; and peak-file is sampled at 500 ms — exact for mdbx (the file only
-grows), able to undershoot a rocks transient between compactions.
+Two reference caveats: the rocks reference runs buffered I/O, which
+**does not match production** — the 2026-07-26 note claiming it does is
+withdrawn. Verified against the running pods 2026-07-27: no stack passes
+`--rocksdb-disable-direct-io`, and the flag is inverted
+(`cli.rs:149` = `.with_direct_io(!disable)`), so production runs
+`set_use_direct_reads(true)` + `set_use_direct_io_for_flush_and_compaction(true)`
+(`db.rs:192-195`). Runs 18/19 closed WAL compression and background jobs
+but not the I/O mode, so this parity gap is still open on the axis that
+decides both device-write accounting and read latency; the read runs stay
+scoped to CPU cost anyway, since the bench cache geometry differs from
+prod's 8 GiB block cache (`--data-cache-size 8192`, confirmed). Peak-file
+is sampled at 500 ms — exact for mdbx (the file only grows), able to
+undershoot a rocks transient between compactions.
 
 Workload shape per the run matrix in `crates/mdbx-spike/README.md`: 45
 datasets, 4 pages × ~43 KiB per commit, merge fan-in 8, retention window 64,
@@ -151,12 +157,21 @@ collector).
   1.58 ms), delete p50 124× (86 µs → 10.7 ms — 300 random-key deletes COW
   as many leaves as inserts).
 - Conclusion: under mdbx the hash indexes MUST NOT port as global
-  hash-keyed tables. The append-shaped restructure — per-chunk index
-  tables written with the chunk (~12 KB/commit here, ~270× cheaper) and
-  lookups fanning out over chunk tables (bounded by chunk count; per-chunk
-  bloom if the fan-out ever hurts) — or an explicit decision to keep the
-  feature rocks-side/elsewhere. ADR porting note 4 and Stage 2 carry the
-  verdict.
+  hash-keyed tables. **This is the only half these runs measure** — the
+  replacement was never executed: the spike writes hashes globally under a
+  `0xFF` sentinel prefix (`engine.rs:248–256`), so no per-chunk layout has
+  been run at all. The append-shaped restructure — per-chunk index runs
+  written with the chunk, and lookups fanning out over runs under an
+  explicit budget — is *modeled* at ~36–40 KB/commit with `MDBX_APPEND`
+  (~8 leaves plus spine at ~105 B/entry including node overhead, exact
+  IB-10 key bytes), 60–72 KB without append: **~45–80× cheaper** than the
+  measured 3.25 MB/commit, not the ~270× an earlier revision derived by
+  dividing raw payload alone. In absolutes that is +0.38…0.69 GB on this
+  shape against the 1.17 GB baseline (+32…59%), still clearing the ≥3×
+  gate at 3.8–4.6× since rocks pays +4.0 GB for the same stream. The
+  alternative remains an explicit decision to keep the feature
+  rocks-side/elsewhere. ADR porting note 4 and the Stage 2 prototype gate
+  carry the verdict.
 
 ## Read latency under production write load
 

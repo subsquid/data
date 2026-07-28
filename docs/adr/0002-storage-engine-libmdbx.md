@@ -19,22 +19,49 @@ tempfile spill and was removed by ADR 0001 (a production replica now runs at ~2�
 cores). What remains is the disk bill of the LSM itself, measured on a production
 replica serving 45 datasets (2026-07-25):
 
-| metric | value |
-|---|---|
-| device writes | ~640 MB/s sustained (≈55 TB/day) |
-| device reads | ~690 MB/s sustained |
-| live SST size | ~62 GB |
-| concurrent compactions | 1.4–2.3, continuously |
-| commit rate | ~59 chunk commits/s pod-wide (~72 blocks/s ingested) |
-| reader (snapshot) lifetime | avg ~12 s, max 233 s/day, ≤42 concurrent |
+| metric                     | value                                                |
+|----------------------------|------------------------------------------------------|
+| device writes              | ~397 MB/s sustained (≈34 TB/day)                     |
+| device reads               | ~426 MB/s sustained                                  |
+| live SST size              | ~62 GB                                               |
+| concurrent compactions     | 1.4–2.3, continuously                                |
+| commit rate                | ~59 chunk commits/s pod-wide (~72 blocks/s ingested) |
+| reader (snapshot) lifetime | avg ~12 s, max 233 s/day, ≤42 concurrent             |
 
-Writing ~640 MB/s to rewrite a 62 GB working set is an amplification factor the
+The device figures are **corrected 2026-07-27**; an earlier revision recorded
+~640 MB/s write / ~690 MB/s read, ~1.6× too high. `container_fs_*_bytes_total`
+carries *two* stacked duplications and the query must exclude both: the same
+bytes appear on `/dev/dm-N` and on the underlying `/dev/nvmeXn1` (device-mapper
+re-count), **and** on a `container=""` pod-aggregate series beside the
+per-container one. Filter `container="hotblocks-db", device=~"/dev/nvme.*"`;
+summing by device alone still reads 2×. Cross-validated against in-pod cgroup
+`io.stat` (`259:2`, the physical nvme — majors 9/253 are the stacked re-counts),
+which matched the corrected metric within burst noise. The correction also
+resolves an arithmetic contradiction the old figure carried: 397 MB/s of
+compressed output implies ~1.6 GB/s of LZ4 input ⇒ ~2.3–3.2 cores of codec,
+which fits the 3.4–3.6 cores the pod actually burns, where 640 MB/s implied
+~5 cores and did not.
+
+Writing ~397 MB/s to rewrite a 62 GB working set is an amplification factor the
 data does not ask for: keys are append-mostly (UUIDv7 table prefixes, ascending
 chunk keys), values are 16–64 KiB opaque pages, and the whole store is a rolling
-retention window. Write stalls (`is-write-stopped`) fired on two stacks within the
-last day. A B+tree engine with in-place page reuse (libmdbx — the engine under
-reth and erigon) charges COW page churn (~2–3×) instead of LSM leveling (~10×+),
-and has no background compaction to interfere with read tails.
+retention window. A B+tree engine with in-place page reuse (libmdbx — the engine
+under reth and erigon) charges COW page churn (~2–3×) instead of LSM leveling
+(~10×+), and has no background compaction to interfere with read tails.
+
+Write stalls (`is-write-stopped`) fired on two stacks — but **not for the reason
+this ADR assumes**, and the measurement is now in (2026-07-27, 7 d): the stalls
+are memtable flush backpressure, not compaction debt. `immutable_memtables`
+peaks at exactly 2 on all four stalled pods (internal ×2, testnet-dev ×2) and at
+1 on all four that never stalled — and RocksDB's default `max_write_buffer_number`
+is 2, so that ceiling *is* the stop condition. The alternatives do not fit:
+`files_at_level0` peaks at 15 against a default stop trigger of 36 and is the
+same order on stalled and healthy pods, and `pending_compaction_bytes` peaks at
+16.2 GB, 5.9% of the 256 GB default hard limit. `db.rs` sets no memtable or L0
+option at all, so this is the stock 64 MB × 2. Cost: internal-db-1 spends 1.2%
+of wall time write-stopped (~2 h/week). Consequence: the latency half of the
+motivation (weight ×3) is not evidence for an engine swap until a larger-memtable
+arm is run against the bench reference — see Alternatives.
 
 One honest caveat: a second, application-level write stream — the chunk
 `compaction_loop` that merges small chunks up to 200k rows — rewrites the
@@ -86,20 +113,47 @@ cost ×1.
    backstop *names* the laggard — in-process it cannot safely abort another
    thread's txn, so the kill is the service cancelling that response; hsr
    detects, the deadline enforces. GAP-29 stays open as its own P2.
-2. **Memory regime** (corrected 2026-07-26: an earlier revision claimed
-   production runs direct I/O — false; the chart passes
-   `--rocksdb-disable-direct-io` on every stack, so production reads are
-   buffered and the page cache already lives inside the cgroup limit).
-   What the port changes is the cache split, not the regime: today an 8 GiB
-   *uncompressed* block cache (anon) + page cache of compressed SSTs;
-   under mdbx the block cache disappears and the compressed file page cache
-   is the only cache, with decode on every read. Consequences to carry:
-   the freed 8 GiB anon budget is the natural size bound for the deferred
-   decompressed-page LRU; `working_set` ≈ limit is the *normal* steady
-   state under mmap (active file pages count), so leak detection moves to
-   anon RSS and pressure alerting to memory PSI + major-fault rate; and
-   Stage 4 must run under the production values — 12 G request / 64 G
-   limit, 2-CPU request — not an unconstrained bench box.
+2. **Memory regime — production runs DIRECT I/O** (re-verified against the
+   running pods 2026-07-27; the 2026-07-26 "correction" that claimed
+   buffered was itself wrong and is withdrawn). The flag is inverted:
+   `cli.rs:149` computes `.with_direct_io(!self.rocksdb_disable_direct_io)`
+   from a bare `#[arg(long)]` bool, so *absence* of
+   `--rocksdb-disable-direct-io` enables direct I/O. All three stacks'
+   pod args lack the flag and carry no env override, and `db.rs:192-195`
+   then sets `set_use_direct_reads(true)` **and**
+   `set_use_direct_io_for_flush_and_compaction(true)`. Verified args also
+   confirm `--data-cache-size 8192` (the 8 GiB block cache is real, not the
+   256 MB default), 12 G request / 64 G limit, 2-CPU request, and
+   `--block-hash-index --transaction-hash-index` on internal only.
+
+   So the port changes the regime, not merely the cache split, and by more
+   than an earlier revision assumed. Today: an 8 GiB *uncompressed* block
+   cache (anon) and **no SST page cache at all** — reads outside the block
+   cache go to the device, and flush/compaction writes bypass the page
+   cache, which is why the ~640 MB/s is true device traffic rather than
+   writeback. Under mdbx: mmap is unconditionally buffered, the anon block
+   cache disappears, and a ~50 GiB page cache becomes load-bearing for the
+   first time. Consequences to carry: the freed 8 GiB anon budget is the
+   natural size bound for the deferred decompressed-page LRU;
+   `working_set` ≈ limit is a *new* steady state, not a continuation of
+   today's, so leak detection moves to anon RSS and pressure alerting to
+   memory PSI + major-fault rate; the read comparison cuts both ways and
+   must be measured rather than reasoned (today's misses already pay device
+   latency with no page-cache backstop, so mdbx may read *better* cold
+   while paying decode); and Stage 4 must run under the production values —
+   12 G request / 64 G limit, 2-CPU request — not an unconstrained bench
+   box.
+
+   **Parity consequence for the bench (open).** The rocks reference ran
+   buffered and the measurements record asserts that this matches
+   production — it does not. Runs 18/19 closed the WAL-compression and
+   background-jobs gaps but not the I/O mode, so the ≥3× gate is still
+   measured against a reference that differs from production on the axis
+   that decides both device-write accounting and read latency. Re-run the
+   reference with direct I/O before Stage 1; note the post-port A/B is
+   inherently asymmetric (rocks direct writes vs mdbx page-cache
+   writeback) and must state which side of the cache each number is taken
+   from.
 3. **File high-water (measured, wave runs 15–17).** mdbx recycles freed pages
    but returns nothing to the filesystem: across the retention-wave runs tail
    truncation never fired even with an armed `shrink_threshold` and 80–93% of
@@ -126,12 +180,15 @@ cost ×1.
    with global tables mdbx writes 4.5× *more* than rocks and the whole
    Context table inverts. Write-behind batching recovers only 26% at
    K=16 and buys 26 ms flush tails. The port therefore restructures:
-   per-chunk index tables written append-shaped with the chunk
-   (~270× cheaper), lookups fan out over chunk tables (bounded by chunk
-   count; per-chunk bloom if the fan-out ever hurts) — or the feature is
-   explicitly kept off mdbx-backed deployments. The Stage 4 envelope still
-   includes the internal shape (both indexes on, per-chunk layout). Full
-   design and prior art: "Hash-index design" below.
+   per-chunk index runs written append-shaped with the chunk (modeled
+   ~45–80× cheaper — what runs 22–26 measure is the global table's
+   failure, not the replacement's cost), lookups fan out over runs under
+   an explicit budget (RP-20 must be amended for this; per-chunk bloom if
+   the fan-out ever hurts) — or the feature is explicitly kept off
+   mdbx-backed deployments, which the endpoint-traffic query may decide
+   on its own. The Stage 4 envelope still includes the internal shape
+   (both indexes on, per-chunk layout). Full design and prior art:
+   "Hash-index design" below.
 
 ## Binding (decided 2026-07-26)
 
@@ -171,46 +228,122 @@ adjacent and written once. An LSM absorbs the same random inserts in its
 memtable and sorts them on flush — rocks paid +4.0 GB where mdbx paid
 +31.2 GB.
 
-**Design: the index is one more table of the chunk.** Stop maintaining one
+**Design: the index is a sidecar run of the chunk.** Stop maintaining one
 sorted-by-hash order over the whole window; keep many small sorted runs,
 one per chunk, that are only ever created and dropped — never edited.
+The write-side failure of the global table is *measured* (runs 22–26);
+everything below about the per-chunk replacement is *modeled* and must
+pass a Stage 2 prototype gate before it is load-bearing.
 
-- *Layout.* Key `table_id ‖ tag_hash ‖ hash(32 B)` → value 8 B (block
-  number) / 12 B (block + tx index). A fresh `table_id` puts the whole
-  chunk index into a contiguous fresh key range: ~300 sorted entries ≈
-  3–4 new adjacent leaves per commit — ~270× cheaper than the global
-  table, and never touched again (chunks are immutable).
+- *Layout.* Key `table_id ‖ tag_hash ‖ hash` → value 8 B (block number) /
+  12 B (block + tx index). The hash is stored as the **exact bytes the
+  dataset uses**, 1..`P-HASH-MAXLEN` — not a decoded 32 B digest: IB-10
+  binds `{hash}` to a byte-for-byte comparison with "no normalization, no
+  case folding, no `0x` handling", and the corpus is not all hex (the
+  fork tests key on `fork_{n}`). Decoding to 32 B would be an API change
+  needing ingest validation, lookup normalization and an IB-10/CT rewrite;
+  it is not free and is not taken here. Cost of the contract: an EVM entry
+  is 16 + 1 + 66 + 12 = 95 B of payload against 61 B for a decoded digest,
+  so the index is ~1.6× larger than a binary layout would be — material
+  against RS-12, which warns `tidx` can be the largest single consumer in
+  the store.
+- *Write cost (modeled, not measured).* A fresh `table_id` puts the whole
+  chunk index into a contiguous fresh key range. At ~105 B/entry including
+  libmdbx node overhead, ~300 entries ≈ 31.5 KB ⇒ **~8 leaves plus spine,
+  ~36–40 KB/commit with `MDBX_APPEND`**; without append mode split-fill
+  drops to 50–60% and it is 60–72 KB. Entries are sorted by construction,
+  so append mode is available and is a Stage 1 requirement, not an
+  optimization — it is a factor of 2. Against the measured global-table
+  cost of ~3.25 MB/commit that is **~45–80× cheaper**, not the ~270× an
+  earlier revision claimed from raw payload alone. In absolutes on the
+  run-22 shape: +0.38…0.69 GB against a 1.17 GB data baseline (+32…59%),
+  not the +10% that 270× implies. The ≥3× gate survives — 1.55–1.86 GB
+  against rocks' 7.13 GB is 3.8–4.6×, since rocks pays more for the same
+  index — but the margin is stated, not assumed.
+- *Integrity.* The run MUST NOT be an exception to the page codec. mdbx has
+  no data-page checksums and INV-45 makes a hit authoritative — a client
+  cannot cheaply re-verify one — so a silently corrupted entry is exactly
+  the failure INV-45 calls a defect. Two admissible shapes, decided at
+  Stage 1: (a) per-entry envelope `version ‖ position ‖ checksum(table_id ‖
+  tag ‖ hash ‖ position)` — cheapest to read, but ~33% value overhead and
+  it must cover the key; (b) store the run as **checksummed codec pages**
+  (no LZ4 — `spec/09` measured 0.49%/0.36% on random hashes, there is
+  nothing to compress) and binary-search within a run. (b) keeps FM-STOR-4
+  uniform, removes the raw-KV exception entirely and gives the bloom a
+  natural home, at 1–2 page reads per chunk instead of one point-get.
+  Bloom values carry the same version + checksum either way.
 - *Write path.* The source stays `for_each_*_hash` at chunk build
   (`tx.rs:311–328`); sort in memory, write through the normal table-build
   path with its 8 MiB sub-commits. The optimistic staging with scans and
   retries goes away.
-- *Deletion disappears as a class.* Retention drops the chunk's key
-  ranges; the index dies with them (a sequential range-delete). Today's
-  delete path re-reads the dying chunk to re-derive keys for the global
-  CF (`tx.rs:361–393`) — deleted code.
+- *Chunk metadata.* The run is **not** one more entry of `Chunk::tables`:
+  `compaction.rs:260-263` treats table-count equality as part of schema
+  compatibility (a toggled flag would split merge runs mid-window) and
+  then opens every entry with `create_table_reader` for `.schema()` /
+  `.num_rows()`, which a raw run cannot answer. It needs its own slot —
+  `Chunk::V2 { tables, block_hash_run: Option<TableId>,
+  transaction_hash_run: Option<TableId> }` — plus explicit rules: the run
+  is built in sub-commits and stays dirty until the metadata commit
+  publishes chunk and run IDs together and clears the dirty markers;
+  REPLACE/RETAIN removes chunk metadata and queues the run IDs for
+  physical GC in one transaction; compaction merges only runs that
+  already exist and never scans base tables to backfill; behavior does not
+  depend on the current enable flag, so an on→off transition keeps
+  existing entries until they age out naturally; and on a duplicate hash,
+  newest chunk wins. Without these, a mixed window (off→on, on→off, or a
+  merge across the boundary) either backfills unexpectedly or drops an
+  index that was there.
+- *Deletion.* Retention drops the chunk's key ranges; the index dies with
+  them. Today's delete path re-reads the dying chunk to re-derive keys for
+  the global CF (`tx.rs:361–393`) — deleted code. Physical reclamation of
+  a dropped run is a bounded debt queue / range-GC, sized so a trim
+  transaction still fits the remaining freelist (DP-2's headroom
+  guarantee); the mechanism and the minimum libmdbx version it needs are a
+  Stage 1 deliverable, not an implicit "range-delete is free".
 - *Reorg/REPLACE.* Consistency for free: the index is atomic with its
   chunk, so the global-CF obligation to purge the forked branch's hashes
   (dangling positions otherwise) vanishes structurally.
-- *Merge.* `compaction_loop` merge-sorts the sources' sorted runs into
-  the merged chunk's index — ~0.3% of chunk bytes, riding the existing
-  merge stream.
-- *Lookup.* Fan-out: snapshot → live chunks (`CF_CHUNKS` enumerates) →
-  point-get `index_table_id ‖ hash` per chunk, newest first, early exit.
-  O(1) → O(chunks): ~50–150 chunks ⇒ ~0.1–1 ms hot, ~10–15 ms cold; a
-  miss pays the full fan-out. `Ok(None)` semantics and the no-backfill
-  property are unchanged (chunks without an index table are skipped). No
-  decode on this path — index entries are raw KV in the tree, not codec
-  pages (the LZ4 seam covers column pages only); today's rocks hash CFs
-  decompress a block per lookup, so the port removes decode here. A cold
-  fan-out touches ~0.5–1.8 MB of page cache (spine + one leaf per chunk);
-  spines stay resident.
+- *Merge.* `compaction_loop` carries the sources' runs into the merged
+  chunk. The values are positions (block number / block + tx index) that a
+  merge does not change, so the merged chunk SHOULD **inherit** its
+  sources' runs rather than re-sort them — the merge then writes zero
+  index bytes by construction and fan-out runs over runs rather than
+  chunks. If inheritance is rejected, the re-sort cost must be priced per
+  generation: an earlier revision's "~0.3% of chunk bytes" is wrong by two
+  orders of magnitude — it divided the per-chunk write cost by the
+  *global table's* per-commit cost. The real space ratio is ~12 KB of
+  index against a ~43 KB stored chunk ≈ 28%, consistent with RS-12.
+- *Lookup — bounded fan-out, and it changes the contract.* Snapshot →
+  live chunks (`CF_CHUNKS` enumerates) → probe per run, newest first,
+  early exit. This is θ(runs), and RP-20 says lookup "cost MUST NOT scale
+  with the window" — a hard MUST this design violates, not a formality:
+  an uncapped dataset or schema-incompatible chunks can hold far more than
+  the nominal 50–150 runs, and a lookup flood would compete for page cache
+  and storage workers that RP-20 separately requires to stay isolated from
+  range queries. The contract must therefore change explicitly (Stage 0
+  item 8): permit bounded fan-out, introduce `P-HASH-MAX-RUNS` plus a
+  wall-time / read-byte budget, and give lookups their own `P-HASH-SLOTS`
+  admission budget disjoint from `P-EXEC-SLOTS`. A probe abandoned on
+  budget returns a miss — consistent with RP-19, under which a miss
+  already proves nothing — but that behavior must be normative, not
+  incidental. Estimated ~0.1–1 ms hot / ~10–15 ms cold at 50–150 runs is
+  modeled; a miss pays the full fan-out, which is why the Tier-0 endpoint
+  miss-rate query decides whether this design is the right shape at all.
+  The no-backfill property is unchanged (chunks without a run are
+  skipped). A cold fan-out touches ~0.5–1.8 MB of page cache (spine + one
+  leaf per run); "spines stay resident" is an assumption to be measured,
+  not a property.
 - *Escalation, behind a trigger like the read LRU:* per-chunk bloom
-  (~10 bits/entry, stored as one more entry of the chunk's index table,
-  lazily RAM-cached) → expected cost = in-RAM filter checks + 1 real get.
+  (~10 bits/entry, stored beside the run, versioned + checksummed, lazily
+  RAM-cached) → expected cost = in-RAM filter checks + 1 real get.
   Ship fan-out first; add blooms only if the endpoint p99 or miss
   read-amp misbehaves.
-- *Spec.* DEF-17 (indexes expendable) stands; a chunk-scoped note and a
-  CT for fan-out + mixed-window miss semantics ride Stage 2.
+- *Acceptance.* Beyond DEF-17 (indexes expendable, which stands): a CT
+  hitting newest and oldest run plus a miss, at 50 / 150 / 500 runs, hot
+  and cold, concurrent with range-query load — the test that decides
+  whether the bounded-fan-out contract holds under the flood RP-20 was
+  written to prevent. Mixed-window semantics (off→on, on→off, merge across
+  the boundary, duplicate hash) get their own CT.
 
 **Prior art — reth/erigon run the same global table and survive it; their
 mitigations do not transfer.** reth's `TransactionHashNumbers` is one
@@ -293,20 +426,20 @@ generalize NET-896 rather than replace it.
 - **DP-3 Defrag, env-granular.** The reclaim unit is the env file, not pages
   — in-file defragmentation is compaction under another name and is exactly
   the write stream this ADR removes. Two mechanisms:
-  - *reset-reingest* (required): drop the env dir, re-ingest the window from
-    upstream — the boot path narrowed to one dataset. Minutes, pod stays up,
-    the sibling replica covers. Sufficient for every reclaim case (slack
-    return, quota shrink, decommission).
-  - *compact-swap* (optional tooling, later): take the env's write lock (the
-    sync-serialization mutex the port already carries), `mdbx_env_copy` with
-    `MDBX_CP_COMPACT` (sequential, ~seconds per live-GB, transient ~live of
-    extra space), swap files, reopen. Freshness dip of seconds, no upstream
-    traffic. Neither `libmdbx` 0.6.6 nor `signet-libmdbx` 0.8.3 wraps
-    env-copy — needs a one-call FFI shim over `mdbx-sys` or an upstream PR.
-  Trigger on pressure, not cadence: `file − live > max(abs, k × live)`
-  sustained *and* node headroom low → worst offender first, one env at a
-  time, never both replicas of a dataset at once. `max_size` can only be
-  lowered onto a file that already fits — quota shrink implies defrag first.
+    - *reset-reingest* (required): drop the env dir, re-ingest the window from
+      upstream — the boot path narrowed to one dataset. Minutes, pod stays up,
+      the sibling replica covers. Sufficient for every reclaim case (slack
+      return, quota shrink, decommission).
+    - *compact-swap* (optional tooling, later): take the env's write lock (the
+      sync-serialization mutex the port already carries), `mdbx_env_copy` with
+      `MDBX_CP_COMPACT` (sequential, ~seconds per live-GB, transient ~live of
+      extra space), swap files, reopen. Freshness dip of seconds, no upstream
+      traffic. Neither `libmdbx` 0.6.6 nor `signet-libmdbx` 0.8.3 wraps
+      env-copy — needs a one-call FFI shim over `mdbx-sys` or an upstream PR.
+      Trigger on pressure, not cadence: `file − live > max(abs, k × live)`
+      sustained *and* node headroom low → worst offender first, one env at a
+      time, never both replicas of a dataset at once. `max_size` can only be
+      lowered onto a file that already fits — quota shrink implies defrag first.
 - **DP-4 Observability & acceptance.** Per-dataset gauges for file/live/quota
   bytes, gap-mode flag + gap width, slack alert. Port acceptance: resetting a
   single env runs online with other datasets' commit tails unaffected
@@ -383,14 +516,15 @@ measurement record.
 The disk policy was audited against `crates/hotblocks/spec/`. The *doctrine*
 already points this way: RS-2 lets retention trim finalized data because this
 is "a bounded hot store, not an archive" (NG1), and DP-2 extends the same
-dominance one level up — space bounds retention. The read path needs no
-changes at all: a query below the new `first` is already specified
+dominance one level up — space bounds retention. The *range* read path needs
+no changes at all: a query below the new `first` is already specified
 (`RANGE_UNAVAILABLE`, RP-4) with the client rule "re-anchor upward", and the
 ring trim is mechanically an ordinary `RETAIN` (INV-15/18 and WP §2.5 apply
-unchanged). The isolation doctrine (INV-35/36, LIV-8, FM-3) is what DP-1
+unchanged). The hash-lookup path is the exception, and a hard one — RP-20,
+item 8 below. The isolation doctrine (INV-35/36, LIV-8, FM-3) is what DP-1
 finally makes enforceable — today LIV-8 is marked known-violated (GAP-1).
 
-The *letter* conflicts in seven places; amending them is Stage 0 below and
+The *letter* conflicts in nine places; amending them is Stage 0 below and
 the gate for flipping this ADR to accepted. Half of DP-2 is not a proposal
 at all: PR #77 (NET-896) shipped the position cap on 2026-07-17 — five days
 *after* the spec audit — so part of Stage 0 is reconciling the spec with
@@ -439,6 +573,26 @@ behavior already in production:
    its governance), while the byte bound clamps only while it governs — so
    the WP §2.5 RESET stays reachable once every dataset carries a quota —
    and the clamp is observable (today it is silent).
+8. **RP-20 (lookup cost).** "Lookups are point reads: their cost MUST NOT
+   scale with the window" is a hard MUST that the accepted per-chunk
+   hash-index design violates by construction — fan-out is θ(runs). The
+   claim above that "the read path needs no changes at all" holds for
+   range queries only. Amend RP-20 to permit *bounded* fan-out and add the
+   bound: `P-HASH-MAX-RUNS` plus a wall-time / read-byte budget, an
+   abandoned probe returning a miss (RP-19-compatible, but normative), and
+   `P-HASH-SLOTS` as an admission budget disjoint from `P-EXEC-SLOTS` so a
+   lookup flood cannot starve range queries and vice versa (PF-4). Without
+   this item the ADR would flip to accepted carrying a knowingly violated
+   MUST. Drops out entirely if the indexes are descoped from the port.
+9. **IB-10 / INV-45 (hash keys and index soundness).** IB-10's exact-bytes
+   contract is preserved — the index key stores the hash as given, not a
+   decoded 32 B digest — so no amendment is needed there; what needs
+   recording is the *consequence*, that the per-chunk run is ~1.6× larger
+   than a binary layout and RS-12's "tidx can be the largest single
+   consumer" applies with that multiplier. INV-45 does need a pointer: a
+   hit is authoritative, mdbx does not checksum data pages, so the run
+   carries the integrity envelope specified in "Hash-index design" rather
+   than being a raw-KV exception to the page codec.
 
 Plus observability and conformance rows: OB-6 gains env file/live/quota
 gauges and the gap-mode flag + gap width; CT-7 gains the wave scenario (the
@@ -459,10 +613,11 @@ draining and dataset-aware portal retry).
 
 ## Port plan
 
-- **Stage 0 — spec amendment (docs, ~2 d).** The seven items above (the
-  parameter registry is item 6) + OB/CT rows; cross-references checked by
-  hand — no spec CI gate exists yet. The accepted flip additionally waits
-  on the Stage 1 vertical slice (Status).
+- **Stage 0 — spec amendment (docs, ~2 d).** The nine items above (the
+  parameter registry is item 6; items 8–9 are the hash-lookup contract and
+  drop out if the indexes are descoped) + OB/CT rows; cross-references
+  checked by hand — no spec CI gate exists yet. The accepted flip
+  additionally waits on the Stage 1 vertical slice (Status).
 - **Stage 1 — engine seam (~1 wk).** `kv_mdbx` from the spike into
   `crates/storage` as a real backend: env-per-dataset, 4 KiB pages,
   SafeNoSync with per-env serialized durable sync (the abort constraint),
@@ -499,12 +654,17 @@ draining and dataset-aware portal retry).
   `reclaim-measure`); keep the dirty-table journal and the startup orphan
   purge — multi-commit table builds still leave committed orphans at a
   crash (RS-10). Fix N5 anchor carry-over in the trim path it touches.
-  Hash-index layout is decided by measurement (porting note 4, runs
-  22–26): per-chunk index tables written with the chunk — global
-  hash-keyed tables cost 27× the data stream and are rejected; the
-  `hashes/{hash}` endpoints re-implement as fan-out over chunk index
-  tables. Ship the raw-scanned-bytes counter (the Measurements bracket's
-  replacement and the LRU-trigger SLI).
+  Hash-index layout: the *rejection* is decided by measurement (porting
+  note 4, runs 22–26 — global hash-keyed tables cost 27× the data stream);
+  the replacement is not. Per-chunk runs written with the chunk enter
+  Stage 2 behind a **prototype gate** — build the run in the bench at the
+  real key shape and measure device writes, then the fan-out probe at
+  50 / 150 / 500 runs — before the `hashes/{hash}` endpoints are
+  re-implemented against it. Carries the `Chunk::V2` sidecar slots, the
+  integrity envelope, the bounded-fan-out budget from Stage 0 items 8–9,
+  and the physical-GC debt queue for dropped runs. Whole item drops if the
+  endpoint-traffic query descopes the feature. Ship the raw-scanned-bytes
+  counter (the Measurements bracket's replacement and the LRU-trigger SLI).
 - **Stage 3 — disk policy (~1 wk).** DP-1 quota config; DP-2 = extend
   NET-896's trim with the byte watermark (effective floor = max of
   instructed, position cap, byte bound) + gap-mode flag/alarm + observable
@@ -542,9 +702,18 @@ check fails.
 ## Alternatives considered
 
 - **Tune RocksDB harder** (universal compaction, larger memtables, relaxed
-  leveling): reduces but keeps the multiplier, keeps stalls and the reclaim
-  machinery; the workload shape (rolling window, append keys, big values) is the
-  textbook non-LSM case.
+  leveling): reduces but keeps the multiplier and the reclaim machinery; the
+  workload shape (rolling window, append keys, big values) is the textbook
+  non-LSM case. **But the "keeps stalls" half of this dismissal is now
+  disproven** (Context, 2026-07-27): the stalls are flush backpressure on the
+  stock 64 MB × 2 memtable, which is exactly what this alternative would change,
+  and neither production nor the bench reference sets a single memtable, L0,
+  file-size or compaction-style option — the reference is untuned by omission,
+  not by design. Before Stage 1, run one arm (512 MiB `write_buffer_size`,
+  `max_write_buffer_number` 4) against the prod-parity reference. If it removes
+  the stall events and recovers a material share of the write gap, the port must
+  be re-scored against tuning-plus-status-quo, with the remaining buy being
+  reclaim-machinery deletion and read tails rather than the headline ratio.
 - **Vanilla LMDB**: fixed map size must be pre-declared — no growth/shrink
   geometry to hang `P-DISK-QUOTA` on — and there is no HSR hook for the
   stale-reader backstop. (The original draft also held its 4 KiB pages
