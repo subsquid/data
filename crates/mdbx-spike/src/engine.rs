@@ -458,7 +458,14 @@ pub struct RocksOpts {
     pub universal: bool,
     /// Universal's `max_size_amplification_percent`: full compaction fires once
     /// the CF exceeds this fraction of its live size. RocksDB's default is 200.
-    pub size_amp_pct: i32
+    pub size_amp_pct: i32,
+    /// `level0_file_num_compaction_trigger`; 0 keeps RocksDB's 4. Each L0→base
+    /// merge rewrites the whole overlapping base level, so the step costs
+    /// ~1 + base_size/L0_batch — production measures 5.2× at the default
+    /// (2026-07-28, internal L4). Raising the trigger amortizes one rewrite
+    /// over proportionally more new data. Slowdown/stop keep their 1:5:9
+    /// ratio to the trigger, or the larger L0 would just stall instead.
+    pub l0_trigger: i32
 }
 
 impl RocksEngine {
@@ -480,6 +487,9 @@ impl RocksEngine {
         // way to split device writes into flush / compaction / WAL the way
         // production's LOG does.
         db_opts.enable_statistics();
+        // Runs are ~10 min; RocksDB's 600 s default would leave a short arm with
+        // no per-level table in the LOG at all.
+        db_opts.set_stats_dump_period_sec(120);
         if o.direct_io {
             db_opts.set_use_direct_reads(true);
             db_opts.set_use_direct_io_for_flush_and_compaction(true);
@@ -503,6 +513,11 @@ impl RocksEngine {
         cf_opts.add_compact_on_deletion_collector_factory(128 * 1024, 64 * 1024, 0.5);
         cf_opts.set_write_buffer_size(o.write_buffer_mb << 20);
         cf_opts.set_max_write_buffer_number(o.max_write_buffers);
+        if o.l0_trigger > 0 {
+            cf_opts.set_level_zero_file_num_compaction_trigger(o.l0_trigger);
+            cf_opts.set_level_zero_slowdown_writes_trigger(o.l0_trigger * 5);
+            cf_opts.set_level_zero_stop_writes_trigger(o.l0_trigger * 9);
+        }
 
         // mirrors production `hash_index_cf_options`: bloom, LZ4, deletion
         // collector, dynamic level bytes

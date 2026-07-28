@@ -172,7 +172,14 @@ struct Args {
     /// rocks universal: `max_size_amplification_percent`. Lower means the DB
     /// stays closer to its live size and pays more compaction to hold there.
     #[arg(long, default_value_t = 200)]
-    rocks_size_amp_pct: i32
+    rocks_size_amp_pct: i32,
+
+    /// rocks leveled: `level0_file_num_compaction_trigger`; 0 keeps RocksDB's 4.
+    /// The L0→base merge rewrites the whole overlapping base level, so it costs
+    /// ~1 + base_size/L0_batch — 5.2x in production at the default. Raising this
+    /// amortizes that rewrite over more new data.
+    #[arg(long, default_value_t = 0)]
+    rocks_l0_trigger: i32
 }
 
 static NEXT_TABLE_ID: AtomicU64 = AtomicU64::new(1);
@@ -487,7 +494,8 @@ fn main() -> Result<()> {
                 write_buffer_mb: args.rocks_write_buffer_mb,
                 max_write_buffers: args.rocks_max_write_buffers,
                 universal: args.rocks_universal,
-                size_amp_pct: args.rocks_size_amp_pct
+                size_amp_pct: args.rocks_size_amp_pct,
+                l0_trigger: args.rocks_l0_trigger
             }
         )?)
     };
@@ -754,12 +762,17 @@ fn main() -> Result<()> {
         let (flush, compact, wal) = e.write_bytes();
         println!(
             "rocks writes: flush={:.1} MB compaction={:.1} MB wal={:.1} MB, \
-             lsm_write_amp={:.2}x, style={}",
+             lsm_write_amp={:.2}x, style={}, l0_trigger={}",
             mb(flush),
             mb(compact),
             mb(wal),
             (flush + compact) as f64 / flush.max(1) as f64,
-            if args.rocks_universal { "universal" } else { "leveled" }
+            if args.rocks_universal { "universal" } else { "leveled" },
+            if args.rocks_l0_trigger > 0 {
+                args.rocks_l0_trigger
+            } else {
+                4
+            }
         );
     }
     if let Engine::Mdbx(e) = &engine {
