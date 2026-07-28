@@ -431,7 +431,10 @@ impl MdbxEngine {
 
 pub struct RocksEngine {
     db: rocksdb::DB,
-    root: std::path::PathBuf
+    root: std::path::PathBuf,
+    /// Holds the Statistics object the tickers are read from; dropping it
+    /// would zero `write_amp`.
+    db_opts: rocksdb::Options
 }
 
 const CF_TABLES: &str = "tables";
@@ -447,7 +450,15 @@ pub struct RocksOpts {
     pub cache_mb: usize,
     pub direct_io: bool,
     pub write_buffer_mb: usize,
-    pub max_write_buffers: i32
+    pub max_write_buffers: i32,
+    /// Universal instead of leveled for the tables CF. Production pays ~6.4×
+    /// write amplification to leveled (2026-07-28: 8735 GiB of compaction per
+    /// 1368 GiB flushed, mainnet); universal buys that back with space
+    /// amplification, which the production volumes have spare — 9% used.
+    pub universal: bool,
+    /// Universal's `max_size_amplification_percent`: full compaction fires once
+    /// the CF exceeds this fraction of its live size. RocksDB's default is 200.
+    pub size_amp_pct: i32
 }
 
 impl RocksEngine {
@@ -465,6 +476,10 @@ impl RocksEngine {
         db_opts.set_wal_compression_type(rocksdb::DBCompressionType::Zstd);
         db_opts.set_max_background_jobs(8);
         db_opts.set_max_subcompactions(4);
+        // Both arms pay it, so it cannot bias the comparison, and it is the only
+        // way to split device writes into flush / compaction / WAL the way
+        // production's LOG does.
+        db_opts.enable_statistics();
         if o.direct_io {
             db_opts.set_use_direct_reads(true);
             db_opts.set_use_direct_io_for_flush_and_compaction(true);
@@ -475,7 +490,16 @@ impl RocksEngine {
         block.set_block_cache(&rocksdb::Cache::new_lru_cache(o.cache_mb << 20));
         cf_opts.set_block_based_table_factory(&block);
         cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
-        cf_opts.set_level_compaction_dynamic_level_bytes(true);
+        if o.universal {
+            cf_opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
+            let mut uco = rocksdb::UniversalCompactOptions::default();
+            uco.set_max_size_amplification_percent(o.size_amp_pct);
+            cf_opts.set_universal_compaction_options(&uco);
+        } else {
+            // Leveled-only; universal ignores it, so setting it there would just
+            // make the run record ambiguous.
+            cf_opts.set_level_compaction_dynamic_level_bytes(true);
+        }
         cf_opts.add_compact_on_deletion_collector_factory(128 * 1024, 64 * 1024, 0.5);
         cf_opts.set_write_buffer_size(o.write_buffer_mb << 20);
         cf_opts.set_max_write_buffer_number(o.max_write_buffers);
@@ -501,8 +525,19 @@ impl RocksEngine {
         )?;
         Ok(Self {
             db,
-            root: root.to_owned()
+            root: root.to_owned(),
+            db_opts
         })
+    }
+
+    /// (flush, compaction, WAL) bytes. The same split production reports in its
+    /// LOG, so a bench arm and a pod arm can be put in the same table.
+    pub fn write_bytes(&self) -> (u64, u64, u64) {
+        (
+            self.db_opts.get_ticker_count(rocksdb::statistics::Ticker::FlushWriteBytes),
+            self.db_opts.get_ticker_count(rocksdb::statistics::Ticker::CompactWriteBytes),
+            self.db_opts.get_ticker_count(rocksdb::statistics::Ticker::WalFileBytes)
+        )
     }
 
     fn cf(&self) -> &rocksdb::ColumnFamily {

@@ -161,7 +161,18 @@ struct Args {
     /// production stall condition (`num_immutable` peaks at exactly 2 on every
     /// stalled pod and 1 on every healthy one)
     #[arg(long, default_value_t = 2)]
-    rocks_max_write_buffers: i32
+    rocks_max_write_buffers: i32,
+
+    /// rocks: universal compaction for the tables CF instead of leveled.
+    /// Production's leveled ladder costs 6.4x write amplification (measured
+    /// 2026-07-28); this is the arm that prices the alternative.
+    #[arg(long, default_value_t = false)]
+    rocks_universal: bool,
+
+    /// rocks universal: `max_size_amplification_percent`. Lower means the DB
+    /// stays closer to its live size and pays more compaction to hold there.
+    #[arg(long, default_value_t = 200)]
+    rocks_size_amp_pct: i32
 }
 
 static NEXT_TABLE_ID: AtomicU64 = AtomicU64::new(1);
@@ -474,7 +485,9 @@ fn main() -> Result<()> {
                 cache_mb: args.rocks_cache_mb,
                 direct_io: args.rocks_direct_io,
                 write_buffer_mb: args.rocks_write_buffer_mb,
-                max_write_buffers: args.rocks_max_write_buffers
+                max_write_buffers: args.rocks_max_write_buffers,
+                universal: args.rocks_universal,
+                size_amp_pct: args.rocks_size_amp_pct
             }
         )?)
     };
@@ -735,6 +748,18 @@ fn main() -> Result<()> {
             STALL_MAX_IMMUTABLE.load(Ordering::Relaxed),
             args.rocks_max_write_buffers,
             args.rocks_write_buffer_mb
+        );
+    }
+    if let Engine::Rocks(e) = &engine {
+        let (flush, compact, wal) = e.write_bytes();
+        println!(
+            "rocks writes: flush={:.1} MB compaction={:.1} MB wal={:.1} MB, \
+             lsm_write_amp={:.2}x, style={}",
+            mb(flush),
+            mb(compact),
+            mb(wal),
+            (flush + compact) as f64 / flush.max(1) as f64,
+            if args.rocks_universal { "universal" } else { "leveled" }
         );
     }
     if let Engine::Mdbx(e) = &engine {
