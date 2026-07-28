@@ -140,7 +140,28 @@ struct Args {
     /// durable-sync cadence; bounds SafeNoSync file growth ≈ churn × this
     /// window (0 = off, file grows until exit)
     #[arg(long, default_value_t = 1000)]
-    sync_every_ms: u64
+    sync_every_ms: u64,
+
+    /// rocks block cache
+    #[arg(long, default_value_t = 256)]
+    rocks_cache_mb: usize,
+
+    /// rocks: direct reads + direct flush/compaction. **Production parity** —
+    /// verified 2026-07-27 that no stack passes `--rocksdb-disable-direct-io`
+    /// and that the flag is inverted (`cli.rs:149`), so prod runs direct I/O.
+    /// Runs 01–26 were buffered and are NOT parity on this axis.
+    #[arg(long, default_value_t = false)]
+    rocks_direct_io: bool,
+
+    /// rocks memtable size; RocksDB's default 64 MB is what production runs
+    #[arg(long, default_value_t = 64)]
+    rocks_write_buffer_mb: usize,
+
+    /// rocks memtables before writes stop; the default 2 is the measured
+    /// production stall condition (`num_immutable` peaks at exactly 2 on every
+    /// stalled pod and 1 on every healthy one)
+    #[arg(long, default_value_t = 2)]
+    rocks_max_write_buffers: i32
 }
 
 static NEXT_TABLE_ID: AtomicU64 = AtomicU64::new(1);
@@ -150,6 +171,12 @@ static STORED: AtomicU64 = AtomicU64::new(0);
 // race-free reference for what the wave peak *should* occupy on disk
 static LIVE_STORED: AtomicU64 = AtomicU64::new(0);
 static PEAK_LIVE_STORED: AtomicU64 = AtomicU64::new(0);
+// rocks write-stall observability: prod stalls on the memtable ceiling, so a
+// tuning arm is only judgeable if the bench reports the same three signals
+static STALL_SAMPLES: AtomicU64 = AtomicU64::new(0);
+static STALL_STOPPED: AtomicU64 = AtomicU64::new(0);
+static STALL_DELAYED: AtomicU64 = AtomicU64::new(0);
+static STALL_MAX_IMMUTABLE: AtomicU64 = AtomicU64::new(0);
 
 struct WorkerOut {
     commit_us: Vec<u64>,
@@ -441,7 +468,15 @@ fn main() -> Result<()> {
                 args.growth_step_mb << 20
             )?)
         }
-        EngineKind::Rocks => Engine::Rocks(RocksEngine::open(&args.dir, 256)?)
+        EngineKind::Rocks => Engine::Rocks(RocksEngine::open(
+            &args.dir,
+            engine::RocksOpts {
+                cache_mb: args.rocks_cache_mb,
+                direct_io: args.rocks_direct_io,
+                write_buffer_mb: args.rocks_write_buffer_mb,
+                max_write_buffers: args.rocks_max_write_buffers
+            }
+        )?)
     };
 
     // verify generated pages actually compress like production data
@@ -503,6 +538,25 @@ fn main() -> Result<()> {
                 }
                 std::thread::sleep(Duration::from_millis(500));
             }
+        });
+        // 20 ms, not the sampler's 500 ms: a stall interval on a 20–100 s run is
+        // short, and prod only sees these at scrape resolution
+        let staller = engine.stall_probe().is_some().then(|| {
+            scope.spawn(move || {
+                while !done.load(Ordering::Relaxed) {
+                    if let Some((stopped, immutable, delayed)) = engine.stall_probe() {
+                        STALL_SAMPLES.fetch_add(1, Ordering::Relaxed);
+                        if stopped > 0 {
+                            STALL_STOPPED.fetch_add(1, Ordering::Relaxed);
+                        }
+                        if delayed > 0 {
+                            STALL_DELAYED.fetch_add(1, Ordering::Relaxed);
+                        }
+                        STALL_MAX_IMMUTABLE.fetch_max(immutable, Ordering::Relaxed);
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            })
         });
         let syncer = (args.sync_every_ms > 0).then(|| {
             scope.spawn(move || {
@@ -568,6 +622,9 @@ fn main() -> Result<()> {
 
         done.store(true, Ordering::Relaxed);
         sampler.join().expect("sampler panicked");
+        if let Some(s) = staller {
+            s.join().expect("stall sampler panicked");
+        }
         if let Some(s) = syncer {
             s.join().expect("syncer panicked");
         }
@@ -667,6 +724,19 @@ fn main() -> Result<()> {
         }
     }
     println!("engine: {}", engine.describe());
+    let stall_n = STALL_SAMPLES.load(Ordering::Relaxed);
+    if stall_n > 0 {
+        let pct = |v: u64| 100.0 * v as f64 / stall_n as f64;
+        println!(
+            "rocks stalls: write_stopped {:.2}% of {stall_n} samples, delayed {:.2}%, \
+             max_immutable_memtables {} (ceiling {}); wbuf {} MB",
+            pct(STALL_STOPPED.load(Ordering::Relaxed)),
+            pct(STALL_DELAYED.load(Ordering::Relaxed)),
+            STALL_MAX_IMMUTABLE.load(Ordering::Relaxed),
+            args.rocks_max_write_buffers,
+            args.rocks_write_buffer_mb
+        );
+    }
     if let Engine::Mdbx(e) = &engine {
         let (entries, raw) = e.verify_scan(args.compress)?;
         println!(

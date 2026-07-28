@@ -142,6 +142,21 @@ impl Engine {
         }
     }
 
+    /// (write_stopped, num_immutable_memtables, delayed_write_rate) — the three
+    /// properties that discriminate a flush-backpressure stall from compaction
+    /// debt. Production stalls on `num_immutable >= max_write_buffer_number`
+    /// (measured 2026-07-27), so a tuning arm has to show this go to zero.
+    pub fn stall_probe(&self) -> Option<(u64, u64, u64)> {
+        match self {
+            Engine::Rocks(e) => Some((
+                e.int_prop("rocksdb.is-write-stopped"),
+                e.int_prop("rocksdb.num-immutable-mem-table"),
+                e.int_prop("rocksdb.actual-delayed-write-rate")
+            )),
+            Engine::Mdbx(_) => None
+        }
+    }
+
     pub fn describe(&self) -> String {
         match self {
             Engine::Mdbx(e) => {
@@ -422,28 +437,48 @@ pub struct RocksEngine {
 const CF_TABLES: &str = "tables";
 const CF_HASHES: &str = "hashes";
 
+/// The rocks knobs the reference was missing. `direct_io` is production parity
+/// (verified 2026-07-27: no stack passes `--rocksdb-disable-direct-io`, and
+/// `cli.rs:149` inverts it, so prod runs direct reads + direct flush/compaction);
+/// the memtable pair is the tuning arm — prod leaves both at RocksDB defaults
+/// and its write stalls are that ceiling being hit.
+#[derive(Clone, Copy)]
+pub struct RocksOpts {
+    pub cache_mb: usize,
+    pub direct_io: bool,
+    pub write_buffer_mb: usize,
+    pub max_write_buffers: i32
+}
+
 impl RocksEngine {
     /// Mirrors production `tables_cf_options`: LZ4, dynamic level bytes,
     /// compact-on-deletion collector, dedicated block cache — and the
     /// db-level options that shape device writes: Zstd WAL compression and
     /// max_background_jobs=8 (prod runs cores clamped to 2..=8; the bench
     /// container has 8). Runs 01–17 predate the WAL/jobs parity and
-    /// overstate rocks device writes by the uncompressed-WAL term (≈ raw).
-    pub fn open(root: &Path, cache_mb: usize) -> Result<Self> {
+    /// overstate rocks device writes by the uncompressed-WAL term (≈ raw);
+    /// runs 01–26 additionally ran buffered against a direct-I/O production.
+    pub fn open(root: &Path, o: RocksOpts) -> Result<Self> {
         let mut db_opts = rocksdb::Options::default();
         db_opts.create_if_missing(true);
         db_opts.create_missing_column_families(true);
         db_opts.set_wal_compression_type(rocksdb::DBCompressionType::Zstd);
         db_opts.set_max_background_jobs(8);
         db_opts.set_max_subcompactions(4);
+        if o.direct_io {
+            db_opts.set_use_direct_reads(true);
+            db_opts.set_use_direct_io_for_flush_and_compaction(true);
+        }
 
         let mut cf_opts = rocksdb::Options::default();
         let mut block = rocksdb::BlockBasedOptions::default();
-        block.set_block_cache(&rocksdb::Cache::new_lru_cache(cache_mb << 20));
+        block.set_block_cache(&rocksdb::Cache::new_lru_cache(o.cache_mb << 20));
         cf_opts.set_block_based_table_factory(&block);
         cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
         cf_opts.set_level_compaction_dynamic_level_bytes(true);
         cf_opts.add_compact_on_deletion_collector_factory(128 * 1024, 64 * 1024, 0.5);
+        cf_opts.set_write_buffer_size(o.write_buffer_mb << 20);
+        cf_opts.set_max_write_buffer_number(o.max_write_buffers);
 
         // mirrors production `hash_index_cf_options`: bloom, LZ4, deletion
         // collector, dynamic level bytes
