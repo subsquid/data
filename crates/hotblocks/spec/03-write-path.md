@@ -33,11 +33,29 @@ loop:
   hashes are opaque, source-controlled strings (DEF-2), so hash linkage alone implies no
   number order (GAP-20). A run failing validation MUST be discarded without any
   state change, and the offending source penalized ([FM-SRC-4](08-failure-model.md)).
-- **WP-3 (Batching).** Blocks MAY be accumulated and committed in batches. A batch is
-  bounded by `P-BATCH-ROWS` rows / `P-BATCH-BYTES` bytes and MUST be flushed no later
-  than: the bound being reached, an `OnTip` event, a `ForkSignal`, or an item-availability
-  change. Batching MUST NOT reorder or drop blocks. (Freshness consequence: the head
-  advances in batch-sized steps; see HZ-6 and SLI-11.)
+- **WP-3 (Batching).** Blocks MAY be accumulated and committed in batches. Outside the
+  finalized-replay exception below, a batch is bounded by `P-BATCH-ROWS` rows /
+  `P-BATCH-BYTES` bytes and MUST be flushed no later than: the bound being reached, an
+  `OnTip` event, a `ForkSignal`, or an item-availability change. Batching MUST NOT reorder
+  or drop blocks. (Freshness consequence: the head advances in batch-sized steps; see HZ-6
+  and SLI-11.)
+
+  **Finalized-replay exception.** When fork resolution (§2.4) resumes at or below
+  `fin.number`, publishing a partial replay could replace finalized storage before the
+  candidate reproduces it. Such a candidate MUST therefore remain unpublished until it
+  has reached at least `fin.number` and can satisfy §2.3's whole-prefix reproduction check.
+  While it remains below that floor:
+
+  - a row/byte bound or `OnTip` event MUST NOT waive the floor; an implementation MAY spill
+    intermediate buffers without publishing them;
+  - a newer `ForkSignal` MAY discard the superseded candidate and resolve again; and
+  - an item-availability change that cannot share one valid batch MUST abort and retry
+    without changing stored state.
+
+  The unpublished candidate can consequently exceed the ordinary batch bounds and remain
+  pending if the source stops below the floor; that liveness risk MUST be level-observable
+  and is tracked by GAP-43. This exception never permits alteration of a finalized block
+  and does not relax the ordinary-ingest bounds.
 - **WP-4 (Multi-source arbitration).** With multiple sources, the service MUST present the
   effect of a single coherent source: duplicate deliveries deduplicated, positions below
   `next(D)` ignored, and a `ForkSignal` acted upon only when corroborated — by a majority
@@ -91,15 +109,25 @@ position, not a promised block number, DEF-1.)
 ### 2.3 REPLACE(from, B, f?) — fork application
 
 - Pre: `seg ≠ ∅`; `B ≠ ∅` and valid per WP-2; `B[0].number ≥ from`; and
-  - **fork floor (finality):** `fin = ⊥ ∨ from > fin.number`  — MUST (INV-13/14);
-  - **fork floor (window):** `from ≥ first(D)` — MUST (INV-14). A required rollback below
-    `first(D)` is not representable as REPLACE; it MUST be handled as RESET (§2.6) and
-    surfaced as an event ([OB-9](11-observability.md));
-  - linkage: `from > first(D)` ⇒ `B[0].parent_hash` = the hash of `from`'s preceding
+  - **fork floor (finality):** `fin = ⊥ ∨ from > fin.number`, or `B` reproduces the stored
+    chain over `[from, fin.number]` block for block — MUST (INV-13/14). The second disjunct
+    exists because `from` snaps to a stored batch boundary, which sits below `fin` whenever
+    finality falls inside a batch; INV-13 forbids *altering* a finalized block, not
+    re-writing it identically. Reproduction MUST be checked over the whole overlap, not at
+    `fin.number` alone: hashes come from the source, so a reproduced boundary says nothing
+    about the interior;
+  - **fork floor (window):** `from ≥ chunk_first(D)` — MUST (INV-14). In a precisely-trimmed
+    implementation `chunk_first(D) = first(D)`; a whole-chunk implementation may start in
+    retained physical overshoot below the logical floor solely to replace its owner atomically.
+    A required rollback below `chunk_first(D)` is not representable as REPLACE; it MUST be
+    handled as RESET (§2.6) and surfaced as an event ([OB-9](11-observability.md));
+  - linkage: `from > chunk_first(D)` ⇒ `B[0].parent_hash` = the hash of `from`'s preceding
     block (`hash_at(from − 1)`, DEF-16 — `from − 1` itself may be a hole on a
-    slot-numbered chain); `from = first(D)` ⇒ (`anchor.hash ≠ ⊥` ⇒
-    `B[0].parent_hash = anchor.hash`).
+    slot-numbered chain); `from = chunk_first(D)` ⇒ (`chunk_anchor(D).hash ≠ ⊥` ⇒
+    `B[0].parent_hash = chunk_anchor(D).hash`).
 - Post: `seg' = seg[‥from] ⧺ B`; `anchor' = anchor`; `fin'` per composed FINALIZE or `fin`.
+  When physical `from < first(D)`, the reference-state projection omits `B`'s retained
+  overshoot below `first(D)`; it exists only to make the owning batch replaceable atomically.
 - `REPLACE(next(D), B)` degenerates to `EXTEND(B)`.
 
 **WP-6 (Fork resolution).** Upon an arbitrated `ForkSignal(hints)` the service MUST
@@ -111,21 +139,31 @@ signal contradicts finality and MUST be treated as a source integrity fault
 the stored chain (or the anchor). If no hint matches stored state, the fallback MUST
 respect the finality floor:
 
-- `fin ≠ ⊥` → resume from `⟨fin.number + 1, fin.hash⟩`: the finalized block is common to
-  both chains unless the source contradicts finality, so only the volatile suffix is
-  replaced (a full-window replacement would violate the fork floor anyway, INV-14). If
-  the source then repeatedly fails to link at this position, that *is* a finality
-  contradiction: after `P-SOURCE-STRIKES` consecutive rejections it MUST be classified as
-  FM-SRC-5 (fault + alarm, keep serving) — never RESET;
-- `fin = ⊥` → resume from `⟨first(D), anchor.hash⟩` (full-window replacement); WP-6b
+- `fin ≠ ⊥` → resume from `⟨fin.number + 1, fin.hash⟩`, or from any lower physical position
+  `≥ chunk_first(D)` whose replacement reproduces the finalized prefix (INV-14). The finalized
+  block is common to both chains unless the source contradicts finality, so only the
+  volatile suffix carries new data either way. An implementation whose REPLACE granularity
+  is a storage chunk MUST take the lower position when `fin` falls inside a chunk: `fin + 1`
+  is then unrepresentable, and retrying it is a wedge rather than a rejection. If the source
+  repeatedly fails to link at the chosen position, that *is* a finality contradiction: after
+  `P-SOURCE-STRIKES` consecutive rejections it MUST be classified as FM-SRC-5 (fault +
+  alarm, keep serving) — never RESET;
+- `fin = ⊥` → resume from `⟨chunk_first(D), chunk_anchor(D).hash⟩` (full-window replacement); WP-6b
   governs escalation if the divergence turns out to lie below the window.
 
 The subsequent commit is `REPLACE(m + 1, …)` (resp. `REPLACE(fin.number + 1, …)`,
-`REPLACE(first(D), …)`). The resume point MAY be conservatively deeper than the optimal
-`m + 1` by at most one storage batch (an implementation that matches hints only at batch
-boundaries): the replacement then re-commits blocks identical to those it replaces, which
-is correctness-neutral. It MUST NOT be shallower than `m + 1` and MUST NOT cross the
-floors of §2.3.
+`REPLACE(chunk_first(D), …)`). Both the match and the finality fallback MAY be conservatively
+deeper by at most one storage chunk (an implementation that replaces whole chunks): the
+replacement then re-commits blocks identical to those it replaces, which is
+correctness-neutral, and below `fin` that identity is what INV-14 requires. It MUST NOT be
+shallower than `m + 1` and MUST NOT cross the floors of §2.3.
+
+Background maintenance MAY merge across the selected physical batch boundary before the
+replacement commits. A replay that consequently starts inside the newly merged batch is a
+**stale rollback plan**, not source equivocation or an unspecified storage failure: the
+replacement MUST remain atomic, the refusal MUST be attributable as such, and resolution
+MUST be retried against the current layout. A conservative retry may therefore select one
+merged batch deeper than the first resolution without changing the logical result.
 
 **WP-6b (Divergence below the window → RESET).** WP-6's fallback cannot represent a fork
 deeper than the window; the service MUST detect that case and escalate to RESET (alarmed,
@@ -136,7 +174,8 @@ OB-9) instead of retrying a replacement that can never link:
   `RESET(⟨anchor.number, hint hash⟩)`;
 - **indirect evidence:** after a full-window-replacement resume (reachable only when
   `fin = ⊥` — WP-6 fallback), the source's runs
-  repeatedly fail attachment at `first(D)` (`B[0].parent_hash ≠ anchor.hash`, WP-2).
+  repeatedly fail attachment at `chunk_first(D)` (`B[0].parent_hash ≠ chunk_anchor(D).hash`,
+  WP-2).
   After `P-SOURCE-STRIKES` consecutive such rejections the condition MUST be classified
   as a below-window divergence — `RESET(⟨anchor.number, ⊥⟩)` — not retried silently
   forever (LIV-9b, GAP-3/GAP-5).
@@ -153,20 +192,34 @@ Let `e = min(r.number, head(D).number)` (a finality report above the head is cla
 the head; the excess is not forgotten by sources and will re-arrive).
 
 - Pre: `seg ≠ ∅` (else the report is deferred/ignored); `e ≥ first(D)` (a report below the
-  window is ignored); **hash verification:** when `e = r.number` there MUST be a stored
-  block at height `e` with hash equal to `r.hash` — a report naming a height that is a
-  hole in the stored chain (slot-numbered chains, DEF-1) contradicts the stored chain
-  exactly like a hash mismatch and MUST be treated as a source integrity fault
-  (FM-SRC-5, WP-8); when clamped (`e < r.number`), the stored head is taken as finalized
-  on the strength of the source's claim about its descendant.
+  logical retention floor is ignored, even when its physical chunk remains as retention
+  overshoot); **hash verification:** when `e = r.number`, resolve the report per
+  WP-8 — a block carried by the post-state at `e` MUST have hash `r.hash`, while a genuine
+  hole is ignored; when clamped (`e < r.number`), the stored head is taken as finalized on
+  the strength of the source's claim about its descendant.
 - Monotonicity: if `fin ≠ ⊥ ∧ e < fin.number` → ignore (no transition). If
   `e = fin.number` with a different hash → source integrity fault (FM-SRC-5), no
   transition.
 - Post: `fin' = ⟨e, stored hash at e⟩`.
 
-**WP-8** A finality report whose hash contradicts the stored block at the same height
-(either `fin` itself or the block at `e`) MUST NOT be applied and MUST raise an integrity
-alarm — silently dropping it hides either a source fault or a wrong stored chain.
+**WP-8 (Finality reports are verified against blocks, not taken from headers).** `r` is a
+header the source hands over; it is not a block it served, and `fin` anchors both the fork
+floor (INV-14) and every later fork resolution (WP-6). Resolve the owner of height `e` in
+the post-state first: a replacement batch owns its numeric range; stored history owns
+everything outside that range. Exactly one outcome then holds:
+
+- the owner carries a block at `e` with hash `r.hash` → apply `⟨e, r.hash⟩`;
+- the owner carries a block at `e` with another hash → integrity fault (FM-SRC-5), not
+  applied, alarmed (OB-9). Composed with a batch (§2.2/§2.3), the batch is refused with it;
+- the owner carries no block at `e`, and no block is being removed from that height →
+  **ignored, not refused**. This is a genuine hole on a slot-numbered chain (DEF-1); the
+  post-state `⟨e, stored hash at e⟩` has no value to take. Finality re-arrives, so this
+  costs a report, never the transition;
+- a replacement owns `e` but omits it while stored history currently carries a block there
+  → integrity fault. This is not a hole: the response deletes a stored block while calling
+  that same height final.
+
+A report is logged in every case (OB-9).
 
 ### 2.5 RETAIN(from, h?)
 
@@ -186,7 +239,7 @@ history cannot be re-acquired through RETAIN.
   symmetric with WP-9. *Finality note:* like every RESET (§2.6) and like upward trims
   (RS-2), this discards the finalized prefix and clears `fin` — retention dominates
   finality. It is **not** a rollback below `fin`: the fork floor (INV-13/14) is
-  untouched — *sources* can never replace anything at or below `fin` — and this path is
+  untouched — *sources* can never alter anything at or below `fin` — and this path is
   reachable only through an explicit retention instruction (operator-class actor,
   FM-OP-4), never through source input.
 - Case `first(D) < from ≤ next(D)`:

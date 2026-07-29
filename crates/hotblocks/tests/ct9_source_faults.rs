@@ -35,6 +35,20 @@ async fn ct9_unterminated_final_record_does_not_stall_ingestion() -> Result<()> 
     Ok(())
 }
 
+/// A block time is informational. Even when it cannot be represented as a `chrono::DateTime`, the
+/// batch must commit and the next batch must keep flowing.
+#[tokio::test(flavor = "multi_thread")]
+async fn ct9_unrepresentable_block_time_does_not_stall_ingestion() -> Result<()> {
+    let mut cfg = HarnessConfig::from_block(env!("CARGO_BIN_EXE_sqd-hotblocks"), Arc::new(HlFills), START);
+    cfg.base_timestamp_ms = i64::MIN;
+    let mut h = Harness::start(cfg).await?;
+
+    if let Err(err) = run(&mut h).await {
+        panic!("CT-9 unrepresentable-time scenario failed: {err:?}");
+    }
+    Ok(())
+}
+
 async fn run(h: &mut Harness) -> Result<()> {
     h.produce(20)?;
     h.finalize_with_lag(5)?;
@@ -79,6 +93,7 @@ async fn ct9_a_total_source_outage_is_counted_before_ingestion_starts() -> Resul
             kind: Evm.config_kind().to_string(),
             // `Head` is what routes the dataset through the probe at all.
             retention: Retention::Head(100),
+            disable_compaction: false,
             sources: vec![format!("http://127.0.0.1:{dead}/{DS}")]
         }]
     ))

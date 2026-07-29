@@ -5,7 +5,7 @@ use futures::{future::BoxFuture, stream::BoxStream, FutureExt, Stream, StreamExt
 use sqd_data_client::{BlockStreamRequest, BlockStreamResponse, DataClient};
 use sqd_primitives::{Block, BlockNumber, BlockRef};
 use tokio::time::Sleep;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::types::{DataEvent, DataSource};
 
@@ -301,11 +301,19 @@ where
 
         let forks = self.endpoints.iter().filter(|ep| ep.is_on_fork()).count();
         if forks > 0 {
-            if forks > self.endpoints.len() / 2
-                || forks == self.endpoints.iter().filter(|ep| ep.is_active()).count()
-                || self.fork_consensus_timeout(cx)
-            {
-                return Poll::Ready(DataEvent::Fork(self.extract_fork()));
+            let active = self.endpoints.iter().filter(|ep| ep.is_active()).count();
+            if forks > self.endpoints.len() / 2 || forks == active || self.fork_consensus_timeout(cx) {
+                let chain = self.extract_fork();
+                info!(
+                    forked_endpoints = forks,
+                    active_endpoints = active,
+                    total_endpoints = self.endpoints.len(),
+                    hint_count = chain.len(),
+                    oldest_hint =? chain.first().map(|b| b.number),
+                    newest_hint =? chain.last().map(|b| b.number),
+                    "fork consensus reached"
+                );
+                return Poll::Ready(DataEvent::Fork(chain));
             }
         } else {
             self.state.fork_consensus_timeout = None

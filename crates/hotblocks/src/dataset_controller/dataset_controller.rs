@@ -9,7 +9,12 @@ use tokio::{select, task::JoinHandle, time::Instant};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 
 use crate::{
-    dataset_controller::{ingest::ingest, ingest_generic::IngestMessage, write_controller::WriteController},
+    dataset_controller::{
+        ingest::ingest,
+        ingest_generic::IngestMessage,
+        write_controller::{FlushFloorUpdate, WriteController}
+    },
+    metrics::report_flush_floor,
     types::{DBRef, DatasetKind, RetentionStrategy}
 };
 
@@ -191,13 +196,15 @@ enum State {
 }
 
 struct IngestHandle {
+    dataset_id: DatasetId,
     msg_recv: tokio::sync::mpsc::Receiver<IngestMessage>,
     task: JoinHandle<anyhow::Result<()>>
 }
 
 impl Drop for IngestHandle {
     fn drop(&mut self) {
-        self.task.abort()
+        self.task.abort();
+        report_flush_floor(self.dataset_id, None);
     }
 }
 
@@ -341,9 +348,12 @@ impl Ctl {
                         msg = handle.msg_recv.recv() => {
                             if let Some(msg) = msg {
                                 let head = *head;
-                                blocking! {
+                                let flush_floor_update = blocking! {
                                     write.handle_ingest_msg(msg, head)
                                 }?;
+                                if let FlushFloorUpdate::Set(floor) = flush_floor_update {
+                                    report_flush_floor(self.dataset_id, floor);
+                                }
                             } else {
                                 // ingest task must have failed
                                 match (&mut handle.task).await {
@@ -410,11 +420,13 @@ impl Ctl {
         match retention {
             RetentionStrategy::FromBlock { number, parent_hash } => {
                 let (number, parent_hash) = self.clamp_floor(&write, number, parent_hash);
-                let will_erase_head = write.head().map_or(false, |h| h.number < number) || // FromBlock is greater than current head, so everything is cleared
-                    write.start_block() > number; // FromBlock is less than current front, dropping everything by design
-                blocking_write!(write, write.retain(number, parent_hash))?;
+                let kept_head = blocking_write!(write, write.retain(number, parent_hash))?;
+                // A surviving head keeps the ingest alive: the floor moves often enough that
+                // restarting on every trim would reconnect the source for nothing. Its in-flight
+                // rollback can still aim below the trimmed window — refused at commit instead
+                // (`new_chunk`).
                 match state {
-                    State::Ingest { .. } if !will_erase_head => {} // Keep ingesting, head is valid
+                    State::Ingest { .. } if kept_head => {} // Keep ingesting, head is valid
                     _ => *state = State::Init { head: self.max_blocks } // New ingest needed
                 }
             }
@@ -431,6 +443,10 @@ impl Ctl {
     fn spawn_ingest(&self, write: &WriteController) -> IngestHandle {
         let (msg_sender, msg_recv) = tokio::sync::mpsc::channel(1);
 
+        // The controller is the single owner of this per-dataset gauge. Clear any completed
+        // episode before its replacement can publish a new rollback floor.
+        report_flush_floor(self.dataset_id, None);
+
         let ingest_span = info_span!("ingest");
 
         let task = tokio::spawn(
@@ -446,7 +462,11 @@ impl Ctl {
             .instrument(ingest_span)
         );
 
-        IngestHandle { msg_recv, task }
+        IngestHandle {
+            dataset_id: self.dataset_id,
+            msg_recv,
+            task
+        }
     }
 
     async fn new_write(&self, maybe_write: Option<WriteController>) -> anyhow::Result<WriteController> {
@@ -602,5 +622,38 @@ async fn compaction_loop(db: DBRef, dataset_id: DatasetId, mut enabled: tokio::s
                 return;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metrics::build_metrics_registry;
+
+    fn flush_floor_line(dataset: &str) -> String {
+        let mut output = String::new();
+        prometheus_client::encoding::text::encode(&mut output, &build_metrics_registry()).unwrap();
+        output
+            .lines()
+            .find(|line| line.starts_with("hotblocks_ingest_flush_floor") && line.contains(dataset))
+            .unwrap_or_else(|| panic!("no flush floor series for {dataset}:\n{output}"))
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn dropping_ingest_handle_clears_a_pending_flush_floor() {
+        let dataset_id = DatasetId::from_str("ingest-handle-drop-test");
+        report_flush_floor(dataset_id, Some(1234));
+        assert!(flush_floor_line("ingest-handle-drop-test").ends_with(" 1234"));
+
+        let (_msg_sender, msg_recv) = tokio::sync::mpsc::channel(1);
+        let task = tokio::spawn(std::future::pending::<anyhow::Result<()>>());
+        drop(IngestHandle {
+            dataset_id,
+            msg_recv,
+            task
+        });
+
+        assert!(flush_floor_line("ingest-handle-drop-test").ends_with(" -1"));
     }
 }

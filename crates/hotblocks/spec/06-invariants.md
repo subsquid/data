@@ -51,7 +51,8 @@ If `seg = ∅` then `fin = ⊥`. Otherwise, if `fin ≠ ⊥` then
 **INV-6 — Finalized-on-chain.** [state]
 If `fin ≠ ⊥` then the stored block at height `fin.number` has hash `fin.hash`.
 *Why:* finality must describe the chain actually served, else finalized-only reads lie.
-*Check:* CT-1; CT-4 with equivocating-finality sources (GAP-4).
+*Check:* CT-1; CT-4 with equivocating-finality sources; write-controller finality
+resolver regressions.
 
 **INV-7 — Provenance fidelity.** [state]
 Every stored block was delivered by a configured source, and all queryable field values
@@ -83,13 +84,27 @@ changes. `fin` may become `⊥` only via RETAIN (window passing above it), RESET
 **INV-13 — Finalized immutability.** [transition]
 No `REPLACE` removes or alters blocks at heights `≤ fin.number`. Finalized blocks leave
 the store only via RETAIN / RESET / DROP.
+*Scope:* "alters" is decidable only down to block identity — `⟨number, hash⟩` compared
+against stored history. No block hash is re-derived from its payload anywhere in the
+system, so a source reproducing a height's hash while serving different content for it is
+outside what any write-path check can see; sources are trusted for content at every height,
+finalized or not, and this holds equally for the first write of a block.
 *Check:* CT-1/CT-4 fork storms around the finality boundary.
 
 **INV-14 — Fork floor.** [transition]
-For every `REPLACE(from, B)`: `from > fin.number` (when `fin ≠ ⊥`) **and**
-`from ≥ first(D)`. A deeper divergence is representable only as RESET (explicit, alarmed).
-*Why:* silent rollback below the window or below finality corrupts continuation clients.
-*Check:* CT-4 deep-fork corpus (GAP-3).
+For every `REPLACE(from, B)`: `from ≥ chunk_first(D)` **and** either `from > fin.number`
+(when `fin ≠ ⊥`) or `B` reproduces the stored chain over `[from, fin.number]` block for
+block. `chunk_first(D)` equals logical `first(D)` for a precisely-trimmed store; a
+whole-chunk implementation may re-commit retained overshoot below `first(D)` only as part
+of replacing that physical owner. A deeper divergence is representable only as RESET
+(explicit, alarmed).
+*Why:* silent rollback below the window or below finality corrupts continuation clients. An
+identical replay of the finalized prefix changes nothing, and permitting it is what lets an
+implementation whose REPLACE granularity is a storage chunk resolve a fork at all: when `fin`
+falls inside a chunk, `from = fin + 1` is not a representable position. The window half of the
+floor has to be enforced at commit, not only where `from` is chosen: a trim between the two
+moves `chunk_first(D)` under a resume position that was legal when it was picked.
+*Check:* CT-4 deep-fork corpus (GAP-3); `replacement_below_the_retained_window_is_refused`.
 
 **INV-15 — Retention trims prefix only.** [transition]
 `RETAIN` removes only blocks with numbers below its `from`; it never creates gaps, never

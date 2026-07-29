@@ -85,13 +85,26 @@ pub struct SimFaults {
     /// no-data. RP-5b confines the signal to `from == tip + 1`, the one position where the
     /// assertion is evaluable; a source doing it higher reports a divergence it cannot have
     /// observed, and a source that is merely behind starts looking like a forked one.
-    pub fork_signal_above_tip: bool
+    pub fork_signal_above_tip: bool,
+    /// Cut every response to at most this many blocks (0 reads as 1), so the service's chunk
+    /// boundaries stop tracking the source's history.
+    pub max_blocks_per_response: Option<u32>,
+    /// Report finality no higher than this — a replica lagging behind the one the service already
+    /// accepted finality from.
+    pub finality_report_cap: Option<BlockNumber>
 }
 
 /// Counters a test can assert on (how the SUT actually drove the source).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SimStats {
+    /// HTTP `/stream` requests. Unlike `stream_requests`, a long-poll wakeup does not increment it.
+    pub stream_http_requests: u64,
+    /// Response evaluations, including re-evaluations of one parked request after a source bump.
     pub stream_requests: u64,
+    /// `fromBlock` on the most recent request, for rollback-position assertions.
+    pub last_stream_from: Option<BlockNumber>,
+    /// Lowest `fromBlock` observed since [`SourceSim::reset_stream_request_observations`].
+    pub lowest_stream_from: Option<BlockNumber>,
     pub blocks_served: u64,
     pub fork_signals: u64,
     pub no_data: u64,
@@ -166,6 +179,30 @@ impl SourceSim {
         Ok(blocks)
     }
 
+    /// Fault injection for CT-4/FM-SRC-5: replace a suffix that includes the source's own
+    /// finalized head and claim the replacement tip as final.
+    ///
+    /// Unlike [`Self::fork`], this deliberately violates source finality. It has no model-side
+    /// counterpart: the last accepted model state remains the oracle while the SUT rejects the
+    /// equivocating source.
+    pub fn equivocate_finalized_prefix(&self, dataset: &str, from: BlockNumber, len: u32) -> Result<()> {
+        self.try_with(dataset, |d| d.equivocate_finalized_prefix(from, len))?;
+        self.bump();
+        Ok(())
+    }
+
+    /// Fault injection for CT-4/INV-13: rewrite the hash of one block strictly *below* the source's
+    /// own finalized head, leaving that block and everything above it intact.
+    ///
+    /// The chain stays internally linked, so only a comparison against stored history tells this
+    /// apart from an honest replay. Like [`Self::equivocate_finalized_prefix`] it has no model-side
+    /// counterpart.
+    pub fn rewrite_hash_below_finality(&self, dataset: &str, at: BlockNumber) -> Result<BlockRef> {
+        let r = self.try_with(dataset, |d| d.rewrite_hash_below_finality(at))?;
+        self.bump();
+        Ok(r)
+    }
+
     /// Declare `number` (and everything below it) final.
     pub fn finalize(&self, dataset: &str, number: BlockNumber) -> Result<BlockRef> {
         let r = self.try_with(dataset, |d| d.finalize(number))?;
@@ -179,6 +216,11 @@ impl SourceSim {
 
     pub fn stats(&self, dataset: &str) -> SimStats {
         self.with(dataset, |d| d.stats)
+    }
+
+    /// Start a new request-observation window without disturbing lifetime response counters.
+    pub fn reset_stream_request_observations(&self, dataset: &str) {
+        self.with(dataset, DatasetSim::reset_stream_request_observations);
     }
 
     /// Turn a source-side fault on or off (FM-SRC-*).
@@ -308,22 +350,75 @@ impl DatasetSim {
     }
 
     fn fork(&mut self, from: BlockNumber, len: u32) -> Result<Vec<Block>> {
+        self.validate_fork_position(from)?;
+        ensure!(
+            self.fin.as_ref().is_none_or(|f| f.number < from),
+            "the script forks at or below the source's own finalized head — an equivocating source \
+             belongs to the CT-4 fault corpus, not to a well-formed script"
+        );
+        Ok(self.replace_suffix(from, len))
+    }
+
+    fn equivocate_finalized_prefix(&mut self, from: BlockNumber, len: u32) -> Result<()> {
+        self.validate_fork_position(from)?;
+        ensure!(len > 0, "a finality-equivocation fault must mint a replacement tip");
+        let finalized = self
+            .fin
+            .as_ref()
+            .context("a finality-equivocation fault requires an existing finalized head")?;
+        ensure!(
+            from <= finalized.number,
+            "equivocation at {from} does not replace finalized block {}",
+            finalized.number
+        );
+
+        let replacement = self.replace_suffix(from, len);
+        self.fin = Some(replacement.last().expect("a non-empty replacement has a tip").as_ref());
+        Ok(())
+    }
+
+    fn rewrite_hash_below_finality(&mut self, at: BlockNumber) -> Result<BlockRef> {
+        let finalized = self
+            .fin
+            .as_ref()
+            .context("rewriting below finality requires an existing finalized head")?
+            .number;
+        ensure!(
+            at < finalized,
+            "block {at} is not strictly below the source's finalized head {finalized}"
+        );
+
+        let i = self
+            .chain
+            .binary_search_by_key(&at, |b| b.number)
+            .ok()
+            .with_context(|| format!("the source does not have block {at}"))?;
+
+        let hash = block_hash(at, self.next_fork_id);
+        self.next_fork_id += 1;
+        self.chain[i].hash = hash.clone();
+        if let Some(child) = self.chain.get_mut(i + 1) {
+            child.parent_hash = hash.clone();
+        }
+        Ok(BlockRef::new(at, hash))
+    }
+
+    fn validate_fork_position(&self, from: BlockNumber) -> Result<()> {
         ensure!(
             from >= self.start,
             "fork at {from} is below the source's first block {}",
             self.start
         );
         ensure!(from <= self.next_number(), "fork at {from} is above the source's chain");
-        ensure!(
-            self.fin.as_ref().is_none_or(|f| f.number < from),
-            "the script forks at or below the source's own finalized head — an equivocating source \
-             belongs to the CT-4 fault corpus, not to a well-formed script"
-        );
+        Ok(())
+    }
+
+    fn replace_suffix(&mut self, from: BlockNumber, len: u32) -> Vec<Block> {
         let keep = self.chain.partition_point(|b| b.number < from);
         self.chain.truncate(keep);
         self.fork_id = self.next_fork_id;
         self.next_fork_id += 1;
-        Ok(self.produce(len))
+        self.produce(len)
     }
 
     fn finalize(&mut self, number: BlockNumber) -> Result<BlockRef> {
@@ -378,23 +473,54 @@ impl DatasetSim {
 
         if req.from_block < self.start {
             self.stats.below_history += 1;
-            return Reply::NoData(self.fin.clone());
+            return Reply::NoData(self.reported_fin());
         }
         let Some(tip) = self.tip_number() else {
             self.stats.no_data += 1;
-            return Reply::NoData(self.fin.clone());
+            return Reply::NoData(self.reported_fin());
         };
         if req.from_block > tip {
             self.stats.no_data += 1;
-            return Reply::NoData(self.fin.clone());
+            return Reply::NoData(self.reported_fin());
         }
 
         let lo = self.chain.partition_point(|b| b.number < req.from_block);
-        let blocks = self.chain[lo..].to_vec();
+        let mut blocks = self.chain[lo..].to_vec();
+        if let Some(cap) = self.faults.max_blocks_per_response {
+            blocks.truncate((cap as usize).max(1));
+        }
         self.stats.blocks_served += blocks.len() as u64;
         Reply::Blocks {
             blocks,
-            fin: self.fin.clone()
+            fin: self.reported_fin()
+        }
+    }
+
+    fn observe_stream_request(&mut self, from_block: BlockNumber) {
+        self.stats.stream_http_requests += 1;
+        self.stats.last_stream_from = Some(from_block);
+        self.stats.lowest_stream_from = Some(
+            self.stats
+                .lowest_stream_from
+                .map_or(from_block, |current| current.min(from_block))
+        );
+    }
+
+    fn reset_stream_request_observations(&mut self) {
+        self.stats.stream_http_requests = 0;
+        self.stats.last_stream_from = None;
+        self.stats.lowest_stream_from = None;
+    }
+
+    /// What this replica admits to having finalized (see [`SimFaults::finality_report_cap`]).
+    fn reported_fin(&self) -> Option<BlockRef> {
+        let fin = self.fin.clone()?;
+        match self.faults.finality_report_cap {
+            Some(cap) if cap < fin.number => self.chain_hash_at(cap).map(|hash| BlockRef {
+                number: cap,
+                hash: hash.to_string()
+            }),
+            _ => Some(fin)
         }
     }
 }
@@ -412,6 +538,14 @@ async fn stream(State(shared): State<Arc<Shared>>, Path(ds): Path<String>, body:
         Ok(req) => req,
         Err(err) => return (StatusCode::BAD_REQUEST, format!("bad stream request: {err}")).into_response()
     };
+
+    {
+        let mut guard = shared.datasets.lock().expect("simulator state is poisoned");
+        let Some(dataset) = guard.get_mut(&ds) else {
+            return (StatusCode::NOT_FOUND, format!("unknown dataset '{ds}'")).into_response();
+        };
+        dataset.observe_stream_request(req.from_block);
+    }
 
     let mut bump = shared.bump.subscribe();
     let deadline = Instant::now() + shared.poll_timeout;
@@ -465,7 +599,7 @@ async fn head(State(shared): State<Arc<Shared>>, Path(ds): Path<String>) -> Resp
 }
 
 async fn finalized_head(State(shared): State<Arc<Shared>>, Path(ds): Path<String>) -> Response {
-    watermark(&shared, &ds, |d| d.fin.clone())
+    watermark(&shared, &ds, |d| d.reported_fin())
 }
 
 fn watermark(shared: &Shared, ds: &str, f: impl FnOnce(&DatasetSim) -> Option<BlockRef>) -> Response {
@@ -670,6 +804,14 @@ mod tests {
         assert!(
             started.elapsed() >= Duration::from_millis(100),
             "the request must long-poll"
+        );
+        let stats = sim.stats(DS);
+        assert_eq!(stats.stream_http_requests, 1);
+        assert_eq!(stats.last_stream_from, Some(START));
+        assert_eq!(stats.lowest_stream_from, Some(START));
+        assert!(
+            stats.stream_requests > stats.stream_http_requests,
+            "long-poll response evaluations must not masquerade as new HTTP requests"
         );
     }
 }

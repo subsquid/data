@@ -80,6 +80,9 @@ impl QuerySlot {
         sqd_polars::POOL.spawn(move || {
             let slot = self;
             let result = catch_unwind(AssertUnwindSafe(|| task(&slot))).map_err(|_| QueryTaskPanicked);
+            // Release before waking the caller: sending first lets it observe the slot still
+            // taken and be refused admission for a query that has already finished.
+            drop(slot);
             let _ = tx.send(result);
         });
 

@@ -10,11 +10,12 @@ use sqd_data_core::{BlockChunkBuilder, ChunkProcessor, PreparedChunk};
 use sqd_data_source::{DataEvent, DataSource};
 use sqd_primitives::{Block, BlockNumber, BlockRef, DataMask, DisplayBlockRefOption};
 use sqd_storage::db::DatasetId;
-use tracing::{debug, field::valuable, info};
+use tracing::{debug, field::valuable, info, warn};
 
 use crate::{
     dataset_controller::write_controller::Rollback,
-    metrics::{WriteStage, report_write_duration}
+    errors::DataAvailabilityChangedDuringFinalizedReplay,
+    metrics::{WriteStage, report_withheld_flush, report_write_duration}
 };
 
 pub enum IngestMessage {
@@ -121,7 +122,11 @@ pub struct IngestGeneric<DC, CB> {
     last_block: BlockNumber,
     last_block_hash: String,
     last_block_time: Option<i64>,
-    data_mask: DataMask
+    data_mask: DataMask,
+    /// No chunk may be emitted before it covers this block ([`Rollback::reach_at_least`]).
+    flush_floor: Option<BlockNumber>,
+    /// Whether the current withholding episode has already been warned about and counted.
+    withholding: bool
 }
 
 impl<DS, CB> IngestGeneric<DS, CB>
@@ -150,7 +155,9 @@ where
             last_block: 0,
             last_block_hash: String::new(),
             last_block_time: None,
-            data_mask: DataMask::default()
+            data_mask: DataMask::default(),
+            flush_floor: None,
+            withholding: false
         }
     }
 
@@ -167,6 +174,13 @@ where
                     let data_mask = block.data_availability_mask();
                     if self.data_mask != data_mask {
                         self.flush().await?;
+                        // Masks can't share a chunk, and the flush floor can't be waived.
+                        ensure!(
+                            self.buffered_blocks == 0,
+                            DataAvailabilityChangedDuringFinalizedReplay {
+                                block_number: block.number()
+                            }
+                        );
                         self.data_mask = data_mask
                     }
                     self.push_block(block, is_final)?;
@@ -180,7 +194,11 @@ where
     }
 
     async fn handle_fork(&mut self, prev_blocks: Vec<BlockRef>) -> anyhow::Result<()> {
-        info!(upstream_blocks = valuable(&prev_blocks), "fork received");
+        info!(
+            stream_from = self.first_block,
+            upstream_blocks = valuable(&prev_blocks),
+            "fork received"
+        );
 
         let (rollback_sender, rollback_recv) = tokio::sync::oneshot::channel();
 
@@ -195,16 +213,19 @@ where
         let rollback = rollback_recv.await?;
 
         info!(
-            block_number = rollback.first_block,
-            parent_block_hash =? rollback.parent_block_hash,
+            resume_from = rollback.resume_from,
+            expected_parent_hash =? rollback.expected_parent_hash,
+            reach_at_least =? rollback.reach_at_least,
             "resetting ingest position"
         );
 
         self.buffered_blocks = 0;
         self.finalized_head = None;
-        self.first_block = rollback.first_block;
+        self.first_block = rollback.resume_from;
+        self.flush_floor = rollback.reach_at_least;
+        self.withholding = false;
         self.data_source
-            .set_position(rollback.first_block, rollback.parent_block_hash.as_deref());
+            .set_position(rollback.resume_from, rollback.expected_parent_hash.as_deref());
 
         Ok(())
     }
@@ -236,8 +257,10 @@ where
 
     async fn maybe_flush(&mut self) -> anyhow::Result<()> {
         if self.builder_ref().num_rows() > 200_000 {
-            return self.flush().await;
+            self.flush().await?;
         }
+        // Not `else`: a withheld flush leaves every row in place, so `num_rows` stays above the
+        // bound and the replay would grow in memory until it reached the floor.
         if self.builder_ref().in_memory_buffered_bytes() > self.builder_ref().spill_bound_bytes {
             return self.with_blocking_builder(|b| b.flush_to_processor()).await;
         }
@@ -248,6 +271,26 @@ where
         if self.buffered_blocks == 0 {
             return Ok(());
         }
+
+        // Emitting here would swap the finalized block out of storage; keep buffering. Warned once
+        // per episode, since the row bound is re-crossed by every subsequent block — and only where
+        // a flush is attempted, so `ingest_flush_floor` carries the shape where none ever is.
+        // FUTURE: nothing caps how long a replay may withhold (GAP-43).
+        if let Some(floor) = self.flush_floor.filter(|floor| self.last_block < *floor) {
+            if !self.withholding {
+                self.withholding = true;
+                warn!(
+                    buffered_blocks = self.buffered_blocks,
+                    last_block = self.last_block,
+                    reach_at_least = floor,
+                    "withholding a chunk until the replay reaches the finalized head"
+                );
+                report_withheld_flush(self.dataset_id);
+            }
+            return Ok(());
+        }
+        self.flush_floor = None;
+        self.withholding = false;
 
         let parent_block_hash = self.parent_block_hash.clone();
         let first_block = self.first_block;
@@ -332,9 +375,45 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        pin::Pin,
+        task::{Context, Poll}
+    };
+
+    use futures::Stream;
     use sqd_data::hyperliquid_fills::{model::Block, tables::HyperliquidFillsChunkBuilder};
 
     use super::*;
+
+    struct TestSource {
+        next_block: BlockNumber,
+        parent_block_hash: Option<String>
+    }
+
+    impl Stream for TestSource {
+        type Item = DataEvent<Block>;
+
+        fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            Poll::Pending
+        }
+    }
+
+    impl DataSource for TestSource {
+        type Block = Block;
+
+        fn set_position(&mut self, next_block: BlockNumber, parent_block_hash: Option<&str>) {
+            self.next_block = next_block;
+            self.parent_block_hash = parent_block_hash.map(str::to_string);
+        }
+
+        fn get_next_block(&self) -> BlockNumber {
+            self.next_block
+        }
+
+        fn get_parent_block_hash(&self) -> Option<&str> {
+            self.parent_block_hash.as_deref()
+        }
+    }
 
     fn fills_block() -> Block {
         serde_json::from_value(serde_json::json!({
@@ -396,5 +475,83 @@ mod tests {
         let mut chunk = b.finish().unwrap();
         let (_, table) = chunk.pop_first().unwrap();
         assert!(table.into_processor().is_err(), "expected the in-memory path");
+    }
+
+    #[tokio::test]
+    async fn a_second_fork_replaces_a_withheld_replay_episode() -> anyhow::Result<()> {
+        let (message_sender, mut message_receiver) = tokio::sync::mpsc::channel(1);
+        let source = TestSource {
+            next_block: 10_000,
+            parent_block_hash: Some("initial-parent".to_string())
+        };
+        let mut ingest = IngestGeneric::new(
+            DatasetId::from_str("second-fork-while-withholding"),
+            source,
+            HyperliquidFillsChunkBuilder::new(),
+            message_sender,
+            DEFAULT_SPILL_BOUND_BYTES
+        );
+
+        let first_reply = async {
+            let Some(IngestMessage::Fork { rollback_sender, .. }) = message_receiver.recv().await else {
+                panic!("expected the first fork request")
+            };
+            rollback_sender
+                .send(Rollback {
+                    resume_from: 10_000,
+                    expected_parent_hash: Some("first-parent".to_string()),
+                    reach_at_least: Some(10_001)
+                })
+                .expect("the first fork handler must still be waiting");
+        };
+        let (first_result, ()) = tokio::join!(
+            ingest.handle_fork(vec![BlockRef {
+                number: 10_000,
+                hash: "first-hint".to_string()
+            }]),
+            first_reply
+        );
+        first_result?;
+
+        ingest.push_block(fills_block(), true)?;
+        ingest.flush().await?;
+        assert!(ingest.withholding, "the first replay must be withheld below its floor");
+        assert_eq!(ingest.buffered_blocks, 1);
+        assert!(ingest.builder_ref().num_rows() > 0);
+
+        let second_reply = async {
+            let Some(IngestMessage::Fork { rollback_sender, .. }) = message_receiver.recv().await else {
+                panic!("expected the second fork request")
+            };
+            rollback_sender
+                .send(Rollback {
+                    resume_from: 9_990,
+                    expected_parent_hash: Some("second-parent".to_string()),
+                    reach_at_least: Some(10_005)
+                })
+                .expect("the second fork handler must still be waiting");
+        };
+        let (second_result, ()) = tokio::join!(
+            ingest.handle_fork(vec![BlockRef {
+                number: 9_999,
+                hash: "second-hint".to_string()
+            }]),
+            second_reply
+        );
+        second_result?;
+
+        assert_eq!(ingest.buffered_blocks, 0, "the superseded replay must be discarded");
+        assert_eq!(
+            ingest.builder_ref().num_rows(),
+            0,
+            "the superseded builder must be cleared"
+        );
+        assert_eq!(ingest.finalized_head, None);
+        assert_eq!(ingest.first_block, 9_990);
+        assert_eq!(ingest.flush_floor, Some(10_005));
+        assert!(!ingest.withholding, "the replacement replay starts a fresh episode");
+        assert_eq!(ingest.data_source.get_next_block(), 9_990);
+        assert_eq!(ingest.data_source.get_parent_block_hash(), Some("second-parent"));
+        Ok(())
     }
 }

@@ -47,6 +47,18 @@ impl<'a> DatasetUpdate<'a> {
             .validate_parent_block_hash(chunk, block_number, expected_parent_hash)
     }
 
+    pub fn validate_finalized_prefix(&self, chunk: &Chunk, up_to: BlockNumber) -> anyhow::Result<Result<(), String>> {
+        self.tx.validate_finalized_prefix(self.dataset_id, chunk, up_to)
+    }
+
+    pub fn find_block_hash_in_chunk(&self, chunk: &Chunk, block_number: BlockNumber) -> anyhow::Result<Option<String>> {
+        self.tx.find_block_hash_in_chunk(chunk, block_number)
+    }
+
+    pub fn find_stored_block_hash(&self, block_number: BlockNumber) -> anyhow::Result<Option<String>> {
+        self.tx.find_stored_block_hash(self.dataset_id, block_number)
+    }
+
     pub fn delete_chunk(&self, chunk: &Chunk) -> anyhow::Result<()> {
         self.tx.unindex_hashes(self.dataset_id, chunk)?;
         self.tx.delete_chunk(self.dataset_id, chunk)

@@ -76,6 +76,7 @@ each. "Required response" uses four verbs:
 | FM-OP-3 | Two service instances over one store | fail-safe: detect divergence, stop the losing writer per dataset, alarm (WP-15); MUST NOT interleave-corrupt |
 | FM-OP-4 | Retention mistakes (raise far above head, contradictory instructions) | defined semantics (WP-9/RETAIN cases): destructive outcomes are the documented ones only; observable; idempotent |
 | FM-OP-5 | Restart with changed parameters (window size, budgets) | mask: state re-converges to policy (trim or backfill-forward per WP-10/WP-5); no invariant violations during convergence |
+| FM-OP-6 | Data availability changed for a live dataset — sources swapped or reconfigured so the same blocks arrive with a different section set (the data-availability mask) | **out of scope**: a deliberate operator change, sequenced by the operator. No behaviour across it is promised and none should be relied on. Only the standing integrity line holds: two section sets never share a chunk (INV-7), so where the ingest cannot cut cleanly it stops loudly rather than serving blocks stripped of sections |
 
 ## 6. Fault → property cross-reference
 
