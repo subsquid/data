@@ -74,6 +74,15 @@ next(D)  = head(D).number + 1  (if seg empty: anchor.number + 1)
 span(D)  = n                   (window size in blocks)
 ```
 
+A storage implementation that retains and replaces whole chunks may physically carry a
+prefix below the logical `first(D)`. `chunk_first(D)` denotes the first block of the physical
+chunk that owns `first(D)`; therefore `chunk_first(D) ≤ first(D)`, with equality in a
+precisely-trimmed implementation. That retained overshoot does not lower the logical retention
+floor: FINALIZE and the reference state use `first(D)`. `chunk_first(D)` is used only where an
+atomic whole-chunk REPLACE or its linkage must name the physical owner. `chunk_anchor(D)` is
+that chunk's carried parent reference (the chain hash immediately preceding `chunk_first(D)`);
+it equals `anchor` when `chunk_first(D) = first(D)`.
+
 A dataset state is **well-formed** iff it satisfies the structural invariants
 INV-1 … INV-7 of [06-invariants.md](06-invariants.md). Every externally observable state
 MUST be well-formed.
@@ -226,3 +235,4 @@ advance arriving together); invariants are evaluated at commit points only.
 | fork hints | `ForkSignal.hints` (DEF-12), also the payload of the CONFLICT error (RP-11) |
 | hash index / `bidx`, `tidx` | DEF-17 |
 | batch | the unit of one `EXTEND`/`REPLACE` commit (bounded by P-BATCH-ROWS / P-BATCH-BYTES) |
+| chunk | a physical storage unit replaced atomically; compaction may merge several committed batches into one chunk |

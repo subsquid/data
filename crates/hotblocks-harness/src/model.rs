@@ -17,9 +17,9 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Finalize {
     Applied,
-    /// Stale or not-yet-applicable report; state unchanged (WP-7).
+    /// Stale or not-yet-applicable report; state unchanged (WP §2.4/WP-8).
     Ignored,
-    /// Finality contradicting stored data — must be alarmed, never accepted (WP-8, GAP-4/5).
+    /// Finality contradicting stored data — must be alarmed, never accepted (WP-8).
     IntegrityFault
 }
 
@@ -176,9 +176,13 @@ impl Model {
                 blocks[0].number
             );
         }
+        let previous = self.clone();
         self.seg.extend_from_slice(blocks);
         self.ver += 1;
-        self.apply_finality(fin)?;
+        if let Err(err) = self.apply_finality(fin) {
+            *self = previous;
+            return Err(err);
+        }
         self.wf();
         Ok(())
     }
@@ -198,11 +202,25 @@ impl Model {
             from >= first,
             "INV-14: REPLACE at {from} is below the window floor {first}"
         );
-        // ... nor below the finalized prefix (INV-13).
-        if let Some(fin) = &self.fin {
+        // ... nor alter the finalized prefix (INV-13). Reaching below `fin` is allowed only as an
+        // identical replay: a batch-granular implementation cannot start at `fin + 1` when finality
+        // sits inside a batch, and re-committing what is already there changes nothing.
+        if let Some(fin) = &self.fin
+            && from <= fin.number
+        {
+            let stored: Vec<_> = self
+                .seg
+                .iter()
+                .filter(|b| b.number >= from && b.number <= fin.number)
+                .collect();
+            let replayed: Vec<_> = blocks.iter().filter(|b| b.number <= fin.number).collect();
             ensure!(
-                from > fin.number,
-                "INV-13: REPLACE at {from} is at or below the finalized head {}",
+                stored.len() == replayed.len()
+                    && stored
+                        .iter()
+                        .zip(&replayed)
+                        .all(|(a, b)| a.number == b.number && a.hash == b.hash),
+                "INV-13: REPLACE at {from} alters the finalized prefix up to {}",
                 fin.number
             );
         }
@@ -227,12 +245,40 @@ impl Model {
                 }
             }
         }
+        if let Some(report) = fin
+            && self.replacement_evicts_reported_block(from, blocks, report)
+        {
+            bail!("INTEGRITY_FAULT: replacement evicts the block reported final at {report}");
+        }
+        let previous = self.clone();
         self.seg.truncate(keep);
         self.seg.extend_from_slice(blocks);
         self.ver += 1;
-        self.apply_finality(fin)?;
+        if let Err(err) = self.apply_finality(fin) {
+            *self = previous;
+            return Err(err);
+        }
         self.wf();
         Ok(())
+    }
+
+    /// WP-8's non-hole case: the incoming range owns `e`, omits it, and thereby removes a block
+    /// stored there before the transition. Evaluate only exact, non-regressive reports; a report
+    /// above the resulting head is clamped and does not assert its own height.
+    fn replacement_evicts_reported_block(&self, from: BlockNumber, blocks: &[Block], report: &BlockRef) -> bool {
+        let post_head = blocks.last().expect("REPLACE blocks are non-empty").number;
+        if report.number > post_head || report.number < self.first().expect("REPLACE window is non-empty") {
+            return false;
+        }
+        if let Some(fin) = &self.fin
+            && report.number <= fin.number
+        {
+            return false;
+        }
+        from <= report.number
+            && report.number <= post_head
+            && blocks.iter().all(|b| b.number != report.number)
+            && self.block_at(report.number).is_some()
     }
 
     /// WP §2.4 — advance `fin`, monotone and clamped to the stored chain.
@@ -260,10 +306,10 @@ impl Model {
             return Finalize::Ignored;
         }
         let at_e = if e == r.number {
-            // The report names an exact height: a hole there contradicts the stored chain the
-            // same way a hash mismatch does (WP §2.4), and a different stored hash is WP-8.
+            // A slot-numbered chain may genuinely skip this height. There is no block reference to
+            // store as `fin`, so the report is ignored and may re-arrive later (WP-8).
             let Some(stored) = self.block_at(e) else {
-                return Finalize::IntegrityFault;
+                return Finalize::Ignored;
             };
             if stored.hash != r.hash {
                 return Finalize::IntegrityFault;
@@ -610,8 +656,7 @@ mod tests {
         assert_eq!(m.finalize(&BlockRef::new(101, block_hash(101, 0))), Finalize::Ignored);
         assert_eq!(m.fin, Some(blocks[4].as_ref()));
 
-        // A report naming a block we do not have is an integrity fault (WP-8) — this is the
-        // check GAP-4 says the implementation skips below the head.
+        // A report naming an existing block with another hash is an integrity fault (WP-8).
         let (mut m, _) = model_at(100, 5);
         assert_eq!(
             m.finalize(&BlockRef::new(102, block_hash(102, 7))),
@@ -621,16 +666,25 @@ mod tests {
     }
 
     #[test]
-    fn finalize_on_a_hole_is_an_integrity_fault() {
+    fn finalize_on_a_hole_is_ignored() {
         let anchor = block_hash(99, 0);
         let mut m = Model::new(Anchor::new(99, Some(anchor.clone())));
         m.extend(&chain_of(&[100, 103, 104], 0, (99, &anchor)), None).unwrap();
-        // WP §2.4: a report naming a height that is a hole in the stored chain contradicts
-        // the chain exactly like a hash mismatch.
-        assert_eq!(
-            m.finalize(&BlockRef::new(101, block_hash(101, 0))),
-            Finalize::IntegrityFault
-        );
+
+        assert_eq!(m.finalize(&BlockRef::new(101, block_hash(101, 0))), Finalize::Ignored);
+        assert_eq!(m.fin, None);
+    }
+
+    #[test]
+    fn replacement_cannot_evict_the_block_it_reports_finalized() {
+        let (mut m, blocks) = model_at(100, 3);
+        let replacement = chain_of(&[102], 1, (100, &blocks[0].hash));
+        let before = m.seg.clone();
+
+        let err = m.replace(101, &replacement, Some(&blocks[1].as_ref())).unwrap_err();
+
+        assert!(err.to_string().contains("INTEGRITY_FAULT"), "unexpected error: {err:#}");
+        assert_eq!(m.seg, before, "a refused composed transition must be atomic");
         assert_eq!(m.fin, None);
     }
 
@@ -639,9 +693,17 @@ mod tests {
         let (mut m, blocks) = model_at(100, 5);
         assert_eq!(m.finalize(&BlockRef::new(102, block_hash(102, 0))), Finalize::Applied);
 
-        // Below the finalized head — INV-13.
+        // Below the finalized head, on another branch — INV-13.
         let bad = run(102, 2, 1, &blocks[0].hash);
         assert!(m.replace(102, &bad, None).is_err());
+
+        // Reaching that low is allowed when the finalized part is replayed unchanged: a
+        // batch-granular implementation has no `fin + 1` position when finality sits mid-batch.
+        let replay = [blocks[2].clone()]
+            .into_iter()
+            .chain(run(103, 2, 7, &blocks[2].hash))
+            .collect::<Vec<_>>();
+        assert!(m.replace(102, &replay, None).is_ok());
 
         // Above it — accepted, and the head moves back by one.
         let good = run(103, 2, 1, &blocks[2].hash);
@@ -672,6 +734,11 @@ mod tests {
         assert_eq!(m.anchor, Anchor::new(104, Some(blocks[4].hash.clone())), "INV-18");
         assert_eq!(m.fin, None, "RS-2: finality below the window is dropped");
         assert_eq!(m.head().unwrap().number, 109);
+        assert_eq!(
+            m.finalize(&BlockRef::new(104, blocks[4].hash.clone())),
+            Finalize::Ignored,
+            "WP §2.4: finality below the window stays ignored"
+        );
 
         // Trimming at the floor is a no-op.
         m.retain(105, None);

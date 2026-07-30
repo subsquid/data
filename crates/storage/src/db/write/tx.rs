@@ -16,7 +16,7 @@ use crate::db::{
         CF_DELETED_TABLES, CF_DIRTY_TABLES, CF_TRANSACTION_HASHES
     },
     read::{
-        blocks_table::{for_each_block_hash, get_parent_block_hash},
+        blocks_table::{find_block_hash, for_each_block_hash, get_parent_block_hash},
         chunk::ChunkIterator,
         transactions_table::for_each_transaction_hash
     },
@@ -519,6 +519,145 @@ impl<'a> Tx<'a> {
         } else {
             Ok(Err(parent_hash))
         }
+    }
+
+    /// The hash `chunk` itself carries for `block_number`, `None` when it holds no such block. Lets
+    /// the write path check a finality report against the blocks that same response served.
+    pub fn find_block_hash_in_chunk(&self, chunk: &Chunk, block_number: BlockNumber) -> anyhow::Result<Option<String>> {
+        let blocks_table_id = chunk
+            .tables()
+            .get("blocks")
+            .copied()
+            .ok_or_else(|| anyhow!("'blocks' table does not exist in chunk {}", chunk))?;
+
+        find_block_hash(
+            &ReadSnapshot::new(self.db).create_table_reader(blocks_table_id)?,
+            block_number
+        )
+    }
+
+    /// The hash stored history carries for `block_number`, `None` when no stored chunk covers it:
+    /// below the window, above the head, or a height the chain skips.
+    pub fn find_stored_block_hash(
+        &self,
+        dataset_id: DatasetId,
+        block_number: BlockNumber
+    ) -> anyhow::Result<Option<String>> {
+        let Some(chunk) = self
+            .list_chunks(dataset_id, block_number, Some(block_number))
+            .next()
+            .transpose()?
+        else {
+            return Ok(None);
+        };
+        self.find_block_hash_in_chunk(&chunk, block_number)
+    }
+
+    /// Compares `chunk` against stored history block for block over
+    /// `[chunk.first_block(), up_to]`, describing the first divergence.
+    ///
+    /// `up_to` is the finalized head (INV-13). Checking its hash alone would not
+    /// do: hashes come from the source, so a reproduced boundary says nothing
+    /// about the interior. Identical hashes over different payload are likewise
+    /// invisible here — content is the source's word at every height.
+    ///
+    /// Peak memory is one stored chunk's worth of pairs: the replacement streams
+    /// past a cursor that pulls stored chunks in one at a time.
+    pub fn validate_finalized_prefix(
+        &self,
+        dataset_id: DatasetId,
+        chunk: &Chunk,
+        up_to: BlockNumber
+    ) -> anyhow::Result<Result<(), String>> {
+        let from = chunk.first_block();
+
+        let stored_chunks = self
+            .list_chunks(dataset_id, from, Some(up_to))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let mut stored_chunks = stored_chunks.iter();
+
+        let mut stored: Vec<(BlockNumber, String)> = Vec::new();
+        let mut pos = 0;
+        let mut divergence = None;
+
+        // `true` while a stored block is available at `stored[pos]`.
+        let mut seek_stored = |stored: &mut Vec<(BlockNumber, String)>, pos: &mut usize| -> anyhow::Result<bool> {
+            while *pos >= stored.len() {
+                let Some(next) = stored_chunks.next() else {
+                    return Ok(false);
+                };
+                *stored = self.read_block_hashes(next, from, up_to)?;
+                *pos = 0;
+            }
+            Ok(true)
+        };
+
+        let blocks_table_id = chunk
+            .tables()
+            .get("blocks")
+            .copied()
+            .ok_or_else(|| anyhow!("'blocks' table does not exist in chunk {}", chunk))?;
+
+        let snapshot = ReadSnapshot::new(self.db);
+        let reader = snapshot.create_table_reader(blocks_table_id)?;
+
+        for_each_block_hash(&reader, |number, hash| {
+            if divergence.is_some() || number > up_to {
+                return Ok(());
+            }
+            if !seek_stored(&mut stored, &mut pos)? {
+                divergence = Some(format!(
+                    "block {}#{} is not part of the stored finalized history",
+                    number, hash
+                ));
+                return Ok(());
+            }
+            let (stored_number, stored_hash) = &stored[pos];
+            if *stored_number == number && stored_hash == hash {
+                pos += 1;
+            } else {
+                divergence = Some(format!(
+                    "expected finalized block {}#{}, got {}#{}",
+                    stored_number, stored_hash, number, hash
+                ));
+            }
+            Ok(())
+        })?;
+
+        if divergence.is_none() && seek_stored(&mut stored, &mut pos)? {
+            let (stored_number, stored_hash) = &stored[pos];
+            divergence = Some(format!(
+                "finalized block {}#{} is missing from the replacement",
+                stored_number, stored_hash
+            ));
+        }
+
+        Ok(divergence.map_or(Ok(()), Err))
+    }
+
+    fn read_block_hashes(
+        &self,
+        chunk: &Chunk,
+        from: BlockNumber,
+        to: BlockNumber
+    ) -> anyhow::Result<Vec<(BlockNumber, String)>> {
+        let blocks_table_id = chunk
+            .tables()
+            .get("blocks")
+            .copied()
+            .ok_or_else(|| anyhow!("'blocks' table does not exist in chunk {}", chunk))?;
+
+        let snapshot = ReadSnapshot::new(self.db);
+        let reader = snapshot.create_table_reader(blocks_table_id)?;
+
+        let mut hashes = Vec::new();
+        for_each_block_hash(&reader, |number, hash| {
+            if from <= number && number <= to {
+                hashes.push((number, hash.to_string()));
+            }
+            Ok(())
+        })?;
+        Ok(hashes)
     }
 
     pub fn list_chunks(

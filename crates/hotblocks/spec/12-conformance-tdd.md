@@ -4,11 +4,13 @@ This document turns the spec into a test program: the reference model (oracle), 
 harness architecture, the test-class taxonomy, the traceability matrix, and the dated gap
 register that seeds the hardening backlog.
 
-Statuses and the gap register reflect the state of knowledge as of **2026-07-20** and are
+Statuses and the gap register reflect the state of knowledge as of **2026-07-30** and are
 expected to change; everything else in this document is stable methodology.
 
 The harness described here exists: [`crates/hotblocks-harness`](../../hotblocks-harness).
-Phase 0 of §7 is done — CT-1 runs a happy-path script green against the real binary.
+Phase 0 of §7 is done — CT-1 runs a happy-path script green against the real binary, and CT-4
+now includes finality-equivocation regressions for both deep-window and straddling-chunk fallback,
+exact rollback-position assertions, and honest-reorg recovery that must converge rather than wedge.
 
 ## 1. Harness architecture
 
@@ -95,7 +97,7 @@ model Dataset:
 
   replace(from_, B, f=⊥):              # WP §2.3
     require seg and B and valid_run(B) and B[0].number >= from_
-    require fin == ⊥ or from_ > fin.number          # INV-13/14
+    require fin == ⊥ or from_ > fin.number or reproduces(B, seg, from_, fin.number)  # INV-13/14
     require from_ >= first()                        # INV-14
     require B[0].parent_hash == hash_at(from_ - 1)  # DEF-16 (⊥ accepted at the window edge)
     seg = [b in seg | b.number < from_] + B; ver += 1; if f: finalize_inline(f)
@@ -139,8 +141,11 @@ model Dataset:
         return RESET((anchor.number, hint hash at that position))  # WP-6b: below-window divergence
     m = max({x in hints | stored_or_anchor(x)}, default=⊥)
     if m != ⊥: return (m.number + 1, m.hash)
-    if fin != ⊥: return (fin.number + 1, fin.hash)   # volatile suffix only; repeated
-                                                     # rejection here = FM-SRC-5, never RESET
+    if fin != ⊥: return (fin.number + 1, fin.hash)   # or any lower position reproducing the
+                                                     # finalized prefix (INV-14) — a batch-granular
+                                                     # implementation must, when fin sits inside a
+                                                     # batch. Repeated rejection here = FM-SRC-5,
+                                                     # never RESET
     return (first(), anchor.hash)                    # full-window replacement *probe*;
                                                      # repeated WP-2 rejection at first(D)
                                                      # escalates to RESET per WP-6b
@@ -203,7 +208,7 @@ weaken to soundness or it will fail on correct behavior.
 | CT-1 | **Stateful property tests** | randomized scripts of source events + retention ops + reads; model diff continuously and at quiescence | INV-1..7, 10..18, 20..27, 30/31, 44; WP-*; RP-* |
 | CT-2 | **Crash-recovery** | kill-point matrix (during batch write, during fork, during trim, during boot, during shutdown) × restart → model diff; repeated-crash convergence | INV-40, 42, 43; CN-6/9/11; LIV-5/6/12; GAP-2 |
 | CT-3 | **Concurrency** | reader swarms hammering during write/fork/trim/maintenance storms; interleaved HEAD+QUERY sequencing checks | INV-20/21/23/31/41; CN-3/4; LIV-3/4 |
-| CT-4 | **Source-fault corpus** | scripted FM-SRC-1..8 scenarios incl. fork storms, deep forks, finality conflicts, equivocation | INV-12/13/14/23/24; WP-6/8; LIV-9; FM-SRC-*; GAP-3/4/5 |
+| CT-4 | **Source-fault corpus** | scripted FM-SRC-1..8 scenarios incl. fork storms, deep forks, finality conflicts, equivocation | INV-12/13/14/23/24; WP-6/8; LIV-9; FM-SRC-*; GAP-3/5 |
 | CT-5 | **Interface conformance** | exhaustive request/response matrix against the binding: error taxonomy, watermark headers, encodings, hash-lookup matrix, boot config matrix | RP-1..16, 19/20; INV-26/43; IB-*; GAP-8/9/39 |
 | CT-6 | **Performance benchmarks** | reference scenarios S1–S6; SLI capture; SLO gates; saturation knees | SLI-1..12; PF-1..9; LIV-1/3/10; GAP-13 |
 | CT-7 | **Soak / endurance** | multi-day S4 churn with fault sprinkling; space, memory, stall, residue tracking | LIV-2/7/11; RS-6/10; INV-16/17; HZ-2/5; GAP-1/6 |
@@ -227,30 +232,30 @@ INV-21/22/23 (checks in parentheses):
 6. anchored continuation across responses never breaks parent-hash chains (INV-23);
 7. watermark coherence: `first ≤ fin ≤ head` whenever reported together (INV-5/30).
 
-## 5. Traceability matrix (status @ 2026-07-21)
+## 5. Traceability matrix (status @ 2026-07-30)
 
-Legend: **C** covered, **P** partial (some storage-layer or fixture coverage exists;
-service-level black-box coverage absent), **U** untested. Rows that changed with Phase 0 name
-the test that moved them; unless a row says otherwise, "covered" means *on the happy path* —
+Legend: **C** covered, **P** partial (some paths or layers are covered; the full class is not),
+**U** untested. Rows that changed name the test that moved them; unless a row says otherwise,
+"covered" means *on the happy path* —
 the same property under forks, crashes and retention is the business of CT-2/CT-4.
 
 | Property | CT class | Status | Note |
 |---|---|---|---|
 | INV-1..3 structural chain | CT-1 | **C** | `ct1_evm` / `ct1_solana` / `ct1_hyperliquid_fills`: full-window scan, parent linkage + anchor, dense and slot-numbered |
 | INV-4 kind/schema | CT-1/5 | **C** for evm/solana/hyperliquid-fills | payload round-trips against the emission oracle per kind; bitcoin, tron and hl-replica-cmds unmodeled |
-| INV-5/6 watermark bounds/on-chain | CT-1 | **P — known-violated** | happy path C; finality below the window is accepted after a trim clears `fin` (GAP-27); hash below head unverified (GAP-4) |
+| INV-5/6 watermark bounds/on-chain | CT-1/4 | **P** | happy path C; the shared finality resolver checks standalone and batch-composed reports against the post-state owner, ignores genuine holes and reports below the logical retention floor, and refuses hash conflicts or a replacement that evicts the block it calls final. Pinned by write-controller regressions; broader CT-4 sequencing remains |
 | INV-7 provenance | CT-1/6 | **C** | `ct1_happy_path`: what the source served is read back, payload included |
 | INV-10 atomic transitions | CT-2/3 | U | |
 | INV-11 append | CT-1 | **C** | |
-| INV-12/13 finality monotone/immutable | CT-1/4 | **P — known-violated** | monotone advance observed; composed-finality REPLACE below `fin` admitted (GAP-22); regression/conflict paths await CT-4 |
-| INV-14 fork floor | CT-4 | **U — known-violated** | GAP-3; composed-finality bypass (GAP-22) |
+| INV-12/13 finality monotone/immutable | CT-1/4 | **P** | monotone advance in CT-1; five `ct4_finality` scenarios + write-controller regressions pin finalized-prefix immutability (whole overlapping range, not just the boundary at `fin`), fixed-height hash immutability, atomic rejection, and convergence after finality advances over an in-flight replay; the ingest regression replaces an already-withheld episode on a second fork. Stale/regressing source reports and sustained fork storms remain |
+| INV-14 fork floor | CT-4 | **P — known-violated** | `ct4_finality` asserts the exact source resume position for all-mismatching-hint fallback at both the retained-window floor and a finality-straddling chunk; a storage-level regression classifies a compaction-invalidated physical boundary and proves that deeper re-resolution converges. Below-window RESET and trimmed-anchor cases remain (GAP-3/23) |
 | INV-15/18 retention trim/anchor | CT-1 | **U — known-violated** | INV-18: trims drop the anchor hash (GAP-23), restart rebuilds it wrong (GAP-2); comparator needs RS-4 slack first (see §7) |
 | INV-16 frame | CT-1/7 | U | |
-| INV-17 maintenance transparency | CT-7 | P | merge-equivalence tested storage-level |
+| INV-17 maintenance transparency | CT-7 | P | merge-equivalence and compaction-invalidated rollback recovery tested storage-level |
 | INV-20 snapshot isolation | CT-3 | P | single-threaded snapshot test only |
 | INV-21/22 response shape/completeness | CT-1/5/6 | P | structural validators + emission diff under `include_all`; coverage cuts and filtered emission await CT-5; comparator must implement the RP-9 marker exemption (spec change 2026-07-12) |
-| INV-23 anchored ancestry | CT-1/4 | P | anchored continuation across responses covered; the CONFLICT path awaits CT-4 |
-| INV-24 finalized-only | CT-4 | U | |
+| INV-23 anchored ancestry | CT-1/4 | P | anchored continuation across responses, finality-conflict rejection, and honest reorg recovery above finality covered; the broader fork corpus remains |
+| INV-24 finalized-only | CT-4 | P | `ct4_finality` pins once-finalized content across source equivocation with a public full-window scan; a dedicated `QUERY-FINALIZED` poller and the broader fork corpus remain |
 | INV-25 progress | CT-1/6 | P | a successful response must cover ≥ 1 block — asserted by the scanner |
 | INV-26 error soundness | CT-5 | **P — known-violated** | `ct5_error_soundness`: unsupported dialect containment/accounting and mid-stream worker-panic abort pinned; finalized-snapshot race pinned unit-level. Anchored eval across large holes (GAP-21) reverted; shared-status families keep free-text discrimination (GAP-36/39) |
 | INV-27 range honesty | CT-1 | **C** | validator: no block outside `[from, min(to, head)]` |
@@ -279,7 +284,7 @@ the same property under forks, crashes and retention is the business of CT-2/CT-
 | RS-6 amplification | CT-7 | U | reclaim path fixed 2026-07 (GAP-6); bound unmeasured under churn |
 | RS-8 boot maintenance | CT-2/7 | P | unlink/orphan-purge behaviors have storage-level tests |
 | RS-10/11 residue/deletion cost | CT-7 | P | GAP-6/13 |
-| FM-1 robustness | CT-9 | **P — known-violated** | GAP-12 open; unsupported query and query-worker panic classes are closed (§6.1), and the unterminated-record class is pinned by `ct9_source_faults` |
+| FM-1 robustness | CT-9 | **P — known-violated** | GAP-12 open; unsupported query and query-worker panic classes are closed (§6.1), while `ct9_source_faults` pins both the unterminated-record and unrepresentable-block-time classes |
 | FM-SRC-* corpus | CT-4 | **P** | `ct4_lagging_source`: the multi-endpoint shape production runs — several sources per dataset, one far behind — is covered in both the minority and majority laggard shapes, and a *lagging* source is confirmed harmless to the head, independently of its slot in the fixed poll order. A source answering *wrongly* is not: one endpoint of three signalling a fork above its own tip parks ingestion (GAP-5's shape, GAP-41), pinned `#[ignore]`d. Still no strike/quarantine substrate (GAP-30) |
 | FM-STOR-2/3 disk pressure | CT-7 | U | incident-derived; no automated test |
 | FM-OP-1..5 | CT-5 | U | |
@@ -288,7 +293,7 @@ the same property under forks, crashes and retention is the business of CT-2/CT-
 | OB-2..11 | all | P | query metrics exist; stall gauges pending on PR #83 (unmerged); OB-2 heartbeat, OB-6 debt accounting, OB-9 alarms, OB-11 forensics absent |
 | OB-12 index state | CT-1 | **P** | CF-wide estimated keys / live SST bytes are exported for both indexes; per-dataset enabled/count/bytes and lookup hit/miss/latency remain absent (GAP-40) |
 
-## 6. Gap register (dated 2026-07-21, informative)
+## 6. Gap register (dated 2026-07-30, informative)
 
 Known or strongly suspected divergences between this spec and the current system, from
 incident history, code-level review, and coverage analysis. Priorities: P0 = active
@@ -299,9 +304,8 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 |---|---|---|---|---|
 | GAP-1 | Whole-service ingest freezes (≈6 min) observed post-deploy; all datasets stall simultaneously; root cause unconfirmed (shared write-path backpressure suspected); no stall observability to attribute it | LIV-2, LIV-8, OB-3/11 | **P0** | CT-7 stall harness: S1 + storage-pressure injection, assert SLI-9 ≤ budget; build OB-11 capture first |
 | GAP-2 | Recovered anchor hash is reconstructed from the wrong value after restart — `WriteController::new` takes the first batch's *last*-block hash where the correct value sits in its `parent_block_hash` field; latent until the fork-fallback path consumes it, then ingestion resumes with a wrong expected parent (perpetual source-rejection loop) | INV-40, WP-19, LIV-6 | P1 | CT-2: restart, then force full-window fork fallback; assert resume position equals model |
-| GAP-3 | Fork floor at the window start is not enforced (marked-as-known in the system); a deeper-than-window divergence may be mishandled instead of becoming an explicit RESET per WP-6b | INV-14, WP-6/6b | P1 | CT-4 deep-fork case: hints strictly below `first(D)` |
-| GAP-4 | Finality reports strictly below the head are applied without verifying the hash against the stored block — in both the standalone FINALIZE path and the batch-composed path; the window floor is not checked either (GAP-27) | INV-6, WP §2.4 | P2 | CT-4: finality with corrupted hash below head; assert INTEGRITY_FAULT not acceptance |
-| GAP-5 | Unapplicable divergence (fork below finality, finality conflicts) results in silent bounded-pause retry forever — no alarm state, no distinct observable; one such class already caused a crash-loop incident. **Reproduced 2026-07-20** through a second trigger (GAP-41), and reachable from a *single* misbehaving endpoint of three: the head freezes at the position the divergence arrived at and never resumes, while the honest sources keep offering the chain — from the outside, indistinguishable from a hung service | LIV-9b, FM-SRC-5, OB-9 | P1 | `ct4_a_single_source_signalling_a_fork_above_its_tip_does_not_park_ingestion` (`#[ignore]`d); the fork-below-finality script still owes the `P-ALARM` assertion |
+| GAP-3 | The write path now refuses a replacement below the physical window, so a stale rollback cannot corrupt retained state. REMAINING: fork resolution still does not classify evidence of a deeper-than-window divergence or execute the explicit alarmed RESET required by WP-6b; it parks the epoch through GAP-5 instead | INV-14, WP-6/6b | P1 | CT-4 deep-fork case: hints strictly below `first(D)`; assert RESET + alarm rather than a refused retry |
+| GAP-5 | Unapplicable divergence (fork below finality, finality conflicts) results in bounded-pause retry forever — no alarm state or recovery; one such class already caused a crash-loop incident. The refusal is now attributable through `dataset_epoch_failures{reason="unapplicable_fork",cause=...}`, but that counter is not the required stateful alarm. **Reproduced 2026-07-20** through a second trigger (GAP-41), reachable from a *single* misbehaving endpoint of three: the head freezes at the divergence while honest sources keep offering the chain | LIV-9b, FM-SRC-5, OB-9 | P1 | `ct4_a_single_source_signalling_a_fork_above_its_tip_does_not_park_ingestion` (`#[ignore]`d); the fork-below-finality script still owes the `P-ALARM` assertion |
 | GAP-6 | ~~Default deployments never reclaim~~ — routine reclaim fixed 2026-07 (PR #79: 10 s point-delete sweep + deletion-collector + periodic-compaction backstop). REMAINING: the interrupted-build residue purge and the whole-file unlink are confined to the gated boot mode (off by default) — a torn build's residue leaks for good in default config and pins the boot-unlink watermark; SLI-8 under churn still unmeasured | RS-10, RS-8 (RS-6 residual) | P2 (was P0) | CT-7: churn soak in default config; assert SLI-8 bound + residue-age bound |
 | GAP-7 | Serving is gated on full initialization: tens of seconds of refused connections after deploy, scaling with state size and dataset count; readiness not observable per dataset | LIV-5, OB-8 | P1 | CT-6 S5: SLI-5 vs state-size regression curve |
 | GAP-8 | ~~Zero-emission responses do not convey the coverage end~~ — a de-facto carrier existed all along (the coverage-end block is always emitted, header-only when unmatched) and was adopted as normative RP-9 on 2026-07-12. REMAINING: (a) a zero-emission success now *asserts* full-range coverage, but under time-budget truncation over a blockless range (explicit `to` inside a hole run) the implementation can return an empty 200 having covered only part of it — the client then silently skips the rest; (b) the comparator must implement the INV-22 boundary-marker exemption; (c) in one reachable corner RP-9's clauses are jointly unsatisfiable — an effective range whose covered part contains no stored block and whose coverage cannot legally reach the range end (an availability boundary, RP-8, or a hard `P-QUERY-TIME` stop inside a long hole run): zero emission is legal only at full coverage, and the carrier (highest stored block ≤ `L`) lies below `from`, which INV-27 forbids emitting — here the *spec*, not just the implementation, owes an answer (candidate remedies: an explicit in-band terminal coverage record — a wire change — or forbidding coverage to end inside a hole except at the range end) | RP-9, INV-22, RP-8, INV-27 | P2 | CT-5: hole-range query with explicit `to` + tight budget; assert empty-200 only with full coverage |
@@ -311,16 +315,13 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 | GAP-13 | Ingest batch accumulation has content-dependent unbounded memory (no hard byte ceiling on some structures) | PF-1 | P2 | CT-6 adversarial `W-BLOCK-SIZE`/`W-ITEM-DENSITY`; RSS ceiling assertion |
 | GAP-14 | Read-side capacity (execution slots, waiter slots) is a single global pool: one dataset's query herd can starve all datasets | PF-4, LIV-8 | P2 | CT-8: herd on D′, tip-follower SLOs on D |
 | GAP-15 | No explicit store-format compatibility gate at boot; incompatibility surfaces as runtime decode errors | CN-12, INV-43 | P3 | CT-5 boot matrix with future-format fixture |
-| GAP-16 | ~~The service layer has essentially zero automated tests~~ — **closed by Phase 0**, see §6.1 | all | — | done |
 | GAP-17 | Shutdown can take a panic-class exit path in ingestion cancellation (observed at redeploy). **2026-07-21 addendum**: replica replacement is client-visible, in two ways that must not be conflated. (a) *Idle pooled connection* — at SIGTERM the server closes keep-alive connections at once while the endpoint removal is still propagating (chart: grace 5 s, no `preStop`, no readiness probe at all), so the portal POSTs into a socket already gone: 502 burst observed one second after SIGTERM with a Ready sibling idle. Nothing was admitted, so LIV-12 does permit it, and masking it belongs outside this spec — portal replay on a fresh connection (`sqd-portal` 13-conformance GAP-22) plus a chart `preStop`. (b) *Active stream cut* — **not** permitted: RP-15 requires the truncation to be "observationally identical to a budget stop", and a process kill leaves an unterminated chunked body and a half-written codec frame, so the client cannot decode the prefix at all, let alone as valid JSONL (IB-5's looser paraphrase is not a licence). A response that has already committed 200 and emitted bytes is unreplayable by any client, so (b) is fixable only here. And (b) is not rare: the drain floor already equals `P-HEAD-WAIT`, because head-waiters run a fixed 5 s timeout with no knowledge of the signal (`query/service.rs`) in violation of LIV-4's explicit shutdown clause — that is the whole 5 s grace, so under tip-follower load the exit is SIGKILL, i.e. FM-PROC-1, and the "clean path" this entry once assumed is not taken in production at all. The drain is also unbounded from the inside: `axum::serve(..).with_graceful_shutdown` carries no deadline and GAP-29 (no response deadline; a stalled reader pins its response) means nothing bounds `P-SHUTDOWN` whatever the grace is. Lastly the RP-15 escape hatch owes a truncation counter that does not exist (GAP-10). **Partly closed 2026-07-21**: SIGTERM now runs the same two-phase sequence as the portal (sqd-portal#113) — `/ready` reports 503 for `--pre-drain-grace-secs` while everything else serves normally, then the drain runs under a hard `--drain-timeout-secs`; SIGINT stays on the default handler so dev Ctrl-C is unaffected. That answers (a) and bounds `P-SHUTDOWN` from the inside, but only takes effect once the chart probes `/ready` and raises the grace above the sum of the two. Still open: (b), since a stream cut at the deadline is still a reset rather than an RP-15 end; LIV-4's shutdown clause, since waiters still sit out their fixed timeout; and the original ingest-cancellation path | LIV-12, LIV-4, RP-15, FM-PROC-4 | **P1** (was P2 on the "bounded or rare" premise; the addendum removes it — it fires on every replica replacement and the clean path is never taken under load) | CT-2 shutdown class: SIGTERM under load ×100 — zero panic exits, exit ≤ `P-SHUTDOWN`, every cut stream decodes as a valid JSONL prefix, every long-poll released ≤ `P-HEAD-WAIT` |
 | GAP-18 | Dual-writer detection exists only on some paths (finality/head updates), not all mutations | WP-15, FM-OP-3 | P3 | CT-5: two harness-driven writers, assert loser stops on every mutation type |
 | GAP-20 | `parent_number` linkage is never validated on any layer (the block trait exposes it; nothing reads it): a hash-linked run can claim an arbitrarily higher number for the next block, storing a false hole on a densely-numbered chain — a silent data gap served as if it were a slot gap. (The originally-filed non-monotonic-numbers scenario is unreachable today: the source-position advance forces ascending numbers.) | WP-2, DEF-4, INV-1 | P2 | CT-4/CT-9: hash-linked run with a number jump on a dense chain; the run MUST be rejected with no state change |
 | GAP-21 | An anchored query whose `from` sits mid-chunk above a number gap larger than the conflict-check lookback (a hard-coded 100 positions in the plan's base-block check) fails `INTERNAL` instead of evaluating the assertion. A >100-position hole with an anchor landing just above it is probably unrealistic, hence low priority. A correct all-predecessors scan was tried and reverted 2026-07-15 — it regressed `check_parent_block` into an unbounded per-chunk scan+sort; needs a lazy sort-desc + limit(100) | RP-11, INV-26 | P3 | CT-5 `ct5_anchor_is_evaluated_across_a_large_number_hole` (`#[ignore]` until fixed): >100-position hole in one chunk; anchored query just above must yield OK/CONFLICT, never 500 |
-| GAP-22 | Deep-fork handling can silently replace the finalized prefix: the fork-resolution fallback ignores `fin` (resumes from the window start instead of `⟨fin + 1, fin.hash⟩`), the composed-finality guard admits a REPLACE whose base lies at/below `fin` whenever the pack carries a finality mark ≥ current, and Window trims have dropped the anchor hash (GAP-23) so the replacement attaches unchecked. If the first replacement batch reaches past the old `fin`, the finalized prefix is replaced with no RESET event and no alarm — finalized-only clients observe two hashes at one height (INV-24 broken); otherwise the commit trips the fork-floor check ("can't fork safely") and the epoch parks on the blind 60 s retry loop. Fix: fallback → `fin + 1`; enforce the fork floor at commit unconditionally; carry the anchor hash | WP-6, INV-13/14, INV-24, FM-SRC-5, LIV-9 | **P1** | CT-4: fork with all-mismatching hints on a dataset with `fin` defined; assert REPLACE from `fin + 1` (or alarmed fault) — never a commit whose base ≤ `fin` |
-| GAP-23 | Window trims drop the anchor hash: the automatic trim passes no hash and the retained state stores `⊥`, though the correct value sits unused in the first batch's `parent_block_hash`. Disables below-window divergence detection (WP-6b has nothing to contradict) and feeds GAP-22 | INV-18, DEF-7, WP-6b | P1 | CT-1: CONFLICT hints / STATUS at the window edge after a trim; CT-4: below-window fork after a trim must RESET, not absorb silently |
+| GAP-23 | Window trims drop the anchor hash: the automatic trim passes no hash and the retained state stores `⊥`, though the correct value sits unused in the first batch's `parent_block_hash`. This disables direct below-window divergence detection because WP-6b has nothing to contradict | INV-18, DEF-7, WP-6b | P1 | CT-1: CONFLICT hints / STATUS at the window edge after a trim; CT-4: below-window fork after a trim must RESET, not absorb silently |
 | GAP-24 | One dataset's init failure aborts the whole service: startup propagates the first controller error (kind mismatch, retention bail, corrupt state) instead of alarming that dataset and serving the rest | CN-10, FM-OP-1, INV-36, INV-43 | P1 | CT-5 boot matrix: corrupt one dataset's persisted state; assert the others serve and the broken one alarms |
 | GAP-25 | Downward retention (`from < first(D)`) executes as an *implicit, unobservable* RESET (WP §2.5 as amended 2026-07-12 legalizes the destruction, but requires OB-9 observability) — no event, indistinguishable from a trim; and the boot-time `Pinned` equivalent aborts the entire service (via GAP-24) instead of a dataset-level refusal | WP §2.5, OB-9, INV-43 | P2 | CT-1: SET-RETENTION below `first`; assert a RESET observable + serving continuity; CT-5: boot with lowered `Pinned.from` |
-| GAP-27 | FINALIZE never checks `e ≥ first(D)`: with `fin = ⊥` (e.g. after a trim passed above it) a lagging source's report below the window commits `fin < first(D)` | WP §2.4, INV-5 | P2 | CT-4: finality below the window on a trimmed dataset; assert the report is ignored |
 | GAP-28 | The External retention instruction and the empty-dataset anchor are memory-only (the persisted label holds kind/version/fin) — a restart forgets the instructed bound (the dataset re-idles awaiting a new instruction) and resets an empty dataset's anchor | CN-9, INV-40, WP-11 | P2 | CT-2: SET-RETENTION, restart; assert the bound and anchor are recovered |
 | GAP-29 | A stalled-but-open connection pins the response's storage snapshot indefinitely (no overall response deadline / server write timeout; only disconnects release it); pinned snapshots block physical reclaim of point-deleted data | CN-7, RP-18, HZ-9, RS-6 | P2 | CT-3/CT-7: zombie client that stops reading; assert snapshot lifetime ≤ `P-QUERY-TIME` and reclaim proceeds |
 | GAP-30 | No strike counting exists anywhere: a linkage-mismatch rejection resets the source session and re-requests in a zero-backoff hot loop; sources are never quarantined; cross-source equivocation never alarms. `P-SOURCE-STRIKES` has no substrate, so the WP-6b/FM-SRC-5 escalation rules are currently unimplementable. **Slowness is likewise unnameable**: an endpoint leaves the rotation only by erroring (`Endpoint::on_error` → `Backoff`; `is_active` knows no other reason), so an endpoint minutes behind the tip keeps full standing and is streamed and parsed on every cycle, its blocks discarded below the shared cursor. Selection is per *block*, not per source — the first arrival that links onto the cursor wins, ties going to config order — so there is no convergence to a fast source and no memory of who wins. Confirmed harmless to the head on its own — in the minority shape production runs (`ct4_a_lagging_source_does_not_hold_the_head_back`), in the majority shape (`ct4_two_lagging_sources_of_three_do_not_hold_the_head_back`), and independently of the laggard's slot in the fixed poll order, since a laggard sits below the shared cursor and so has nothing to serve. The cost is ingest work paid for every endpoint regardless of standing, and the only lever is removing a source by hand | FM-SRC-3/4/6, WP-2 | P2 | CT-4: source serving a permanently mis-linked run; assert bounded request rate, quarantine after N strikes, alarm. Lag-aware demotion needs per-source observability first — PR #81 (`hotblocks_ingest_source_errors_total`) is the substrate and has been in draft since 2026-07-08 |
@@ -333,6 +334,7 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 | GAP-39 | A hash-lookup miss and an unknown dataset are both 404 with only a free-text body between them, and IB-7 forbids keying on text. This is worse than the GAP-36 family it belongs to: RP-19 makes "this hash is not indexed" a *deliberately uninformative* answer, so a client that cannot separate it from "this dataset does not exist" cannot tell a misconfiguration from a legitimate miss at all | INV-26, IB-7, RP-19 | P3 | CT-5: unknown dataset vs unknown hash; assert a structured discriminant |
 | GAP-40 | Hash-index CFs export only engine-wide estimated keys and live SST bytes. OB-12 still lacks per-dataset enabled state / entry count / bytes and hit-vs-miss lookup counts with latency. Because a miss is uninformative by design, an index empty for a structural reason — enabled after the window had filled, wrong kind — remains indistinguishable from one receiving only unknown hashes | OB-12, OB-6 | P3 | CT-1: scrape per-dataset state and exercise hit/miss counters once exported |
 | GAP-41 | Fork consensus is credulous: `StandardDataSource::poll_next_event` counts fork-signalling endpoints without asking whether a signalling endpoint has any standing at the contested position, and `extract_fork` then adopts the *longest* hint chain among them. RP-5b confines a legitimate signal to `from == tip + 1`, so an in-spec source can only signal where it is; but FM-1 requires surviving one that is not, and a source signalling above its tip is what a source merely *behind* would look like if it answered wrongly. **One** such endpoint out of three suffices, and not by majority: `forks > endpoints.len() / 2` is false at 1-of-3, but the 2 s `fork_consensus_timeout` fires on any poll where every endpoint returned `Pending`, and `accept_new_block` clears that timer only on a commit — so on a chain with block time ≥ 2 s *every inter-block gap is a firing window*. Measured 2026-07-20, 5/5 runs, by instrumenting `poll_next_event`: `forks=1 endpoints=3 active=3 majority=false all_active=false timeout=true`; the adopted hints end at the liar's stale tip, `compute_rollback` rejects them as below `fin`, and ingestion parks per GAP-5 with two healthy sources still offering the chain. The endpoints' own position is known (`Endpoint::last_committed_block`) and unused | FM-1, WP-6, FM-SRC-4/5 | **P1** (was P2 on the premise that it took a majority — measurement overturned it: a lone bad source is enough, on the ordinary inter-block gap rather than a rare coincidence) | `ct4_a_single_source_signalling_a_fork_above_its_tip_does_not_park_ingestion`; the majority path is pinned separately by `ct4_a_fork_signal_majority_above_the_tip_does_not_park_ingestion` so a fix closing only that clause cannot read as green. Both `#[ignore]`d |
+| GAP-43 | A withheld replay is bounded by nothing: it ends when the source finally delivers up to the floor, or not at all. The per-episode warning and counter also only fire where a flush is attempted — a source that simply stops below the floor never gets there, since `MaybeOnHead` is suppressed while the position sits below the highest finality any endpoint reported. The *pending floor* itself is now level-readable per dataset (`ingest_flush_floor`, set at fork resolution rather than at a flush attempt), so the shape is attributable; what is missing is a cap that ends the episode loudly on its own | LIV-2, OB-9, OB-11 | P2 | CT-4: replay below `fin` from a source that stops short; assert an alarmed state within `P-ALARM` independent of the flush triggers |
 
 ### 6.1 Closed
 
@@ -341,7 +343,6 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 | GAP-11 | Unsupported `substrate` / `fuel` queries and query-worker panics escaped the HTTP error taxonomy by panicking their request task | Typed `UNSUPPORTED_QUERY` admission errors, panic containment in the query executor, CT-5 dialect requests, and an executor unit test (2026-07-15) |
 | GAP-16 | No service-level automated tests | [`crates/hotblocks-harness`](../../hotblocks-harness) + `ct1_happy_path` (Phase 0, 2026-07-12) |
 | GAP-19 | A source response whose final JSONL record carried no trailing newline panicked the line reader (`LineStream::take_final_line` left its scan position past the emptied buffer). The ingest task died, its buffered batch was lost, and the dataset parked for `P-EPOCH-RETRY` — then crash-looped, since the source served the same body on retry. Violated FM-1, LIV-2 | Found by CT-1 on the harness's first run; fixed in `crates/data-client/src/reqwest/lines.rs`; pinned by a unit test there and by `ct9_source_faults` (2026-07-12) |
-| GAP-26 | A block timestamp outside the datetime-conversion range killed the ingest flush — the conversion existed only for a log line | Log formatting is best-effort and the raw value is stored unchanged; evm/solana seconds→millis saturate so an absurd source value neither panics nor wraps (PR #100, 2026-07-20). No regression test — CT-9: serve a block with `time = i64::MAX`; assert the batch commits and serving continues |
 | GAP-32 | A finalized-head trim/reset race could turn an admitted finalized query into `INTERNAL` when its snapshot no longer had a finalized head | Snapshot-time absence now maps to `NO_DATA`; pinned by `finalized_snapshot_without_a_head_is_no_data` (2026-07-15) |
 | GAP-38 | `TX-BY-HASH` / `tidx` absent; fork re-inclusion ordering unimplemented | Transaction hash CF + independent flag + HTTP binding; storage transition suite and black-box ingest/reorg/re-inclusion tests (2026-07-15) |
 
@@ -353,13 +354,12 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
 
   Delivered as [`crates/hotblocks-harness`](../../hotblocks-harness), driving the real
   binary as a child process over the binding of 13. Its README records the design decisions the
-  next phases must not undo. Three things the later phases need are built but unexercised, and
-  three are missing:
+  next phases must not undo. The current harness support and remaining corpus are:
 
-  | Built, awaiting scripts | Missing |
+  | Harness support | Remaining |
   |---|---|
   | `Sut::crash/stop/restart` (same db, same port); `ct2_shutdown` exercises the bounded SIGTERM path | the remaining CT-2 kill-point matrix |
-  | `Harness::fork` + `Model::resolve_fork` + the follower's CONFLICT recovery → CT-4 | the CT-4 fork/finality corpus |
+  | `Harness::fork`, finalized-prefix and below-finality equivocation faults, `Model::resolve_fork` and follower CONFLICT recovery → CT-4 | below-window RESET, malformed finality, fork-storm and alarm cases remain |
   | `Model::predict_query` + initial `ct5_error_soundness` matrix | remaining CT-5 binding, boot, and overload rows |
   | `SimFaults` injection point → CT-9 | the rest of the FM-SRC repertoire |
 
@@ -372,7 +372,7 @@ rare, P3 = polish. **First test** names the cheapest failing-test-first entry po
   accounting via OB-6 (GAP-6). These target the two production incidents.
 - **Phase 2 — correctness core.** CT-2 crash matrix (GAP-2) and shutdown class (GAP-17 —
   pulled forward from Phase 3: it is client-visible on every replica replacement), CT-4
-  fork/finality corpus (GAP-3/4/5), CT-5 remaining error taxonomy + boot matrix
+  fork/finality corpus (GAP-3/5), CT-5 remaining error taxonomy + boot matrix
   (GAP-8/9/15/36/39).
 - **Phase 3 — robustness.** CT-9 fuzz both surfaces (GAP-12), CT-3 concurrency swarms,
   CT-8 isolation (GAP-14).

@@ -81,8 +81,8 @@ pub struct CLI {
     /// `CF_TABLES` memtable size. RocksDB's 64 MB default flushes small L0 files
     /// continuously; the resulting compaction churn is most of the device write
     /// bill, and writes stop whenever the flush of one buffer has not finished
-    /// before the next fills (measured: `immutable_memtables` pegged at the
-    /// ceiling on every stalled pod).
+    /// before the next fills (measured: `immutable_memtables` pegged at its
+    /// ceiling wherever writes stopped).
     #[arg(long, value_name = "MB", default_value = "64")]
     pub rocksdb_write_buffer_mb: usize,
 
@@ -95,8 +95,8 @@ pub struct CLI {
     /// multiplier of 10, this decides how many levels deep the ladder runs, and
     /// a byte is rewritten once per level it descends. The default 256 MB is
     /// smaller than one 512 MB memtable's flush, so L0 currently arrives larger
-    /// than the level it merges into. Validate boot time and compaction behavior
-    /// before raising it.
+    /// than the level it merges into. Unmeasured at full data size; validate boot
+    /// time and compaction behavior before raising it.
     #[arg(long, value_name = "MB", default_value = "256")]
     pub rocksdb_level_base_mb: usize,
 

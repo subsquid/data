@@ -45,7 +45,11 @@ surface of the binding (13 §5) with bounded cardinality.
 - **OB-9 (Alarm states).** Distinct, queryable, per-dataset alarm conditions with reason
   codes: integrity conflict (WP-8/FM-SRC-5), RESET occurred (WP §2.6), boot validation
   refusal (INV-43), dataset stopped (CN-10), dual-writer detected (WP-15), disk floor
-  breached (FM-STOR-2). Alarms are edge-triggered events *and* level-readable states.
+  breached (FM-STOR-2), replay withheld below finality (WP-6). Alarms are edge-triggered
+  events *and* level-readable states. Reason codes MUST separate refusals that clear
+  themselves on the next epoch from refusals that repeat until an operator acts: they carry
+  the same consequence for a minute and opposite ones over an hour, and a single bucket
+  cannot be alerted on.
 - **OB-10 (Bounded cardinality).** All label spaces are bounded by configuration (datasets,
   sources, classes, outcome enums); unbounded client-derived labels MUST be sanitized
   (e.g. allowlisted client identities, "other" bucket).

@@ -29,6 +29,8 @@ pub struct HarnessConfig {
     /// Dense (evm, hyperliquid) or sparse (Solana slots) block numbering.
     pub numbering: Numbering,
     pub retention: Retention,
+    /// Keep physical ingest chunks separate when a test needs a deterministic storage layout.
+    pub disable_compaction: bool,
     /// Whether the service is told the anchor hash. If not, the anchor is `⊥` (DEF-7) and the
     /// first block's parent is unverifiable.
     pub anchored: bool,
@@ -59,6 +61,7 @@ impl HarnessConfig {
                 number: start_block,
                 parent_hash: Some(block_hash(start_block - 1, 0))
             },
+            disable_compaction: false,
             anchored: true,
             source_poll: Duration::from_millis(200),
             sources: 1,
@@ -119,6 +122,7 @@ impl Harness {
                 id: cfg.dataset.clone(),
                 kind: cfg.chain.config_kind().to_string(),
                 retention: cfg.retention.clone(),
+                disable_compaction: cfg.disable_compaction,
                 sources: std::iter::once(&sim)
                     .chain(peers.iter())
                     .map(|s| s.base_url(&cfg.dataset))

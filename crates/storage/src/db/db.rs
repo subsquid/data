@@ -13,6 +13,7 @@ use super::{
 use crate::db::{
     ops::{perform_dataset_compaction, CompactionStatus},
     read::datasets::list_all_datasets,
+    table_id::TableId,
     write::{
         ops as cleanup_ops,
         table_builder::TableBuilder,
@@ -545,6 +546,18 @@ impl Database {
             self.db.write(batch)?;
         }
         Ok(())
+    }
+
+    /// Schedules `tables` for the ordinary purge. Used to abandon tables whose chunk was
+    /// refused after they were already written: their dirty marker alone is collected by the
+    /// startup orphan sweep only, so a caller refused on every retry would leak them.
+    pub fn delete_tables(&self, tables: &[TableId]) -> anyhow::Result<()> {
+        Tx::new(&self.db).run(|tx| {
+            for table_id in tables {
+                tx.delete_table(table_id)?;
+            }
+            Ok(())
+        })
     }
 
     /// Phase 1 -- logically purge deleted tables (snapshot-safe point deletes).

@@ -8,17 +8,23 @@ use prometheus_client::{
         MetricType,
         counter::Counter,
         family::Family,
+        gauge::Gauge,
         histogram::{Histogram, exponential_buckets}
     },
     registry::Registry
 };
+use sqd_primitives::BlockNumber;
 use sqd_storage::db::{
     CF_BLOCK_HASHES, CF_CHUNKS, CF_DATASETS, CF_DELETED_TABLES, CF_DIRTY_TABLES, CF_TABLES, CF_TRANSACTION_HASHES,
     DatasetId, HashIndexWriteMetrics, ReadSnapshot
 };
 use tracing::error;
 
-use crate::{errors::UnapplicableFork, query::QueryExecutorCollector, types::DBRef};
+use crate::{
+    errors::{DataAvailabilityChangedDuringFinalizedReplay, UnapplicableFork},
+    query::QueryExecutorCollector,
+    types::DBRef
+};
 
 #[derive(Copy, Clone, Hash, Debug, Default, Ord, PartialOrd, Eq, PartialEq, EncodeLabelSet)]
 struct DatasetLabel {
@@ -59,6 +65,10 @@ pub static QUERY_ERROR_TOO_MANY_DATA_WAITERS: LazyLock<Counter> = LazyLock::new(
 pub static QUERY_ERROR_WORKER_PANIC: LazyLock<Counter> = LazyLock::new(Default::default);
 
 pub static COMPLETED_QUERIES: LazyLock<Counter> = LazyLock::new(Default::default);
+
+static INGEST_WITHHELD_FLUSHES: LazyLock<Family<DatasetLabel, Counter>> = LazyLock::new(Default::default);
+
+static INGEST_FLUSH_FLOOR: LazyLock<Family<DatasetLabel, Gauge>> = LazyLock::new(Default::default);
 
 pub static STREAM_DURATIONS: LazyLock<Family<Labels, Histogram>> =
     LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(exponential_buckets(0.01, 2.0, 20))));
@@ -132,22 +142,32 @@ struct WriteLabels {
 #[derive(Copy, Clone, Hash, Debug, Eq, PartialEq, EncodeLabelSet)]
 struct EpochFailureLabels {
     dataset: DatasetValue,
-    reason: &'static str
+    reason: &'static str,
+    cause: &'static str
 }
 
 static DATASET_EPOCH_FAILURES: LazyLock<Family<EpochFailureLabels, Counter>> = LazyLock::new(Default::default);
 
 pub(crate) fn report_dataset_epoch_failure(dataset_id: DatasetId, err: &anyhow::Error) {
-    // Never label by message — it carries block numbers and hashes.
-    let reason = if err.chain().any(|e| e.is::<UnapplicableFork>()) {
-        "unapplicable_fork"
-    } else {
-        "other"
+    // Never label by message — it carries block numbers and hashes. `cause` splits the fork class
+    // by `UnapplicableFork::reason`: a stale-ingest refusal that self-heals next epoch and a source
+    // rewriting finalized history are otherwise indistinguishable here.
+    let fork = err.chain().find_map(|e| e.downcast_ref::<UnapplicableFork>());
+    let (reason, cause) = match fork {
+        Some(fork) => ("unapplicable_fork", fork.reason.as_str()),
+        None if err
+            .chain()
+            .any(|e| e.is::<DataAvailabilityChangedDuringFinalizedReplay>()) =>
+        {
+            ("other", "data_availability_changed_during_finalized_replay")
+        }
+        None => ("other", "unspecified")
     };
     DATASET_EPOCH_FAILURES
         .get_or_create(&EpochFailureLabels {
             dataset: DatasetValue(dataset_id),
-            reason
+            reason,
+            cause
         })
         .inc();
 }
@@ -175,6 +195,20 @@ pub(crate) fn report_hash_index_write_metrics(dataset_id: DatasetId, metrics: &H
     if let Some(duration) = metrics.transaction_hash_index_duration() {
         report_write_duration(dataset_id, WriteStage::TransactionHashIndex, duration, success);
     }
+}
+
+pub(crate) fn report_withheld_flush(dataset_id: DatasetId) {
+    INGEST_WITHHELD_FLUSHES.get_or_create(&dataset_label!(dataset_id)).inc();
+}
+
+/// The block a fork replay must reach before it may emit a chunk, `None` once it has. Set where the
+/// floor is *set*, not at a flush attempt: a source stopping below the floor never reaches one, and
+/// that stall is otherwise invisible (GAP-43). Alert on
+/// `min_over_time(hotblocks_ingest_flush_floor[10m]) >= 0`.
+pub(crate) fn report_flush_floor(dataset_id: DatasetId, floor: Option<BlockNumber>) {
+    INGEST_FLUSH_FLOOR
+        .get_or_create(&dataset_label!(dataset_id))
+        .set(floor.map_or(-1, |block| i64::try_from(block).unwrap_or(i64::MAX)));
 }
 
 pub fn report_query_too_many_tasks_error() {
@@ -508,7 +542,8 @@ pub fn build_metrics_registry() -> Registry {
         "dataset_epoch_failures",
         "Dataset update task failures, by dataset and cause; each one parks ingestion for \
          60s before a full restart. reason=unapplicable_fork is a divergence reaching below \
-         finalized data",
+         finalized data, and cause names which one (below_retained_window, \
+         rewrites_finalized_history, finality_contradicts_chunk, ...)",
         DATASET_EPOCH_FAILURES.clone()
     );
 
@@ -557,6 +592,18 @@ pub fn build_metrics_registry() -> Registry {
         "Number of completed queries",
         COMPLETED_QUERIES.clone()
     );
+    registry.register(
+        "ingest_withheld_flushes",
+        "Fork replays whose chunk was held back until it covered the finalized head",
+        INGEST_WITHHELD_FLUSHES.clone()
+    );
+    registry.register(
+        "ingest_flush_floor",
+        "Block a fork replay must still reach before it may emit a chunk; -1 when none is \
+         pending. Non-negative for long means the replay is not getting there -- a source stopped \
+         below the floor is otherwise only visible as a stale last-block timestamp",
+        INGEST_FLUSH_FLOOR.clone()
+    );
 
     top_registry
 }
@@ -591,6 +638,7 @@ mod tests {
     use sqd_storage::db::{Chunk, DatabaseSettings, DatasetId, DatasetKind};
 
     use super::*;
+    use crate::errors::{DataAvailabilityChangedDuringFinalizedReplay, UnapplicableForkReason};
 
     #[test]
     fn write_duration_exposes_bounded_stage_and_outcome_labels() {
@@ -634,6 +682,103 @@ mod tests {
             }),
             "missing error outcome:\n{output}"
         );
+    }
+
+    // `cause` separates refusals inside the `unapplicable_fork` class, without admitting a block
+    // number or hash into a label.
+    #[test]
+    fn epoch_failure_splits_the_fork_bucket_by_cause() {
+        let dataset_id = DatasetId::from_str("epoch-failure-test");
+
+        report_dataset_epoch_failure(
+            dataset_id,
+            &anyhow::Error::new(UnapplicableFork {
+                reason: UnapplicableForkReason::BelowRetainedWindow
+            })
+            .context("chunk 0-9 starts below window start 6")
+        );
+        report_dataset_epoch_failure(
+            dataset_id,
+            &anyhow::Error::new(UnapplicableFork {
+                reason: UnapplicableForkReason::StaleRollbackBoundary
+            })
+            .context("chunk 6-9 starts inside compacted chunk 0-9")
+        );
+        report_dataset_epoch_failure(
+            dataset_id,
+            &anyhow::Error::new(DataAvailabilityChangedDuringFinalizedReplay { block_number: 42 })
+        );
+        report_dataset_epoch_failure(dataset_id, &anyhow::anyhow!("storage transaction failed"));
+
+        let registry = build_metrics_registry();
+        let mut output = String::new();
+        prometheus_client::encoding::text::encode(&mut output, &registry).unwrap();
+
+        let epoch_failures = output
+            .lines()
+            .filter(|line| line.starts_with("hotblocks_dataset_epoch_failures_total"))
+            .filter(|line| line.contains("dataset=\"epoch-failure-test\""))
+            .collect::<Vec<_>>();
+        assert!(
+            epoch_failures
+                .iter()
+                .any(|line| line.contains("reason=\"unapplicable_fork\"")
+                    && line.contains("cause=\"below_retained_window\"")),
+            "missing fork cause:\n{output}"
+        );
+        assert!(
+            epoch_failures
+                .iter()
+                .any(|line| line.contains("reason=\"unapplicable_fork\"")
+                    && line.contains("cause=\"stale_rollback_boundary\"")),
+            "missing stale-boundary cause:\n{output}"
+        );
+        assert!(
+            epoch_failures.iter().any(|line| {
+                line.contains("reason=\"other\"")
+                    && line.contains("cause=\"data_availability_changed_during_finalized_replay\"")
+            }),
+            "missing data-availability cause:\n{output}"
+        );
+        assert!(
+            epoch_failures
+                .iter()
+                .any(|line| line.contains("reason=\"other\"") && line.contains("cause=\"unspecified\"")),
+            "missing non-fork failure:\n{output}"
+        );
+        assert!(
+            !output.contains("window start 6") && !output.contains("compacted chunk 0-9"),
+            "the error message reached a label:\n{output}"
+        );
+    }
+
+    // GAP-43: a source stopping below the floor never reaches a flush, so the counter and warning
+    // stay silent. The pending floor does not depend on a flush being tried.
+    #[test]
+    fn flush_floor_gauge_holds_a_pending_replay() {
+        let dataset_id = DatasetId::from_str("flush-floor-test");
+        let floor_line = |output: &str| -> String {
+            output
+                .lines()
+                .find(|line| line.starts_with("hotblocks_ingest_flush_floor") && line.contains("flush-floor-test"))
+                .unwrap_or_else(|| panic!("no flush floor series:\n{output}"))
+                .to_string()
+        };
+
+        report_flush_floor(dataset_id, Some(1234));
+        let mut output = String::new();
+        prometheus_client::encoding::text::encode(&mut output, &build_metrics_registry()).unwrap();
+        assert!(floor_line(&output).ends_with(" 1234"), "{}", floor_line(&output));
+
+        report_flush_floor(dataset_id, Some(0));
+        let mut output = String::new();
+        prometheus_client::encoding::text::encode(&mut output, &build_metrics_registry()).unwrap();
+        assert!(floor_line(&output).ends_with(" 0"), "{}", floor_line(&output));
+
+        report_flush_floor(dataset_id, None);
+        let mut output = String::new();
+        prometheus_client::encoding::text::encode(&mut output, &build_metrics_registry()).unwrap();
+        assert!(floor_line(&output).ends_with(" -1"), "{}", floor_line(&output));
     }
 
     #[test]
