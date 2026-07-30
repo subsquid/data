@@ -4,7 +4,7 @@ use anyhow::Context;
 use futures::{future::BoxFuture, stream::BoxStream, FutureExt, Stream, StreamExt};
 use sqd_data_client::{BlockStreamRequest, BlockStreamResponse, DataClient};
 use sqd_primitives::{Block, BlockNumber, BlockRef};
-use tokio::time::Sleep;
+use tokio::time::{Instant, Sleep};
 use tracing::{info, warn};
 
 use crate::types::{DataEvent, DataSource};
@@ -44,7 +44,8 @@ struct DataSourceState<F> {
     position: BlockStreamRequest,
     position_is_canonical: bool,
     max_seen_finalized_block: BlockNumber,
-    fork_consensus_timeout: Option<Pin<Box<Sleep>>>
+    fork_consensus_timeout: Option<Pin<Box<Sleep>>>,
+    fork_consensus_started_at: Option<Instant>
 }
 
 impl<F> DataSourceState<F> {
@@ -78,6 +79,7 @@ impl<F> DataSourceState<F> {
                     }
                     Poll::Ready(Ok(BlockStreamResponse::Fork(prev_blocks))) => {
                         let req = req.clone();
+                        self.fork_consensus_started_at.get_or_insert_with(Instant::now);
                         ep.on_fork_signal(req.first_block, &prev_blocks);
                         ep.error_counter = 0;
                         ep.state = EndpointState::Fork { req, prev_blocks };
@@ -143,13 +145,18 @@ impl<F> DataSourceState<F> {
         }
         self.position.first_block = block.number() + 1;
         self.position_is_canonical = true;
-        self.fork_consensus_timeout = None;
+        self.reset_fork_consensus();
 
         if is_final {
             set_head(&mut self.finalized_head, block.number(), block.hash());
         }
 
         true
+    }
+
+    fn reset_fork_consensus(&mut self) {
+        self.fork_consensus_timeout = None;
+        self.fork_consensus_started_at = None;
     }
 
     fn on_new_finalized_head(&mut self, new_head: Option<&BlockRef>) -> bool {
@@ -285,7 +292,8 @@ where
             },
             position_is_canonical: false,
             max_seen_finalized_block: 0,
-            fork_consensus_timeout: None
+            fork_consensus_timeout: None,
+            fork_consensus_started_at: None
         };
 
         Self { endpoints, state }
@@ -302,21 +310,38 @@ where
         let forks = self.endpoints.iter().filter(|ep| ep.is_on_fork()).count();
         if forks > 0 {
             let active = self.endpoints.iter().filter(|ep| ep.is_active()).count();
-            if forks > self.endpoints.len() / 2 || forks == active || self.fork_consensus_timeout(cx) {
-                let chain = self.extract_fork();
-                info!(
-                    forked_endpoints = forks,
-                    active_endpoints = active,
-                    total_endpoints = self.endpoints.len(),
-                    hint_count = chain.len(),
-                    oldest_hint =? chain.first().map(|b| b.number),
-                    newest_hint =? chain.last().map(|b| b.number),
-                    "fork consensus reached"
-                );
-                return Poll::Ready(DataEvent::Fork(chain));
-            }
+            let decision = if forks > self.endpoints.len() / 2 {
+                "majority"
+            } else if forks == active {
+                "all_active"
+            } else if self.fork_consensus_timeout(cx) {
+                "timeout"
+            } else {
+                return Poll::Pending;
+            };
+
+            let consensus_duration = self
+                .state
+                .fork_consensus_started_at
+                .expect("fork consensus must start with the first fork signal")
+                .elapsed();
+            crate::metrics::record_ingest_fork_consensus_duration(decision, consensus_duration);
+
+            let chain = self.extract_fork();
+            info!(
+                decision = decision,
+                consensus_duration_seconds = consensus_duration.as_secs_f64(),
+                forked_endpoints = forks,
+                active_endpoints = active,
+                total_endpoints = self.endpoints.len(),
+                hint_count = chain.len(),
+                oldest_hint =? chain.first().map(|b| b.number),
+                newest_hint =? chain.last().map(|b| b.number),
+                "fork consensus reached"
+            );
+            return Poll::Ready(DataEvent::Fork(chain));
         } else {
-            self.state.fork_consensus_timeout = None
+            self.state.reset_fork_consensus()
         }
 
         Poll::Pending
@@ -338,7 +363,7 @@ where
     }
 
     fn extract_fork(&mut self) -> Vec<BlockRef> {
-        self.state.fork_consensus_timeout = None;
+        self.state.reset_fork_consensus();
         let mut chain = Vec::new();
         for ep in self.endpoints.iter_mut() {
             match std::mem::replace(&mut ep.state, EndpointState::Ready) {
@@ -381,6 +406,7 @@ where
         self.state.position.set_parent_block_hash(parent_block_hash);
         self.state.position_is_canonical = false;
         self.state.finalized_head = None;
+        self.state.reset_fork_consensus();
         for ep in self.endpoints.iter_mut() {
             ep.state = EndpointState::Ready;
             ep.last_committed_block = None;

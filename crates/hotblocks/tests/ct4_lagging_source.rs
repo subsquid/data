@@ -208,18 +208,13 @@ async fn ct4_a_fork_signal_above_the_tip_and_the_park_it_causes_are_observable()
     h.finalize_with_lag(5)?;
     h.settle().await?;
 
-    for peer in &h.peers {
-        peer.inject_fault(&h.dataset, |f| f.fork_signal_above_tip = true);
-    }
+    h.peers[0].inject_fault(&h.dataset, |f| f.fork_signal_above_tip = true);
 
-    for _ in 0..12 {
-        h.produce_ahead(10)?;
-        h.finalize_with_lag(5)?;
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    h.produce_lagging(&[0], 10)?;
+    h.finalize_with_lag(5)?;
 
     // No `settle` — the epoch is serving out `P-EPOCH-RETRY`, which is the thing being measured.
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
     let metrics = h.client.metrics().await?;
 
     let above_tip = metrics
@@ -232,6 +227,28 @@ async fn ct4_a_fork_signal_above_the_tip_and_the_park_it_causes_are_observable()
             .get("hotblocks_ingest_fork_signals_total", Some(("standing", "at_tip")))
             .is_none(),
         "no source held the contested position"
+    );
+
+    let consensus_count = metrics
+        .get(
+            "hotblocks_ingest_fork_consensus_duration_seconds_count",
+            Some(("decision", "timeout"))
+        )
+        .unwrap_or_default();
+    assert!(
+        consensus_count > 0.0,
+        "the lone fork signal must reach consensus by timeout"
+    );
+
+    let consensus_seconds = metrics
+        .get(
+            "hotblocks_ingest_fork_consensus_duration_seconds_sum",
+            Some(("decision", "timeout"))
+        )
+        .unwrap_or_default();
+    assert!(
+        consensus_seconds >= 2.0,
+        "the timeout path must spend at least 2 s in consensus, observed {consensus_seconds} s"
     );
 
     let parked = metrics
