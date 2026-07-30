@@ -539,6 +539,13 @@ pub fn build_metrics_registry() -> Registry {
     );
 
     registry.register(
+        "ingest_fork_consensus_duration_seconds",
+        "Time from the first upstream fork signal until fork consensus, by decision path \
+         (majority/all_active/timeout)",
+        sqd_data_source::metrics::INGEST_FORK_CONSENSUS_DURATION.clone()
+    );
+
+    registry.register(
         "dataset_epoch_failures",
         "Dataset update task failures, by dataset and cause; each one parks ingestion for \
          60s before a full restart. reason=unapplicable_fork is a divergence reaching below \
