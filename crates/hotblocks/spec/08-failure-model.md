@@ -42,10 +42,11 @@ each. "Required response" uses four verbs:
 | # | Fault | Required response |
 |---|---|---|
 | FM-STOR-1 | Slow storage (I/O saturation, maintenance debt) | degrade: writes throttle; bounded by LIV-2 stall budget; reads keep serving; OB-3 signals pressure |
-| FM-STOR-2 | Disk approaching full | alarm at `P-DISK-FLOOR`; degrade per documented policy: reads MUST keep working; writes MAY pause (counts toward stall accounting, exempt from LIV-2 only while below floor); the system MUST NOT corrupt state and MUST provide a documented, bounded recovery path (RS-8 boot maintenance) that does not require scratch space proportional to reclaimable data |
+| FM-STOR-2 | Disk approaching full (node level) | alarm at `P-DISK-FLOOR`; degrade per RS-13: self-healing datasets ring past their floors (gap-mode), promise datasets keep data and MAY pause writes; reads MUST keep working; the system MUST NOT corrupt state and MUST provide a documented, bounded recovery path (RS-14 dataset reset; RS-8 at boot) that does not require scratch space proportional to reclaimable data |
 | FM-STOR-3 | Disk full (hard) | fail-safe: no committed-state corruption (INV-40 holds for the pre-full history); recovery path documented; startup after freeing space restores service |
 | FM-STOR-4 | Detected corruption of stored state (checksum/decode failure) | fail-safe + alarm per dataset (CN-10): the damaged dataset stops, others serve; corruption MUST be detected (never returned as data), and MUST NOT silently disable global functions (e.g. reclamation for everyone) without alarm (GAP-6 adjacent) |
 | FM-STOR-5 | Partial write persisted at crash (torn build) | mask: invisible by CN-2/INV-40; residue collected (RS-10) |
+| FM-STOR-6 | Per-dataset quota exhausted (`P-DISK-QUOTA`) | degrade per RS-13: self-healing policies trim to the effective bound (gap-mode, alarmed); promise policies — or any dataset at the `P-REORG-KEEP` ring floor, or one whose emergency trim itself cannot commit (deletes need COW pages at a full map) — pause writes (alarmed, LIV-2-exempt for that dataset), reads keep serving, other datasets unaffected (FM-3, INV-35/36); recovery: operator action or RS-14 reset |
 
 ## 3. Process faults (FM-PROC)
 
@@ -82,5 +83,5 @@ each. "Required response" uses four verbs:
 - Crash matrix: FM-PROC-* ⇢ INV-40/42, LIV-5/6, CT-2.
 - Source misbehavior corpus: FM-SRC-* ⇢ INV-7/12/13/14/23, LIV-1/9, CT-4.
 - Overload & client abuse: FM-CLI-* ⇢ RP-3/17/18, LIV-3/4/10, CT-6/CT-9.
-- Storage pressure: FM-STOR-* ⇢ INV-41, LIV-2/7, RS-6/8, CT-7.
+- Storage pressure: FM-STOR-* ⇢ INV-41, LIV-2/7, RS-6/8/13/14, CT-7/CT-8.
 - Operator: FM-OP-* ⇢ INV-43/44, CT-5 boot matrix.

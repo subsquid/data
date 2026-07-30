@@ -35,6 +35,10 @@ surface of the binding (13 §5) with bounded cardinality.
   `live_bytes` estimate, `debt_bytes` estimate (logically-deleted-not-reclaimed +
   residue), `disk_bytes`, age of oldest unreclaimed debt, and the current reclamation
   blocker if any (what pins the watermark — GAP-6 made this a first-class question).
+  Under a quota regime (RS-13), additionally per dataset: `disk_bytes` against
+  `P-DISK-QUOTA`, gap-mode as a level *and* onset/exit events, gap width (positions and
+  bytes), clamped-instruction count, and peak live since the last RS-14 reset (the
+  RS-6b ratchet term).
 - **OB-7 (Source health).** Per dataset × source: reachability, current backoff state,
   last successful delivery, rejected-run counts, arbitration disagreement events
   (FM-SRC-6), finality-conflict events (FM-SRC-5).
@@ -45,7 +49,8 @@ surface of the binding (13 §5) with bounded cardinality.
 - **OB-9 (Alarm states).** Distinct, queryable, per-dataset alarm conditions with reason
   codes: integrity conflict (WP-8/FM-SRC-5), RESET occurred (WP §2.6), boot validation
   refusal (INV-43), dataset stopped (CN-10), dual-writer detected (WP-15), disk floor
-  breached (FM-STOR-2). Alarms are edge-triggered events *and* level-readable states.
+  breached (FM-STOR-2), gap-mode entered (RS-13), dataset paused at quota (FM-STOR-6).
+  Alarms are edge-triggered events *and* level-readable states.
 - **OB-10 (Bounded cardinality).** All label spaces are bounded by configuration (datasets,
   sources, classes, outcome enums); unbounded client-derived labels MUST be sanitized
   (e.g. allowlisted client identities, "other" bucket).

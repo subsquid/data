@@ -40,7 +40,7 @@ observability), per dataset unless noted.
 | SLI-5 **Startup-accept time** | process start → first accepted connection (LIV-5a). |
 | SLI-6 **Startup-ready time** | process start → dataset readable (per dataset; LIV-5b), and → all ready. |
 | SLI-7 **Recovery time** | crash → LIV-5 readiness (breakdown by phase via OB-8). |
-| SLI-8 **Space amplification** | `disk_bytes / Σ live_bytes` sampled through churn (RS-6). |
+| SLI-8 **Space amplification** | `disk_bytes / Σ live_bytes` sampled through churn (RS-6); under a high-water engine the per-dataset ratchet reading is `disk_bytes / peak_live_bytes` since the last RS-14 reset (RS-6b). |
 | SLI-9 **Stall time** | longest interval with zero commit progress on any dataset whose source offers data (LIV-2); plus count of intervals > 1 s. |
 | SLI-10 **Error budget** | rate of `INTERNAL` (must be ~0), rate of `OVERLOADED` under nominal load (must be 0), truncation rate (RP-15). |
 | SLI-11 **Head granularity** | distribution of head advancement step size and inter-commit interval at fixed `W-BLOCK-RATE` (batching-induced freshness quantization, WP-3). |
@@ -63,7 +63,7 @@ per row under the named scenario.
 | SLI-5 | S5 | ≤ 3 s, independent of state size | **~35 s refused-connection window observed** (GAP-7) |
 | SLI-6 all-ready | S5 | ≤ 60 s for ~50 datasets of nominal size | ~35 s+ (same incident) |
 | SLI-7 | S5 | SLI-5/6 bounds + no data loss (INV-40) | — |
-| SLI-8 | S4 | ≤ 2.0× steady; bounded monotone convergence after churn bursts | unbounded growth in default config until 2026-07; reclaim path since fixed, bound unmeasured (GAP-6) |
+| SLI-8 | S4 | ≤ 2.0× steady on the RS-6b basis; debt converges after churn bursts (a high-water file returns only via RS-14) | unbounded growth in default config until 2026-07; reclaim path since fixed, bound unmeasured (GAP-6) |
 | SLI-10 INTERNAL | all | 0 per 10⁶ requests | unsupported dialects are classified and counted by CT-5; target not load-tested |
 | SLI-11 | S1 | inter-commit ≤ max(1 s, 1/`W-BLOCK-RATE`); no artificial multi-second quantization at high rates | batch bounds imply stepping (HZ-6) |
 | SLI-12 p99 | S3 | ≤ 2 s + one batch time | — |

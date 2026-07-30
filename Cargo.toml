@@ -11,6 +11,7 @@ members = [
     "crates/hotblocks",
     "crates/hotblocks-harness",
     "crates/hotblocks-retain",
+    "crates/mdbx-spike",
     "crates/polars",
     "crates/primitives",
     "crates/query",

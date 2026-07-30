@@ -243,7 +243,8 @@ paths).
 *Check:* CT-5 boot matrix (config × pre-state).
 
 **INV-44 — Destructive operations are explicit.** [transition]
-Data leaves the store only through: RETAIN per policy, REPLACE of the volatile suffix,
+Data leaves the store only through: RETAIN per policy (the policy bound composed with
+RS-13's space bound), REPLACE of the volatile suffix,
 RESET under its defined triggers (WP-6b / WP-9 / downward retention bound, WP §2.5 /
 operator), or DROP of datasets removed from configuration. Each destructive path is deliberate, documented, and observable (OB-9).
 There is no other code path by which committed blocks disappear. One non-transition

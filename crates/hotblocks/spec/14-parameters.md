@@ -44,10 +44,14 @@ ran against.
 | `P-RETENTION-APPLY` | External instruction → committed trim (WP-11, LIV-11) | prompt (unbounded formally) | ≤ 60 s ⚠ |
 | `P-CLEANUP-PERIOD` | deferred logical-deletion sweep cadence (RS-5) | 10 s | keep |
 | `P-CLEANUP-BACKOFF` | sweep retry after failure | 30 s | keep |
-| `P-SPACE-AMP` | steady-state disk/live amplification bound (RS-6, SLI-8) | bounded since 2026-07 (PR #79: point-delete sweep + compaction); unmeasured (CT-7, GAP-6) | ≤ 2.0× ⚠ |
+| `P-SPACE-AMP` | steady-state disk/live amplification bound (RS-6b ratchet vs peak live, SLI-8) | bounded since 2026-07 (PR #79: point-delete sweep + compaction); unmeasured (CT-7, GAP-6) | ≤ 2.0× ⚠ |
 | `P-SPACE-CONST` | fixed overhead allowance (RS-6) | — | size per deployment ⚠ |
 | `P-RECLAIM-LAG` | logical delete → physical space convergence (LIV-7) | sweep ≤ 10 s + compaction (typically minutes–hours); ≤ 7 d worst case via periodic compaction; interrupted-build residue: ∞ in default config (GAP-6) | ≤ 24 h ⚠ |
-| `P-DISK-FLOOR` | free-disk alarm/degrade threshold (FM-STOR-2) | — | define ⚠ |
+| `P-DISK-FLOOR` | free-disk alarm/degrade threshold, node level (FM-STOR-2) | — | define ⚠ |
+| `P-MAX-BLOCKS` | optional per-dataset position cap for `External` (RS-13) | shipped 2026-07-17 (PR #77 `Api.max_blocks`): soft, whole-chunk trims; clamp and gap-mode silent (GAP-42) | keep; make observable (GAP-42) |
+| `P-DISK-QUOTA` | hard per-dataset disk bound (RS-6a, RS-13, FM-STOR-6) | absent — no byte bound exists (GAP-43) | define per dataset ⚠ |
+| `P-DISK-WATERMARK` | quota fraction at which the RS-13 space bound engages (against occupied storage, not the file — RS-13) | — | ~0.9 ⚠ |
+| `P-REORG-KEEP` | minimum positions behind `next(D)` that RS-13 never trims (INV-14 interaction) | — | per chain, ≥ realistic reorg depth ⚠ |
 | `P-BLOCK-INDEX` | block hash index enabled (DEF-17, RS-12) | off by default (`--block-hash-index`); EVM only | keep |
 | `P-TX-INDEX` | transaction hash index enabled (DEF-17, RS-12) | off by default (`--transaction-hash-index`); EVM only; independent of `P-BLOCK-INDEX` | keep |
 
@@ -64,7 +68,8 @@ ran against.
 | `P-STARTUP-READY(state)` | per-dataset readable bound (LIV-5b, SLI-6) | — | budget curve vs state size ⚠ |
 | `P-SHUTDOWN` | drain-and-exit bound (LIV-12) | `--pre-drain-grace-secs` 25 s + `--drain-timeout-secs` 25 s since 2026-07-21 (GAP-17), bounded in-process at last; the deployment's 5 s grace is still below the sum, so the exit remains SIGKILL until the chart is raised | deployment grace ≥ `pre_drain_grace + drain_timeout`; drain deadline ≥ `P-QUERY-TIME` + `P-SCHED-SLACK` ⚠ |
 | `P-DUR-PROCESS` | commits lost on process crash (CN-6) | 0 | 0 |
-| `P-DUR-SYSTEM` | commit-suffix loss window on host/power failure (CN-6b) | bounded, engine-managed (not explicitly configured) | make explicit ⚠ |
+| `P-DUR-SYSTEM` | commit-suffix loss window on host/power failure (CN-6b) | bounded, engine-managed (not explicitly configured) | make explicit ⚠; under ADR 0002 = `P-DUR-SYNC-CADENCE` + max write-txn hold |
+| `P-DUR-SYNC-CADENCE` | durable-sync period per env under `SafeNoSync` (ADR 0002); also the free-page parking window that sizes the RS-6b burst term | — (engine-managed today) | ~1 s ⚠ |
 | `P-QUIESCENCE` | harness settling period before model comparison (12 §1) | — | 2× `P-CLEANUP-PERIOD` ⚠ |
 | `P-RECOVERY-SETTLE` | post-overload return-to-normal bound (LIV-10) | — | ≤ 30 s ⚠ |
 

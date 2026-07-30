@@ -29,7 +29,9 @@ service catches up at a rate ≥ `P-CATCHUP-RATE` until steady lag is reached.
 Under the LIV-1 preconditions, the interval during which a dataset makes **zero** commit
 progress while its sources offer new data never exceeds `P-STALL-BUDGET`. This bound
 covers all internal causes: storage backpressure, maintenance debt, shared-pool
-contention, deferred-deletion churn.
+contention, deferred-deletion churn. One documented exemption: a dataset paused at its
+own disk quota (FM-STOR-6) — alarmed, per-dataset, and excluded from this budget for
+that dataset only.
 *Why this exists:* multi-minute all-dataset freezes have been observed post-deploy; this
 property is the formal target the stall harness must enforce (GAP-1).
 *Witness:* OB-3 stall detector. *Tests:* CT-7 soak + CT-6 stress.
@@ -62,8 +64,11 @@ alarm (CN-10) without blocking the rest.
 
 **LIV-7 — Reclamation liveness.**
 After logical deletions (retention, forks, drops), physical space converges: within
-`P-RECLAIM-LAG`, disk usage returns to within the amplification bound RS-6. Deletion debt
-(logically deleted but physically present data) is eventually zero in a quiescent system.
+`P-RECLAIM-LAG`, disk usage returns to within the amplification bound RS-6 — in its
+ratchet reading (RS-6b): deletion debt converges; a high-water file does not shrink on
+its own and is excluded, its return path being the dataset storage reset (RS-14).
+Deletion debt (logically deleted but physically present data) is eventually zero in a
+quiescent system.
 *Witness:* OB-6 space accounting. *Tests:* CT-7 (GAP-6).
 
 **LIV-8 — No cross-dataset starvation.**
