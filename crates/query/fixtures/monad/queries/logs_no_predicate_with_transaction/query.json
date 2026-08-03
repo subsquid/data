@@ -1,0 +1,18 @@
+{
+  "type": "evm",
+  "fromBlock": 45216,
+  "toBlock": 45220,
+  "includeAllBlocks": true,
+  "fields": {
+    "block": { "number": true, "hash": true, "parentHash": true, "timestamp": true },
+    "log": {
+      "logIndex": true,
+      "transactionIndex": true,
+      "transactionHash": true,
+      "address": true,
+      "data": true,
+      "topics": true
+    }
+  },
+  "logs": [{ "transaction": true }]
+}
