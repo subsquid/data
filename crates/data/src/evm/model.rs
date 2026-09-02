@@ -45,7 +45,20 @@ pub struct BlockHeader {
     // Tempo-specific block header fields
     pub main_block_general_gas_limit: Option<HexBytes>,
     pub shared_gas_limit: Option<HexBytes>,
-    pub timestamp_millis_part: Option<HexBytes>
+    pub timestamp_millis_part: Option<HexBytes>,
+    // Avalanche-specific block header fields
+    pub block_extra_data: Option<HexBytes>,
+    pub block_gas_cost: Option<HexBytes>,
+    pub ext_data_gas_used: Option<HexBytes>,
+    pub ext_data_hash: Option<HexBytes>,
+    pub min_delay_excess: Option<HexBytes>,
+    pub timestamp_milliseconds: Option<HexBytes>,
+    pub target_exponent: Option<HexBytes>,
+    pub min_price_exponent: Option<HexBytes>,
+    pub settled_height: Option<HexBytes>,
+    pub settled_gas_unix: Option<HexBytes>,
+    pub settled_gas_numerator: Option<HexBytes>,
+    pub settled_excess: Option<HexBytes>,
 }
 
 #[derive(Deserialize)]

@@ -8,9 +8,9 @@ use crate::{
     plan::{ScanBuilder, TableSet},
     query::util::{
         compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request,
-        PredicateBuilder
+        PredicateBuilder,
     },
-    BlockNumber, Plan
+    BlockNumber, Plan,
 };
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
@@ -20,6 +20,7 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
         .add_table("blocks", vec!["number"])
         .set_weight("logs_bloom", 512)
         .set_weight_column("extra_data", "extra_data_size")
+        .set_weight_column("block_extra_data", "block_extra_data_size")
         .set_weight_column("withdrawals", "withdrawals_size");
 
     tables
@@ -45,7 +46,7 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     tables
         .add_table(
             "statediffs",
-            vec!["block_number", "transaction_index", "address", "key"]
+            vec!["block_number", "transaction_index", "address", "key"],
         )
         .set_weight_column("prev", "prev_size")
         .set_weight_column("next", "next_size")
@@ -94,6 +95,18 @@ item_field_selection! {
         main_block_general_gas_limit,
         shared_gas_limit,
         timestamp_millis_part,
+        block_extra_data,
+        block_gas_cost,
+        ext_data_gas_used,
+        ext_data_hash,
+        min_delay_excess,
+        timestamp_milliseconds,
+        target_exponent,
+        min_price_exponent,
+        settled_height,
+        settled_gas_unix,
+        settled_gas_numerator,
+        settled_excess,
     }
 
     project(this) json_object! {{
@@ -127,6 +140,18 @@ item_field_selection! {
         [this.main_block_general_gas_limit]: Value,
         [this.shared_gas_limit]: Value,
         [this.timestamp_millis_part]: Value,
+        [this.block_extra_data]: Value,
+        [this.block_gas_cost]: Value,
+        [this.ext_data_gas_used]: Value,
+        [this.ext_data_hash]: Value,
+        [this.min_delay_excess]: Value,
+        [this.timestamp_milliseconds]: Value,
+        [this.target_exponent]: Value,
+        [this.min_price_exponent]: Value,
+        [this.settled_height]: Value,
+        [this.settled_gas_unix]: Value,
+        [this.settled_gas_numerator]: Value,
+        [this.settled_excess]: Value,
     }}
 }
 
@@ -491,21 +516,21 @@ impl TransactionRequest {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.traces {
             scan.join(
                 "traces",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.state_diffs {
             scan.join(
                 "statediffs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
     }
@@ -539,28 +564,28 @@ impl LogRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.transaction_traces {
             scan.join(
                 "traces",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.transaction_logs {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.transaction_state_diffs {
             scan.join(
                 "statediffs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
     }
@@ -602,7 +627,7 @@ impl TraceRequest {
         p.col_in_list("suicide_address", to_lowercase_list(&self.suicide_address));
         p.col_in_list(
             "suicide_refund_address",
-            to_lowercase_list(&self.suicide_refund_address)
+            to_lowercase_list(&self.suicide_refund_address),
         );
         p.col_in_list("reward_author", to_lowercase_list(&self.reward_author));
 
@@ -627,21 +652,21 @@ impl TraceRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.transaction_logs {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.transaction_traces {
             scan.join(
                 "traces",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.subtraces {
@@ -674,7 +699,7 @@ impl StateDiffRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
     }
