@@ -1,8 +1,10 @@
-use crate::solana::model::{Block, Reward};
-use crate::solana::tables::common::Base58Builder;
 use sqd_array::builder::{Int64Builder, StringBuilder, UInt64Builder, UInt8Builder};
 use sqd_data_core::table_builder;
 
+use crate::solana::{
+    model::{Block, Reward},
+    tables::common::Base58Builder
+};
 
 table_builder! {
     RewardBuilder {
@@ -23,7 +25,6 @@ table_builder! {
         d.options.row_group_size = 5_000;
     }
 }
-
 
 impl RewardBuilder {
     pub fn push(&mut self, block: &Block, row: &Reward) -> anyhow::Result<()> {

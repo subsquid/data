@@ -1,37 +1,25 @@
-use crate::index::RangeList;
-use crate::offsets::Offsets;
 use arrow_buffer::{ArrowNativeType, ToByteSlice};
 
+use crate::{index::RangeList, offsets::Offsets};
 
 mod any;
 
-
 pub use any::*;
-
 
 pub trait BitmaskWriter {
     fn write_slice(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()>;
 
-    fn write_slice_indexes(
-        &mut self,
-        data: &[u8],
-        indexes: impl Iterator<Item=usize> + Clone
-    ) -> anyhow::Result<()>;
+    fn write_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item = usize> + Clone) -> anyhow::Result<()>;
 
-    fn write_slice_ranges(
-        &mut self,
-        data: &[u8],
-        ranges: &mut impl RangeList
-    ) -> anyhow::Result<()>;
+    fn write_slice_ranges(&mut self, data: &[u8], ranges: &mut impl RangeList) -> anyhow::Result<()>;
 
     fn write_many(&mut self, val: bool, count: usize) -> anyhow::Result<()>;
 }
 
-
 pub trait NativeWriter {
     fn write<T: ToByteSlice>(&mut self, value: T) -> anyhow::Result<()>;
-    
-    fn write_iter<T: ArrowNativeType>(&mut self, values: impl Iterator<Item=T>) -> anyhow::Result<()>;
+
+    fn write_iter<T: ArrowNativeType>(&mut self, values: impl Iterator<Item = T>) -> anyhow::Result<()>;
 
     fn write_slice<T: ArrowNativeType>(&mut self, values: &[T]) -> anyhow::Result<()>;
 
@@ -48,25 +36,16 @@ pub trait NativeWriter {
     ) -> anyhow::Result<()>;
 }
 
-
 pub trait OffsetsWriter {
     fn write_slice(&mut self, offsets: Offsets<'_>) -> anyhow::Result<()>;
 
-    fn write_slice_indexes(
-        &mut self,
-        offsets: Offsets<'_>,
-        indexes: impl Iterator<Item = usize>
-    ) -> anyhow::Result<()>;
+    fn write_slice_indexes(&mut self, offsets: Offsets<'_>, indexes: impl Iterator<Item = usize>)
+        -> anyhow::Result<()>;
 
-    fn write_slice_ranges(
-        &mut self,
-        offsets: Offsets<'_>,
-        ranges: &mut impl RangeList
-    ) -> anyhow::Result<()>;
+    fn write_slice_ranges(&mut self, offsets: Offsets<'_>, ranges: &mut impl RangeList) -> anyhow::Result<()>;
 
     fn write_len(&mut self, len: usize) -> anyhow::Result<()>;
 }
-
 
 pub trait Writer {
     type Bitmask: BitmaskWriter;
@@ -75,12 +54,11 @@ pub trait Writer {
     type Offset: OffsetsWriter;
 }
 
-
 pub trait ArrayWriter: Sized {
     type Writer: Writer;
 
     fn bitmask(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Bitmask;
-    
+
     fn nullmask(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Nullmask;
 
     fn native(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Native;
@@ -89,21 +67,16 @@ pub trait ArrayWriter: Sized {
 
     #[inline]
     fn shift(&mut self, pos: usize) -> impl ArrayWriter<Writer = Self::Writer> + '_ {
-        ArrayWriterView {
-            builder: self,
-            pos
-        }
+        ArrayWriterView { builder: self, pos }
     }
 }
-
 
 struct ArrayWriterView<'a, T> {
     builder: &'a mut T,
     pos: usize
 }
 
-
-impl <'a, T: ArrayWriter> ArrayWriter for ArrayWriterView<'a, T> {
+impl<'a, T: ArrayWriter> ArrayWriter for ArrayWriterView<'a, T> {
     type Writer = T::Writer;
 
     #[inline]
@@ -125,7 +98,7 @@ impl <'a, T: ArrayWriter> ArrayWriter for ArrayWriterView<'a, T> {
     fn offset(&mut self, buf: usize) -> &mut <Self::Writer as Writer>::Offset {
         self.builder.offset(self.pos + buf)
     }
-    
+
     #[inline]
     fn shift(&mut self, pos: usize) -> impl ArrayWriter<Writer = Self::Writer> + '_ {
         ArrayWriterView {
@@ -134,7 +107,6 @@ impl <'a, T: ArrayWriter> ArrayWriter for ArrayWriterView<'a, T> {
         }
     }
 }
-
 
 pub trait WriterFactory {
     type Writer: Writer;

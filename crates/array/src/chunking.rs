@@ -1,13 +1,11 @@
 use crate::util::get_offset_position;
 
-
 #[derive(Clone, Default, Debug)]
 pub struct ChunkRange {
     pub chunk: u32,
     pub offset: u32,
     pub len: u32
 }
-
 
 impl ChunkRange {
     pub fn new(chunk: usize, offset: usize, len: usize) -> Self {
@@ -17,7 +15,7 @@ impl ChunkRange {
             len: len as u32
         }
     }
-    
+
     #[inline]
     pub fn chunk_index(&self) -> usize {
         self.chunk as usize
@@ -27,40 +25,27 @@ impl ChunkRange {
     pub fn offset_index(&self) -> usize {
         self.offset as usize
     }
-    
+
     #[inline]
     pub fn len_index(&self) -> usize {
         self.len as usize
     }
-    
-    pub fn build_abs_order_list(
-        chunk_offsets: &[usize],
-        order: &[usize]
-    ) -> Vec<Self> 
-    {
+
+    pub fn build_abs_order_list(chunk_offsets: &[usize], order: &[usize]) -> Vec<Self> {
         Self::build_order_list(chunk_offsets, order, true)
     }
 
-    pub fn build_rel_order_list(
-        chunk_offsets: &[usize],
-        order: &[usize]
-    ) -> Vec<Self>
-    {
+    pub fn build_rel_order_list(chunk_offsets: &[usize], order: &[usize]) -> Vec<Self> {
         Self::build_order_list(chunk_offsets, order, false)
     }
 
-    fn build_order_list(
-        chunk_offsets: &[usize],
-        order: &[usize],
-        is_abs: bool
-    ) -> Vec<Self>
-    {
+    fn build_order_list(chunk_offsets: &[usize], order: &[usize], is_abs: bool) -> Vec<Self> {
         let mut chunks = Vec::new();
 
         let mut last = ChunkRange {
             chunk: chunk_offsets.len() as u32 - 1, // never existing chunk
             offset: 0,
-            len: 0,
+            len: 0
         };
 
         let mut prev = 0;
@@ -87,12 +72,11 @@ impl ChunkRange {
     }
 }
 
-
 #[cfg(test)]
 mod test {
-    use crate::chunking::ChunkRange;
-    use crate::util::build_offsets;
     use proptest::prelude::*;
+
+    use crate::{chunking::ChunkRange, util::build_offsets};
 
     #[test]
     fn test_abs_order_list_building() {

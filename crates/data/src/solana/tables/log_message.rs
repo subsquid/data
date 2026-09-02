@@ -1,7 +1,10 @@
-use crate::solana::model::{Block, LogMessage};
-use crate::solana::tables::common::{Base58Builder, InstructionAddressListBuilder};
 use sqd_array::builder::{StringBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
+
+use crate::solana::{
+    model::{Block, LogMessage},
+    tables::common::{Base58Builder, InstructionAddressListBuilder}
+};
 
 table_builder! {
     LogMessageBuilder {
@@ -26,7 +29,6 @@ table_builder! {
         d.options.row_group_size = 5_000;
     }
 }
-
 
 impl LogMessageBuilder {
     pub fn push(&mut self, block: &Block, row: &LogMessage) -> anyhow::Result<()> {

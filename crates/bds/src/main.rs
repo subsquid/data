@@ -4,18 +4,16 @@ mod cassandra;
 mod chain;
 mod chain_watch;
 mod cmd;
+mod data_source;
 mod ingest;
 mod util;
-mod data_source;
 
-
-use clap::Parser;
 use std::io::IsTerminal;
 
+use clap::Parser;
 
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
 
 #[derive(clap::Parser)]
 struct CLI {
@@ -23,21 +21,17 @@ struct CLI {
     command: Command
 }
 
-
 #[derive(clap::Subcommand)]
 enum Command {
     /// Run data ingestion
     Ingest(cmd::ingest::Args)
 }
 
-
 fn main() -> anyhow::Result<()> {
     let cli = CLI::parse();
 
-    let env_filter = tracing_subscriber::EnvFilter::builder().parse_lossy(
-        std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
-            .unwrap_or("info".to_string()),
-    );
+    let env_filter = tracing_subscriber::EnvFilter::builder()
+        .parse_lossy(std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV).unwrap_or("info".to_string()));
 
     if std::io::stdout().is_terminal() {
         tracing_subscriber::fmt()
@@ -52,10 +46,8 @@ fn main() -> anyhow::Result<()> {
             .with_current_span(false)
             .init();
     }
-    
-    match cli.command { 
-        Command::Ingest(args) => {
-            cmd::ingest::run(args)
-        } 
+
+    match cli.command {
+        Command::Ingest(args) => cmd::ingest::run(args)
     }
 }

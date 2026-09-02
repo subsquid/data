@@ -4,7 +4,6 @@ use sqd_data_core::table_builder;
 
 use super::common::HexBytesBuilder;
 
-
 table_builder! {
     StateDiffBuilder {
         block_number: Int32Builder,

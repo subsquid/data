@@ -15,5 +15,12 @@ sqd-data-core = { path = "../data-core" }
 sqd-dataset = { path = "../dataset" }
 sqd-primitives = { path = "../primitives" }
 
+[dev-dependencies]
+libc = "0.2"
+
+[[bench]]
+name = "flush_spill"
+harness = false
+
 [lints]
 workspace = true

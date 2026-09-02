@@ -3,10 +3,9 @@ mod block;
 
 pub use action::*;
 pub use block::*;
-
-use super::model::Block;
 use sqd_data_core::chunk_builder;
 
+use super::model::Block;
 
 chunk_builder! {
     HyperliquidReplicaCmdsChunkBuilder {
@@ -14,7 +13,6 @@ chunk_builder! {
         actions: ActionBuilder,
     }
 }
-
 
 impl sqd_data_core::BlockChunkBuilder for HyperliquidReplicaCmdsChunkBuilder {
     type Block = Block;
@@ -29,4 +27,3 @@ impl sqd_data_core::BlockChunkBuilder for HyperliquidReplicaCmdsChunkBuilder {
         Ok(())
     }
 }
-

@@ -1,7 +1,5 @@
-use sqd_array::builder::UInt32Builder;
-use sqd_array::slice::AsSlice;
+use sqd_array::{builder::UInt32Builder, slice::AsSlice};
 use sqd_data_core::{table_builder, Downcast};
-
 
 table_builder! {
     TableBuilder {
@@ -10,7 +8,6 @@ table_builder! {
 
     description(d) {}
 }
-
 
 #[test]
 fn test_processor_reuse() -> anyhow::Result<()> {
@@ -22,15 +19,15 @@ fn test_processor_reuse() -> anyhow::Result<()> {
     }
 
     processor.push_batch(&table_builder.as_slice())?;
-    
+
     let mut prepared = processor.finish()?;
     let _ = prepared.read_record_batch(0, prepared.num_rows())?;
-    
+
     processor = prepared.into_processor()?;
     processor.push_batch(&table_builder.as_slice())?;
     prepared = processor.finish()?;
 
     let _records = prepared.read_record_batch(0, prepared.num_rows())?;
-    
+
     Ok(())
 }

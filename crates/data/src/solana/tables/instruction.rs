@@ -1,14 +1,17 @@
-use crate::solana::model::{AccountIndex, Block, Instruction};
-use crate::solana::tables::common::{AccountListBuilder, Base58Builder, InstructionAddressListBuilder};
 use anyhow::Context;
-use sqd_array::builder::{BooleanBuilder, FixedSizeBinaryBuilder, StringBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder};
+use sqd_array::builder::{
+    BooleanBuilder, FixedSizeBinaryBuilder, StringBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder
+};
 use sqd_bloom_filter::BloomFilter;
 use sqd_data_core::table_builder;
 
+use crate::solana::{
+    model::{AccountIndex, Block, Instruction},
+    tables::common::{AccountListBuilder, Base58Builder, InstructionAddressListBuilder}
+};
 
 const ACCOUNT_BLOOM_BYTES: usize = 64;
 const ACCOUNT_BLOOM_NUM_HASHES: usize = 7;
-
 
 table_builder! {
     InstructionBuilder {
@@ -113,7 +116,6 @@ table_builder! {
     }
 }
 
-
 impl InstructionBuilder {
     pub fn push(&mut self, block: &Block, row: &Instruction) -> anyhow::Result<()> {
         self.block_number.append(block.header.number);
@@ -127,22 +129,38 @@ impl InstructionBuilder {
         self.program_id.append(block.get_account(row.program_id)?);
         self.data.append(&row.data);
         self.data_size.append(row.data.len() as u64);
-        self.a0.append_option(row.accounts.first().map(|i| block.get_account(*i)).transpose()?);
-        self.a1.append_option(row.accounts.get(1).map(|i| block.get_account(*i)).transpose()?);
-        self.a2.append_option(row.accounts.get(2).map(|i| block.get_account(*i)).transpose()?);
-        self.a3.append_option(row.accounts.get(3).map(|i| block.get_account(*i)).transpose()?);
-        self.a4.append_option(row.accounts.get(4).map(|i| block.get_account(*i)).transpose()?);
-        self.a5.append_option(row.accounts.get(5).map(|i| block.get_account(*i)).transpose()?);
-        self.a6.append_option(row.accounts.get(6).map(|i| block.get_account(*i)).transpose()?);
-        self.a7.append_option(row.accounts.get(7).map(|i| block.get_account(*i)).transpose()?);
-        self.a8.append_option(row.accounts.get(8).map(|i| block.get_account(*i)).transpose()?);
-        self.a9.append_option(row.accounts.get(9).map(|i| block.get_account(*i)).transpose()?);
-        self.a10.append_option(row.accounts.get(10).map(|i| block.get_account(*i)).transpose()?);
-        self.a11.append_option(row.accounts.get(11).map(|i| block.get_account(*i)).transpose()?);
-        self.a12.append_option(row.accounts.get(12).map(|i| block.get_account(*i)).transpose()?);
-        self.a13.append_option(row.accounts.get(13).map(|i| block.get_account(*i)).transpose()?);
-        self.a14.append_option(row.accounts.get(14).map(|i| block.get_account(*i)).transpose()?);
-        self.a15.append_option(row.accounts.get(15).map(|i| block.get_account(*i)).transpose()?);
+        self.a0
+            .append_option(row.accounts.first().map(|i| block.get_account(*i)).transpose()?);
+        self.a1
+            .append_option(row.accounts.get(1).map(|i| block.get_account(*i)).transpose()?);
+        self.a2
+            .append_option(row.accounts.get(2).map(|i| block.get_account(*i)).transpose()?);
+        self.a3
+            .append_option(row.accounts.get(3).map(|i| block.get_account(*i)).transpose()?);
+        self.a4
+            .append_option(row.accounts.get(4).map(|i| block.get_account(*i)).transpose()?);
+        self.a5
+            .append_option(row.accounts.get(5).map(|i| block.get_account(*i)).transpose()?);
+        self.a6
+            .append_option(row.accounts.get(6).map(|i| block.get_account(*i)).transpose()?);
+        self.a7
+            .append_option(row.accounts.get(7).map(|i| block.get_account(*i)).transpose()?);
+        self.a8
+            .append_option(row.accounts.get(8).map(|i| block.get_account(*i)).transpose()?);
+        self.a9
+            .append_option(row.accounts.get(9).map(|i| block.get_account(*i)).transpose()?);
+        self.a10
+            .append_option(row.accounts.get(10).map(|i| block.get_account(*i)).transpose()?);
+        self.a11
+            .append_option(row.accounts.get(11).map(|i| block.get_account(*i)).transpose()?);
+        self.a12
+            .append_option(row.accounts.get(12).map(|i| block.get_account(*i)).transpose()?);
+        self.a13
+            .append_option(row.accounts.get(13).map(|i| block.get_account(*i)).transpose()?);
+        self.a14
+            .append_option(row.accounts.get(14).map(|i| block.get_account(*i)).transpose()?);
+        self.a15
+            .append_option(row.accounts.get(15).map(|i| block.get_account(*i)).transpose()?);
 
         if let Some(accounts) = row.accounts.get(16..) {
             for account in accounts {
@@ -173,7 +191,8 @@ impl InstructionBuilder {
 
         macro_rules! desc {
             ($ty:ty) => {
-                data.get(..size_of::<$ty>()).map(|slice| <$ty>::from_be_bytes(slice.try_into().unwrap()))
+                data.get(..size_of::<$ty>())
+                    .map(|slice| <$ty>::from_be_bytes(slice.try_into().unwrap()))
             };
         }
 

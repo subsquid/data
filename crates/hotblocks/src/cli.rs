@@ -1,13 +1,21 @@
-use crate::data_service::{DataService, DataServiceRef};
-use crate::dataset_config::{DatasetConfig, RetentionConfig};
-use crate::metrics::DatasetMetricsCollector;
-use crate::query::{QueryService, QueryServiceRef};
-use crate::types::DBRef;
+use std::{
+    collections::{BTreeSet, HashSet},
+    sync::Arc,
+    time::Instant
+};
+
 use anyhow::Context;
 use clap::Parser;
 use sqd_storage::db::{DatabaseSettings, DatasetId};
-use std::collections::{BTreeSet, HashSet};
-use std::sync::Arc;
+use tracing::info;
+
+use crate::{
+    data_service::{DataService, DataServiceRef},
+    dataset_config::{DatasetConfig, RetentionConfig},
+    metrics::{DatasetMetricsCollector, RocksDbCollector},
+    query::{QueryService, QueryServiceRef},
+    types::DBRef
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -40,6 +48,16 @@ pub struct CLI {
     #[arg(long, default_value = "3000")]
     pub port: u16,
 
+    /// After SIGTERM, keep serving for this long while `/ready` reports 503, so the
+    /// orchestrator withdraws our endpoint before any connection closes.
+    #[arg(long, value_name = "SECS", default_value = "25")]
+    pub pre_drain_grace_secs: u64,
+
+    /// Hard cap on the drain that follows. The orchestrator's kill timeout must exceed
+    /// `pre_drain_grace + drain_timeout`.
+    #[arg(long, value_name = "SECS", default_value = "25")]
+    pub drain_timeout_secs: u64,
+
     /// Enable rocksdb stats collection
     #[arg(long)]
     pub rocksdb_stats: bool,
@@ -47,10 +65,91 @@ pub struct CLI {
     #[arg(long)]
     pub rocksdb_disable_direct_io: bool,
 
+    /// Max size of a single RocksDB info log file in MB (0 - unlimited)
+    #[arg(long, value_name = "MB", default_value = "10")]
+    pub rocksdb_max_log_file_size: usize,
+
+    /// Max number of RocksDB info log files to keep
+    #[arg(long, value_name = "N", default_value = "10")]
+    pub rocksdb_keep_log_file_num: usize,
+
+    /// Concurrent RocksDB background flush + compaction jobs.
+    /// Defaults to the core count, clamped to 2..=8.
+    #[arg(long, value_name = "N")]
+    pub rocksdb_max_background_jobs: Option<usize>,
+
+    /// `CF_TABLES` memtable size. RocksDB's 64 MB default flushes small L0 files
+    /// continuously; the resulting compaction churn is most of the device write
+    /// bill, and writes stop whenever the flush of one buffer has not finished
+    /// before the next fills (measured: `immutable_memtables` pegged at its
+    /// ceiling wherever writes stopped).
+    #[arg(long, value_name = "MB", default_value = "64")]
+    pub rocksdb_write_buffer_mb: usize,
+
+    /// `CF_TABLES` memtables before writes stop. The default 2 leaves exactly one
+    /// buffer of headroom while its predecessor flushes.
+    #[arg(long, value_name = "N", default_value = "2")]
+    pub rocksdb_max_write_buffers: i32,
+
+    /// Target size of the LSM base level. With ~60 GB live and the default
+    /// multiplier of 10, this decides how many levels deep the ladder runs, and
+    /// a byte is rewritten once per level it descends. The default 256 MB is
+    /// smaller than one 512 MB memtable's flush, so L0 currently arrives larger
+    /// than the level it merges into. Unmeasured at full data size; validate boot
+    /// time and compaction behavior before raising it.
+    #[arg(long, value_name = "MB", default_value = "256")]
+    pub rocksdb_level_base_mb: usize,
+
+    /// Rewrite every table SST older than this, collecting dead data that never made a file
+    /// tombstone-dense enough for the deletion collector. Lower means faster reclaim and
+    /// proportionally more write amplification. 0 disables it, leaving RocksDB's 30-day
+    /// `ttl` as the only backstop.
+    #[arg(long, value_name = "SECS", default_value_t = sqd_storage::db::DEFAULT_PERIODIC_COMPACTION_SECS)]
+    pub rocksdb_periodic_compaction_secs: u64,
+
+    /// Reclaim dead disk at startup: purge orphaned dirty-table markers, then unlink whole
+    /// SST files below the live-table watermark. Off by default -- the unlink ignores
+    /// snapshots, so it is only safe before any query exists. Use the `reclaim-measure`
+    /// binary (shipped in this image) to size the win first.
+    ///
+    /// Note that this runs *after* the database opens, and opening replays the WAL and
+    /// flushes it to L0. A volume at literally zero free bytes needs a few hundred MB
+    /// cleared by hand before the process can get far enough to reclaim anything.
+    #[arg(long)]
+    pub startup_disk_reclaim: bool,
+
+    /// Index block hashes of newly ingested chunks, enabling
+    /// `GET /datasets/{id}/hashes/{hash}/block`. EVM datasets only.
+    ///
+    /// No backfill: pre-existing chunks stay unresolvable until they roll off
+    /// via retention. Entries drain as chunks are pruned after switching off.
+    #[arg(long)]
+    pub block_hash_index: bool,
+
+    /// Index transaction hashes of newly ingested chunks, enabling
+    /// `GET /datasets/{id}/hashes/{hash}/transaction`. EVM datasets only.
+    ///
+    /// Independent of `--block-hash-index` and off by default because this
+    /// index has one entry per transaction. No backfill; entries drain through
+    /// retention after switching it off.
+    #[arg(long)]
+    pub transaction_hash_index: bool,
+
+    /// Chunks that never grew past this many buffered bytes are prepared in
+    /// memory at flush; larger ones spill to temp files while accumulating.
+    /// 0 forces the temp-file path for every chunk.
+    #[arg(
+        long,
+        value_name = "BYTES",
+        env = "SQD_SPILL_BOUND_BYTES",
+        default_value_t = crate::dataset_controller::DEFAULT_SPILL_BOUND_BYTES
+    )]
+    pub spill_bound_bytes: usize,
+
     /// Known client IDs for metrics labeling. Client IDs not in this list
     /// will be reported as "unknown" to prevent metrics cardinality abuse.
     #[arg(long = "known-client", value_name = "ID")]
-    pub known_clients: Vec<String>,
+    pub known_clients: Vec<String>
 }
 
 pub struct App {
@@ -59,34 +158,54 @@ pub struct App {
     pub query_service: QueryServiceRef,
     pub api_controlled_datasets: BTreeSet<DatasetId>,
     pub metrics_registry: prometheus_client::registry::Registry,
-    pub known_clients: HashSet<String>,
+    pub known_clients: HashSet<String>
 }
 
 impl CLI {
     pub async fn build_app(&self) -> anyhow::Result<App> {
-        let datasets = DatasetConfig::read_config_file(&self.datasets)
-            .context("failed to read datasets config")?;
+        let datasets = DatasetConfig::read_config_file(&self.datasets).context("failed to read datasets config")?;
 
-        let db = DatabaseSettings::default()
+        let mut settings = DatabaseSettings::default()
             .with_data_cache_size(self.data_cache_size)
             .with_rocksdb_stats(self.rocksdb_stats)
             .with_direct_io(!self.rocksdb_disable_direct_io)
+            .with_max_log_file_size(self.rocksdb_max_log_file_size)
+            .with_keep_log_file_num(self.rocksdb_keep_log_file_num)
+            .with_periodic_compaction_secs(self.rocksdb_periodic_compaction_secs)
+            .with_write_buffer_mb(self.rocksdb_write_buffer_mb)
+            .with_max_write_buffers(self.rocksdb_max_write_buffers)
+            .with_level_base_mb(self.rocksdb_level_base_mb)
+            .with_block_hash_index(self.block_hash_index)
+            .with_transaction_hash_index(self.transaction_hash_index);
+
+        if let Some(jobs) = self.rocksdb_max_background_jobs {
+            settings = settings.with_max_background_jobs(jobs);
+        }
+
+        let db_open_started = Instant::now();
+        info!("opening RocksDB");
+        let db = settings
             .open(&self.database_dir)
             .map(Arc::new)
             .context("failed to open rocksdb database")?;
+        info!(
+            elapsed_ms = db_open_started.elapsed().as_millis() as u64,
+            "RocksDB opened"
+        );
 
         let mut metrics_registry = crate::metrics::build_metrics_registry();
         metrics_registry.register_collector(Box::new(DatasetMetricsCollector {
-            db: db.clone(), 
-            datasets: datasets.keys().copied().collect(),
+            db: db.clone(),
+            datasets: datasets.keys().copied().collect()
         }));
+        metrics_registry.register_collector(Box::new(RocksDbCollector { db: db.clone() }));
 
         let api_controlled_datasets = datasets
             .iter()
-            .filter_map(|(id, cfg)| (cfg.retention_strategy == RetentionConfig::Api).then_some(*id))
+            .filter_map(|(id, cfg)| matches!(cfg.retention_strategy, RetentionConfig::Api { .. }).then_some(*id))
             .collect();
 
-        let data_service = DataService::start(db.clone(), datasets)
+        let data_service = DataService::start(db.clone(), datasets, self.startup_disk_reclaim, self.spill_bound_bytes)
             .await
             .map(Arc::new)?;
 
@@ -115,7 +234,7 @@ impl CLI {
             query_service,
             api_controlled_datasets,
             metrics_registry,
-            known_clients,
+            known_clients
         })
     }
 }

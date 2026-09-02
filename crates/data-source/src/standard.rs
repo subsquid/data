@@ -1,17 +1,13 @@
-use crate::types::{DataEvent, DataSource};
+use std::{future::Future, pin::Pin, task::Poll, time::Duration};
+
 use anyhow::Context;
-use futures::future::BoxFuture;
-use futures::stream::BoxStream;
-use futures::{FutureExt, Stream, StreamExt};
+use futures::{future::BoxFuture, stream::BoxStream, FutureExt, Stream, StreamExt};
 use sqd_data_client::{BlockStreamRequest, BlockStreamResponse, DataClient};
 use sqd_primitives::{Block, BlockNumber, BlockRef};
-use std::future::Future;
-use std::pin::Pin;
-use std::task::Poll;
-use std::time::Duration;
-use tokio::time::Sleep;
-use tracing::warn;
+use tokio::time::{Instant, Sleep};
+use tracing::{info, warn};
 
+use crate::types::{DataEvent, DataSource};
 
 struct Endpoint<C: DataClient> {
     client: C,
@@ -19,7 +15,6 @@ struct Endpoint<C: DataClient> {
     error_counter: usize,
     last_committed_block: Option<BlockNumber>
 }
-
 
 enum EndpointState<B> {
     Ready,
@@ -38,12 +33,10 @@ enum EndpointState<B> {
     Backoff(Pin<Box<Sleep>>)
 }
 
-
 pub struct StandardDataSource<C: DataClient, F> {
     endpoints: Vec<Endpoint<C>>,
     state: DataSourceState<F>
 }
-
 
 struct DataSourceState<F> {
     parse: F,
@@ -51,16 +44,12 @@ struct DataSourceState<F> {
     position: BlockStreamRequest,
     position_is_canonical: bool,
     max_seen_finalized_block: BlockNumber,
-    fork_consensus_timeout: Option<Pin<Box<Sleep>>>
+    fork_consensus_timeout: Option<Pin<Box<Sleep>>>,
+    fork_consensus_started_at: Option<Instant>
 }
 
-
 impl<F> DataSourceState<F> {
-    fn poll_endpoint<B, C>(
-        &mut self,
-        ep: &mut Endpoint<C>,
-        cx: &mut std::task::Context<'_>
-    ) -> Poll<DataEvent<B>>
+    fn poll_endpoint<B, C>(&mut self, ep: &mut Endpoint<C>, cx: &mut std::task::Context<'_>) -> Poll<DataEvent<B>>
     where
         B: Block,
         C: DataClient,
@@ -73,89 +62,70 @@ impl<F> DataSourceState<F> {
                         req: self.position.clone(),
                         future: ep.client.stream(self.position.clone())
                     }
-                },
-                EndpointState::Req { req, future } => {
-                    match future.poll_unpin(cx) {
-                        Poll::Ready(Ok(BlockStreamResponse::Stream {
-                           finalized_head,
-                           blocks
-                        })) => {
-                            let finalized_head_updated = self.on_new_finalized_head(
-                                finalized_head.as_ref()
-                            );
-                            
-                            ep.error_counter = 0;
-                            ep.state = EndpointState::Stream {
-                                finalized_head: finalized_head.as_ref().map_or(0, |b| b.number),
-                                blocks
-                            };
+                }
+                EndpointState::Req { req, future } => match future.poll_unpin(cx) {
+                    Poll::Ready(Ok(BlockStreamResponse::Stream { finalized_head, blocks })) => {
+                        let finalized_head_updated = self.on_new_finalized_head(finalized_head.as_ref());
 
-                            if finalized_head_updated {
-                                return Poll::Ready(DataEvent::FinalizedHead(
-                                    finalized_head.unwrap()
-                                ))
-                            }
-                        },
-                        Poll::Ready(Ok(BlockStreamResponse::Fork(prev_blocks))) => {
-                            ep.error_counter = 0;
-                            ep.state = EndpointState::Fork {
-                                req: req.clone(),
-                                prev_blocks
-                            };
-                        },
-                        Poll::Ready(Err(err)) => ep.on_error(err),
-                        Poll::Pending => return Poll::Pending
+                        ep.error_counter = 0;
+                        ep.state = EndpointState::Stream {
+                            finalized_head: finalized_head.as_ref().map_or(0, |b| b.number),
+                            blocks
+                        };
+
+                        if finalized_head_updated {
+                            return Poll::Ready(DataEvent::FinalizedHead(finalized_head.unwrap()));
+                        }
                     }
+                    Poll::Ready(Ok(BlockStreamResponse::Fork(prev_blocks))) => {
+                        let req = req.clone();
+                        self.fork_consensus_started_at.get_or_insert_with(Instant::now);
+                        ep.on_fork_signal(req.first_block, &prev_blocks);
+                        ep.error_counter = 0;
+                        ep.state = EndpointState::Fork { req, prev_blocks };
+                    }
+                    Poll::Ready(Err(err)) => ep.on_error(err),
+                    Poll::Pending => return Poll::Pending
                 },
-                EndpointState::Stream {
-                    finalized_head,
-                    blocks
-                } => {
-                    match blocks.poll_next_unpin(cx) {
-                        Poll::Ready(None) => {
-                            ep.error_counter = 0;
-                            ep.state = EndpointState::Ready;
-                            let prev_block = self.position.first_block.saturating_sub(1);
-                            if prev_block >= self.max_seen_finalized_block && ep.last_committed_block == Some(prev_block)  {
-                                return Poll::Ready(DataEvent::MaybeOnHead)
-                            }
-                        },
-                        Poll::Ready(Some(Ok(new_block))) => {
-                            match (self.parse)(new_block).context("failed to parse a block") {
-                                Ok(block) => {
-                                    ep.error_counter = 0;
-                                    if block.number() >= self.position.first_block {
-                                        let is_final = *finalized_head >= block.number();
-                                        if self.accept_new_block(&block, is_final) {
-                                            ep.last_committed_block = Some(block.number());
-                                            return Poll::Ready(DataEvent::Block {
-                                                block,
-                                                is_final
-                                            })
-                                        } else {
-                                            ep.state = EndpointState::Ready;
-                                        }
-                                    }
-                                },
-                                Err(err) => ep.on_error(err),
-                            }
-                        },
-                        Poll::Ready(Some(Err(err))) => ep.on_error(err),
-                        Poll::Pending => return Poll::Pending
+                EndpointState::Stream { finalized_head, blocks } => match blocks.poll_next_unpin(cx) {
+                    Poll::Ready(None) => {
+                        ep.error_counter = 0;
+                        ep.state = EndpointState::Ready;
+                        let prev_block = self.position.first_block.saturating_sub(1);
+                        if prev_block >= self.max_seen_finalized_block && ep.last_committed_block == Some(prev_block) {
+                            return Poll::Ready(DataEvent::MaybeOnHead);
+                        }
                     }
+                    Poll::Ready(Some(Ok(new_block))) => {
+                        match (self.parse)(new_block).context("failed to parse a block") {
+                            Ok(block) => {
+                                ep.error_counter = 0;
+                                if block.number() >= self.position.first_block {
+                                    let is_final = *finalized_head >= block.number();
+                                    if self.accept_new_block(&block, is_final) {
+                                        ep.last_committed_block = Some(block.number());
+                                        return Poll::Ready(DataEvent::Block { block, is_final });
+                                    } else {
+                                        ep.state = EndpointState::Ready;
+                                    }
+                                }
+                            }
+                            Err(err) => ep.on_error(err)
+                        }
+                    }
+                    Poll::Ready(Some(Err(err))) => ep.on_error(err),
+                    Poll::Pending => return Poll::Pending
                 },
                 EndpointState::Fork { req, .. } => {
                     if req == &self.position {
-                        return Poll::Pending
+                        return Poll::Pending;
                     } else {
                         ep.state = EndpointState::Ready;
                     }
-                },
-                EndpointState::Backoff(sleep) => {
-                    match sleep.as_mut().poll(cx) {
-                        Poll::Ready(_) => ep.state = EndpointState::Ready,
-                        Poll::Pending => return Poll::Pending
-                    }
+                }
+                EndpointState::Backoff(sleep) => match sleep.as_mut().poll(cx) {
+                    Poll::Ready(_) => ep.state = EndpointState::Ready,
+                    Poll::Pending => return Poll::Pending
                 }
             }
         }
@@ -166,7 +136,7 @@ impl<F> DataSourceState<F> {
 
         if let Some(parent_hash) = self.position.parent_block_hash.as_mut() {
             if block.parent_hash() != parent_hash {
-                return false
+                return false;
             }
             parent_hash.clear();
             parent_hash.push_str(block.hash());
@@ -175,7 +145,7 @@ impl<F> DataSourceState<F> {
         }
         self.position.first_block = block.number() + 1;
         self.position_is_canonical = true;
-        self.fork_consensus_timeout = None;
+        self.reset_fork_consensus();
 
         if is_final {
             set_head(&mut self.finalized_head, block.number(), block.hash());
@@ -184,30 +154,31 @@ impl<F> DataSourceState<F> {
         true
     }
 
-    fn on_new_finalized_head(&mut self, new_head: Option<&BlockRef>) -> bool {
-        let Some(new_head) = new_head else {
-            return false
-        };
+    fn reset_fork_consensus(&mut self) {
+        self.fork_consensus_timeout = None;
+        self.fork_consensus_started_at = None;
+    }
 
-        self.max_seen_finalized_block = std::cmp::max(
-            self.max_seen_finalized_block,
-            new_head.number
-        );
+    fn on_new_finalized_head(&mut self, new_head: Option<&BlockRef>) -> bool {
+        let Some(new_head) = new_head else { return false };
+
+        self.max_seen_finalized_block = std::cmp::max(self.max_seen_finalized_block, new_head.number);
 
         if self.position.first_block == 0 {
-            return false
+            return false;
         }
 
         let Some(current_parent_hash) = self.position.parent_block_hash.as_ref() else {
-            return false
+            return false;
         };
 
-        let is_behind = self.finalized_head
+        let is_behind = self
+            .finalized_head
             .as_ref()
             .map_or(false, |c| c.number >= new_head.number);
 
         if is_behind {
-            return false
+            return false;
         }
 
         let mut new_number = new_head.number;
@@ -215,7 +186,7 @@ impl<F> DataSourceState<F> {
 
         if new_head.number >= self.position.first_block {
             if !self.position_is_canonical {
-                return false
+                return false;
             }
             new_number = self.position.first_block - 1;
             new_hash = current_parent_hash;
@@ -226,7 +197,6 @@ impl<F> DataSourceState<F> {
         true
     }
 }
-
 
 fn set_head(head: &mut Option<BlockRef>, number: BlockNumber, hash: &str) {
     if let Some(current) = head.as_mut() {
@@ -240,7 +210,6 @@ fn set_head(head: &mut Option<BlockRef>, number: BlockNumber, hash: &str) {
         })
     }
 }
-
 
 impl<C: DataClient> Endpoint<C> {
     fn is_on_fork(&self) -> bool {
@@ -257,7 +226,20 @@ impl<C: DataClient> Endpoint<C> {
         }
     }
 
+    // A source answers 409 only at `head + 1 == from`, so in-spec hints top out at `from - 1`.
+    fn on_fork_signal(&self, from: BlockNumber, prev_blocks: &[BlockRef]) {
+        let standing = match prev_blocks.last() {
+            Some(top) if top.number < from.saturating_sub(1) => "above_tip",
+            // Empty hints are a malformed 409 the reqwest client already rejects; counting them
+            // as `at_tip` keeps the defect bucket clean of shapes it cannot speak to.
+            _ => "at_tip"
+        };
+        crate::metrics::record_ingest_fork_signal(&self.client.source_label(), standing);
+    }
+
     fn on_error(&mut self, error: anyhow::Error) {
+        crate::metrics::record_ingest_source_error(&self.client.source_label(), self.client.error_kind(&error));
+
         let backoff = [0, 100, 200, 500, 1000, 2000, 5000, 10000];
         let pause = backoff[std::cmp::min(self.error_counter, backoff.len() - 1)];
         if pause > 0 {
@@ -284,7 +266,6 @@ impl<C: DataClient> Endpoint<C> {
     }
 }
 
-
 impl<B, C, F> StandardDataSource<C, F>
 where
     B: Block,
@@ -292,14 +273,15 @@ where
     F: Fn(C::Block) -> anyhow::Result<B>
 {
     pub fn new(clients: Vec<C>, parse: F) -> Self {
-        let endpoints = clients.into_iter().map(|client| {
-            Endpoint {
+        let endpoints = clients
+            .into_iter()
+            .map(|client| Endpoint {
                 client,
                 error_counter: 0,
                 state: EndpointState::Ready,
                 last_committed_block: None
-            }
-        }).collect();
+            })
+            .collect();
 
         let state = DataSourceState {
             parse,
@@ -310,47 +292,68 @@ where
             },
             position_is_canonical: false,
             max_seen_finalized_block: 0,
-            fork_consensus_timeout: None
+            fork_consensus_timeout: None,
+            fork_consensus_started_at: None
         };
 
-        Self {
-            endpoints,
-            state
-        }
+        Self { endpoints, state }
     }
 
     fn poll_next_event(&mut self, cx: &mut std::task::Context<'_>) -> Poll<DataEvent<B>> {
         for ep in self.endpoints.iter_mut() {
             let event = self.state.poll_endpoint(ep, cx);
             if event.is_ready() {
-                return event
+                return event;
             }
         }
 
         let forks = self.endpoints.iter().filter(|ep| ep.is_on_fork()).count();
         if forks > 0 {
-            if 
-                forks > self.endpoints.len() / 2 || 
-                forks == self.endpoints.iter().filter(|ep| ep.is_active()).count() ||
-                self.fork_consensus_timeout(cx)
-            {
-                return Poll::Ready(DataEvent::Fork(self.extract_fork()))
-            }
+            let active = self.endpoints.iter().filter(|ep| ep.is_active()).count();
+            let decision = if forks > self.endpoints.len() / 2 {
+                "majority"
+            } else if forks == active {
+                "all_active"
+            } else if self.fork_consensus_timeout(cx) {
+                "timeout"
+            } else {
+                return Poll::Pending;
+            };
+
+            let consensus_duration = self
+                .state
+                .fork_consensus_started_at
+                .expect("fork consensus must start with the first fork signal")
+                .elapsed();
+            crate::metrics::record_ingest_fork_consensus_duration(decision, consensus_duration);
+
+            let chain = self.extract_fork();
+            info!(
+                decision = decision,
+                consensus_duration_seconds = consensus_duration.as_secs_f64(),
+                forked_endpoints = forks,
+                active_endpoints = active,
+                total_endpoints = self.endpoints.len(),
+                hint_count = chain.len(),
+                oldest_hint =? chain.first().map(|b| b.number),
+                newest_hint =? chain.last().map(|b| b.number),
+                "fork consensus reached"
+            );
+            return Poll::Ready(DataEvent::Fork(chain));
         } else {
-            self.state.fork_consensus_timeout = None
+            self.state.reset_fork_consensus()
         }
 
         Poll::Pending
     }
 
     fn fork_consensus_timeout(&mut self, cx: &mut std::task::Context<'_>) -> bool {
-        let mut timeout = self.state
+        let mut timeout = self
+            .state
             .fork_consensus_timeout
             .take()
-            .unwrap_or_else(|| {
-                Box::pin(tokio::time::sleep(Duration::from_secs(2)))
-            });
-        
+            .unwrap_or_else(|| Box::pin(tokio::time::sleep(Duration::from_secs(2))));
+
         if timeout.poll_unpin(cx) == Poll::Pending {
             self.state.fork_consensus_timeout = Some(timeout);
             false
@@ -358,9 +361,9 @@ where
             true
         }
     }
-    
+
     fn extract_fork(&mut self) -> Vec<BlockRef> {
-        self.state.fork_consensus_timeout = None;
+        self.state.reset_fork_consensus();
         let mut chain = Vec::new();
         for ep in self.endpoints.iter_mut() {
             match std::mem::replace(&mut ep.state, EndpointState::Ready) {
@@ -377,7 +380,6 @@ where
     }
 }
 
-
 impl<B, C, F> Stream for StandardDataSource<C, F>
 where
     B: Block,
@@ -390,7 +392,6 @@ where
         self.get_mut().poll_next_event(cx).map(Some)
     }
 }
-
 
 impl<B, C, F> DataSource for StandardDataSource<C, F>
 where
@@ -405,6 +406,7 @@ where
         self.state.position.set_parent_block_hash(parent_block_hash);
         self.state.position_is_canonical = false;
         self.state.finalized_head = None;
+        self.state.reset_fork_consensus();
         for ep in self.endpoints.iter_mut() {
             ep.state = EndpointState::Ready;
             ep.last_committed_block = None;

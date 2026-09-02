@@ -1,23 +1,25 @@
-use crate::dataset_controller::ingest::ingest;
-use crate::dataset_controller::ingest_generic::{IngestMessage, NewChunk};
-use crate::dataset_controller::write_controller::WriteController;
-use crate::types::{DBRef, DatasetKind, RetentionStrategy};
+use std::{ops::Add, time::Duration};
+
 use anyhow::{Context, anyhow};
-use futures::future::BoxFuture;
-use futures::stream::FuturesUnordered;
-use futures::{FutureExt, StreamExt};
-use sqd_data_client::reqwest::ReqwestDataClient;
-use sqd_primitives::{BlockNumber, BlockRef};
-use sqd_storage::db::{Chunk, CompactionStatus, DatasetId};
-use std::collections::BTreeMap;
-use std::ops::Add;
-use std::time::Duration;
-use tokio::select;
-use tokio::task::JoinHandle;
-use tokio::time::Instant;
+use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
+use sqd_data_client::{DataClient, reqwest::ReqwestDataClient};
+use sqd_primitives::{BlockNumber, BlockRef, TransactionRef};
+use sqd_storage::db::{CompactionStatus, DatasetId};
+use tokio::{select, task::JoinHandle, time::Instant};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 
+use crate::{
+    dataset_controller::{
+        ingest::ingest,
+        ingest_generic::IngestMessage,
+        write_controller::{FlushFloorUpdate, WriteController}
+    },
+    metrics::report_flush_floor,
+    types::{DBRef, DatasetKind, RetentionStrategy}
+};
+
 pub struct DatasetController {
+    db: DBRef,
     dataset_id: DatasetId,
     dataset_kind: DatasetKind,
     retention_sender: tokio::sync::watch::Sender<RetentionStrategy>,
@@ -25,7 +27,7 @@ pub struct DatasetController {
     finalized_head_receiver: tokio::sync::watch::Receiver<Option<BlockRef>>,
     compaction_enabled_sender: tokio::sync::watch::Sender<bool>,
     task: JoinHandle<()>,
-    compaction_task: JoinHandle<()>,
+    compaction_task: JoinHandle<()>
 }
 
 impl Drop for DatasetController {
@@ -42,44 +44,49 @@ impl DatasetController {
         dataset_id: DatasetId,
         dataset_kind: DatasetKind,
         retention: RetentionStrategy,
+        max_blocks: Option<u64>,
         data_sources: Vec<ReqwestDataClient>,
+        spill_bound_bytes: usize
     ) -> anyhow::Result<Self> {
-        let mut write = WriteController::new(db.clone(), dataset_id, dataset_kind)?;
+        let (head_sender, head_receiver) = tokio::sync::watch::channel(None);
+        let (finalized_head_sender, finalized_head_receiver) = tokio::sync::watch::channel(None);
 
-        if let RetentionStrategy::FromBlock {
-            number,
-            parent_hash,
-        } = &retention
-        {
+        // Channels live on the controller so they outlive writer restarts; each
+        // rebuilt writer gets a sender clone and seeds it from storage.
+        let mut write = WriteController::new(
+            db.clone(),
+            dataset_id,
+            dataset_kind,
+            head_sender.clone(),
+            finalized_head_sender.clone()
+        )?;
+
+        if let RetentionStrategy::FromBlock { number, parent_hash } = &retention {
             write.init_retention(*number, parent_hash.clone())?;
         }
 
         let (retention_sender, retention_recv) = tokio::sync::watch::channel(retention);
-        let (head_sender, head_receiver) = tokio::sync::watch::channel(None);
-        let (finalized_head_sender, finalized_head_receiver) = tokio::sync::watch::channel(None);
-        let (compaction_enabled_sender, compaction_enabled_receiver) =
-            tokio::sync::watch::channel(false);
-
-        let _ = head_sender.send(write.head().cloned());
-        let _ = finalized_head_sender.send(write.finalized_head().cloned());
+        let (compaction_enabled_sender, compaction_enabled_receiver) = tokio::sync::watch::channel(false);
 
         let ctl = Ctl {
             db: db.clone(),
             dataset_id,
             dataset_kind,
             data_sources,
+            max_blocks,
             retention_recv,
             head_sender,
             finalized_head_sender,
+            spill_bound_bytes
         };
 
         let task = tokio::spawn(ctl.run(write).in_current_span());
 
-        let compaction_task = tokio::spawn(
-            compaction_loop(db, dataset_id, compaction_enabled_receiver).in_current_span(),
-        );
+        let compaction_task =
+            tokio::spawn(compaction_loop(db.clone(), dataset_id, compaction_enabled_receiver).in_current_span());
 
         Ok(Self {
+            db,
             dataset_id,
             dataset_kind,
             retention_sender,
@@ -87,7 +94,7 @@ impl DatasetController {
             finalized_head_receiver,
             compaction_enabled_sender,
             task,
-            compaction_task,
+            compaction_task
         })
     }
 
@@ -109,6 +116,27 @@ impl DatasetController {
 
     pub fn get_head_block_number(&self) -> Option<BlockNumber> {
         self.head_receiver.borrow().as_ref().map(|h| h.number)
+    }
+
+    /// Resolves a block hash to its `BlockRef` via the storage index.
+    /// `Ok(None)` means the hash is not in the index.
+    pub async fn get_block_by_hash(&self, hash: String) -> anyhow::Result<Option<BlockRef>> {
+        let db = self.db.clone();
+        let dataset_id = self.dataset_id;
+        tokio::task::spawn_blocking(move || db.snapshot().find_block_by_hash(dataset_id, &hash))
+            .await
+            .context("get_block_by_hash task panicked")?
+    }
+
+    /// Resolves a transaction hash to its canonical position through the
+    /// storage index. The synchronous RocksDB point read stays off Tokio's
+    /// runtime workers and does not consume range-query execution slots.
+    pub async fn get_transaction_by_hash(&self, hash: String) -> anyhow::Result<Option<TransactionRef>> {
+        let db = self.db.clone();
+        let dataset_id = self.dataset_id;
+        tokio::task::spawn_blocking(move || db.snapshot().find_transaction_by_hash(dataset_id, &hash))
+            .await
+            .context("get_transaction_by_hash task panicked")?
     }
 
     pub fn enable_compaction(&self, yes: bool) {
@@ -148,147 +176,35 @@ impl DatasetController {
     }
 }
 
-struct WriteCtx {
-    db: DBRef,
-    write: WriteController,
-    head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
-    finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
-}
-
-impl WriteCtx {
-    fn handle_ingest_msg(&mut self, msg: IngestMessage, head: Option<u64>) -> anyhow::Result<()> {
-        match msg {
-            IngestMessage::FinalizedHead(head) => {
-                self.write.finalize(&head)?;
-                self.notify_finalized_head();
-            }
-            IngestMessage::NewChunk(new_chunk) => {
-                let ctx = format!("failed to write new chunk {}", new_chunk);
-                self.write_new_chunk(new_chunk).context(ctx)?;
-                self.notify_head();
-                self.notify_finalized_head();
-                if let Some(n) = head {
-                    if self
-                        .write
-                        .first_chunk_head()
-                        .map_or(false, |h| self.write.next_block() - h.number > n)
-                    {
-                        self.retain(self.write.next_block() - n, None)?;
-                    }
-                }
-            }
-            IngestMessage::Fork {
-                prev_blocks,
-                rollback_sender,
-            } => {
-                self.write.compute_rollback(&prev_blocks).map(|rollback| {
-                    let _ = rollback_sender.send(rollback);
-                })?;
-            }
-        }
-        Ok(())
-    }
-
-    fn write_new_chunk(&mut self, mut new_chunk: NewChunk) -> anyhow::Result<()> {
-        let desc = self.write.dataset_kind().dataset_description();
-        let mut tables = BTreeMap::new();
-
-        for (name, prepared) in new_chunk.tables.iter_mut() {
-            let mut builder = self.db.new_table_builder(prepared.schema());
-
-            if let Some(table_desc) = desc.tables.get(name) {
-                for (&col, opts) in table_desc.options.column_options.iter() {
-                    if opts.stats_enable {
-                        builder.add_stat_by_name(col)?;
-                    }
-                }
-            }
-
-            prepared.read(&mut builder, 0, prepared.num_rows())?;
-
-            tables.insert(name.to_string(), builder.finish()?);
-        }
-
-        let chunk = Chunk::V1 {
-            parent_block_hash: new_chunk.parent_block_hash,
-            first_block: new_chunk.first_block,
-            last_block: new_chunk.last_block,
-            last_block_hash: new_chunk.last_block_hash,
-            first_block_time: new_chunk.first_block_time,
-            last_block_time: new_chunk.last_block_time,
-            tables,
-        };
-
-        self.write
-            .new_chunk(new_chunk.finalized_head.as_ref(), &chunk)
-    }
-
-    fn retain(
-        &mut self,
-        from_block: BlockNumber,
-        parent_hash: Option<String>,
-    ) -> anyhow::Result<()> {
-        self.write.retain(from_block, parent_hash)?;
-        self.notify_finalized_head();
-        self.notify_head();
-        Ok(())
-    }
-
-    fn notify_head(&self) {
-        send_if_new(&self.head_sender, self.write.head().cloned());
-    }
-
-    fn notify_finalized_head(&self) {
-        send_if_new(
-            &self.finalized_head_sender,
-            self.write.finalized_head().cloned(),
-        )
-    }
-
-    fn starts_at(&self, block_number: BlockNumber, parent_hash: &Option<String>) -> bool {
-        self.write.start_block() == block_number
-            && self.write.start_block_parent_hash() == parent_hash.as_ref().map(String::as_str)
-    }
-}
-
-fn send_if_new<T: Eq>(sender: &tokio::sync::watch::Sender<T>, value: T) {
-    sender.send_if_modified(|current| {
-        if current == &value {
-            false
-        } else {
-            *current = value;
-            true
-        }
-    });
-}
-
 enum State {
     Idle,
     Init {
-        head: Option<u64>,
+        head: Option<u64>
     },
     HeadProbe {
         future: BoxFuture<'static, BlockNumber>,
-        head: u64,
+        head: u64
     },
     Ingest {
         handle: IngestHandle,
-        head: Option<u64>,
+        head: Option<u64>
     },
     IngestPause {
         until: Instant,
-        head: Option<u64>,
-    },
+        head: Option<u64>
+    }
 }
 
 struct IngestHandle {
+    dataset_id: DatasetId,
     msg_recv: tokio::sync::mpsc::Receiver<IngestMessage>,
-    task: JoinHandle<anyhow::Result<()>>,
+    task: JoinHandle<anyhow::Result<()>>
 }
 
 impl Drop for IngestHandle {
     fn drop(&mut self) {
-        self.task.abort()
+        self.task.abort();
+        report_flush_floor(self.dataset_id, None);
     }
 }
 
@@ -297,9 +213,14 @@ struct Ctl {
     dataset_id: DatasetId,
     dataset_kind: DatasetKind,
     data_sources: Vec<ReqwestDataClient>,
+    // Safety cap on retained blocks for Api-controlled datasets: even if the portal
+    // stops advancing the floor, the tail is trimmed to keep roughly this many blocks
+    // behind the tip. `None` means grow indefinitely.
+    max_blocks: Option<u64>,
     retention_recv: tokio::sync::watch::Receiver<RetentionStrategy>,
     head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
     finalized_head_sender: tokio::sync::watch::Sender<Option<BlockRef>>,
+    spill_bound_bytes: usize
 }
 
 macro_rules! warn_on_tx_restart {
@@ -337,6 +258,7 @@ impl Ctl {
             match self.write_epoch(std::mem::take(&mut maybe_write)).await {
                 Ok(_) => return,
                 Err(err) => {
+                    crate::metrics::report_dataset_epoch_failure(self.dataset_id, &err);
                     error!(reason = ?err, "dataset update task failed, will restart it in 1 minute");
                     tokio::time::sleep(Duration::from_secs(60)).await
                 }
@@ -345,7 +267,7 @@ impl Ctl {
     }
 
     async fn write_epoch(&mut self, maybe_write: Option<WriteController>) -> anyhow::Result<()> {
-        let mut write = self.new_write_ctx(maybe_write).await?;
+        let mut write = self.new_write(maybe_write).await?;
 
         macro_rules! blocking {
             ($body:expr) => {
@@ -356,21 +278,19 @@ impl Ctl {
         // need this variable to please the compiler
         let retention = self.retention_recv.borrow_and_update().clone();
         let mut state = match retention {
-            RetentionStrategy::FromBlock {
-                number,
-                parent_hash,
-            } => {
+            RetentionStrategy::FromBlock { number, parent_hash } => {
+                let (number, parent_hash) = self.clamp_floor(&write, number, parent_hash);
                 if !write.starts_at(number, &parent_hash) {
                     blocking! {
                         write.retain(number, parent_hash)
                     }?;
                 }
-                State::Init { head: None }
+                State::Init { head: self.max_blocks }
             }
             RetentionStrategy::Head(n) => State::Init { head: Some(n) },
             RetentionStrategy::None => {
-                if write.write.head().is_some() {
-                    State::Init { head: None }
+                if write.head().is_some() {
+                    State::Init { head: self.max_blocks }
                 } else {
                     State::Idle
                 }
@@ -386,12 +306,12 @@ impl Ctl {
                     state = if let Some(n) = head {
                         State::HeadProbe {
                             future: fetch_chain_top(self.data_sources.clone()).boxed(),
-                            head: *n,
+                            head: *n
                         }
                     } else {
                         State::Ingest {
                             handle: self.spawn_ingest(&write),
-                            head: None,
+                            head: None
                         }
                     }
                 }
@@ -404,9 +324,9 @@ impl Ctl {
                         },
                         top = future => {
                             let n = *head;
-                            let top = write.write.head().map_or(top, |h| h.number.max(top));
+                            let top = write.head().map_or(top, |h| h.number.max(top));
                             let first_block = top.saturating_sub(n);
-                            if first_block > write.write.start_block() {
+                            if first_block > write.start_block() {
                                 blocking! {
                                     write.retain(first_block, None)
                                 }?;
@@ -428,9 +348,12 @@ impl Ctl {
                         msg = handle.msg_recv.recv() => {
                             if let Some(msg) = msg {
                                 let head = *head;
-                                blocking! {
+                                let flush_floor_update = blocking! {
                                     write.handle_ingest_msg(msg, head)
                                 }?;
+                                if let FlushFloorUpdate::Set(floor) = flush_floor_update {
+                                    report_flush_floor(self.dataset_id, floor);
+                                }
                             } else {
                                 // ingest task must have failed
                                 match (&mut handle.task).await {
@@ -473,88 +396,102 @@ impl Ctl {
         }
     }
 
+    // Don't allow auto-moving the floor backwards because it causes a full resync.
+    fn clamp_floor(
+        &self,
+        write: &WriteController,
+        number: BlockNumber,
+        parent_hash: Option<String>
+    ) -> (BlockNumber, Option<String>) {
+        if self.max_blocks.is_some() && number < write.start_block() {
+            (write.start_block(), None)
+        } else {
+            (number, parent_hash)
+        }
+    }
+
     async fn handle_retention_change(
         &mut self,
         state: &mut State,
-        mut write: WriteCtx,
-    ) -> anyhow::Result<WriteCtx> {
+        mut write: WriteController
+    ) -> anyhow::Result<WriteController> {
         // need this variable to please the compiler
         let retention = self.retention_recv.borrow_and_update().clone();
         match retention {
-            RetentionStrategy::FromBlock {
-                number,
-                parent_hash,
-            } => {
-                let will_erase_head = write.write.head().map_or(false, |h| h.number < number) || // FromBlock is greater than current head, so everything is cleared
-                    write.write.start_block() > number; // FromBlock is less than current front, dropping everything by design
-                blocking_write!(write, write.retain(number, parent_hash))?;
+            RetentionStrategy::FromBlock { number, parent_hash } => {
+                let (number, parent_hash) = self.clamp_floor(&write, number, parent_hash);
+                let kept_head = blocking_write!(write, write.retain(number, parent_hash))?;
+                // A surviving head keeps the ingest alive: the floor moves often enough that
+                // restarting on every trim would reconnect the source for nothing. Its in-flight
+                // rollback can still aim below the trimmed window — refused at commit instead
+                // (`new_chunk`).
                 match state {
-                    State::Ingest { .. } if !will_erase_head => {} // Keep ingesting, head is valid
-                    _ => *state = State::Init { head: None },      // New ingest needed
+                    State::Ingest { .. } if kept_head => {} // Keep ingesting, head is valid
+                    _ => *state = State::Init { head: self.max_blocks } // New ingest needed
                 }
             }
             RetentionStrategy::Head(n) => match state {
                 State::HeadProbe { head, .. } => *head = n,
                 State::Ingest { head, .. } if head.is_some() => *head = Some(n),
-                _ => *state = State::Init { head: Some(n) },
+                _ => *state = State::Init { head: Some(n) }
             },
-            RetentionStrategy::None => *state = State::Idle,
+            RetentionStrategy::None => *state = State::Idle
         }
         Ok(write)
     }
 
-    fn spawn_ingest(&self, write: &WriteCtx) -> IngestHandle {
+    fn spawn_ingest(&self, write: &WriteController) -> IngestHandle {
         let (msg_sender, msg_recv) = tokio::sync::mpsc::channel(1);
+
+        // The controller is the single owner of this per-dataset gauge. Clear any completed
+        // episode before its replacement can publish a new rollback floor.
+        report_flush_floor(self.dataset_id, None);
 
         let ingest_span = info_span!("ingest");
 
         let task = tokio::spawn(
             ingest(
+                self.dataset_id,
                 msg_sender,
                 self.data_sources.clone(),
                 self.dataset_kind,
-                write.write.next_block(),
-                write.write.head_hash(),
+                write.next_block(),
+                write.head_hash(),
+                self.spill_bound_bytes
             )
-            .instrument(ingest_span),
+            .instrument(ingest_span)
         );
 
-        IngestHandle { msg_recv, task }
+        IngestHandle {
+            dataset_id: self.dataset_id,
+            msg_recv,
+            task
+        }
     }
 
-    async fn new_write_ctx(
-        &self,
-        maybe_write: Option<WriteController>,
-    ) -> anyhow::Result<WriteCtx> {
+    async fn new_write(&self, maybe_write: Option<WriteController>) -> anyhow::Result<WriteController> {
+        if let Some(write) = maybe_write {
+            return Ok(write);
+        }
+
         let db = self.db.clone();
         let dataset_id = self.dataset_id;
         let dataset_kind = self.dataset_kind;
+        let head_sender = self.head_sender.clone();
+        let finalized_head_sender = self.finalized_head_sender.clone();
 
-        let write = if let Some(write) = maybe_write {
-            write
-        } else {
-            let span = tracing::Span::current();
-            tokio::task::spawn_blocking(move || {
-                let _entered = span.enter();
-                WriteController::new(db, dataset_id, dataset_kind)
-            })
-            .await
-            .context("write init task panicked")??
-        };
-
-        Ok(WriteCtx {
-            db: self.db.clone(),
-            write,
-            head_sender: self.head_sender.clone(),
-            finalized_head_sender: self.finalized_head_sender.clone(),
+        let span = tracing::Span::current();
+        tokio::task::spawn_blocking(move || {
+            let _entered = span.enter();
+            WriteController::new(db, dataset_id, dataset_kind, head_sender, finalized_head_sender)
         })
+        .await
+        .context("write init task panicked")?
     }
 }
 
 async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
-    let mut calls: FuturesUnordered<_> = (0..clients.len())
-        .map(|i| call_client(&clients, i, false))
-        .collect();
+    let mut calls: FuturesUnordered<_> = (0..clients.len()).map(|i| call_client(&clients, i, false)).collect();
 
     let mut completed = 0;
     let mut last_seen = 0;
@@ -577,6 +514,14 @@ async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
                         }
                     },
                     Some((Err(err), ci)) => {
+                        // The probe gates ingestion, and its only exit on total failure is
+                        // `completed > 0`. With every source down it spins here forever, so
+                        // `on_error` never runs and the counter would read zero through the
+                        // whole stall — the one outage it exists to expose.
+                        sqd_data_source::metrics::record_ingest_source_error(
+                            &clients[ci].source_label(),
+                            clients[ci].error_kind(&err)
+                        );
                         if clients[ci].is_retryable(&err) {
                             warn!(
                                 reason =? err,
@@ -605,7 +550,7 @@ async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
     async fn call_client(
         clients: &[ReqwestDataClient],
         idx: usize,
-        backoff: bool,
+        backoff: bool
     ) -> (anyhow::Result<BlockNumber>, usize) {
         if backoff {
             tokio::time::sleep(Duration::from_secs(5)).await;
@@ -621,11 +566,7 @@ async fn fetch_chain_top(clients: Vec<ReqwestDataClient>) -> BlockNumber {
 }
 
 #[instrument(name = "compaction", skip_all)]
-async fn compaction_loop(
-    db: DBRef,
-    dataset_id: DatasetId,
-    mut enabled: tokio::sync::watch::Receiver<bool>,
-) {
+async fn compaction_loop(db: DBRef, dataset_id: DatasetId, mut enabled: tokio::sync::watch::Receiver<bool>) {
     let mut skips = 0;
     let skip_pause = [1, 2, 3, 4, 5, 10, 20, 30, 60];
     loop {
@@ -642,12 +583,12 @@ async fn compaction_loop(
             .await
             {
                 Ok(res) => res,
-                Err(err) => Err(anyhow!("failed to await compaction task - {}", err)),
+                Err(err) => Err(anyhow!("failed to await compaction task - {}", err))
             };
 
             match result {
                 Ok(CompactionStatus::Ok(merged_chunks)) => {
-                    info!(
+                    debug!(
                         first_block = merged_chunks[0].first_block,
                         last_block = merged_chunks.last().unwrap().last_block,
                         size = merged_chunks.iter().map(|c| c.size).sum::<usize>(),
@@ -681,5 +622,38 @@ async fn compaction_loop(
                 return;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metrics::build_metrics_registry;
+
+    fn flush_floor_line(dataset: &str) -> String {
+        let mut output = String::new();
+        prometheus_client::encoding::text::encode(&mut output, &build_metrics_registry()).unwrap();
+        output
+            .lines()
+            .find(|line| line.starts_with("hotblocks_ingest_flush_floor") && line.contains(dataset))
+            .unwrap_or_else(|| panic!("no flush floor series for {dataset}:\n{output}"))
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn dropping_ingest_handle_clears_a_pending_flush_floor() {
+        let dataset_id = DatasetId::from_str("ingest-handle-drop-test");
+        report_flush_floor(dataset_id, Some(1234));
+        assert!(flush_floor_line("ingest-handle-drop-test").ends_with(" 1234"));
+
+        let (_msg_sender, msg_recv) = tokio::sync::mpsc::channel(1);
+        let task = tokio::spawn(std::future::pending::<anyhow::Result<()>>());
+        drop(IngestHandle {
+            dataset_id,
+            msg_recv,
+            task
+        });
+
+        assert!(flush_floor_line("ingest-handle-drop-test").ends_with(" -1"));
     }
 }

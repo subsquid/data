@@ -1,11 +1,13 @@
-use arrow::array::{ArrayRef, BinaryArray, BooleanArray, FixedSizeBinaryArray, Int16Array, Int32Array, Int64Array, Int8Array, Scalar, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array};
 use std::sync::Arc;
 
+use arrow::array::{
+    ArrayRef, BinaryArray, BooleanArray, FixedSizeBinaryArray, Int16Array, Int32Array, Int64Array, Int8Array, Scalar,
+    StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array
+};
 
 pub trait IntoArrowScalar: Sized {
     fn into_scalar(self) -> Scalar<ArrayRef>;
 }
-
 
 impl IntoArrowScalar for Scalar<ArrayRef> {
     fn into_scalar(self) -> Scalar<ArrayRef> {
@@ -13,18 +15,15 @@ impl IntoArrowScalar for Scalar<ArrayRef> {
     }
 }
 
-
 pub trait IntoArrowArray {
     fn into_array(self) -> ArrayRef;
 }
-
 
 impl IntoArrowArray for ArrayRef {
     fn into_array(self) -> ArrayRef {
         self
     }
 }
-
 
 macro_rules! imp {
     ($t:ty, $arr_type:ty) => {
@@ -44,7 +43,6 @@ macro_rules! imp {
     };
 }
 
-
 imp!(bool, BooleanArray);
 imp!(u8, UInt8Array);
 imp!(u16, UInt16Array);
@@ -58,14 +56,12 @@ imp!(&[u8], BinaryArray);
 imp!(&str, StringArray);
 imp!(String, StringArray);
 
-
 impl IntoArrowArray for &[String] {
     fn into_array(self) -> ArrayRef {
         let arr = StringArray::from_iter(self.iter().map(Some));
         Arc::new(arr)
     }
 }
-
 
 macro_rules! impl_into_ref {
     ($($t:ty),*) => {
@@ -78,7 +74,6 @@ macro_rules! impl_into_ref {
         )*
     };
 }
-
 
 impl_into_ref!(
     UInt8Array,

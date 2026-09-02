@@ -1,20 +1,27 @@
-use crate::db::db::{RocksDB, CF_TABLES};
-use crate::db::table_id::TableId;
-use crate::db::write::storage::TableStorage;
-use crate::db::ReadSnapshot;
-use crate::table::key::TableKeyFactory;
-use crate::table::stats::{can_have_stats, serialize_stats};
-use crate::table::write::StorageCell;
-use anyhow::{ensure, Context};
-use arrow::array::RecordBatch;
-use arrow::datatypes::SchemaRef;
-use sqd_array::slice::{AsSlice, Slice};
-use sqd_array::writer::{ArrayWriter, Writer};
 use std::collections::BTreeSet;
 
+use anyhow::{ensure, Context};
+use arrow::{array::RecordBatch, datatypes::SchemaRef};
+use sqd_array::{
+    slice::{AsSlice, Slice},
+    writer::{ArrayWriter, Writer}
+};
+
+use crate::{
+    db::{
+        db::{RocksDB, CF_TABLES},
+        table_id::TableId,
+        write::storage::TableStorage,
+        ReadSnapshot
+    },
+    table::{
+        key::TableKeyFactory,
+        stats::{can_have_stats, serialize_stats},
+        write::StorageCell
+    }
+};
 
 type TableWriter<'a> = crate::table::write::TableWriter<StorageCell<TableStorage<'a>>>;
-
 
 pub struct TableBuilder<'a> {
     table_id: TableId,
@@ -24,7 +31,6 @@ pub struct TableBuilder<'a> {
     db: &'a RocksDB
 }
 
-
 impl<'a> TableBuilder<'a> {
     pub fn new(db: &'a RocksDB, schema: SchemaRef) -> Self {
         let table_id = TableId::new();
@@ -32,12 +38,8 @@ impl<'a> TableBuilder<'a> {
         let mut storage = TableStorage::new(db);
         storage.mark_table_dirty(table_id);
 
-        let writer = TableWriter::new(
-            StorageCell::new(storage),
-            table_id.as_ref(),
-            schema.clone()
-        );
-        
+        let writer = TableWriter::new(StorageCell::new(storage), table_id.as_ref(), schema.clone());
+
         Self {
             table_id,
             schema,
@@ -46,7 +48,7 @@ impl<'a> TableBuilder<'a> {
             db
         }
     }
-    
+
     pub fn write_record_batch(&mut self, record_batch: &RecordBatch) -> anyhow::Result<()> {
         record_batch.as_slice().write(&mut self.writer)
     }
@@ -64,20 +66,23 @@ impl<'a> TableBuilder<'a> {
         Ok(())
     }
 
-    pub fn set_stats(&mut self, columns: impl IntoIterator<Item=usize>) -> anyhow::Result<()> {
+    pub fn set_stats(&mut self, columns: impl IntoIterator<Item = usize>) -> anyhow::Result<()> {
         let num_columns = self.schema.fields().len();
-        self.columns_with_stats = columns.into_iter().map(|index| {
-            ensure!(index < num_columns, "column {} does not exist", index);
-            let field = self.schema.field(index);
-            ensure!(
-                can_have_stats(field.data_type()),
-                "can't stat column {} ({}): columns of type {} can't have stats",
-                index,
-                field.name(),
-                field.data_type()
-            );
-            Ok(index)
-        }).collect::<anyhow::Result<BTreeSet<_>>>()?;
+        self.columns_with_stats = columns
+            .into_iter()
+            .map(|index| {
+                ensure!(index < num_columns, "column {} does not exist", index);
+                let field = self.schema.field(index);
+                ensure!(
+                    can_have_stats(field.data_type()),
+                    "can't stat column {} ({}): columns of type {} can't have stats",
+                    index,
+                    field.name(),
+                    field.data_type()
+                );
+                Ok(index)
+            })
+            .collect::<anyhow::Result<BTreeSet<_>>>()?;
         Ok(())
     }
 
@@ -88,15 +93,9 @@ impl<'a> TableBuilder<'a> {
     }
 }
 
-
-fn build_table_stats(
-    db: &RocksDB,
-    table_id: TableId,
-    columns_with_stats: &BTreeSet<usize>
-) -> anyhow::Result<()> 
-{
+fn build_table_stats(db: &RocksDB, table_id: TableId, columns_with_stats: &BTreeSet<usize>) -> anyhow::Result<()> {
     if columns_with_stats.is_empty() {
-        return Ok(())
+        return Ok(());
     }
 
     let snapshot = ReadSnapshot::new(db);
@@ -106,34 +105,26 @@ fn build_table_stats(
     let mut key = TableKeyFactory::new(table_id);
 
     for column_index in columns_with_stats.iter().copied() {
-        let stats = table_reader
-            .build_column_stats(4096, column_index)
-            .with_context(|| {
-                format!(
-                    "failed to build stats for column '{}'",
-                    table_reader.schema().field(column_index).name()
-                )
-            })?;
+        let stats = table_reader.build_column_stats(4096, column_index).with_context(|| {
+            format!(
+                "failed to build stats for column '{}'",
+                table_reader.schema().field(column_index).name()
+            )
+        })?;
 
         bytes.clear();
-        serialize_stats(&mut bytes, &stats)
-            .with_context(|| {
-                format!(
-                    "failed to serialize stats of column {}",
-                    table_reader.schema().field(column_index).name()
-                )
-            })?;
+        serialize_stats(&mut bytes, &stats).with_context(|| {
+            format!(
+                "failed to serialize stats of column {}",
+                table_reader.schema().field(column_index).name()
+            )
+        })?;
 
-        db.put_cf(
-            table_cf,
-            key.statistic(column_index),
-            &bytes
-        )?
+        db.put_cf(table_cf, key.statistic(column_index), &bytes)?
     }
 
     Ok(())
 }
-
 
 impl<'a> ArrayWriter for TableBuilder<'a> {
     type Writer = <TableWriter<'a> as ArrayWriter>::Writer;

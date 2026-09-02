@@ -1,6 +1,6 @@
-use super::row_batch::{Row, RowBatch};
 use sqd_primitives::BlockNumber;
 
+use super::row_batch::{Row, RowBatch};
 
 pub struct BlockBatch<B: Row> {
     inner: RowBatch<B>,
@@ -8,8 +8,7 @@ pub struct BlockBatch<B: Row> {
     partition_end: BlockNumber
 }
 
-
-impl <B: Row> BlockBatch<B> {
+impl<B: Row> BlockBatch<B> {
     pub(super) fn new(inner: RowBatch<B>, partition_start: BlockNumber, partition_end: BlockNumber) -> Self {
         Self {
             inner,
@@ -17,11 +16,11 @@ impl <B: Row> BlockBatch<B> {
             partition_end
         }
     }
-    
+
     pub fn blocks(&self) -> &[B::Type<'_>] {
         self.inner.items()
     }
-    
+
     pub fn partition_start(&self) -> BlockNumber {
         self.partition_start
     }

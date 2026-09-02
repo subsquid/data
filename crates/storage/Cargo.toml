@@ -10,15 +10,20 @@ arrow-buffer = { workspace = true }
 borsh = { workspace = true }
 parking_lot = { workspace = true }
 rayon = { workspace = true }
-rocksdb = { version = "0.23.0", features = ["jemalloc"] }
+rocksdb = { version = "0.24.0", features = ["jemalloc"] }
 uuid = { workspace = true, features = ["v7", "borsh"] }
 sqd-array = { path = "../array" }
 sqd-primitives = { path = "../primitives", features = ["borsh", "sid", "range"] }
 
 [dev-dependencies]
+criterion = "0.5.1"
 proptest = { workspace = true }
 tempfile = { workspace = true }
 rand = "0.9.0"
+
+[[bench]]
+name = "transaction_hash_index"
+harness = false
 
 [lints]
 workspace = true

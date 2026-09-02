@@ -1,3 +1,3 @@
-pub mod table;
-pub mod kv;
 pub mod db;
+pub mod kv;
+pub mod table;

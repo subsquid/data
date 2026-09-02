@@ -1,6 +1,6 @@
-use anyhow::ensure;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 
+use anyhow::ensure;
 
 pub trait ByteReader {
     fn len(&self) -> usize;
@@ -12,8 +12,7 @@ pub trait ByteReader {
         mut offset: usize,
         len: usize,
         mut cb: impl FnMut(&[u8]) -> anyhow::Result<()>
-    ) -> anyhow::Result<()>
-    {
+    ) -> anyhow::Result<()> {
         let end = offset + len;
         while offset < end {
             let bytes = self.read(offset, end - offset)?;
@@ -24,7 +23,6 @@ pub trait ByteReader {
         Ok(())
     }
 }
-
 
 impl<'a> ByteReader for &'a [u8] {
     fn len(&self) -> usize {
@@ -41,13 +39,11 @@ impl<'a> ByteReader for &'a [u8] {
         offset: usize,
         len: usize,
         mut cb: impl FnMut(&[u8]) -> anyhow::Result<()>
-    ) -> anyhow::Result<()>
-    {
-        let bytes = &self[offset..offset + len]; 
+    ) -> anyhow::Result<()> {
+        let bytes = &self[offset..offset + len];
         cb(bytes)
     }
 }
-
 
 pub struct IOByteReader<R> {
     read: BufReader<R>,
@@ -55,8 +51,7 @@ pub struct IOByteReader<R> {
     pos: Option<usize>
 }
 
-
-impl <R: Read + Seek> IOByteReader<R> {
+impl<R: Read + Seek> IOByteReader<R> {
     pub fn new(len: usize, read: R) -> Self {
         Self {
             read: BufReader::new(read),
@@ -66,8 +61,7 @@ impl <R: Read + Seek> IOByteReader<R> {
     }
 }
 
-
-impl <R: Read + Seek> ByteReader for IOByteReader<R> {
+impl<R: Read + Seek> ByteReader for IOByteReader<R> {
     fn len(&self) -> usize {
         self.len
     }
@@ -76,7 +70,7 @@ impl <R: Read + Seek> ByteReader for IOByteReader<R> {
         ensure!(offset + len <= self.len, "out of bounds read");
 
         if len == 0 {
-            return Ok(&[])
+            return Ok(&[]);
         }
 
         if let Some(pos) = self.pos {
@@ -89,7 +83,7 @@ impl <R: Read + Seek> ByteReader for IOByteReader<R> {
 
         let bytes = self.read.fill_buf()?;
         ensure!(bytes.len() > 0, "reached EOF");
-        
+
         let take = std::cmp::min(len, bytes.len());
         self.pos = Some(offset);
 

@@ -1,20 +1,24 @@
-use crate::errors::{BlockItemIsNotAvailable, QueryKindMismatch};
-use crate::errors::{BlockRangeMissing, QueryIsAboveTheHead};
-use crate::metrics::{QUERIED_BLOCKS, QUERIED_CHUNKS};
-use crate::query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot};
-use crate::types::{ClientId, DBRef, DatasetKind};
+use std::io::Write;
+
 use anyhow::{anyhow, bail, ensure};
 use bytes::{BufMut, Bytes, BytesMut};
-use flate2::Compression;
-use flate2::write::GzEncoder;
+use flate2::{Compression, write::GzEncoder};
 use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_query::{JsonLinesWriter, Plan, Query};
 use sqd_storage::db::{Chunk as StorageChunk, DatasetId};
-use std::io::Write;
+use zstd::stream::write::Encoder as ZstdEncoder;
+
+use crate::{
+    encoding::ContentEncoding,
+    errors::{BlockItemIsNotAvailable, BlockRangeMissing, QueryIsAboveTheHead, QueryKindMismatch},
+    metrics::{QUERIED_BLOCKS, QUERIED_CHUNKS},
+    query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot},
+    types::{ClientId, DBRef, DatasetKind}
+};
 
 struct LeftOver {
     chunk: StaticChunkReader,
-    next_block: BlockNumber,
+    next_block: BlockNumber
 }
 
 pub struct RunningQueryStats {
@@ -40,14 +44,62 @@ impl RunningQueryStats {
             ("dataset_id", dataset_id.as_str().to_owned()),
         ];
 
-        QUERIED_BLOCKS
-            .get_or_create(&labels)
-            .observe(self.blocks_read as f64);
-        QUERIED_CHUNKS
-            .get_or_create(&labels)
-            .observe(self.chunks_read as f64);
+        QUERIED_BLOCKS.get_or_create(&labels).observe(self.blocks_read as f64);
+        QUERIED_CHUNKS.get_or_create(&labels).observe(self.chunks_read as f64);
 
         // blocks_returned and chunks_returned are reported by the streaming part
+    }
+}
+
+enum Compressor {
+    Gzip(GzEncoder<bytes::buf::Writer<BytesMut>>),
+    Zstd(ZstdEncoder<'static, bytes::buf::Writer<BytesMut>>)
+}
+
+impl Write for Compressor {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Compressor::Gzip(e) => e.write(buf),
+            Compressor::Zstd(e) => e.write(buf)
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Compressor::Gzip(e) => e.flush(),
+            Compressor::Zstd(e) => e.flush()
+        }
+    }
+}
+
+impl Compressor {
+    fn new(encoding: ContentEncoding) -> anyhow::Result<Self> {
+        let writer = BytesMut::new().writer();
+        Ok(match encoding {
+            ContentEncoding::Gzip => Compressor::Gzip(GzEncoder::new(writer, Compression::fast())),
+            ContentEncoding::Zstd => Compressor::Zstd(ZstdEncoder::new(writer, 1)?)
+        })
+    }
+
+    fn get_ref(&self) -> &BytesMut {
+        match self {
+            Compressor::Gzip(e) => e.get_ref().get_ref(),
+            Compressor::Zstd(e) => e.get_ref().get_ref()
+        }
+    }
+
+    fn get_mut(&mut self) -> &mut BytesMut {
+        match self {
+            Compressor::Gzip(e) => e.get_mut().get_mut(),
+            Compressor::Zstd(e) => e.get_mut().get_mut()
+        }
+    }
+
+    fn finish(self) -> BytesMut {
+        match self {
+            Compressor::Gzip(e) => e.finish().expect("IO errors are not possible").into_inner(),
+            Compressor::Zstd(e) => e.finish().expect("IO errors are not possible").into_inner()
+        }
     }
 }
 
@@ -58,8 +110,17 @@ pub struct RunningQuery {
     next_chunk: Option<anyhow::Result<StorageChunk>>,
     chunk_iterator: StaticChunkIterator,
     finalized_head: Option<BlockRef>,
-    buf: GzEncoder<bytes::buf::Writer<BytesMut>>,
-    stats: RunningQueryStats,
+    buf: Compressor,
+    stats: RunningQueryStats
+}
+
+fn finalized_query_last_block(query: &Query, finalized_head: Option<&BlockRef>) -> anyhow::Result<BlockNumber> {
+    let Some(finalized_head) = finalized_head else {
+        bail!(QueryIsAboveTheHead { finalized_head: None })
+    };
+    Ok(query
+        .last_block()
+        .map_or(finalized_head.number, |end| end.min(finalized_head.number)))
 }
 
 impl RunningQuery {
@@ -68,13 +129,14 @@ impl RunningQuery {
         dataset_id: DatasetId,
         query: &Query,
         only_finalized: bool,
+        encoding: ContentEncoding
     ) -> anyhow::Result<Self> {
         let snapshot = StaticSnapshot::new(db);
 
         let finalized_head = match snapshot.get_label(dataset_id)? {
             None => bail!("dataset {} does not exist", dataset_id),
             Some(label) => {
-                let kind = DatasetKind::from_query(query);
+                let kind = DatasetKind::from_query(query)?;
                 ensure!(
                     kind.storage_kind() == label.kind(),
                     QueryKindMismatch {
@@ -86,14 +148,11 @@ impl RunningQuery {
             }
         };
 
-        let mut chunk_iterator =
-            StaticChunkIterator::new(snapshot, dataset_id, query.first_block(), None);
+        let mut chunk_iterator = StaticChunkIterator::new(snapshot, dataset_id, query.first_block(), None);
 
         let mut stats = RunningQueryStats::new();
         let Some(first_chunk) = chunk_iterator.next().transpose()? else {
-            bail!(QueryIsAboveTheHead {
-                finalized_head: None
-            })
+            bail!(QueryIsAboveTheHead { finalized_head: None })
         };
         stats.chunks_read += 1;
         stats.blocks_read += first_chunk.last_block() - first_chunk.first_block() + 1;
@@ -128,16 +187,7 @@ impl RunningQuery {
         };
 
         let last_block = if only_finalized {
-            // Cap the query's last_block to the finalized head
-            if let Some(finalized_head) = &finalized_head {
-                let capped_last = query
-                    .last_block()
-                    .map(|end| end.min(finalized_head.number))
-                    .or(Some(finalized_head.number));
-                capped_last
-            } else {
-                anyhow::bail!("Finalized head is not available yet");
-            }
+            Some(finalized_query_last_block(query, finalized_head.as_ref())?)
         } else {
             query.last_block()
         };
@@ -149,8 +199,8 @@ impl RunningQuery {
             next_chunk: Some(Ok(first_chunk)),
             chunk_iterator,
             finalized_head,
-            buf: GzEncoder::new(BytesMut::new().writer(), Compression::fast()),
-            stats,
+            buf: Compressor::new(encoding)?,
+            stats
         })
     }
 
@@ -163,19 +213,15 @@ impl RunningQuery {
     }
 
     pub fn buffered_bytes(&self) -> usize {
-        self.buf.get_ref().get_ref().len()
+        self.buf.get_ref().len()
     }
 
     pub fn take_buffered_bytes(&mut self) -> Bytes {
-        self.buf.get_mut().get_mut().split().freeze()
+        self.buf.get_mut().split().freeze()
     }
 
     pub fn finish(self) -> Bytes {
-        self.buf
-            .finish()
-            .expect("IO errors are not possible")
-            .into_inner()
-            .freeze()
+        self.buf.finish().freeze()
     }
 
     pub fn has_next_chunk(&self) -> bool {
@@ -192,35 +238,27 @@ impl RunningQuery {
             (left_over.chunk, false)
         } else {
             let storage_chunk = self.next_chunk()?;
-            let chunk = self
-                .chunk_iterator
-                .snapshot()
-                .create_chunk_reader(storage_chunk);
+            let chunk = self.chunk_iterator.snapshot().create_chunk_reader(storage_chunk);
             (chunk, true)
         };
 
-        if self
-            .last_block
-            .map_or(false, |end| end < chunk.last_block())
-        {
+        if self.last_block.map_or(false, |end| end < chunk.last_block()) {
             let last_block = self.last_block;
             self.plan.set_last_block(last_block);
         } else {
             self.plan.set_last_block(None);
         }
 
-        let query_result = chunk
-            .with_reader(|reader| self.plan.execute(reader))
-            .map_err(|err| {
-                if let Some(err) = err.downcast_ref::<sqd_query::TableDoesNotExist>() {
-                    return anyhow!(BlockItemIsNotAvailable {
-                        item_name: err.table_name,
-                        first_block: chunk.first_block(),
-                        last_block: chunk.last_block()
-                    });
-                }
-                err
-            });
+        let query_result = chunk.with_reader(|reader| self.plan.execute(reader)).map_err(|err| {
+            if let Some(err) = err.downcast_ref::<sqd_query::TableDoesNotExist>() {
+                return anyhow!(BlockItemIsNotAvailable {
+                    item_name: err.table_name,
+                    first_block: chunk.first_block(),
+                    last_block: chunk.last_block()
+                });
+            }
+            err
+        });
 
         // no matter what, we are moving to the next chunk
         self.plan.set_first_block(None);
@@ -234,15 +272,13 @@ impl RunningQuery {
             self.stats.chunks_returned += 1;
         }
         self.stats.blocks_returned += block_writer.num_blocks() as u64;
-        
+
         if chunk.last_block() > block_writer.last_block()
-            && self
-                .last_block
-                .map_or(true, |end| end > block_writer.last_block())
+            && self.last_block.map_or(true, |end| end > block_writer.last_block())
         {
             self.left_over = Some(LeftOver {
                 chunk,
-                next_block: block_writer.last_block() + 1,
+                next_block: block_writer.last_block() + 1
             })
         }
 
@@ -252,9 +288,7 @@ impl RunningQuery {
             .write_blocks(&mut block_writer)
             .expect("IO errors are not possible");
 
-        json_lines_writer
-            .finish()
-            .expect("IO errors are not possible");
+        json_lines_writer.finish().expect("IO errors are not possible");
 
         self.buf.flush().expect("IO errors are not possible");
 
@@ -274,11 +308,9 @@ impl RunningQuery {
                 let next_chunk = maybe_next_chunk?;
                 self.stats.chunks_read += 1;
                 self.stats.blocks_read += chunk.last_block() - chunk.first_block() + 1;
-                
+
                 let is_continuous = chunk.last_block() + 1 == next_chunk.first_block();
-                let is_requested = self
-                    .last_block
-                    .map_or(true, |end| next_chunk.first_block() <= end);
+                let is_requested = self.last_block.map_or(true, |end| next_chunk.first_block() <= end);
                 if is_continuous && is_requested {
                     Some(next_chunk)
                 } else {
@@ -301,5 +333,22 @@ impl RunningQuery {
                 Some(size)
             })
             .unwrap_or(0) as usize
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finalized_snapshot_without_a_head_is_no_data() {
+        let query = Query::from_json_value(serde_json::json!({
+            "type": "evm",
+            "fromBlock": 10
+        }))
+        .unwrap();
+
+        let err = finalized_query_last_block(&query, None).unwrap_err();
+        assert!(err.is::<QueryIsAboveTheHead>());
     }
 }

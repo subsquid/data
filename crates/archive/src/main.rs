@@ -10,7 +10,6 @@ mod progress;
 mod server;
 mod writer;
 
-
 fn main() -> anyhow::Result<()> {
     let args = <cli::Cli as clap::Parser>::parse();
 
@@ -22,11 +21,10 @@ fn main() -> anyhow::Result<()> {
         .block_on(archive::run(args))
 }
 
-
 fn init_logging(json: bool) {
     let env_filter = tracing_subscriber::EnvFilter::builder().parse_lossy(
         std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
-            .unwrap_or(format!("{}=info", env!("CARGO_CRATE_NAME"))),
+            .unwrap_or(format!("{}=info", env!("CARGO_CRATE_NAME")))
     );
 
     if json {

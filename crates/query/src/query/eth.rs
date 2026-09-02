@@ -1,64 +1,59 @@
-use crate::json::exp::Exp;
-use crate::json::lang::*;
-use crate::plan::{ScanBuilder, TableSet};
-use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
-use crate::{BlockNumber, Plan};
-use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
-use super::util::to_lowercase_list;
+use serde::{Deserialize, Serialize};
 
+use super::util::to_lowercase_list;
+use crate::{
+    json::{exp::Exp, lang::*},
+    plan::{ScanBuilder, TableSet},
+    query::util::{
+        compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request,
+        PredicateBuilder,
+    },
+    BlockNumber, Plan,
+};
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     let mut tables = TableSet::new();
 
-    tables.add_table("blocks", vec![
-        "number"
-    ])
-    .set_weight("logs_bloom", 512)
-    .set_weight_column("extra_data", "extra_data_size")
-    .set_weight_column("withdrawals", "withdrawals_size");
+    tables
+        .add_table("blocks", vec!["number"])
+        .set_weight("logs_bloom", 512)
+        .set_weight_column("extra_data", "extra_data_size")
+        .set_weight_column("block_extra_data", "block_extra_data_size")
+        .set_weight_column("withdrawals", "withdrawals_size");
 
-    tables.add_table("transactions", vec![
-        "block_number",
-        "transaction_index"
-    ])
-    .add_child("logs", vec!["block_number", "transaction_index"])
-    .add_child("traces", vec!["block_number", "transaction_index"])
-    .add_child("statediffs", vec!["block_number", "transaction_index"])
-    .set_weight("logs_bloom", 512)
-    .set_weight_column("input", "input_size")
-    .set_weight_column("access_list", "access_list_size");
+    tables
+        .add_table("transactions", vec!["block_number", "transaction_index"])
+        .add_child("logs", vec!["block_number", "transaction_index"])
+        .add_child("traces", vec!["block_number", "transaction_index"])
+        .add_child("statediffs", vec!["block_number", "transaction_index"])
+        .set_weight("logs_bloom", 512)
+        .set_weight_column("input", "input_size")
+        .set_weight_column("access_list", "access_list_size");
 
-    tables.add_table("logs", vec![
-        "block_number",
-        "log_index"
-    ])
-    .set_weight_column("data", "data_size");
+    tables
+        .add_table("logs", vec!["block_number", "log_index"])
+        .set_weight_column("data", "data_size");
 
-    tables.add_table("traces", vec![
-        "block_number",
-        "transaction_index",
-        "trace_address"
-    ])
-    .set_weight_column("create_init", "create_init_size")
-    .set_weight_column("create_result_code", "create_result_code_size")
-    .set_weight_column("call_input", "call_input_size")
-    .set_weight_column("call_result_output", "call_result_output_size");
+    tables
+        .add_table("traces", vec!["block_number", "transaction_index", "trace_address"])
+        .set_weight_column("create_init", "create_init_size")
+        .set_weight_column("create_result_code", "create_result_code_size")
+        .set_weight_column("call_input", "call_input_size")
+        .set_weight_column("call_result_output", "call_result_output_size");
 
-    tables.add_table("statediffs", vec![
-        "block_number",
-        "transaction_index",
-        "address",
-        "key"
-    ])
-    .set_weight_column("prev", "prev_size")
-    .set_weight_column("next", "next_size")
-    .set_result_item_name("stateDiffs");
+    tables
+        .add_table(
+            "statediffs",
+            vec!["block_number", "transaction_index", "address", "key"],
+        )
+        .set_weight_column("prev", "prev_size")
+        .set_weight_column("next", "next_size")
+        .set_result_item_name("stateDiffs");
 
     tables
 });
-
 
 field_selection! {
     block: BlockFieldSelection,
@@ -67,7 +62,6 @@ field_selection! {
     trace: TraceFieldSelection,
     state_diff: StateDiffFieldSelection,
 }
-
 
 item_field_selection! {
     BlockFieldSelection {
@@ -101,6 +95,18 @@ item_field_selection! {
         main_block_general_gas_limit,
         shared_gas_limit,
         timestamp_millis_part,
+        block_extra_data,
+        block_gas_cost,
+        ext_data_gas_used,
+        ext_data_hash,
+        min_delay_excess,
+        timestamp_milliseconds,
+        target_exponent,
+        min_price_exponent,
+        settled_height,
+        settled_gas_unix,
+        settled_gas_numerator,
+        settled_excess,
     }
 
     project(this) json_object! {{
@@ -134,9 +140,20 @@ item_field_selection! {
         [this.main_block_general_gas_limit]: Value,
         [this.shared_gas_limit]: Value,
         [this.timestamp_millis_part]: Value,
+        [this.block_extra_data]: Value,
+        [this.block_gas_cost]: Value,
+        [this.ext_data_gas_used]: Value,
+        [this.ext_data_hash]: Value,
+        [this.min_delay_excess]: Value,
+        [this.timestamp_milliseconds]: Value,
+        [this.target_exponent]: Value,
+        [this.min_price_exponent]: Value,
+        [this.settled_height]: Value,
+        [this.settled_gas_unix]: Value,
+        [this.settled_gas_numerator]: Value,
+        [this.settled_excess]: Value,
     }}
 }
-
 
 item_field_selection! {
     TransactionFieldSelection {
@@ -261,7 +278,6 @@ item_field_selection! {
     }
 }
 
-
 item_field_selection! {
     LogFieldSelection {
         log_index,
@@ -290,7 +306,6 @@ item_field_selection! {
         }
     }}
 }
-
 
 item_field_selection! {
     TraceFieldSelection {
@@ -393,7 +408,7 @@ item_field_selection! {
             call_action.add("type", prop("call_type", Exp::Value));
         }
         if this.call_call_type {
-            call_action.add("callType", prop("call_type", Exp::Value));    
+            call_action.add("callType", prop("call_type", Exp::Value));
         }
         if !call_action.is_empty() {
             call.add("action", call_action);
@@ -452,7 +467,6 @@ item_field_selection! {
     }
 }
 
-
 item_field_selection! {
     StateDiffFieldSelection {
         transaction_index,
@@ -473,9 +487,7 @@ item_field_selection! {
     }}
 }
 
-
 type Bytes = String;
-
 
 request! {
     pub struct TransactionRequest {
@@ -489,7 +501,6 @@ request! {
         pub state_diffs: bool,
     }
 }
-
 
 impl TransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -505,26 +516,25 @@ impl TransactionRequest {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.traces {
             scan.join(
                 "traces",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.state_diffs {
             scan.join(
                 "statediffs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
     }
 }
-
 
 request! {
     pub struct LogRequest {
@@ -540,7 +550,6 @@ request! {
     }
 }
 
-
 impl LogRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_in_list("address", to_lowercase_list(&self.address));
@@ -555,52 +564,56 @@ impl LogRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.transaction_traces {
             scan.join(
                 "traces",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.transaction_logs {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.transaction_state_diffs {
             scan.join(
                 "statediffs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
     }
 }
-
 
 request! {
     pub struct TraceRequest {
         pub r#type: Option<Vec<String>>,
         pub create_from: Option<Vec<Bytes>>,
         pub create_result_address: Option<Vec<Bytes>>,
+        pub create_value_non_zero: bool,
         pub call_from: Option<Vec<Bytes>>,
         pub call_to: Option<Vec<Bytes>>,
         pub call_sighash: Option<Vec<Bytes>>,
+        pub call_call_type: Option<Vec<String>>,
+        pub call_value_non_zero: bool,
         pub suicide_address: Option<Vec<Bytes>>,
         pub suicide_refund_address: Option<Vec<Bytes>>,
+        pub suicide_balance_non_zero: bool,
         pub reward_author: Option<Vec<Bytes>>,
+        pub reward_value_non_zero: bool,
         pub transaction: bool,
         pub transaction_logs: bool,
+        pub transaction_traces: bool,
         pub subtraces: bool,
         pub parents: bool,
     }
 }
-
 
 impl TraceRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -610,9 +623,28 @@ impl TraceRequest {
         p.col_in_list("call_from", to_lowercase_list(&self.call_from));
         p.col_in_list("call_to", to_lowercase_list(&self.call_to));
         p.col_in_list("call_sighash", to_lowercase_list(&self.call_sighash));
+        p.col_in_list("call_type", self.call_call_type.as_deref());
         p.col_in_list("suicide_address", to_lowercase_list(&self.suicide_address));
-        p.col_in_list("suicide_refund_address", to_lowercase_list(&self.suicide_refund_address));
+        p.col_in_list(
+            "suicide_refund_address",
+            to_lowercase_list(&self.suicide_refund_address),
+        );
         p.col_in_list("reward_author", to_lowercase_list(&self.reward_author));
+
+        // Hex values are stored in minimal form (no leading zeros),
+        // so "0x01" never exists in the data.
+        if self.call_value_non_zero {
+            p.col_gt_eq("call_value", Some("0x1"));
+        }
+        if self.create_value_non_zero {
+            p.col_gt_eq("create_value", Some("0x1"));
+        }
+        if self.suicide_balance_non_zero {
+            p.col_gt_eq("suicide_balance", Some("0x1"));
+        }
+        if self.reward_value_non_zero {
+            p.col_gt_eq("reward_value", Some("0x1"));
+        }
     }
 
     fn relations(&self, scan: &mut ScanBuilder) {
@@ -620,14 +652,21 @@ impl TraceRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.transaction_logs {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
+            );
+        }
+        if self.transaction_traces {
+            scan.join(
+                "traces",
+                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"],
             );
         }
         if self.subtraces {
@@ -639,7 +678,6 @@ impl TraceRequest {
     }
 }
 
-
 request! {
     pub struct StateDiffRequest {
         pub address: Option<Vec<Bytes>>,
@@ -648,7 +686,6 @@ request! {
         pub transaction: bool,
     }
 }
-
 
 impl StateDiffRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -662,12 +699,11 @@ impl StateDiffRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"]
+                vec!["block_number", "transaction_index"],
             );
         }
     }
 }
-
 
 request! {
     pub struct EthQuery {
@@ -684,12 +720,23 @@ request! {
     }
 }
 
-
 impl EthQuery {
     pub fn validate(&self) -> anyhow::Result<()> {
         ensure_block_range!(self);
         ensure_item_count!(self, transactions, logs, traces, statediffs);
         Ok(())
+    }
+
+    pub fn requires_traces(&self) -> bool {
+        !self.traces.is_empty()
+            || self.transactions.iter().any(|t| t.traces)
+            || self.logs.iter().any(|l| l.transaction_traces)
+    }
+
+    pub fn requires_statediffs(&self) -> bool {
+        !self.statediffs.is_empty()
+            || self.transactions.iter().any(|t| t.state_diffs)
+            || self.logs.iter().any(|l| l.transaction_state_diffs)
     }
 
     pub fn compile(&self) -> Plan {

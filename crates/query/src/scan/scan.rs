@@ -1,12 +1,12 @@
-use crate::primitives::{Name, RowRangeList};
-use crate::scan::reader::TableReader;
-use crate::scan::RowPredicateRef;
-use arrow::array::RecordBatch;
-use arrow::datatypes::SchemaRef;
-use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
-use std::collections::HashSet;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
+use arrow::{array::RecordBatch, datatypes::SchemaRef};
+use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
+
+use crate::{
+    primitives::{Name, RowRangeList},
+    scan::{reader::TableReader, RowPredicateRef}
+};
 
 pub struct Scan<'a> {
     reader: Arc<dyn TableReader + 'a>,
@@ -17,8 +17,7 @@ pub struct Scan<'a> {
     default_null_columns: Option<HashSet<Name>>
 }
 
-
-impl <'a> Scan<'a> {
+impl<'a> Scan<'a> {
     pub fn new(reader: Arc<dyn TableReader + 'a>) -> Self {
         Self {
             reader,
@@ -49,7 +48,8 @@ impl <'a> Scan<'a> {
     }
 
     pub fn with_columns<I>(mut self, columns: I) -> Self
-        where I: IntoIterator<Item = Name>
+    where
+        I: IntoIterator<Item = Name>
     {
         if let Some(projection) = self.projection.as_mut() {
             projection.extend(columns);

@@ -1,17 +1,15 @@
 use std::collections::{HashMap, HashSet};
-use crate::primitives::{Name, RowWeight};
 
+use crate::primitives::{Name, RowWeight};
 
 pub enum ColumnWeight {
     Fixed(RowWeight),
     Stored(Name)
 }
 
-
 pub enum ColumnDefault {
     Null
 }
-
 
 pub struct Table {
     pub name: Name,
@@ -21,7 +19,6 @@ pub struct Table {
     pub result_item_name: Name,
     pub children: HashMap<Name, Vec<Name>>
 }
-
 
 impl Table {
     pub fn set_weight(&mut self, column: Name, weight: RowWeight) -> &mut Self {
@@ -52,7 +49,8 @@ impl Table {
     }
 
     pub fn default_null_columns(&self) -> HashSet<Name> {
-        self.column_defaults.iter()
+        self.column_defaults
+            .iter()
             .filter_map(|(name, default)| match default {
                 ColumnDefault::Null => Some(*name)
             })
@@ -66,17 +64,13 @@ impl Table {
     }
 }
 
-
 pub struct TableSet {
     tables: Vec<Table>
 }
 
-
 impl TableSet {
     pub fn new() -> TableSet {
-        TableSet {
-            tables: Vec::new()
-        }
+        TableSet { tables: Vec::new() }
     }
 
     pub fn get(&self, name: Name) -> &Table {
@@ -86,7 +80,7 @@ impl TableSet {
     pub fn get_index(&self, name: Name) -> usize {
         for (idx, table) in self.tables.iter().enumerate() {
             if table.name == name {
-                return idx
+                return idx;
             }
         }
         panic!("table {} is not defined", name)
@@ -99,12 +93,10 @@ impl TableSet {
     pub fn add_table(&mut self, name: Name, pk: Vec<Name>) -> &mut Table {
         assert!(
             !self.tables.iter().any(|t| t.name == name),
-            "table '{}' was already defined", name
+            "table '{}' was already defined",
+            name
         );
-        assert!(
-            pk.len() > 0,
-            "primary key of all tables must start with a block number"
-        );
+        assert!(pk.len() > 0, "primary key of all tables must start with a block number");
         assert!(
             self.tables.len() > 0 || pk.len() == 1,
             "block header table must be defined first"

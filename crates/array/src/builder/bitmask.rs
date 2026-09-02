@@ -1,14 +1,11 @@
-use crate::index::RangeList;
-use crate::slice::bitmask::BitmaskSlice;
-use crate::writer::BitmaskWriter;
 use arrow_buffer::{bit_mask, bit_util, BooleanBuffer, MutableBuffer};
 
+use crate::{index::RangeList, slice::bitmask::BitmaskSlice, writer::BitmaskWriter};
 
 pub struct BitmaskBuilder {
     buffer: MutableBuffer,
-    len: usize,
+    len: usize
 }
-
 
 impl BitmaskBuilder {
     pub fn new(capacity: usize) -> Self {
@@ -26,12 +23,12 @@ impl BitmaskBuilder {
         self.buffer.clear();
         self.len = 0
     }
-    
+
     pub fn reserve(&mut self, additional: usize) {
         let new_byte_len = bit_util::ceil(self.len + additional, 8);
         self.buffer.reserve(new_byte_len - self.buffer.len())
     }
-    
+
     #[inline]
     fn resize(&mut self, additional: usize) {
         let new_byte_len = bit_util::ceil(self.len + additional, 8);
@@ -41,18 +38,12 @@ impl BitmaskBuilder {
     pub fn append_slice(&mut self, data: &[u8], offset: usize, len: usize) {
         self.resize(len);
 
-        bit_mask::set_bits(
-            self.buffer.as_slice_mut(),
-            data,
-            self.len,
-            offset,
-            len
-        );
+        bit_mask::set_bits(self.buffer.as_slice_mut(), data, self.len, offset, len);
 
         self.len += len
     }
 
-    pub fn append_slice_indexes(&mut self, data: &[u8], mut indexes: impl Iterator<Item=usize>) {
+    pub fn append_slice_indexes(&mut self, data: &[u8], mut indexes: impl Iterator<Item = usize>) {
         let (min_bit_len, _) = indexes.size_hint();
         self.resize(min_bit_len);
 
@@ -71,18 +62,12 @@ impl BitmaskBuilder {
             self.append(bit_util::get_bit(data, i))
         }
     }
-    
+
     pub fn append_slice_ranges(&mut self, data: &[u8], ranges: &mut impl RangeList) {
         self.resize(ranges.span());
-        
+
         for r in ranges.iter() {
-            bit_mask::set_bits(
-                self.buffer.as_slice_mut(),
-                data,
-                self.len,
-                r.start,
-                r.len()
-            );
+            bit_mask::set_bits(self.buffer.as_slice_mut(), data, self.len, r.start, r.len());
             self.len += r.len();
         }
     }
@@ -98,10 +83,10 @@ impl BitmaskBuilder {
                 // Pad last byte with 1s
                 *self.buffer.as_slice_mut().last_mut().unwrap() |= !((1 << cur_remainder) - 1)
             }
-            
+
             self.buffer.truncate(bit_util::ceil(self.len, 8));
             self.buffer.resize(new_len_bytes, 0xFF);
-            
+
             if new_remainder != 0 {
                 // Clear remaining bits
                 *self.buffer.as_slice_mut().last_mut().unwrap() &= (1 << new_remainder) - 1
@@ -123,7 +108,7 @@ impl BitmaskBuilder {
     pub fn data(&self) -> &[u8] {
         &self.buffer
     }
-    
+
     pub fn as_slice(&self) -> BitmaskSlice<'_> {
         BitmaskSlice::new(self.data(), 0, self.len)
     }
@@ -152,7 +137,6 @@ impl BitmaskBuilder {
     }
 }
 
-
 impl BitmaskWriter for BitmaskBuilder {
     #[inline]
     fn write_slice(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()> {
@@ -161,7 +145,7 @@ impl BitmaskWriter for BitmaskBuilder {
     }
 
     #[inline]
-    fn write_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item=usize>) -> anyhow::Result<()> {
+    fn write_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item = usize>) -> anyhow::Result<()> {
         self.append_slice_indexes(data, indexes);
         Ok(())
     }

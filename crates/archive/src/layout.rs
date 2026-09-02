@@ -1,44 +1,36 @@
-use crate::fs::FSRef;
+use std::{pin::pin, sync::LazyLock};
+
 use anyhow::ensure;
 use async_stream::try_stream;
 use futures::{Stream, StreamExt, TryStreamExt};
 use regex::Regex;
 use sqd_primitives::BlockNumber;
-use std::pin::pin;
-use std::sync::LazyLock;
 
+use crate::fs::FSRef;
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct DataChunk {
     pub first_block: BlockNumber,
     pub last_block: BlockNumber,
     pub last_hash: String,
-    pub top: BlockNumber,
+    pub top: BlockNumber
 }
-
 
 impl DataChunk {
     pub fn path(&self) -> String {
         format!(
             "{:010}/{:010}-{:010}-{}",
-            self.top,
-            self.first_block,
-            self.last_block,
-            self.last_hash
+            self.top, self.first_block, self.last_block, self.last_hash
         )
     }
 }
-
 
 fn format_block_number(block_number: BlockNumber) -> String {
     format!("{:010}", block_number)
 }
 
-
 fn parse_range(dirname: &str) -> Option<(BlockNumber, BlockNumber, String)> {
-    static RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"^(\d+)-(\d+)-(\w+)$").unwrap()
-    });
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\d+)-(\d+)-(\w+)$").unwrap());
 
     RE.captures(dirname).map(|caps| {
         let beg = caps[1].parse::<u64>().unwrap();
@@ -48,11 +40,9 @@ fn parse_range(dirname: &str) -> Option<(BlockNumber, BlockNumber, String)> {
     })
 }
 
-
 pub struct Layout {
     fs: FSRef
 }
-
 
 impl Layout {
     pub fn new(fs: FSRef) -> Self {
@@ -60,7 +50,9 @@ impl Layout {
     }
 
     pub async fn get_tops(&self) -> anyhow::Result<Vec<u64>> {
-        let mut tops: Vec<u64> = self.fs.ls()
+        let mut tops: Vec<u64> = self
+            .fs
+            .ls()
             .await?
             .into_iter()
             .filter(|s| s.parse::<u64>().is_ok())
@@ -79,18 +71,22 @@ impl Layout {
     }
 
     async fn get_top_chunks(&self, top: u64) -> anyhow::Result<Vec<DataChunk>> {
-        self.fs.cd(&format_block_number(top))
+        self.fs
+            .cd(&format_block_number(top))
             .ls()
             .await?
             .into_iter()
             .filter_map(|s| {
                 parse_range(&s).map(|(first_block, last_block, last_hash)| {
-                    (s, DataChunk {
-                        first_block,
-                        last_block,
-                        last_hash,
-                        top
-                    })
+                    (
+                        s,
+                        DataChunk {
+                            first_block,
+                            last_block,
+                            last_hash,
+                            top
+                        }
+                    )
                 })
             })
             .map(|(s, chunk)| {
@@ -114,8 +110,7 @@ impl Layout {
         &self,
         first_block: BlockNumber,
         last_block: Option<BlockNumber>
-    ) -> impl Stream<Item=anyhow::Result<DataChunk>> + '_
-    {
+    ) -> impl Stream<Item = anyhow::Result<DataChunk>> + '_ {
         try_stream! {
             let last_block = last_block.unwrap_or(u64::MAX);
             if first_block > last_block {
@@ -149,8 +144,7 @@ impl Layout {
         &self,
         first_block: BlockNumber,
         last_block: Option<BlockNumber>
-    ) -> impl Stream<Item=anyhow::Result<DataChunk>> + '_
-    {
+    ) -> impl Stream<Item = anyhow::Result<DataChunk>> + '_ {
         try_stream! {
             let last_block = last_block.unwrap_or(u64::MAX);
             if first_block > last_block {
@@ -179,9 +173,8 @@ impl Layout {
         chunk_check: &dyn Fn(&[String]) -> bool,
         top_dir_size: usize,
         first_block: BlockNumber,
-        last_block: Option<BlockNumber>,
-    ) -> anyhow::Result<ChunkTracker>
-    {
+        last_block: Option<BlockNumber>
+    ) -> anyhow::Result<ChunkTracker> {
         ensure!(first_block <= last_block.unwrap_or(BlockNumber::MAX));
 
         let mut chunks = pin!(self.get_chunks(first_block, last_block));
@@ -237,40 +230,27 @@ impl Layout {
     }
 }
 
-
 pub struct ChunkTracker {
     top_dir_size: usize,
     base_chunk_hash: Option<String>,
     last_block_limit: BlockNumber,
     top: BlockNumber,
-    chunks: Vec<DataChunk>,
+    chunks: Vec<DataChunk>
 }
-
 
 impl ChunkTracker {
     pub fn prev_chunk_hash(&self) -> Option<&str> {
         self.chunks
             .last()
             .map(|c| c.last_hash.as_ref())
-            .or_else(|| {
-                self.base_chunk_hash.as_ref().map(|s| s.as_ref())
-            })
+            .or_else(|| self.base_chunk_hash.as_ref().map(|s| s.as_ref()))
     }
 
     pub fn next_block(&self) -> BlockNumber {
-        self.chunks
-            .last()
-            .map(|c| c.last_block + 1)
-            .unwrap_or(self.top)
+        self.chunks.last().map(|c| c.last_block + 1).unwrap_or(self.top)
     }
 
-    pub fn next_chunk(
-        &mut self,
-        first_block: BlockNumber,
-        last_block: BlockNumber,
-        last_hash: String
-    ) -> DataChunk
-    {
+    pub fn next_chunk(&mut self, first_block: BlockNumber, last_block: BlockNumber, last_hash: String) -> DataChunk {
         assert_eq!(self.next_block(), first_block);
         assert!(first_block <= last_block);
         assert!(last_block <= self.last_block_limit);
@@ -284,7 +264,7 @@ impl ChunkTracker {
             first_block,
             last_block,
             last_hash,
-            top: self.top,
+            top: self.top
         };
 
         self.chunks.push(chunk.clone());

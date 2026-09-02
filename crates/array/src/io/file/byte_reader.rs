@@ -1,7 +1,6 @@
-use crate::io::file::shared_file::SharedFileRef;
-use crate::io::reader::ByteReader;
 use anyhow::ensure;
 
+use crate::io::{file::shared_file::SharedFileRef, reader::ByteReader};
 
 pub struct FileByteReader {
     file: SharedFileRef,
@@ -10,7 +9,6 @@ pub struct FileByteReader {
     buffered_offset: usize,
     buffered_len: usize
 }
-
 
 impl FileByteReader {
     pub fn new(file: SharedFileRef) -> anyhow::Result<Self> {
@@ -23,7 +21,7 @@ impl FileByteReader {
             buffered_len: 0
         })
     }
-    
+
     #[inline(never)]
     fn fill_buffer(&mut self, offset: usize) -> std::io::Result<()> {
         let len = self.file.read(offset, self.buf.as_mut_slice())?;
@@ -33,7 +31,6 @@ impl FileByteReader {
     }
 }
 
-
 impl ByteReader for FileByteReader {
     fn len(&self) -> usize {
         self.file_len
@@ -41,19 +38,19 @@ impl ByteReader for FileByteReader {
 
     fn read(&mut self, offset: usize, len: usize) -> anyhow::Result<&[u8]> {
         ensure!(offset + len <= self.file_len, "out of bounds read");
-        
+
         if self.buffered_offset <= offset && offset < self.buffered_offset + self.buffered_len {
             let beg = offset - self.buffered_offset;
             let end = beg + std::cmp::min(len, self.buffered_len - beg);
-            return Ok(&self.buf[beg..end])
+            return Ok(&self.buf[beg..end]);
         }
 
         if len == 0 {
-            return Ok(&[])
+            return Ok(&[]);
         }
-        
+
         self.fill_buffer(offset)?;
-        
+
         Ok(&self.buf[0..std::cmp::min(len, self.buffered_len)])
     }
 }

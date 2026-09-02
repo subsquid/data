@@ -1,20 +1,20 @@
-use super::row_batch::Row;
-use crate::block::{Block, BlockHeader};
 use anyhow::Context;
 use sqd_primitives::{BlockNumber, BlockRef};
 use uuid::Uuid;
 
+use super::row_batch::Row;
+use crate::block::{Block, BlockHeader};
 
 impl Row for BlockHeader<'static> {
     type Type<'a> = BlockHeader<'a>;
-    
+
     type Tuple<'a> = (
-        i64, // number
-        &'a str, // hash
-        i64, // parent_number
-        &'a str, // parent_hash
-        Option<i64>, // block_timestamp,
-        Option<bool> // is_final
+        i64,          // number
+        &'a str,      // hash
+        i64,          // parent_number
+        &'a str,      // parent_hash
+        Option<i64>,  // block_timestamp,
+        Option<bool>  // is_final
     );
 
     fn convert(row: Self::Tuple<'_>) -> anyhow::Result<Self::Type<'_>> {
@@ -35,10 +35,9 @@ impl Row for BlockHeader<'static> {
     }
 }
 
-
 impl Row for Block<'static> {
     type Type<'a> = Block<'a>;
-    
+
     type Tuple<'a> = (<BlockHeader<'static> as Row>::Tuple<'a>, &'a [u8]);
 
     fn convert(row: Self::Tuple<'_>) -> anyhow::Result<Self::Type<'_>> {
@@ -53,7 +52,6 @@ impl Row for Block<'static> {
         slice
     }
 }
-
 
 pub struct WriteState {
     pub id: Uuid,

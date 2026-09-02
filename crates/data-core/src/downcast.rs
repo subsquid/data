@@ -1,13 +1,12 @@
-use arrow::datatypes::DataType;
-use sqd_array::slice::{AnySlice, Slice};
 use std::sync::Arc;
 
+use arrow::datatypes::DataType;
+use sqd_array::slice::{AnySlice, Slice};
 
 #[derive(Clone)]
 pub struct Downcast {
     inner: Arc<parking_lot::Mutex<DowncastState>>
 }
-
 
 impl Default for Downcast {
     fn default() -> Self {
@@ -15,14 +14,13 @@ impl Default for Downcast {
     }
 }
 
-
 impl Downcast {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(parking_lot::Mutex::new(DowncastState::new()))
         }
     }
-    
+
     pub fn reset(&self) {
         self.inner.lock().reset()
     }
@@ -46,12 +44,10 @@ impl Downcast {
     }
 }
 
-
 pub struct DowncastState {
     max_block_number: u64,
     max_item_index: u64
 }
-
 
 impl DowncastState {
     pub fn new() -> Self {
@@ -65,19 +61,13 @@ impl DowncastState {
         self.max_block_number = u32::MAX as u64;
         self.max_item_index = u16::MAX as u64;
     }
-    
+
     pub fn reg_block_number(&mut self, val: u64) {
-        self.max_block_number = std::cmp::max(
-            self.max_block_number,
-            val
-        )
+        self.max_block_number = std::cmp::max(self.max_block_number, val)
     }
-    
+
     pub fn reg_item_index(&mut self, val: u64) {
-        self.max_item_index = std::cmp::max(
-            self.max_item_index,
-            val
-        );
+        self.max_item_index = std::cmp::max(self.max_item_index, val);
     }
 
     pub fn get_block_number_type(&self) -> DataType {
@@ -89,7 +79,6 @@ impl DowncastState {
     }
 }
 
-
 fn get_max(array: &AnySlice<'_>) -> u64 {
     match array {
         AnySlice::UInt8(s) => s.values().iter().copied().max().unwrap_or(0) as u64,
@@ -100,21 +89,20 @@ fn get_max(array: &AnySlice<'_>) -> u64 {
         AnySlice::List(s) => {
             let range = s.offsets().range();
             get_max(&s.values().item().slice(range.start, range.len()))
-        },
+        }
         _ => panic!("invalid index type")
     }
 }
 
-
 fn get_minimal_type(max: u64) -> DataType {
     if u8::try_from(max).is_ok() {
-        return DataType::UInt8
+        return DataType::UInt8;
     }
     if u16::try_from(max).is_ok() {
-        return DataType::UInt16
+        return DataType::UInt16;
     }
     if u32::try_from(max).is_ok() {
-        return DataType::UInt32
+        return DataType::UInt32;
     }
     DataType::UInt64
 }

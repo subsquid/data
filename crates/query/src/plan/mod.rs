@@ -1,12 +1,11 @@
-mod rel;
-mod plan;
-mod row_list;
-mod table;
-mod result;
-mod sort;
 mod key;
-
+mod plan;
+mod rel;
+mod result;
+mod row_list;
+mod sort;
+mod table;
 
 pub use plan::*;
-pub use table::*;
 pub use result::*;
+pub use table::*;

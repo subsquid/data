@@ -1,86 +1,71 @@
-use super::util::{check_hex, compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, parse_hex, parse_static_hex, request, PredicateBuilder};
-use crate::json::exp::Exp;
-use crate::json::lang::*;
-use crate::plan::{Plan, ScanBuilder, TableSet};
-use crate::primitives::BlockNumber;
-use crate::scan::{col_in_list, or, RowPredicateRef};
+use std::sync::{Arc, LazyLock};
+
 use anyhow::{anyhow, ensure};
 use arrow::array::{ArrayRef, FixedSizeBinaryBuilder, UInt16Array, UInt32Array, UInt64Array, UInt8Array};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, LazyLock};
 
+use super::util::{
+    check_hex, compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, parse_hex,
+    parse_static_hex, request, PredicateBuilder
+};
+use crate::{
+    json::{exp::Exp, lang::*},
+    plan::{Plan, ScanBuilder, TableSet},
+    primitives::BlockNumber,
+    scan::{col_in_list, or, RowPredicateRef}
+};
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     let mut tables = TableSet::new();
 
-    tables.add_table("blocks", vec![
-        "number"
-    ]); 
+    tables.add_table("blocks", vec!["number"]);
 
-    tables.add_table("transactions", vec![
-        "block_number",
-        "transaction_index"
-    ])
-    .add_child("logs", vec!["block_number", "transaction_index"])
-    .add_child("balances", vec!["block_number", "transaction_index"])
-    .add_child("token_balances", vec!["block_number", "transaction_index"])
-    .set_weight_column("account_keys", "account_keys_size")
-    .set_weight_column("address_table_lookups", "address_table_lookups_size")
-    .set_weight_column("signatures", "signatures_size")
-    .set_weight_column("loaded_addresses", "loaded_addresses_size");
+    tables
+        .add_table("transactions", vec!["block_number", "transaction_index"])
+        .add_child("logs", vec!["block_number", "transaction_index"])
+        .add_child("balances", vec!["block_number", "transaction_index"])
+        .add_child("token_balances", vec!["block_number", "transaction_index"])
+        .set_weight_column("account_keys", "account_keys_size")
+        .set_weight_column("address_table_lookups", "address_table_lookups_size")
+        .set_weight_column("signatures", "signatures_size")
+        .set_weight_column("loaded_addresses", "loaded_addresses_size");
 
-    tables.add_table("instructions", vec![
-        "block_number",
-        "transaction_index",
-        "instruction_address"
-    ])
-    .set_weight_column("data", "data_size")
-    .set_weight_column("a0", "accounts_size")
-    .set_weight("a1", 0)
-    .set_weight("a2", 0)
-    .set_weight("a3", 0)
-    .set_weight("a4", 0)
-    .set_weight("a5", 0)
-    .set_weight("a6", 0)
-    .set_weight("a7", 0)
-    .set_weight("a8", 0)
-    .set_weight("a9", 0)
-    .set_weight("a10", 0)
-    .set_weight("a11", 0)
-    .set_weight("a12", 0)
-    .set_weight("a13", 0)
-    .set_weight("a14", 0)
-    .set_weight("a15", 0)
-    .set_weight("rest_accounts", 0);
+    tables
+        .add_table(
+            "instructions",
+            vec!["block_number", "transaction_index", "instruction_address"]
+        )
+        .set_weight_column("data", "data_size")
+        .set_weight_column("a0", "accounts_size")
+        .set_weight("a1", 0)
+        .set_weight("a2", 0)
+        .set_weight("a3", 0)
+        .set_weight("a4", 0)
+        .set_weight("a5", 0)
+        .set_weight("a6", 0)
+        .set_weight("a7", 0)
+        .set_weight("a8", 0)
+        .set_weight("a9", 0)
+        .set_weight("a10", 0)
+        .set_weight("a11", 0)
+        .set_weight("a12", 0)
+        .set_weight("a13", 0)
+        .set_weight("a14", 0)
+        .set_weight("a15", 0)
+        .set_weight("rest_accounts", 0);
 
-    tables.add_table("logs", vec![
-        "block_number",
-        "transaction_index",
-        "log_index"
-    ])
-    .set_weight_column("message", "message_size");
+    tables
+        .add_table("logs", vec!["block_number", "transaction_index", "log_index"])
+        .set_weight_column("message", "message_size");
 
-    tables.add_table("balances", vec![
-        "block_number",
-        "transaction_index",
-        "account"
-    ]);
+    tables.add_table("balances", vec!["block_number", "transaction_index", "account"]);
 
-    tables.add_table("token_balances", vec![
-        "block_number",
-        "transaction_index",
-        "account"
-    ]);
+    tables.add_table("token_balances", vec!["block_number", "transaction_index", "account"]);
 
-    tables.add_table("rewards", vec![
-        "block_number",
-        "pubkey",
-        "reward_type"
-    ]);
+    tables.add_table("rewards", vec!["block_number", "pubkey", "reward_type"]);
 
     tables
 });
-
 
 field_selection! {
     block: BlockFieldSelection,
@@ -91,7 +76,6 @@ field_selection! {
     token_balance: TokenBalanceFieldSelection,
     reward: RewardFieldSelection,
 }
-
 
 item_field_selection! {
     BlockFieldSelection {
@@ -112,7 +96,6 @@ item_field_selection! {
         [this.timestamp]: TimestampSecond,
     }}
 }
-
 
 item_field_selection! {
     TransactionFieldSelection {
@@ -157,7 +140,6 @@ item_field_selection! {
         }
     }
 }
-
 
 item_field_selection! {
     InstructionFieldSelection {
@@ -221,7 +203,6 @@ item_field_selection! {
     }
 }
 
-
 item_field_selection! {
     LogFieldSelection {
         transaction_index,
@@ -242,7 +223,6 @@ item_field_selection! {
     }}
 }
 
-
 item_field_selection! {
     BalanceFieldSelection {
         transaction_index,
@@ -258,7 +238,6 @@ item_field_selection! {
         [this.post]: BigNum,
     }}
 }
-
 
 item_field_selection! {
     TokenBalanceFieldSelection {
@@ -292,7 +271,6 @@ item_field_selection! {
     }}
 }
 
-
 item_field_selection! {
     RewardFieldSelection {
         pubkey,
@@ -311,10 +289,8 @@ item_field_selection! {
     }}
 }
 
-
 type Bytes = String;
 type Base58Bytes = String;
-
 
 request! {
     pub struct InstructionRequest {
@@ -352,15 +328,46 @@ request! {
     }
 }
 
-
 impl InstructionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_in_list("program_id", self.program_id.as_deref());
         self.discriminator_predicate(p);
-        p.col_in_list("d1", self.d1.as_ref().map(|list| list.iter().filter_map(|s| parse_static_hex::<1>(s)).map(u8::from_be_bytes).collect::<Vec<_>>()));
-        p.col_in_list("d2", self.d2.as_ref().map(|list| list.iter().filter_map(|s| parse_static_hex::<2>(s)).map(u16::from_be_bytes).collect::<Vec<_>>()));
-        p.col_in_list("d4", self.d4.as_ref().map(|list| list.iter().filter_map(|s| parse_static_hex::<4>(s)).map(u32::from_be_bytes).collect::<Vec<_>>()));
-        p.col_in_list("d8", self.d8.as_ref().map(|list| list.iter().filter_map(|s| parse_static_hex::<8>(s)).map(u64::from_be_bytes).collect::<Vec<_>>()));
+        p.col_in_list(
+            "d1",
+            self.d1.as_ref().map(|list| {
+                list.iter()
+                    .filter_map(|s| parse_static_hex::<1>(s))
+                    .map(u8::from_be_bytes)
+                    .collect::<Vec<_>>()
+            })
+        );
+        p.col_in_list(
+            "d2",
+            self.d2.as_ref().map(|list| {
+                list.iter()
+                    .filter_map(|s| parse_static_hex::<2>(s))
+                    .map(u16::from_be_bytes)
+                    .collect::<Vec<_>>()
+            })
+        );
+        p.col_in_list(
+            "d4",
+            self.d4.as_ref().map(|list| {
+                list.iter()
+                    .filter_map(|s| parse_static_hex::<4>(s))
+                    .map(u32::from_be_bytes)
+                    .collect::<Vec<_>>()
+            })
+        );
+        p.col_in_list(
+            "d8",
+            self.d8.as_ref().map(|list| {
+                list.iter()
+                    .filter_map(|s| parse_static_hex::<8>(s))
+                    .map(u64::from_be_bytes)
+                    .collect::<Vec<_>>()
+            })
+        );
         p.bloom_filter("accounts_bloom", 64, 7, self.mentions_account.as_deref());
         p.col_in_list("a0", self.a0.as_deref());
         p.col_in_list("a1", self.a1.as_deref());
@@ -382,25 +389,30 @@ impl InstructionRequest {
     }
 
     fn discriminator_predicate(&self, p: &mut PredicateBuilder) {
-        let Some(list) = self.discriminator.as_ref() else { return };
+        let Some(list) = self.discriminator.as_ref() else {
+            return;
+        };
 
-        let list: Vec<Vec<u8>> = list.iter().filter_map(|s| {
-            let d = parse_hex(s)?;
-            if d.len() > 16 {
-                None
-            } else {
-                Some(d)
-            }
-        }).collect();
+        let list: Vec<Vec<u8>> = list
+            .iter()
+            .filter_map(|s| {
+                let d = parse_hex(s)?;
+                if d.len() > 16 {
+                    None
+                } else {
+                    Some(d)
+                }
+            })
+            .collect();
 
-        if list.is_empty()  {
+        if list.is_empty() {
             p.mark_as_never();
-            return
+            return;
         }
 
         if list.iter().any(|d| d.is_empty()) {
             // empty prefix always matches
-            return
+            return;
         }
 
         let mut ds: Vec<Vec<Vec<u8>>> = vec![vec![]; 17];
@@ -412,13 +424,14 @@ impl InstructionRequest {
 
         for (i, list) in ds.into_iter().enumerate() {
             if list.is_empty() {
-                continue
+                continue;
             }
 
             macro_rules! disc {
                 ($t:ty, $array:ty) => {
                     Arc::new(<$array>::from_iter_values(
-                        list.into_iter().map(|d| <$t>::from_be_bytes(d.try_into().unwrap()))
+                        list.into_iter()
+                            .map(|d| <$t>::from_be_bytes(d.try_into().unwrap()))
                     ))
                 };
             }
@@ -457,9 +470,7 @@ impl InstructionRequest {
                 _ => unreachable!()
             };
 
-            predicates.push(
-                col_in_list(col, array)
-            )
+            predicates.push(col_in_list(col, array))
         }
 
         p.add(or(predicates));
@@ -470,21 +481,21 @@ impl InstructionRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_balances {
             scan.join(
                 "balances",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_token_balances {
             scan.join(
                 "token_balances",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_instructions {
@@ -504,12 +515,11 @@ impl InstructionRequest {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index", "instruction_address"],
-                vec!["block_number", "transaction_index", "instruction_address"],
+                vec!["block_number", "transaction_index", "instruction_address"]
             );
         }
     }
 }
-
 
 request! {
     pub struct TransactionRequest {
@@ -521,7 +531,6 @@ request! {
         pub token_balances: bool,
     }
 }
-
 
 impl TransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -561,7 +570,6 @@ impl TransactionRequest {
     }
 }
 
-
 request! {
     pub struct LogRequest {
         pub program_id: Option<Vec<Bytes>>,
@@ -570,7 +578,6 @@ request! {
         pub transaction: bool,
     }
 }
-
 
 impl LogRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -597,7 +604,6 @@ impl LogRequest {
     }
 }
 
-
 request! {
     pub struct BalanceRequest {
         pub account: Option<Vec<Bytes>>,
@@ -605,7 +611,6 @@ request! {
         pub transaction_instructions: bool,
     }
 }
-
 
 impl BalanceRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -630,7 +635,6 @@ impl BalanceRequest {
     }
 }
 
-
 request! {
     pub struct TokenBalanceRequest {
         pub account: Option<Vec<Bytes>>,
@@ -646,7 +650,6 @@ request! {
         pub transaction_token_balances: bool,
     }
 }
-
 
 impl TokenBalanceRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -678,26 +681,24 @@ impl TokenBalanceRequest {
             scan.join(
                 "balances",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_token_balances {
             scan.join(
                 "token_balances",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
 }
-
 
 request! {
     pub struct RewardRequest {
         pub pubkey: Option<Vec<Bytes>>,
     }
 }
-
 
 impl RewardRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -706,7 +707,6 @@ impl RewardRequest {
 
     fn relations(&self, _scan: &mut ScanBuilder) {}
 }
-
 
 request! {
     pub struct SolanaQuery {
@@ -724,11 +724,18 @@ request! {
     }
 }
 
-
 impl SolanaQuery {
     pub fn validate(&self) -> anyhow::Result<()> {
         ensure_block_range!(self);
-        ensure_item_count!(self, transactions, instructions, logs, balances, token_balances, rewards);
+        ensure_item_count!(
+            self,
+            transactions,
+            instructions,
+            logs,
+            balances,
+            token_balances,
+            rewards
+        );
         for (i, tx) in self.transactions.iter().enumerate() {
             let len = tx.mentions_account.as_ref().map_or(0, |list| list.len());
             ensure!(
@@ -773,16 +780,22 @@ impl SolanaQuery {
 
             if let Some(ds) = ins.discriminator.as_ref() {
                 for (dix, d) in ds.iter().enumerate() {
-                    check_hex(d).and_then(|_| {
-                        if d.len() > 34 {
-                            Err("discriminator can't be longer than 16 bytes")
-                        } else {
-                            Ok(())
-                        }
-                    }).map_err(|msg| anyhow!(
-                        "invalid discriminator at .instructions[{}].discriminator[{}]: {}",
-                        i, dix, msg
-                    ))?;
+                    check_hex(d)
+                        .and_then(|_| {
+                            if d.len() > 34 {
+                                Err("discriminator can't be longer than 16 bytes")
+                            } else {
+                                Ok(())
+                            }
+                        })
+                        .map_err(|msg| {
+                            anyhow!(
+                                "invalid discriminator at .instructions[{}].discriminator[{}]: {}",
+                                i,
+                                dix,
+                                msg
+                            )
+                        })?;
                 }
             }
         }

@@ -1,16 +1,25 @@
-use crate::chunking::ChunkRange;
-use crate::reader::native::{ChunkedNativeArrayReader, NativeArrayReader};
-use crate::reader::{ArrayReader, BinaryReader, BooleanReader, ChunkedArrayReader, ChunkedBinaryReader, ChunkedBooleanReader, ChunkedFixedSizeBinaryReader, ChunkedFixedSizeListReader, ChunkedListReader, ChunkedPrimitiveReader, ChunkedStructReader, FixedSizeBinaryReader, FixedSizeListReader, ListReader, PrimitiveReader, Reader, ReaderFactory, StructReader};
-use crate::visitor::DataTypeVisitor;
-use crate::writer::ArrayWriter;
-use arrow::array::ArrowPrimitiveType;
-use arrow::datatypes::{DataType, FieldRef};
 use std::marker::PhantomData;
 
+use arrow::{
+    array::ArrowPrimitiveType,
+    datatypes::{DataType, FieldRef}
+};
+
+use crate::{
+    chunking::ChunkRange,
+    reader::{
+        native::{ChunkedNativeArrayReader, NativeArrayReader},
+        ArrayReader, BinaryReader, BooleanReader, ChunkedArrayReader, ChunkedBinaryReader, ChunkedBooleanReader,
+        ChunkedFixedSizeBinaryReader, ChunkedFixedSizeListReader, ChunkedListReader, ChunkedPrimitiveReader,
+        ChunkedStructReader, FixedSizeBinaryReader, FixedSizeListReader, ListReader, PrimitiveReader, Reader,
+        ReaderFactory, StructReader
+    },
+    visitor::DataTypeVisitor,
+    writer::ArrayWriter
+};
 
 pub type AnyListReader<R> = ListReader<R, AnyReader<R>>;
 pub type AnyFixedSizeListReader<R> = FixedSizeListReader<R, AnyReader<R>>;
-
 
 pub enum AnyReader<R: Reader> {
     Boolean(BooleanReader<R>),
@@ -22,18 +31,11 @@ pub enum AnyReader<R: Reader> {
     Struct(StructReader<R>)
 }
 
-
-impl <R: Reader> AnyReader<R> {
-    pub fn from_factory(
-        factory: &mut impl ReaderFactory<Reader=R>,
-        data_type: &DataType
-    ) -> anyhow::Result<Self>
-    {
-        AnyReaderFactory {
-            factory
-        }.visit(data_type)
+impl<R: Reader> AnyReader<R> {
+    pub fn from_factory(factory: &mut impl ReaderFactory<Reader = R>, data_type: &DataType) -> anyhow::Result<Self> {
+        AnyReaderFactory { factory }.visit(data_type)
     }
-    
+
     #[inline]
     pub fn as_boolean(&mut self) -> &mut BooleanReader<R> {
         match self {
@@ -91,8 +93,7 @@ impl <R: Reader> AnyReader<R> {
     }
 }
 
-
-impl <R: Reader> ArrayReader for AnyReader<R> {
+impl<R: Reader> ArrayReader for AnyReader<R> {
     fn num_buffers(&self) -> usize {
         match self {
             AnyReader::Boolean(r) => r.num_buffers(),
@@ -101,7 +102,7 @@ impl <R: Reader> ArrayReader for AnyReader<R> {
             AnyReader::FixedSizeBinary(r) => r.num_buffers(),
             AnyReader::List(r) => r.num_buffers(),
             AnyReader::FixedSizeList(r) => r.num_buffers(),
-            AnyReader::Struct(r) => r.num_buffers(),
+            AnyReader::Struct(r) => r.num_buffers()
         }
     }
 
@@ -113,7 +114,7 @@ impl <R: Reader> ArrayReader for AnyReader<R> {
             AnyReader::FixedSizeBinary(r) => r.len(),
             AnyReader::List(r) => r.len(),
             AnyReader::FixedSizeList(r) => r.len(),
-            AnyReader::Struct(r) => r.len(),
+            AnyReader::Struct(r) => r.len()
         }
     }
 
@@ -125,66 +126,58 @@ impl <R: Reader> ArrayReader for AnyReader<R> {
             AnyReader::FixedSizeBinary(r) => r.read_slice(dst, offset, len),
             AnyReader::List(r) => r.read_slice(dst, offset, len),
             AnyReader::FixedSizeList(r) => r.read_slice(dst, offset, len),
-            AnyReader::Struct(r) => r.read_slice(dst, offset, len),
+            AnyReader::Struct(r) => r.read_slice(dst, offset, len)
         }
     }
 }
 
-
-impl <R: Reader> From<BooleanReader<R>> for AnyReader<R> {
+impl<R: Reader> From<BooleanReader<R>> for AnyReader<R> {
     fn from(value: BooleanReader<R>) -> Self {
         AnyReader::Boolean(value)
     }
 }
 
-
-impl <R: Reader> From<PrimitiveReader<R>> for AnyReader<R> {
+impl<R: Reader> From<PrimitiveReader<R>> for AnyReader<R> {
     fn from(value: PrimitiveReader<R>) -> Self {
         AnyReader::Primitive(value)
     }
 }
 
-
-impl <R: Reader> From<BinaryReader<R>> for AnyReader<R> {
+impl<R: Reader> From<BinaryReader<R>> for AnyReader<R> {
     fn from(value: BinaryReader<R>) -> Self {
         AnyReader::Binary(value)
     }
 }
 
-
-impl <R: Reader> From<FixedSizeBinaryReader<R>> for AnyReader<R> {
+impl<R: Reader> From<FixedSizeBinaryReader<R>> for AnyReader<R> {
     fn from(value: FixedSizeBinaryReader<R>) -> Self {
         AnyReader::FixedSizeBinary(value)
     }
 }
 
-
-impl <R: Reader> From<AnyListReader<R>> for AnyReader<R> {
+impl<R: Reader> From<AnyListReader<R>> for AnyReader<R> {
     fn from(value: AnyListReader<R>) -> Self {
         AnyReader::List(Box::new(value))
     }
 }
 
-impl <R: Reader> From<AnyFixedSizeListReader<R>> for AnyReader<R> {
+impl<R: Reader> From<AnyFixedSizeListReader<R>> for AnyReader<R> {
     fn from(value: AnyFixedSizeListReader<R>) -> Self {
         AnyReader::FixedSizeList(Box::new(value))
     }
 }
 
-
-impl <R: Reader> From<StructReader<R>> for AnyReader<R> {
+impl<R: Reader> From<StructReader<R>> for AnyReader<R> {
     fn from(value: StructReader<R>) -> Self {
         AnyReader::Struct(value)
     }
 }
 
-
 struct AnyReaderFactory<'a, F> {
-    factory: &'a mut F,
+    factory: &'a mut F
 }
 
-
-impl <'a, F: ReaderFactory> DataTypeVisitor for AnyReaderFactory<'a, F> {
+impl<'a, F: ReaderFactory> DataTypeVisitor for AnyReaderFactory<'a, F> {
     type Result = anyhow::Result<AnyReader<F::Reader>>;
 
     fn boolean(&mut self) -> Self::Result {
@@ -205,22 +198,14 @@ impl <'a, F: ReaderFactory> DataTypeVisitor for AnyReaderFactory<'a, F> {
         let nulls = self.factory.nullmask()?;
         let offsets = self.factory.offset()?;
         let values = self.factory.native::<u8>()?;
-        let reader = BinaryReader::try_new(
-            nulls, 
-            offsets, 
-            NativeArrayReader::new(values)
-        )?;
+        let reader = BinaryReader::try_new(nulls, offsets, NativeArrayReader::new(values))?;
         Ok(reader.into())
     }
 
     fn fixed_size_binary(&mut self, size: usize) -> Self::Result {
         let nulls = self.factory.nullmask()?;
         let values = self.factory.native::<u8>()?;
-        let reader = FixedSizeBinaryReader::try_new(
-            size,
-            nulls,
-            NativeArrayReader::new(values)
-        )?;
+        let reader = FixedSizeBinaryReader::try_new(size, nulls, NativeArrayReader::new(values))?;
         Ok(reader.into())
     }
 
@@ -228,31 +213,26 @@ impl <'a, F: ReaderFactory> DataTypeVisitor for AnyReaderFactory<'a, F> {
         let nulls = self.factory.nullmask()?;
         let offsets = self.factory.offset()?;
         let values = self.visit(item)?;
-        let reader = ListReader::try_new(
-            nulls,
-            offsets,
-            values
-        )?;
+        let reader = ListReader::try_new(nulls, offsets, values)?;
         Ok(reader.into())
     }
 
     fn r#struct(&mut self, fields: &[FieldRef]) -> Self::Result {
         let nulls = self.factory.nullmask()?;
-        
-        let columns = fields.iter()
+
+        let columns = fields
+            .iter()
             .map(|f| self.visit(f.data_type()))
             .collect::<anyhow::Result<Vec<_>>>()?;
-        
+
         let reader = StructReader::try_new(nulls, columns)?;
-        
+
         Ok(reader.into())
     }
 }
 
-
 pub type AnyChunkedListReader<R> = ChunkedListReader<R, AnyChunkedReader<R>>;
 pub type AnyChunkedFixedSizeListReader<R> = ChunkedFixedSizeListReader<R, AnyChunkedReader<R>>;
-
 
 pub enum AnyChunkedReader<R: Reader> {
     Boolean(ChunkedBooleanReader<R>),
@@ -264,20 +244,19 @@ pub enum AnyChunkedReader<R: Reader> {
     Struct(ChunkedStructReader<R>)
 }
 
-
 impl<R: Reader> AnyChunkedReader<R> {
     pub fn new(data_type: &DataType) -> Self {
         Self::with_capacity(0, data_type)
     }
-    
+
     pub fn with_capacity(cap: usize, data_type: &DataType) -> Self {
         AnyChunkedReaderFactory {
             cap,
             phantom_data: PhantomData::<R>::default()
-        }.visit(data_type)
+        }
+        .visit(data_type)
     }
 }
-
 
 impl<R: Reader> ChunkedArrayReader for AnyChunkedReader<R> {
     type Chunk = AnyReader<R>;
@@ -290,7 +269,7 @@ impl<R: Reader> ChunkedArrayReader for AnyChunkedReader<R> {
             AnyChunkedReader::FixedSizeBinary(r) => r.num_buffers(),
             AnyChunkedReader::List(r) => r.num_buffers(),
             AnyChunkedReader::FixedSizeList(r) => r.num_buffers(),
-            AnyChunkedReader::Struct(r) => r.num_buffers(),
+            AnyChunkedReader::Struct(r) => r.num_buffers()
         }
     }
 
@@ -310,9 +289,8 @@ impl<R: Reader> ChunkedArrayReader for AnyChunkedReader<R> {
     fn read_chunked_ranges(
         &mut self,
         dst: &mut impl ArrayWriter,
-        ranges: impl Iterator<Item=ChunkRange> + Clone
-    ) -> anyhow::Result<()>
-    {
+        ranges: impl Iterator<Item = ChunkRange> + Clone
+    ) -> anyhow::Result<()> {
         match self {
             AnyChunkedReader::Boolean(r) => r.read_chunked_ranges(dst, ranges),
             AnyChunkedReader::Primitive(r) => r.read_chunked_ranges(dst, ranges),
@@ -320,17 +298,15 @@ impl<R: Reader> ChunkedArrayReader for AnyChunkedReader<R> {
             AnyChunkedReader::FixedSizeBinary(r) => r.read_chunked_ranges(dst, ranges),
             AnyChunkedReader::List(r) => r.read_chunked_ranges(dst, ranges),
             AnyChunkedReader::FixedSizeList(r) => r.read_chunked_ranges(dst, ranges),
-            AnyChunkedReader::Struct(r) => r.read_chunked_ranges(dst, ranges),
+            AnyChunkedReader::Struct(r) => r.read_chunked_ranges(dst, ranges)
         }
     }
 }
-
 
 struct AnyChunkedReaderFactory<R> {
     cap: usize,
     phantom_data: PhantomData<R>
 }
-
 
 impl<R: Reader> DataTypeVisitor for AnyChunkedReaderFactory<R> {
     type Result = AnyChunkedReader<R>;
@@ -359,9 +335,7 @@ impl<R: Reader> DataTypeVisitor for AnyChunkedReaderFactory<R> {
     }
 
     fn list(&mut self, item: &DataType) -> Self::Result {
-        AnyChunkedReader::List(Box::new(
-            AnyChunkedListReader::new(self.cap, self.visit(item))
-        ))
+        AnyChunkedReader::List(Box::new(AnyChunkedListReader::new(self.cap, self.visit(item))))
     }
 
     fn r#struct(&mut self, fields: &[FieldRef]) -> Self::Result {

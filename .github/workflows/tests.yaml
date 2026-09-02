@@ -2,14 +2,21 @@ name: Rust Tests
 
 on:
   push:
+    # Must be the default branch: a PR can only restore caches from its own ref or from it.
     branches:
-      - main
+      - master
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
+  # Cargo's default for dev/test is debug = 2 -- full DWARF, which is most of a ~280MB test
+  # binary and makes linking the slowest part of the job. Line tables keep file:line in panic
+  # backtraces, which is all CI reads. Set here rather than in [profile.*] so local debuggers
+  # keep full info.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
@@ -19,10 +26,52 @@ jobs:
 
   clippy:
     name: Clippy
-    runs-on: ubuntu-latest
+    # Fork PRs run untrusted code, so they stay on GitHub-hosted and can never reach the
+    # self-hosted host. Everything else (in-repo branches, push, dispatch) uses the faster
+    # self-hosted runner with a warm cargo cache. Runner groups can't gate by trigger, so the
+    # split has to live here in the workflow — not in the approval setting.
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && fromJSON('["ubuntu-latest"]') || fromJSON('["self-hosted", "dev-server"]') }}
     if: github.event_name == 'push' || !github.event.pull_request.draft
     steps:
       - uses: actions/checkout@v4
       - uses: dsherret/rust-toolchain-file@v1
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Not shared with `test`: clippy's target dir holds check-only artifacts (.rmeta),
+          # while `cargo test` needs full codegen. One key for both meant clippy always won
+          # the race to write the immutable key, so test restored a codegen-less cache and
+          # rebuilt the whole graph every run -- 52s for clippy against 20+ min for test.
+          shared-key: rust-ci-clippy
+          cache-on-failure: true
       - run: cargo clippy --all-targets --all-features -- -D clippy::correctness
+
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rustfmt.toml uses nightly-only options (imports_granularity), so check with nightly.
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - run: cargo +nightly fmt --all -- --check
+
+  test:
+    name: Test
+    # Fork PRs stay on GitHub-hosted (untrusted code); trusted events use self-hosted. See the
+    # clippy job above for the rationale.
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && fromJSON('["ubuntu-latest"]') || fromJSON('["self-hosted", "dev-server"]') }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: dsherret/rust-toolchain-file@v1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-ci-test
+          cache-on-failure: true
+      # 8 cores, shared with the second runner -- which picks up this workflow's clippy job.
+      # cc(1) inherits NUM_JOBS, so this caps the RocksDB C++ build too.
+      - name: Run tests
+        run: cargo test --all-features --jobs 4

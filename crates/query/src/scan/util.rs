@@ -1,8 +1,11 @@
-use crate::primitives::{RowIndex, RowIndexArrowType, RowRangeList};
-use arrow::array::{ArrayRef, PrimitiveArray, RecordBatch, RecordBatchOptions, UInt32Array};
-use arrow::datatypes::{DataType, Field, SchemaBuilder, SchemaRef};
 use std::sync::Arc;
 
+use arrow::{
+    array::{ArrayRef, PrimitiveArray, RecordBatch, RecordBatchOptions, UInt32Array},
+    datatypes::{DataType, Field, SchemaBuilder, SchemaRef}
+};
+
+use crate::primitives::{RowIndex, RowIndexArrowType, RowRangeList};
 
 pub fn build_row_index_array(
     offset: RowIndex,
@@ -10,9 +13,7 @@ pub fn build_row_index_array(
     maybe_row_selection: Option<&RowRangeList>
 ) -> PrimitiveArray<RowIndexArrowType> {
     if let Some(row_ranges) = maybe_row_selection {
-        let num_rows = row_ranges.iter()
-            .map(|r| r.end - r.start)
-            .sum::<RowIndex>() as usize;
+        let num_rows = row_ranges.iter().map(|r| r.end - r.start).sum::<RowIndex>() as usize;
 
         assert!(num_rows <= len);
         let mut array = UInt32Array::builder(num_rows);
@@ -28,7 +29,6 @@ pub fn build_row_index_array(
         (offset..(offset + len as RowIndex)).collect()
     }
 }
-
 
 pub fn add_row_index(batch: &RecordBatch, index: PrimitiveArray<RowIndexArrowType>) -> RecordBatch {
     let mut schema_builder = SchemaBuilder::from(batch.schema().as_ref());
@@ -47,5 +47,6 @@ pub fn add_row_index(batch: &RecordBatch, index: PrimitiveArray<RowIndexArrowTyp
         &RecordBatchOptions::new()
             .with_match_field_names(true)
             .with_row_count(Some(batch.num_rows()))
-    ).unwrap()
+    )
+    .unwrap()
 }

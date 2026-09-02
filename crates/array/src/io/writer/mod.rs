@@ -1,25 +1,22 @@
-use crate::writer::{AnyWriter, Writer, WriterFactory};
-use arrow_buffer::ArrowNativeType;
-use std::io::Write;
-use std::marker::PhantomData;
+use std::{io::Write, marker::PhantomData};
 
+use arrow_buffer::ArrowNativeType;
+
+use crate::writer::{AnyWriter, Writer, WriterFactory};
 
 mod bitmask;
 mod native;
 mod nullmask;
 mod offsets;
 
-
 pub use bitmask::*;
 pub use native::*;
 pub use nullmask::*;
 pub use offsets::*;
 
-
 pub struct IOWriter<W> {
     phantom_data: PhantomData<W>
 }
-
 
 impl<W: Write> Writer for IOWriter<W> {
     type Bitmask = BitmaskIOWriter<W>;
@@ -28,13 +25,11 @@ impl<W: Write> Writer for IOWriter<W> {
     type Offset = OffsetsIOWriter<W>;
 }
 
-
 pub trait IOWriterFactory {
     type Write: Write;
-    
+
     fn next_write(&mut self) -> anyhow::Result<Self::Write>;
 }
-
 
 impl<F: IOWriterFactory> WriterFactory for F {
     type Writer = IOWriter<F::Write>;
@@ -60,8 +55,7 @@ impl<F: IOWriterFactory> WriterFactory for F {
     }
 }
 
-
-impl <W: Write, F: FnMut() -> anyhow::Result<W>> IOWriterFactory for F {
+impl<W: Write, F: FnMut() -> anyhow::Result<W>> IOWriterFactory for F {
     type Write = W;
 
     fn next_write(&mut self) -> anyhow::Result<Self::Write> {
@@ -69,14 +63,13 @@ impl <W: Write, F: FnMut() -> anyhow::Result<W>> IOWriterFactory for F {
     }
 }
 
-
 impl<W: Write> IOWriter<W> {
     pub fn finish_any_writer(writer: AnyWriter<IOWriter<W>>) -> anyhow::Result<W> {
         Ok(match writer {
             AnyWriter::Bitmask(w) => w.finish()?,
             AnyWriter::Nullmask(w) => w.finish()?,
             AnyWriter::Native(w) => w.into_write(),
-            AnyWriter::Offsets(w) => w.finish()?,
+            AnyWriter::Offsets(w) => w.finish()?
         })
     }
 }

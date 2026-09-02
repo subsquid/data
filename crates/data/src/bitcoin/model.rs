@@ -1,6 +1,7 @@
-use crate::types::HexBytes;
 use serde::Deserialize;
 use sqd_primitives::BlockNumber;
+
+use crate::types::HexBytes;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,14 +20,14 @@ pub struct BlockHeader {
     pub chain_work: HexBytes,
     pub stripped_size: u64,
     pub size: u64,
-    pub weight: u64,
+    pub weight: u64
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScriptSig {
     pub hex: HexBytes,
-    pub asm: Option<String>,
+    pub asm: Option<String>
 }
 
 #[derive(Deserialize)]
@@ -37,7 +38,7 @@ pub struct ScriptPubKey {
     pub desc: Option<String>,
     #[serde(rename = "type")]
     pub type_: Option<String>,
-    pub address: Option<String>,
+    pub address: Option<String>
 }
 
 #[derive(Deserialize)]
@@ -46,7 +47,7 @@ pub struct Prevout {
     pub generated: bool,
     pub height: BlockNumber,
     pub value: f64,
-    pub script_pub_key: ScriptPubKey,
+    pub script_pub_key: ScriptPubKey
 }
 
 #[derive(Deserialize)]
@@ -57,7 +58,7 @@ pub struct TransactionInputTx {
     pub script_sig: ScriptSig,
     pub sequence: u32,
     pub tx_in_witness: Option<Vec<HexBytes>>,
-    pub prevout: Option<Prevout>,
+    pub prevout: Option<Prevout>
 }
 
 #[derive(Deserialize)]
@@ -65,7 +66,7 @@ pub struct TransactionInputTx {
 pub struct TransactionInputCoinbase {
     pub coinbase: HexBytes,
     pub sequence: u32,
-    pub tx_in_witness: Option<Vec<HexBytes>>,
+    pub tx_in_witness: Option<Vec<HexBytes>>
 }
 
 #[derive(Deserialize)]
@@ -74,7 +75,7 @@ pub enum TransactionInput {
     #[serde(rename = "tx")]
     Tx(TransactionInputTx),
     #[serde(rename = "coinbase")]
-    Coinbase(TransactionInputCoinbase),
+    Coinbase(TransactionInputCoinbase)
 }
 
 #[derive(Deserialize)]
@@ -82,7 +83,7 @@ pub enum TransactionInput {
 pub struct TransactionOutput {
     pub value: f64,
     pub n: u32,
-    pub script_pub_key: ScriptPubKey,
+    pub script_pub_key: ScriptPubKey
 }
 
 #[derive(Deserialize)]
@@ -97,14 +98,14 @@ pub struct Transaction {
     pub version: u32,
     pub locktime: u32,
     pub vin: Vec<TransactionInput>,
-    pub vout: Vec<TransactionOutput>,
+    pub vout: Vec<TransactionOutput>
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Block {
     pub header: BlockHeader,
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<Transaction>
 }
 
 impl sqd_primitives::Block for Block {

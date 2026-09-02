@@ -1,16 +1,15 @@
-use crate::{PreparedTable, TableProcessor};
-use anyhow::anyhow;
-use sqd_array::slice::AnyTableSlice;
 use std::collections::BTreeMap;
 
+use anyhow::anyhow;
+use sqd_array::slice::AnyTableSlice;
+
+use crate::{PreparedTable, TableProcessor};
 
 type Name = &'static str;
-
 
 pub struct ChunkProcessor {
     tables: BTreeMap<Name, TableProcessor>
 }
-
 
 impl ChunkProcessor {
     pub fn new(tables: BTreeMap<Name, TableProcessor>) -> ChunkProcessor {
@@ -18,9 +17,10 @@ impl ChunkProcessor {
     }
 
     pub fn push_table(&mut self, name: &str, records: &AnyTableSlice<'_>) -> anyhow::Result<()> {
-        let processor = self.tables.get_mut(name).ok_or_else(|| {
-            anyhow!("table '{}' is not present in the chunk", name)
-        })?;
+        let processor = self
+            .tables
+            .get_mut(name)
+            .ok_or_else(|| anyhow!("table '{}' is not present in the chunk", name))?;
         processor.push_batch(records)
     }
 
@@ -35,12 +35,9 @@ impl ChunkProcessor {
     pub fn finish(self) -> anyhow::Result<PreparedChunk> {
         self.tables
             .into_iter()
-            .map(|(name, table)| {
-                table.finish().map(|table| (name, table))
-            })
+            .map(|(name, table)| table.finish().map(|table| (name, table)))
             .collect::<anyhow::Result<_>>()
     }
 }
-
 
 pub type PreparedChunk = BTreeMap<Name, PreparedTable>;

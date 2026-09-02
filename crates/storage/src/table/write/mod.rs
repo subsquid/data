@@ -7,10 +7,8 @@ mod storage_cell;
 mod storage_writer;
 mod table;
 
-
 pub use storage_cell::*;
 pub use table::*;
-
 
 pub fn use_small_buffers() -> RestoreBufferSizesGuard {
     RestoreBufferSizesGuard {
@@ -20,13 +18,11 @@ pub fn use_small_buffers() -> RestoreBufferSizesGuard {
     }
 }
 
-
 pub struct RestoreBufferSizesGuard {
     bitmask_page_size: usize,
     native_page_size: usize,
     offset_page_len: usize
 }
-
 
 impl Drop for RestoreBufferSizesGuard {
     fn drop(&mut self) {
@@ -35,7 +31,6 @@ impl Drop for RestoreBufferSizesGuard {
         set_buf_size(&offsets::PAGE_LEN, self.offset_page_len);
     }
 }
-
 
 fn set_buf_size(cell: &parking_lot::RwLock<usize>, new_val: usize) -> usize {
     let mut lock = cell.write();

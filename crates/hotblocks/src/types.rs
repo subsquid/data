@@ -1,12 +1,13 @@
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use sqd_dataset::DatasetDescriptionRef;
 use sqd_query::{BlockNumber, Query};
 use sqd_storage::db::Database;
-use std::sync::Arc;
 
+use crate::errors::UnsupportedQuery;
 
 pub type DBRef = Arc<Database>;
-
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DatasetKind {
@@ -24,7 +25,6 @@ pub enum DatasetKind {
     Tron
 }
 
-
 impl DatasetKind {
     pub fn storage_kind(&self) -> sqd_storage::db::DatasetKind {
         sqd_storage::db::DatasetKind::from_str(self.as_str())
@@ -37,34 +37,40 @@ impl DatasetKind {
             DatasetKind::Bitcoin => "bitcoin",
             DatasetKind::HyperliquidFills => "hl-fills",
             DatasetKind::HyperliquidReplicaCmds => "hl-replica-cmds",
-            DatasetKind::Tron => "tron",
+            DatasetKind::Tron => "tron"
         }
     }
-    
+
     pub fn dataset_description(&self) -> DatasetDescriptionRef {
         match self {
             DatasetKind::Evm => sqd_data::evm::tables::EvmChunkBuilder::dataset_description(),
             DatasetKind::Solana => sqd_data::solana::tables::SolanaChunkBuilder::dataset_description(),
             DatasetKind::Bitcoin => sqd_data::bitcoin::tables::BitcoinChunkBuilder::dataset_description(),
-            DatasetKind::HyperliquidFills => sqd_data::hyperliquid_fills::tables::HyperliquidFillsChunkBuilder::dataset_description(),
-            DatasetKind::HyperliquidReplicaCmds => sqd_data::hyperliquid_replica_cmds::tables::HyperliquidReplicaCmdsChunkBuilder::dataset_description(),
-            DatasetKind::Tron => sqd_data::tron::tables::TronChunkBuilder::dataset_description(),
+            DatasetKind::HyperliquidFills => {
+                sqd_data::hyperliquid_fills::tables::HyperliquidFillsChunkBuilder::dataset_description()
+            }
+            DatasetKind::HyperliquidReplicaCmds => {
+                sqd_data::hyperliquid_replica_cmds::tables::HyperliquidReplicaCmdsChunkBuilder::dataset_description()
+            }
+            DatasetKind::Tron => sqd_data::tron::tables::TronChunkBuilder::dataset_description()
         }
     }
-    
-    pub fn from_query(query: &Query) -> Self {
+
+    pub fn from_query(query: &Query) -> Result<Self, UnsupportedQuery> {
         match query {
-            Query::Eth(_) => Self::Evm,
-            Query::Solana(_) => Self::Solana,
-            Query::Bitcoin(_) => Self::Bitcoin,
-            Query::HyperliquidFills(_) => Self::HyperliquidFills,
-            Query::HyperliquidReplicaCmds(_) => Self::HyperliquidReplicaCmds,
-            Query::Tron(_) => Self::Tron,
-            _ => unimplemented!()
+            Query::Eth(_) => Ok(Self::Evm),
+            Query::Solana(_) => Ok(Self::Solana),
+            Query::Bitcoin(_) => Ok(Self::Bitcoin),
+            Query::HyperliquidFills(_) => Ok(Self::HyperliquidFills),
+            Query::HyperliquidReplicaCmds(_) => Ok(Self::HyperliquidReplicaCmds),
+            Query::Tron(_) => Ok(Self::Tron),
+            Query::Substrate(_) => Err(UnsupportedQuery {
+                query_kind: "substrate"
+            }),
+            Query::Fuel(_) => Err(UnsupportedQuery { query_kind: "fuel" })
         }
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RetentionStrategy {
@@ -75,7 +81,6 @@ pub enum RetentionStrategy {
     Head(u64),
     None
 }
-
 
 #[derive(Clone, Debug)]
 pub struct ClientId(String);

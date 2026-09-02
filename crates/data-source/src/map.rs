@@ -1,25 +1,23 @@
-use crate::{DataEvent, DataSource};
+use std::{
+    pin::Pin,
+    task::{Context, Poll}
+};
+
 use futures::{Stream, StreamExt};
 use sqd_primitives::{Block, BlockNumber};
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
+use crate::{DataEvent, DataSource};
 
 pub struct MappedDataSource<S, F> {
     inner: S,
     map: F
 }
 
-
 impl<S, F> MappedDataSource<S, F> {
     pub fn new(inner: S, map: F) -> Self {
-        Self {
-            inner,
-            map
-        }       
+        Self { inner, map }
     }
 }
-
 
 impl<S, F, B> DataSource for MappedDataSource<S, F>
 where
@@ -41,7 +39,6 @@ where
         self.inner.get_parent_block_hash()
     }
 }
-
 
 impl<S, F, B> Stream for MappedDataSource<S, F>
 where

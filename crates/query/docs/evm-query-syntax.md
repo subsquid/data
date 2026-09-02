@@ -290,12 +290,17 @@ Item requests define filters for selecting blockchain data. Multiple requests of
       "type": ["call", "create"],
       "createFrom": ["0x..."],
       "createResultAddress": ["0x..."],
+      "createValueNonZero": true,
       "callFrom": ["0x..."],
       "callTo": ["0x..."],
       "callSighash": ["0x..."],
+      "callCallType": ["call", "delegatecall"],
+      "callValueNonZero": true,
       "suicideAddress": ["0x..."],
       "suicideRefundAddress": ["0x..."],
+      "suicideBalanceNonZero": true,
       "rewardAuthor": ["0x..."],
+      "rewardValueNonZero": true,
       "transaction": true,
       "transactionLogs": true,
       "subtraces": true,
@@ -312,12 +317,17 @@ Item requests define filters for selecting blockchain data. Multiple requests of
 | `type` | string[] | Match traces of these types: `"create"`, `"call"`, `"suicide"`, `"reward"` |
 | `createFrom` | string[] | Match create traces from any of these addresses |
 | `createResultAddress` | string[] | Match create traces that deployed contracts at these addresses |
+| `createValueNonZero` | boolean | When `true`, only match create traces where `createValue` is non-zero and non-null |
 | `callFrom` | string[] | Match call traces from any of these addresses |
 | `callTo` | string[] | Match call traces to any of these addresses |
 | `callSighash` | string[] | Match call traces with any of these function selectors |
+| `callCallType` | string[] | Match call traces with any of these call types: `"call"`, `"delegatecall"`, `"staticcall"`, `"callcode"` |
+| `callValueNonZero` | boolean | When `true`, only match call traces where `callValue` is non-zero and non-null |
 | `suicideAddress` | string[] | Match suicide traces for any of these contract addresses |
 | `suicideRefundAddress` | string[] | Match suicide traces refunding to any of these addresses |
+| `suicideBalanceNonZero` | boolean | When `true`, only match suicide traces where `suicideBalance` is non-zero and non-null |
 | `rewardAuthor` | string[] | Match reward traces to any of these authors |
+| `rewardValueNonZero` | boolean | When `true`, only match reward traces where `rewardValue` is non-zero and non-null |
 
 **Relation fields:**
 

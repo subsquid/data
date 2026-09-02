@@ -1,6 +1,5 @@
 mod util;
 
-
 #[divan::bench_group(sample_size = 20)]
 mod whirlpool_swap {
     use super::util::{bench_solana_parquet_query, bench_solana_storage_query, query};
@@ -45,7 +44,6 @@ mod whirlpool_swap {
         bench_solana_storage_query(bench, &QUERY)
     }
 }
-
 
 #[divan::bench_group(sample_size = 5, sample_count = 20)]
 mod solana_hard {

@@ -1,16 +1,22 @@
-use crate::json::exp::Exp;
-use crate::plan::rel::Rel;
-use crate::plan::result::{BlockWriter, DataItem};
-use crate::plan::row_list::RowList;
-use crate::plan::table::{ColumnWeight, TableSet};
-use crate::primitives::{BlockNumber, Name, RowRangeList, RowWeight, RowWeightPolarsType};
-use crate::scan::{col_between, col_gt_eq, col_lt_eq, Chunk, RowPredicateRef};
-use crate::UnexpectedBaseBlock;
+use std::collections::{HashMap, HashSet};
+
 use anyhow::{anyhow, bail};
 use rayon::prelude::*;
 use sqd_polars::arrow::record_batch_vec_to_lazy_polars_df;
 use sqd_primitives::BlockRef;
-use std::collections::{HashMap, HashSet};
+
+use crate::{
+    json::exp::Exp,
+    plan::{
+        rel::Rel,
+        result::{BlockWriter, DataItem},
+        row_list::RowList,
+        table::{ColumnWeight, TableSet}
+    },
+    primitives::{BlockNumber, Name, RowRangeList, RowWeight, RowWeightPolarsType},
+    scan::{col_between, col_gt_eq, col_lt_eq, Chunk, RowPredicateRef},
+    UnexpectedBaseBlock
+};
 
 type Idx = usize;
 
@@ -18,7 +24,7 @@ struct Scan {
     table: Name,
     predicate: Option<RowPredicateRef>,
     relations: Vec<Idx>,
-    output: Option<Idx>,
+    output: Option<Idx>
 }
 
 struct Output {
@@ -28,7 +34,7 @@ struct Output {
     weight_per_row: RowWeight,
     weight_columns: Vec<Name>,
     exp: Exp,
-    item_name: Name,
+    item_name: Name
 }
 
 pub struct Plan {
@@ -39,7 +45,7 @@ pub struct Plan {
     include_all_blocks: bool,
     parent_block_hash: Option<String>,
     first_block: Option<BlockNumber>,
-    last_block: Option<BlockNumber>,
+    last_block: Option<BlockNumber>
 }
 
 impl Plan {
@@ -47,9 +53,9 @@ impl Plan {
         PlanExecution {
             chunk: ChunkWithDefaults {
                 chunk: data_chunk,
-                tables: self.tables,
+                tables: self.tables
             },
-            plan: self,
+            plan: self
         }
         .execute()
     }
@@ -73,7 +79,7 @@ impl Plan {
 /// treated as all-null rather than causing errors.
 struct ChunkWithDefaults<'a> {
     chunk: &'a dyn Chunk,
-    tables: &'static TableSet,
+    tables: &'static TableSet
 }
 
 impl Chunk for ChunkWithDefaults<'_> {
@@ -89,7 +95,7 @@ impl Chunk for ChunkWithDefaults<'_> {
 
 struct PlanExecution<'a> {
     chunk: ChunkWithDefaults<'a>,
-    plan: &'a Plan,
+    plan: &'a Plan
 }
 
 impl<'a> PlanExecution<'a> {
@@ -115,22 +121,17 @@ impl<'a> PlanExecution<'a> {
     fn check_parent_block(&self) -> anyhow::Result<()> {
         let parent_hash = match self.plan.parent_block_hash.as_ref() {
             Some(s) => s.as_str(),
-            None => return Ok(()),
+            None => return Ok(())
         };
 
         let block_number = match self.plan.first_block {
             Some(bn) => bn,
-            None => bail!(
-                "invalid plan: parent block hash is specified, but block number is not available"
-            ),
+            None => bail!("invalid plan: parent block hash is specified, but block number is not available")
         };
 
         let block_scan = self.chunk.scan_table(self.plan.outputs[0].table)?;
 
-        let has_parent_number = block_scan
-            .schema()
-            .column_with_name("parent_number")
-            .is_some();
+        let has_parent_number = block_scan.schema().column_with_name("parent_number").is_some();
 
         let (number_col, predicate_upper) = if has_parent_number {
             ("parent_number", block_number.saturating_sub(1))
@@ -141,17 +142,18 @@ impl<'a> PlanExecution<'a> {
         let df = block_scan
             .with_column(number_col)
             .with_column("parent_hash")
+            // FIXME(GAP-21): 100-position window can miss the parent across a >100-slot hole.
+            // Probably unrealistic in practice, so low priority; the correct all-predecessors
+            // scan would need a lazy limit to stay bounded.
             .with_predicate(col_between(
                 number_col,
                 block_number.saturating_sub(100),
-                predicate_upper,
+                predicate_upper
             ))
             .to_lazy_df()?
             .collect()?;
 
-        let numbers = df
-            .column(number_col)?
-            .cast(&sqd_polars::prelude::DataType::UInt64)?;
+        let numbers = df.column(number_col)?.cast(&sqd_polars::prelude::DataType::UInt64)?;
         let numbers = numbers.u64()?;
 
         let hashes = df.column("parent_hash")?;
@@ -164,8 +166,12 @@ impl<'a> PlanExecution<'a> {
                     .expect("block number can't be null according to the predicate applied");
                 let hash = hashes.get(i).unwrap_or("");
                 BlockRef {
-                    number: if has_parent_number { number } else { number.saturating_sub(1) },
-                    hash: hash.to_string(),
+                    number: if has_parent_number {
+                        number
+                    } else {
+                        number.saturating_sub(1)
+                    },
+                    hash: hash.to_string()
                 }
             })
             .collect();
@@ -192,33 +198,26 @@ impl<'a> PlanExecution<'a> {
     /// its predicate. These row indexes are distributed to relation inputs
     /// (for cross-table joins in `execute_relations`) and/or output inputs (for direct
     /// data reading in `execute_output`). Scans run in parallel.
-    fn execute_scans(
-        &self,
-        relation_inputs: &Vec<RowList>,
-        output_inputs: &Vec<RowList>,
-    ) -> anyhow::Result<()> {
-        self.plan
-            .scans
-            .par_iter()
-            .try_for_each(|scan| -> anyhow::Result<()> {
-                let rows = self
-                    .chunk
-                    .scan_table(scan.table)?
-                    .with_row_index(true)
-                    .with_columns([])
-                    .with_predicate(scan.predicate.clone())
-                    .execute()?;
+    fn execute_scans(&self, relation_inputs: &Vec<RowList>, output_inputs: &Vec<RowList>) -> anyhow::Result<()> {
+        self.plan.scans.par_iter().try_for_each(|scan| -> anyhow::Result<()> {
+            let rows = self
+                .chunk
+                .scan_table(scan.table)?
+                .with_row_index(true)
+                .with_columns([])
+                .with_predicate(scan.predicate.clone())
+                .execute()?;
 
-                for rel_idx in scan.relations.iter() {
-                    relation_inputs[*rel_idx].extend_from_record_batch_vec(&rows);
-                }
+            for rel_idx in scan.relations.iter() {
+                relation_inputs[*rel_idx].extend_from_record_batch_vec(&rows);
+            }
 
-                if let Some(idx) = &scan.output {
-                    output_inputs[*idx].extend_from_record_batch_vec(&rows)
-                }
+            if let Some(idx) = &scan.output {
+                output_inputs[*idx].extend_from_record_batch_vec(&rows)
+            }
 
-                Ok(())
-            })
+            Ok(())
+        })
     }
 
     /// Propagate row selections through relations.
@@ -227,13 +226,11 @@ impl<'a> PlanExecution<'a> {
     /// For each relation, the matched rows from `execute_scans` are used to find
     /// corresponding rows in the relation's output table, adding them
     /// to that table's output inputs. Relations run in parallel.
-    fn execute_relations(
-        &self,
-        relation_inputs: Vec<RowList>,
-        output_inputs: &Vec<RowList>,
-    ) -> anyhow::Result<()> {
-        relation_inputs.into_par_iter().enumerate().try_for_each(
-            |(idx, row_list)| -> anyhow::Result<()> {
+    fn execute_relations(&self, relation_inputs: Vec<RowList>, output_inputs: &Vec<RowList>) -> anyhow::Result<()> {
+        relation_inputs
+            .into_par_iter()
+            .enumerate()
+            .try_for_each(|(idx, row_list)| -> anyhow::Result<()> {
                 let input = row_list.into_inner();
                 if input.is_empty() {
                     return Ok(());
@@ -241,8 +238,7 @@ impl<'a> PlanExecution<'a> {
                 let rel = &self.plan.relations[idx];
                 let output = &output_inputs[self.get_output_index(rel.output_table())];
                 rel.eval(&self.chunk, &input, output)
-            },
-        )
+            })
     }
 
     /// Read actual column data and build the output.
@@ -300,11 +296,7 @@ impl<'a> PlanExecution<'a> {
                 weight_exp = weight_exp.alias("weight");
 
                 let rows = df
-                    .select([
-                        col("row_index"),
-                        col(output.key[0]).alias("block_number"),
-                        weight_exp,
-                    ])
+                    .select([col("row_index"), col(output.key[0]).alias("block_number"), weight_exp])
                     .collect()?;
 
                 Ok(rows)
@@ -322,14 +314,14 @@ impl<'a> PlanExecution<'a> {
         for df in rows.iter().skip(1).filter(|df| !df.is_empty()) {
             item_union.push(df.clone().lazy().select([
                 col("block_number"),
-                col("weight").strict_cast(RowWeightPolarsType::get_dtype()),
+                col("weight").strict_cast(RowWeightPolarsType::get_dtype())
             ]))
         }
 
         let block_weights = if self.plan.include_all_blocks {
             item_union.push(header_rows.clone().lazy().select([
                 col("block_number"),
-                col("weight").strict_cast(RowWeightPolarsType::get_dtype()),
+                col("weight").strict_cast(RowWeightPolarsType::get_dtype())
             ]));
             concat(item_union, UnionArgs::default())?
                 .group_by([col("block_number")])
@@ -340,7 +332,7 @@ impl<'a> PlanExecution<'a> {
                 .lazy()
                 .select([
                     min("block_number").alias("first_block"),
-                    max("block_number").alias("last_block"),
+                    max("block_number").alias("last_block")
                 ])
                 .collect()?;
 
@@ -353,7 +345,7 @@ impl<'a> PlanExecution<'a> {
                     block_numbers,
                     Series::new("weight".into(), &[0 as RowWeight, 0 as RowWeight]),
                 ])?
-                .lazy(),
+                .lazy()
             );
 
             let item_stats = concat(item_union, UnionArgs::default())?
@@ -366,7 +358,7 @@ impl<'a> PlanExecution<'a> {
                 .left_join(item_stats, col("block_number"), col("block_number"))
                 .select([
                     col("block_number"),
-                    (col("weight") + col("weight_right")).alias("weight"),
+                    (col("weight") + col("weight_right")).alias("weight")
                 ])
         };
 
@@ -398,7 +390,7 @@ impl<'a> PlanExecution<'a> {
         let data_items_mutex = parking_lot::Mutex::new(
             std::iter::repeat_with(|| None)
                 .take(self.plan.outputs.len())
-                .collect::<Vec<_>>(),
+                .collect::<Vec<_>>()
         );
 
         rows.into_par_iter()
@@ -411,24 +403,16 @@ impl<'a> PlanExecution<'a> {
                 let output = &self.plan.outputs[idx];
 
                 let row_index = if idx == 0 && !self.plan.include_all_blocks {
-                    rows.lazy().semi_join(
-                        selected_blocks.clone().lazy(),
-                        col("block_number"),
-                        col("block_number"),
-                    )
-                } else {
                     rows.lazy()
-                        .filter(col("block_number").lt_eq(lit(last_block)))
+                        .semi_join(selected_blocks.clone().lazy(), col("block_number"), col("block_number"))
+                } else {
+                    rows.lazy().filter(col("block_number").lt_eq(lit(last_block)))
                 }
                 .select([col("row_index")])
                 .collect()?;
 
                 let row_selection = RowRangeList::from_sorted_indexes(
-                    row_index
-                        .column("row_index")
-                        .unwrap()
-                        .u32()?
-                        .into_no_null_iter(),
+                    row_index.column("row_index").unwrap().u32()?.into_no_null_iter()
                 );
 
                 let records = self
@@ -446,20 +430,12 @@ impl<'a> PlanExecution<'a> {
             })?;
 
         Ok(Some(BlockWriter::new(
-            data_items_mutex
-                .into_inner()
-                .into_iter()
-                .flatten()
-                .collect(),
+            data_items_mutex.into_inner().into_iter().flatten().collect()
         )))
     }
 
     fn get_output_index(&self, table: Name) -> usize {
-        self.plan
-            .outputs
-            .iter()
-            .position(|o| o.table == table)
-            .unwrap()
+        self.plan.outputs.iter().position(|o| o.table == table).unwrap()
     }
 
     fn get_block_number_predicate(&self, output_idx: usize) -> Option<RowPredicateRef> {
@@ -468,7 +444,7 @@ impl<'a> PlanExecution<'a> {
             (Some(fst), Some(lst)) => Some(col_between(column, fst, lst)),
             (None, Some(lst)) => Some(col_lt_eq(column, lst)),
             (Some(fst), None) => Some(col_gt_eq(column, fst)),
-            (None, None) => None,
+            (None, None) => None
         }
     }
 }
@@ -481,7 +457,7 @@ pub struct PlanBuilder {
     include_all_blocks: bool,
     parent_block_hash: Option<String>,
     first_block: Option<BlockNumber>,
-    last_block: Option<BlockNumber>,
+    last_block: Option<BlockNumber>
 }
 
 impl PlanBuilder {
@@ -499,13 +475,13 @@ impl PlanBuilder {
                     weight_per_row: 0,
                     weight_columns: Vec::new(),
                     exp: Exp::Object(vec![]),
-                    item_name: table.result_item_name,
+                    item_name: table.result_item_name
                 })
                 .collect(),
             include_all_blocks: false,
             parent_block_hash: None,
             first_block: None,
-            last_block: None,
+            last_block: None
         }
     }
 
@@ -514,14 +490,11 @@ impl PlanBuilder {
             table,
             predicate: None,
             output: Some(self.tables.get_index(table)),
-            relations: Vec::new(),
+            relations: Vec::new()
         };
         let scan_idx = self.scans.len();
         self.scans.push(scan);
-        ScanBuilder {
-            plan: self,
-            scan_idx,
-        }
+        ScanBuilder { plan: self, scan_idx }
     }
 
     pub fn set_projection<E: Into<Exp>>(&mut self, table: Name, exp: E) -> &mut Self {
@@ -561,7 +534,7 @@ impl PlanBuilder {
             include_all_blocks: self.include_all_blocks,
             parent_block_hash: self.parent_block_hash,
             first_block: self.first_block,
-            last_block: self.last_block,
+            last_block: self.last_block
         }
     }
 
@@ -579,11 +552,7 @@ impl PlanBuilder {
             let mut weight_columns = Vec::new();
 
             for col in output.projection.iter() {
-                match table
-                    .column_weights
-                    .get(col)
-                    .unwrap_or(&ColumnWeight::Fixed(32))
-                {
+                match table.column_weights.get(col).unwrap_or(&ColumnWeight::Fixed(32)) {
                     ColumnWeight::Fixed(weight) => {
                         per_row += weight;
                     }
@@ -598,13 +567,10 @@ impl PlanBuilder {
     }
 
     fn add_rel(&mut self, rel: Rel) -> usize {
-        self.relations
-            .iter()
-            .position(|r| r == &rel)
-            .unwrap_or_else(|| {
-                self.relations.push(rel);
-                self.relations.len() - 1
-            })
+        self.relations.iter().position(|r| r == &rel).unwrap_or_else(|| {
+            self.relations.push(rel);
+            self.relations.len() - 1
+        })
     }
 
     /// Lame plan optimization procedure
@@ -703,11 +669,7 @@ impl PlanBuilder {
         // Introduce new scans to populate that.
         let mut new_scans: HashMap<Name, Scan> = HashMap::new();
 
-        for out_idx in is_full
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, full)| full.then_some(idx))
-        {
+        for out_idx in is_full.iter().enumerate().filter_map(|(idx, full)| full.then_some(idx)) {
             let table = self.outputs[out_idx].table;
             new_scans.insert(
                 table,
@@ -715,28 +677,51 @@ impl PlanBuilder {
                     table,
                     predicate: None,
                     relations: vec![],
-                    output: Some(out_idx),
-                },
+                    output: Some(out_idx)
+                }
             );
         }
 
-        for (idx, rel) in self
-            .relations
-            .iter()
-            .enumerate()
-            .filter(|(idx, _)| is_full_rel[*idx])
-        {
-            let table = rel.output_table();
+        for (idx, rel) in self.relations.iter().enumerate().filter(|(idx, _)| is_full_rel[*idx]) {
+            // The new scan must read the relation's *input* table, since
+            // execute_scans feeds scan rows into relation_inputs[rel_idx],
+            // which eval_join etc. interpret as row indexes of input_table.
+            let table = rel.input_table();
             let scan = new_scans.entry(table).or_insert_with(|| Scan {
                 table,
                 predicate: None,
                 relations: vec![],
-                output: None,
+                output: None
             });
             scan.relations.push(idx);
         }
 
-        self.scans.extend(new_scans.into_values())
+        self.scans.extend(new_scans.into_values());
+
+        self.assert_scan_relation_invariant();
+    }
+
+    /// Verifies that every scan's relations have an `input_table` matching the
+    /// scan's table. This is the contract `execute_scans` relies on: rows read
+    /// from `scan.table` are pushed into `relation_inputs[rel_idx]` and later
+    /// interpreted by `rel.eval` as row indexes of `rel.input_table()`. A
+    /// mismatch produces silently wrong row selections that surface as
+    /// out-of-bounds reads on whichever column is read first.
+    fn assert_scan_relation_invariant(&self) {
+        for scan in self.scans.iter() {
+            for &rel_idx in scan.relations.iter() {
+                let rel = &self.relations[rel_idx];
+                assert_eq!(
+                    rel.input_table(),
+                    scan.table,
+                    "plan invariant violated: scan on {:?} owns relation {} \
+                     whose input_table is {:?}",
+                    scan.table,
+                    rel_idx,
+                    rel.input_table()
+                );
+            }
+        }
     }
 
     fn remove_relations(&mut self, remove_mask: &[bool]) {
@@ -775,15 +760,14 @@ impl PlanBuilder {
                 input_table,
                 input_key,
                 output_table,
-                output_key,
+                output_key
             } => {
                 let input_desc = self.tables.get(input_table);
-                input_key == &input_desc.primary_key
-                    && input_desc.children.get(output_table) == Some(output_key)
+                input_key == &input_desc.primary_key && input_desc.children.get(output_table) == Some(output_key)
             }
             Rel::Children { .. } => true,
             Rel::Parents { .. } => true,
-            _ => false,
+            _ => false
         }
     }
 }
@@ -799,7 +783,7 @@ fn remove_elements<T>(vec: &mut Vec<T>, remove_mask: &[bool]) {
 
 pub struct ScanBuilder<'a> {
     plan: &'a mut PlanBuilder,
-    scan_idx: usize,
+    scan_idx: usize
 }
 
 impl<'a> ScanBuilder<'a> {
@@ -808,17 +792,12 @@ impl<'a> ScanBuilder<'a> {
         self
     }
 
-    pub fn join(
-        &mut self,
-        output_table: Name,
-        output_key: Vec<Name>,
-        scan_key: Vec<Name>,
-    ) -> &mut Self {
+    pub fn join(&mut self, output_table: Name, output_key: Vec<Name>, scan_key: Vec<Name>) -> &mut Self {
         let rel_idx = self.plan.add_rel(Rel::Join {
             input_table: self.plan.scans[self.scan_idx].table,
             input_key: scan_key,
             output_table,
-            output_key,
+            output_key
         });
         self.scan_mut().relations.push(rel_idx);
         self
@@ -844,13 +823,13 @@ impl<'a> ScanBuilder<'a> {
         &mut self,
         output_table: Name,
         output_key: Vec<Name>,
-        scan_key: Vec<Name>,
+        scan_key: Vec<Name>
     ) -> &mut Self {
         let rel_idx = self.plan.add_rel(Rel::ForeignChildren {
             input_table: self.plan.scans[self.scan_idx].table,
             input_key: scan_key,
             output_table,
-            output_key,
+            output_key
         });
         self.scan_mut().relations.push(rel_idx);
         self
@@ -860,13 +839,13 @@ impl<'a> ScanBuilder<'a> {
         &mut self,
         output_table: Name,
         output_key: Vec<Name>,
-        scan_key: Vec<Name>,
+        scan_key: Vec<Name>
     ) -> &mut Self {
         let rel_idx = self.plan.add_rel(Rel::ForeignParents {
             input_table: self.plan.scans[self.scan_idx].table,
             input_key: scan_key,
             output_table,
-            output_key,
+            output_key
         });
         self.scan_mut().relations.push(rel_idx);
         self
@@ -879,5 +858,173 @@ impl<'a> ScanBuilder<'a> {
 
     fn scan_mut(&mut self) -> &mut Scan {
         &mut self.plan.scans[self.scan_idx]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::OnceLock;
+
+    use super::*;
+    use crate::scan::col_gt_eq;
+
+    /// Tables with a `transactions` parent and `logs` child, plus an explicit
+    /// `add_child("logs", ...)` registration on transactions. The logs side has
+    /// no children of its own — so a `logs -> transactions` join is *not* a
+    /// "full rel" (logs.primary_key != input_key, and logs.children is empty),
+    /// which is exactly the shape that triggered the production bug.
+    fn evm_like_tables() -> &'static TableSet {
+        static TABLES: OnceLock<TableSet> = OnceLock::new();
+        TABLES.get_or_init(|| {
+            let mut t = TableSet::new();
+            t.add_table("blocks", vec!["number"]);
+            t.add_table("transactions", vec!["block_number", "transaction_index"])
+                .add_child("logs", vec!["block_number", "transaction_index"]);
+            t.add_table("logs", vec!["block_number", "log_index"]);
+            t
+        })
+    }
+
+    /// Tables where logs is a child of transactions AND transactions is a child
+    /// of logs with a matching key. With that, a `logs -> transactions` join
+    /// where input_key == logs.primary_key would be a "full rel". Used by the
+    /// full-rel-removal test.
+    fn full_rel_tables() -> &'static TableSet {
+        static TABLES: OnceLock<TableSet> = OnceLock::new();
+        TABLES.get_or_init(|| {
+            let mut t = TableSet::new();
+            t.add_table("blocks", vec!["number"]);
+            t.add_table("transactions", vec!["block_number", "transaction_index"]);
+            t.add_table("logs", vec!["block_number", "log_index"])
+                .add_child("transactions", vec!["block_number", "log_index"]);
+            t
+        })
+    }
+
+    /// Reproducer for the original bug. A predicate-less log selector with a
+    /// `transaction: true` join (modelled as `add_scan("logs").join("transactions", ...)`)
+    /// must end up attached to a logs-table scan after simplification — never
+    /// to the transactions-table scan. Pre-fix, simplify() keyed the new scan
+    /// by `rel.output_table()`, so the join was reattached to a transactions
+    /// scan and execute_scans fed transactions row indexes into a logs-input
+    /// slot.
+    #[test]
+    fn simplify_attaches_surviving_relations_to_input_table_scan() {
+        let mut builder = PlanBuilder::new(evm_like_tables());
+        builder.add_scan("logs").join(
+            "transactions",
+            vec!["block_number", "transaction_index"],
+            vec!["block_number", "transaction_index"]
+        );
+
+        let plan = builder.build();
+
+        assert_eq!(plan.relations.len(), 1, "join relation must survive");
+        let rel = &plan.relations[0];
+        assert_eq!(rel.input_table(), "logs");
+        assert_eq!(rel.output_table(), "transactions");
+
+        let owning_scan = plan
+            .scans
+            .iter()
+            .find(|s| s.relations.contains(&0))
+            .expect("some scan must own the surviving relation");
+        assert_eq!(
+            owning_scan.table, "logs",
+            "relation with input_table=logs must be attached to a logs-scan, not a {}-scan",
+            owning_scan.table
+        );
+    }
+
+    /// When the relation IS a "full rel" (input fully populated implies output
+    /// fully populated), simplify() must drop it entirely and replace it with
+    /// a direct full scan on the output table. No relation should survive.
+    #[test]
+    fn simplify_drops_full_rel_and_replaces_with_direct_scan() {
+        let mut builder = PlanBuilder::new(full_rel_tables());
+        builder.add_scan("logs").join(
+            "transactions",
+            vec!["block_number", "log_index"],
+            vec!["block_number", "log_index"]
+        );
+
+        let plan = builder.build();
+
+        assert!(
+            plan.relations.is_empty(),
+            "full rel must be removed during simplification, got {:?} relations",
+            plan.relations.len()
+        );
+        // Both outputs should still be populated by direct scans, with no relations.
+        for table in ["logs", "transactions"] {
+            assert!(
+                plan.scans.iter().any(|s| s.table == table && s.relations.is_empty()),
+                "expected a relation-less scan for {}; scans = {:?}",
+                table,
+                plan.scans.iter().map(|s| s.table).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    /// Mixed plan: one predicate-less log scan and one predicated log scan that
+    /// joins to transactions. The predicate-less scan goes through the
+    /// "is_full" path, while the predicated scan must keep its join. The whole
+    /// plan must still satisfy the input-table invariant.
+    #[test]
+    fn simplify_preserves_invariant_with_mixed_predicated_and_unpredicated_scans() {
+        let mut builder = PlanBuilder::new(evm_like_tables());
+        // Predicate-less logs scan.
+        builder.add_scan("logs");
+        // Predicated logs scan with a join.
+        builder
+            .add_scan("logs")
+            .with_predicate(col_gt_eq("block_number", 0u64))
+            .join(
+                "transactions",
+                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
+            );
+
+        let plan = builder.build();
+
+        // The surviving join must still be attached to a logs scan that owns
+        // it; the surviving logs scan with a predicate is the natural owner.
+        let join_idx = plan
+            .relations
+            .iter()
+            .position(|r| r.input_table() == "logs" && r.output_table() == "transactions")
+            .expect("logs->transactions join must survive");
+        let owning_scan = plan
+            .scans
+            .iter()
+            .find(|s| s.relations.contains(&join_idx))
+            .expect("some scan must own the join");
+        assert_eq!(owning_scan.table, "logs");
+    }
+
+    /// Direct guard test: assemble a PlanBuilder whose scan owns a relation
+    /// with a mismatched input_table and confirm the invariant assertion fires.
+    /// This is the safety net that turns every future planning code path into
+    /// an implicit verifier of the input-table contract.
+    #[test]
+    #[should_panic(expected = "plan invariant violated")]
+    fn assert_scan_relation_invariant_panics_on_input_table_mismatch() {
+        let mut builder = PlanBuilder::new(evm_like_tables());
+        // Manually construct a malformed plan: a scan on `transactions` that
+        // owns a `logs -> transactions` join. This is the exact shape produced
+        // by the pre-fix simplify() and is what must be rejected.
+        builder.relations.push(Rel::Join {
+            input_table: "logs",
+            input_key: vec!["block_number", "transaction_index"],
+            output_table: "transactions",
+            output_key: vec!["block_number", "transaction_index"]
+        });
+        builder.scans.push(Scan {
+            table: "transactions",
+            predicate: None,
+            relations: vec![0],
+            output: None
+        });
+        builder.assert_scan_relation_invariant();
     }
 }

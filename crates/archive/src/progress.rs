@@ -1,20 +1,20 @@
-use std::time::{Instant, Duration};
-use std::num::NonZeroUsize;
-
+use std::{
+    num::NonZeroUsize,
+    time::{Duration, Instant}
+};
 
 #[derive(Clone, Debug)]
 struct ProgressUnit {
     value: u64,
-    time: Instant,
+    time: Instant
 }
-
 
 pub struct Progress {
     window: Vec<ProgressUnit>,
     tail: usize,
     size: usize,
     granularity: Duration,
-    has_news: bool,
+    has_news: bool
 }
 
 impl Progress {
@@ -25,7 +25,7 @@ impl Progress {
             tail: 0,
             size: window_size.get() + 1,
             granularity: window_granularity,
-            has_news: false,
+            has_news: false
         }
     }
 

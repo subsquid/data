@@ -1,0 +1,25 @@
+{
+  "type": "tron",
+  "fromBlock": 82644089,
+  "toBlock": 82644089,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "transaction": {
+      "transactionIndex": true,
+      "hash": true,
+      "type": true,
+      "parameter": true,
+      "fee": true,
+      "netUsage": true,
+      "netFee": true
+    }
+  },
+  "transferAssetTransactions": [
+    {
+      "asset": ["31303035313134"]
+    }
+  ]
+}

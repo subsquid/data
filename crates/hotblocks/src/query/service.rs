@@ -1,26 +1,31 @@
-use super::executor::QueryExecutor;
-use super::response::QueryResponse;
-use crate::dataset_controller::DatasetController;
-use crate::errors::{Busy, QueryIsAboveTheHead, QueryKindMismatch};
-use crate::types::{ClientId, DBRef, DatasetKind};
-use crate::query::QueryExecutorCollector;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering}
+    },
+    time::Duration
+};
+
 use anyhow::{bail, ensure};
 use sqd_query::Query;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
 
+use super::{executor::QueryExecutor, response::QueryResponse};
+use crate::{
+    dataset_controller::DatasetController,
+    encoding::ContentEncoding,
+    errors::{Busy, QueryIsAboveTheHead, QueryKindMismatch},
+    query::QueryExecutorCollector,
+    types::{ClientId, DBRef, DatasetKind}
+};
 
 pub type QueryServiceRef = Arc<QueryService>;
-
 
 pub struct QueryServiceBuilder {
     db: DBRef,
     max_data_waiters: usize,
     max_pending_tasks: usize,
-    urgency: usize,
+    urgency: usize
 }
-
 
 impl QueryServiceBuilder {
     pub fn new(db: DBRef) -> Self {
@@ -65,13 +70,11 @@ impl QueryServiceBuilder {
     }
 }
 
-
 pub struct QueryService {
     db: DBRef,
     executor: QueryExecutor,
     wait_slots: WaitSlots
 }
-
 
 impl QueryService {
     pub fn builder(db: DBRef) -> QueryServiceBuilder {
@@ -83,8 +86,9 @@ impl QueryService {
         dataset: &DatasetController,
         query: Query,
         client_id: ClientId,
+        encoding: ContentEncoding
     ) -> anyhow::Result<QueryResponse> {
-        self.query_internal(dataset, query, false, client_id).await
+        self.query_internal(dataset, query, false, client_id, encoding).await
     }
 
     pub async fn query_finalized(
@@ -92,8 +96,9 @@ impl QueryService {
         dataset: &DatasetController,
         query: Query,
         client_id: ClientId,
+        encoding: ContentEncoding
     ) -> anyhow::Result<QueryResponse> {
-        self.query_internal(dataset, query, true, client_id).await
+        self.query_internal(dataset, query, true, client_id, encoding).await
     }
 
     async fn query_internal(
@@ -102,11 +107,13 @@ impl QueryService {
         query: Query,
         finalized: bool,
         client_id: ClientId,
+        encoding: ContentEncoding
     ) -> anyhow::Result<QueryResponse> {
+        let query_kind = DatasetKind::from_query(&query)?;
         ensure!(
-            dataset.dataset_kind() == DatasetKind::from_query(&query),
+            dataset.dataset_kind() == query_kind,
             QueryKindMismatch {
-                query_kind: DatasetKind::from_query(&query).storage_kind(),
+                query_kind: query_kind.storage_kind(),
                 dataset_kind: dataset.dataset_kind().storage_kind()
             }
         );
@@ -130,7 +137,7 @@ impl QueryService {
                     );
                 }
                 true
-            },
+            }
             Some(_) | None => true
         };
 
@@ -146,9 +153,7 @@ impl QueryService {
                 }
             })
             .await
-            .map_err(|_| QueryIsAboveTheHead {
-                finalized_head: None
-            })?;
+            .map_err(|_| QueryIsAboveTheHead { finalized_head: None })?;
         }
 
         QueryResponse::new(
@@ -159,7 +164,9 @@ impl QueryService {
             finalized,
             None,
             client_id,
-        ).await
+            encoding
+        )
+        .await
     }
 
     pub fn metrics_collector(&self) -> QueryExecutorCollector {
@@ -167,19 +174,15 @@ impl QueryService {
     }
 }
 
-
 struct WaitSlots {
     waiters: AtomicUsize,
     limit: usize
 }
 
-
 impl WaitSlots {
     fn get(&self) -> Option<WaitingSlot<'_>> {
         let previously_waiting = self.waiters.fetch_add(1, Ordering::SeqCst);
-        let slot = WaitingSlot {
-            waiters: &self.waiters
-        };
+        let slot = WaitingSlot { waiters: &self.waiters };
         if previously_waiting < self.limit {
             Some(slot)
         } else {
@@ -189,11 +192,9 @@ impl WaitSlots {
     }
 }
 
-
 struct WaitingSlot<'a> {
     waiters: &'a AtomicUsize
 }
-
 
 impl<'a> Drop for WaitingSlot<'a> {
     fn drop(&mut self) {

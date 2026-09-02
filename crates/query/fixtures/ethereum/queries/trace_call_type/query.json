@@ -1,0 +1,25 @@
+{
+  "type": "evm",
+  "fromBlock": 17881390,
+  "toBlock": 17881870,
+  "fields": {
+    "trace": {
+      "callFrom": true,
+      "callCallType": true,
+      "transactionIndex": true,
+      "traceAddress": true,
+      "type": true
+    },
+    "block": {
+      "number": true,
+      "hash": true,
+      "parentHash": true
+    }
+  },
+  "traces": [
+    {
+      "callFrom": ["0x58df81babdf15276e761808e872a3838cbecbcf9"],
+      "callCallType": ["staticcall"]
+    }
+  ]
+}

@@ -1,13 +1,18 @@
 use core::{assert, assert_eq};
-use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc
+};
 
-use arrow::array::{RecordBatch, UInt32Array};
-use arrow::datatypes::{DataType, Field, Schema};
-use sqd_primitives::sid::SID;
-use sqd_primitives::BlockRef;
-use sqd_storage::db::{Chunk, DatabaseSettings, DatasetId, DatasetKind};
-use sqd_storage::table::write::use_small_buffers;
+use arrow::{
+    array::{RecordBatch, UInt32Array},
+    datatypes::{DataType, Field, Schema}
+};
+use sqd_primitives::{sid::SID, BlockRef};
+use sqd_storage::{
+    db::{Chunk, DatabaseSettings, DatasetId, DatasetKind},
+    table::write::use_small_buffers
+};
 
 mod utils;
 use utils::{setup_db, validate_chunks};
@@ -30,9 +35,7 @@ fn create_dataset() {
     assert!(res);
     let res = db.create_dataset(dataset_id, dataset_kind).is_err();
     assert!(res);
-    let res = db
-        .create_dataset_if_not_exists(dataset_id, dataset_kind)
-        .is_ok();
+    let res = db.create_dataset_if_not_exists(dataset_id, dataset_kind).is_ok();
     assert!(res);
     let datasets = db.get_all_datasets().unwrap();
     assert_eq!(datasets.len(), 1);
@@ -49,21 +52,21 @@ fn basic_chunks_test() {
         last_block: 100,
         last_block_hash: "last_1".to_owned(),
         parent_block_hash: "base".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk2 = Chunk::V0 {
         first_block: 101,
         last_block: 200,
         last_block_hash: "last_2".to_owned(),
         parent_block_hash: "last_1".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk3 = Chunk::V0 {
         first_block: 201,
         last_block: 300,
         last_block_hash: "last_3".to_owned(),
         parent_block_hash: "last_2".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
 
     assert!(db.insert_chunk(dataset_id, &chunk1).is_ok());
@@ -82,21 +85,21 @@ fn basic_chunks_test_rev() {
         last_block: 100,
         last_block_hash: "last_1".to_owned(),
         parent_block_hash: "base".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk2 = Chunk::V0 {
         first_block: 101,
         last_block: 200,
         last_block_hash: "last_2".to_owned(),
         parent_block_hash: "last_1".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk3 = Chunk::V0 {
         first_block: 201,
         last_block: 300,
         last_block_hash: "last_3".to_owned(),
         parent_block_hash: "last_2".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
 
     assert!(db.insert_chunk(dataset_id, &chunk3).is_ok());
@@ -115,21 +118,21 @@ fn basic_chunks_bad_hash() {
         last_block: 100,
         last_block_hash: "last_1".to_owned(),
         parent_block_hash: "base".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk2 = Chunk::V0 {
         first_block: 101,
         last_block: 200,
         last_block_hash: "last_2".to_owned(),
         parent_block_hash: "BAD".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk3 = Chunk::V0 {
         first_block: 201,
         last_block: 300,
         last_block_hash: "last_3".to_owned(),
         parent_block_hash: "last_2".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
 
     assert!(db.insert_chunk(dataset_id, &chunk1).is_ok());
@@ -148,21 +151,21 @@ fn basic_chunks_bad_range() {
         last_block: 100,
         last_block_hash: "last_1".to_owned(),
         parent_block_hash: "base".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk2 = Chunk::V0 {
         first_block: 99,
         last_block: 200,
         last_block_hash: "last_2".to_owned(),
         parent_block_hash: "last_1".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk3 = Chunk::V0 {
         first_block: 201,
         last_block: 300,
         last_block_hash: "last_3".to_owned(),
         parent_block_hash: "last_2".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
 
     assert!(db.insert_chunk(dataset_id, &chunk1).is_ok());
@@ -181,28 +184,28 @@ fn basic_fork_test() {
         last_block: 100,
         last_block_hash: "last_1".to_owned(),
         parent_block_hash: "base".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk2 = Chunk::V0 {
         first_block: 101,
         last_block: 200,
         last_block_hash: "last_2".to_owned(),
         parent_block_hash: "last_1".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk3 = Chunk::V0 {
         first_block: 201,
         last_block: 300,
         last_block_hash: "last_3".to_owned(),
         parent_block_hash: "last_2".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let fork = Chunk::V0 {
         first_block: 101,
         last_block: 200,
         last_block_hash: "fork_hash".to_owned(),
         parent_block_hash: "last_1".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
 
     assert!(db.insert_chunk(dataset_id, &chunk1).is_ok());
@@ -217,11 +220,7 @@ fn basic_fork_test() {
 fn delete_chunks() {
     let (db, dataset_id) = setup_db();
 
-    let schema = Arc::new(Schema::new(vec![Field::new(
-        "data",
-        DataType::UInt32,
-        true,
-    )]));
+    let schema = Arc::new(Schema::new(vec![Field::new("data", DataType::UInt32, true)]));
 
     let mut builder = db.new_table_builder(schema.clone());
 
@@ -237,14 +236,14 @@ fn delete_chunks() {
         last_block: 100,
         last_block_hash: "last_1".to_owned(),
         parent_block_hash: "base".to_owned(),
-        tables: tables.clone(),
+        tables: tables.clone()
     };
     let chunk2 = Chunk::V0 {
         first_block: 101,
         last_block: 200,
         last_block_hash: "last_2".to_owned(),
         parent_block_hash: "last_1".to_owned(),
-        tables,
+        tables
     };
     // let chunk3 = Chunk::V0 { first_block: 201, last_block: 300, last_block_hash: "last_3".to_owned(), parent_block_hash: "last_2".to_owned(), tables: Default::default() };
 
@@ -252,15 +251,11 @@ fn delete_chunks() {
     assert!(db.insert_chunk(dataset_id, &chunk2).is_ok());
     validate_chunks(&db, dataset_id, [&chunk1, &chunk2].to_vec());
 
-    assert!(db
-        .update_dataset(dataset_id, |tx| { tx.delete_chunk(&chunk2) })
-        .is_ok());
+    assert!(db.update_dataset(dataset_id, |tx| { tx.delete_chunk(&chunk2) }).is_ok());
 
     validate_chunks(&db, dataset_id, [&chunk1].to_vec());
 
-    assert!(db
-        .update_dataset(dataset_id, |tx| { tx.delete_chunk(&chunk1) })
-        .is_ok());
+    assert!(db.update_dataset(dataset_id, |tx| { tx.delete_chunk(&chunk1) }).is_ok());
 
     validate_chunks(&db, dataset_id, [].to_vec());
 
@@ -291,14 +286,14 @@ fn chunk_reader() {
         last_block: 100,
         last_block_hash: "last_1".to_owned(),
         parent_block_hash: "base".to_owned(),
-        tables: tables.clone(),
+        tables: tables.clone()
     };
     let chunk2 = Chunk::V0 {
         first_block: 101,
         last_block: 200,
         last_block_hash: "last_2".to_owned(),
         parent_block_hash: "last_1".to_owned(),
-        tables,
+        tables
     };
     // let chunk3 = Chunk::V0 { first_block: 201, last_block: 300, last_block_hash: "last_3".to_owned(), parent_block_hash: "last_2".to_owned(), tables: Default::default() };
 
@@ -358,21 +353,21 @@ fn labels() {
         last_block: 100,
         last_block_hash: "last_1".to_owned(),
         parent_block_hash: "base".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk2 = Chunk::V0 {
         first_block: 101,
         last_block: 200,
         last_block_hash: "last_2".to_owned(),
         parent_block_hash: "BAD".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk3 = Chunk::V0 {
         first_block: 201,
         last_block: 300,
         last_block_hash: "last_3".to_owned(),
         parent_block_hash: "last_2".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
 
     assert!(db.insert_chunk(dataset_id, &chunk1).is_ok());
@@ -381,7 +376,7 @@ fn labels() {
 
     let finalized_head = BlockRef {
         number: 300,
-        hash: "last_3".to_owned(),
+        hash: "last_3".to_owned()
     };
 
     assert!(db
@@ -407,14 +402,14 @@ fn delete_dataset() {
         last_block: 100,
         last_block_hash: "last_1".to_owned(),
         parent_block_hash: "base".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
     let chunk2 = Chunk::V0 {
         first_block: 101,
         last_block: 200,
         last_block_hash: "last_2".to_owned(),
         parent_block_hash: "last_1".to_owned(),
-        tables: Default::default(),
+        tables: Default::default()
     };
 
     assert!(db.insert_chunk(dataset_id, &chunk1).is_ok());

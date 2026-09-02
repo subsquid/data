@@ -1,0 +1,18 @@
+[package]
+name = "sqd-hotblocks-harness"
+version = "0.1.0"
+edition = "2024"
+description = "Black-box test harness for the sqd-hotblocks service: source simulator, reference model, client driver"
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+libc = "0.2"
+reqwest = { workspace = true, features = ["gzip", "json"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+
+[lints]
+workspace = true

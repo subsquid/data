@@ -1,14 +1,13 @@
-use anyhow::ensure;
-use sqd_primitives::range::RangeList;
 use std::ops::Range;
 
+use anyhow::ensure;
+use sqd_primitives::range::RangeList;
 
 pub struct PageRead {
     page_index: usize,
     write_offset: usize,
     ranges_slice: Range<usize>
 }
-
 
 pub enum Pagination<'a> {
     Ranged {
@@ -22,8 +21,7 @@ pub enum Pagination<'a> {
     }
 }
 
-
-impl <'a> Pagination<'a> {
+impl<'a> Pagination<'a> {
     pub fn new(page_offsets: &'a [u32], ranges: Option<&'a RangeList<u32>>) -> anyhow::Result<Self> {
         Ok(if let Some(ranges) = ranges {
             Pagination::Ranged {
@@ -48,12 +46,8 @@ impl <'a> Pagination<'a> {
 
     pub fn num_items(&self) -> usize {
         match self {
-            Pagination::Ranged { ranges, .. } => {
-                ranges.iter().map(|r| r.len()).sum()
-            },
-            Pagination::All { ranges, .. } => {
-                ranges[0].end as usize
-            }
+            Pagination::Ranged { ranges, .. } => ranges.iter().map(|r| r.len()).sum(),
+            Pagination::All { ranges, .. } => ranges[0].end as usize
         }
     }
 
@@ -69,42 +63,35 @@ impl <'a> Pagination<'a> {
 
     pub fn page_range(&self, seq: usize) -> Range<usize> {
         let (offsets, idx) = match self {
-            Pagination::Ranged { page_offsets, pages, .. } => {
-                (page_offsets, pages[seq].page_index)
-            },
-            Pagination::All { page_offsets, .. } => {
-                (page_offsets, seq)
-            }
+            Pagination::Ranged {
+                page_offsets, pages, ..
+            } => (page_offsets, pages[seq].page_index),
+            Pagination::All { page_offsets, .. } => (page_offsets, seq)
         };
         offsets[idx] as usize..offsets[idx + 1] as usize
     }
 
     pub fn page_write_offset(&self, seq: usize) -> usize {
         match self {
-            Pagination::Ranged { pages, .. } => {
-                pages[seq].write_offset
-            },
-            Pagination::All { page_offsets, .. } => {
-                page_offsets[seq] as usize
-            }
+            Pagination::Ranged { pages, .. } => pages[seq].write_offset,
+            Pagination::All { page_offsets, .. } => page_offsets[seq] as usize
         }
     }
 
     pub fn iter_ranges(&self, seq: usize) -> impl Iterator<Item = Range<usize>> + '_ {
         let (ranges, page_range) = match self {
-            Pagination::Ranged { pages, ranges, page_offsets } => {
+            Pagination::Ranged {
+                pages,
+                ranges,
+                page_offsets
+            } => {
                 let page = &pages[seq];
                 (
                     &ranges.as_slice()[page.ranges_slice.clone()],
                     page_offsets[page.page_index]..page_offsets[page.page_index + 1]
                 )
-            },
-            Pagination::All { ranges, page_offsets } => {
-                (
-                    ranges.as_slice(),
-                    page_offsets[seq]..page_offsets[seq + 1]
-                )
             }
+            Pagination::All { ranges, page_offsets } => (ranges.as_slice(), page_offsets[seq]..page_offsets[seq + 1])
         };
         ranges.iter().map(move |r| {
             let beg = r.start.saturating_sub(page_range.start);
@@ -113,7 +100,6 @@ impl <'a> Pagination<'a> {
         })
     }
 }
-
 
 fn build_page_reads(page_offsets: &[u32], ranges: &RangeList<u32>) -> anyhow::Result<Vec<PageRead>> {
     ensure!(
@@ -141,7 +127,7 @@ fn build_page_reads(page_offsets: &[u32], ranges: &RangeList<u32>) -> anyhow::Re
 
                 while let Some((idx, r)) = ranges.peek().cloned() {
                     if r.start >= page_range.end {
-                        break
+                        break;
                     }
 
                     let beg = std::cmp::max(page_range.start, r.start);
@@ -156,12 +142,12 @@ fn build_page_reads(page_offsets: &[u32], ranges: &RangeList<u32>) -> anyhow::Re
                     }
 
                     if end == page_range.end {
-                        break
+                        break;
                     }
                 }
 
                 reads.push(read);
-            },
+            }
             _ => {}
         }
     }

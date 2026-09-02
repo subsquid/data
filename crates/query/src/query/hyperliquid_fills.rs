@@ -1,33 +1,31 @@
-use crate::json::exp::Exp;
-use crate::json::lang::*;
-use crate::plan::{ScanBuilder, TableSet};
-use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
-use crate::{BlockNumber, Plan};
-use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    json::{exp::Exp, lang::*},
+    plan::{ScanBuilder, TableSet},
+    query::util::{
+        compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request,
+        PredicateBuilder
+    },
+    BlockNumber, Plan
+};
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     let mut tables = TableSet::new();
 
-    tables.add_table("blocks", vec![
-        "number"
-    ]);
+    tables.add_table("blocks", vec!["number"]);
 
-    tables.add_table("fills", vec![
-        "block_number",
-        "fill_index"
-    ]);
+    tables.add_table("fills", vec!["block_number", "fill_index"]);
 
     tables
 });
-
 
 field_selection! {
     block: BlockFieldSelection,
     fill: FillFieldSelection,
 }
-
 
 item_field_selection! {
     BlockFieldSelection {
@@ -44,7 +42,6 @@ item_field_selection! {
         this.timestamp,
     }}
 }
-
 
 item_field_selection! {
     FillFieldSelection {
@@ -94,9 +91,7 @@ item_field_selection! {
     }}
 }
 
-
 type Bytes = String;
-
 
 request! {
     pub struct FillRequest {
@@ -109,7 +104,6 @@ request! {
     }
 }
 
-
 impl FillRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_in_list("user", self.user.as_deref());
@@ -120,9 +114,8 @@ impl FillRequest {
         p.col_in_list("builder", self.builder.as_deref());
     }
 
-    fn relations(&self, _scan: &mut ScanBuilder) { }
+    fn relations(&self, _scan: &mut ScanBuilder) {}
 }
-
 
 request! {
     pub struct HyperliquidFillsQuery {
@@ -134,7 +127,6 @@ request! {
         pub fills: Vec<FillRequest>,
     }
 }
-
 
 impl HyperliquidFillsQuery {
     pub fn validate(&self) -> anyhow::Result<()> {

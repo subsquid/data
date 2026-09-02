@@ -1,38 +1,41 @@
-use crate::fs::FSRef;
-use crate::layout::DataChunk;
-use crate::metrics;
-use arrow::array::{ArrayRef, Int32Array};
-use arrow::datatypes::{DataType, Field, Schema};
-use arrow::record_batch::RecordBatch;
-use parquet::arrow::ArrowWriter;
-use parquet::basic::{Compression, ZstdLevel};
-use parquet::file::properties::{EnabledStatistics, WriterProperties};
+use std::{fs::File, path::Path, sync::Arc};
+
+use arrow::{
+    array::{ArrayRef, Int32Array},
+    datatypes::{DataType, Field, Schema},
+    record_batch::RecordBatch
+};
+use parquet::{
+    arrow::ArrowWriter,
+    basic::{Compression, ZstdLevel},
+    file::properties::{EnabledStatistics, WriterProperties}
+};
 use prometheus_client::metrics::gauge::Atomic;
 use rayon::prelude::*;
 use sqd_data_core::PreparedChunk;
 use sqd_dataset::{DatasetDescriptionRef, TableDescription};
-use std::fs::File;
-use std::path::Path;
-use std::sync::Arc;
 
+use crate::{fs::FSRef, layout::DataChunk, metrics};
 
 pub struct WriterItem {
     pub chunk: DataChunk,
     pub data: PreparedChunk,
-    pub description: DatasetDescriptionRef,
+    pub description: DatasetDescriptionRef
 }
-
 
 pub struct Writer {
     fs: FSRef,
     chunk_receiver: tokio::sync::mpsc::Receiver<WriterItem>,
-    attach_index_field: bool,
+    attach_index_field: bool
 }
-
 
 impl Writer {
     pub fn new(fs: FSRef, chunk_receiver: tokio::sync::mpsc::Receiver<WriterItem>, attach_index_field: bool) -> Writer {
-        Writer { fs, chunk_receiver, attach_index_field }
+        Writer {
+            fs,
+            chunk_receiver,
+            attach_index_field
+        }
     }
 
     pub async fn start(&mut self) -> anyhow::Result<()> {
@@ -68,7 +71,6 @@ impl Writer {
     }
 }
 
-
 fn add_index_column(batch: &mut RecordBatch, offset: usize) -> anyhow::Result<()> {
     let num_rows = batch.num_rows();
     let iter = offset as i32..(offset + num_rows) as i32;
@@ -86,12 +88,11 @@ fn add_index_column(batch: &mut RecordBatch, offset: usize) -> anyhow::Result<()
     Ok(())
 }
 
-
 fn write_chunk(
     prepared_chunk: &mut PreparedChunk,
     dataset_description: &DatasetDescriptionRef,
     target_dir: &Path,
-    attach_index_field: bool,
+    attach_index_field: bool
 ) -> anyhow::Result<Vec<std::path::PathBuf>> {
     let default_desc = TableDescription::default();
     prepared_chunk
@@ -103,10 +104,7 @@ fn write_chunk(
                 new_fields.extend_from_slice(schema.fields());
                 schema = Arc::new(Schema::new(new_fields));
             }
-            let desc = dataset_description
-                .tables
-                .get(name)
-                .unwrap_or(&default_desc);
+            let desc = dataset_description.tables.get(name).unwrap_or(&default_desc);
 
             let mut builder = WriterProperties::builder()
                 .set_compression(Compression::ZSTD(ZstdLevel::try_new(6)?))

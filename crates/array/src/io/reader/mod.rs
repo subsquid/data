@@ -1,14 +1,14 @@
-use crate::reader::{Reader, ReaderFactory};
-use arrow_buffer::ArrowNativeType;
 use std::marker::PhantomData;
 
+use arrow_buffer::ArrowNativeType;
 
-mod byte_reader;
+use crate::reader::{Reader, ReaderFactory};
+
 mod bitmask;
+mod byte_reader;
 mod native;
 mod nullmask;
 mod offsets;
-
 
 pub use bitmask::*;
 pub use byte_reader::*;
@@ -16,28 +16,24 @@ pub use native::*;
 pub use nullmask::*;
 pub use offsets::*;
 
-
 pub struct IOReader<B> {
     byte_reader: PhantomData<B>
 }
 
-
-impl <B: ByteReader> Reader for IOReader<B> {
+impl<B: ByteReader> Reader for IOReader<B> {
     type Nullmask = NullmaskIOReader<B>;
     type Bitmask = BitmaskIOReader<B>;
     type Native = NativeIOReader<B>;
     type Offset = OffsetsIOReader<B>;
-} 
-
+}
 
 pub trait IOReaderFactory {
     type ByteReader: ByteReader;
-    
+
     fn next_byte_reader(&mut self) -> anyhow::Result<Self::ByteReader>;
 }
 
-
-impl <F: IOReaderFactory> ReaderFactory for F {
+impl<F: IOReaderFactory> ReaderFactory for F {
     type Reader = IOReader<F::ByteReader>;
 
     fn nullmask(&mut self) -> anyhow::Result<<Self::Reader as Reader>::Nullmask> {
@@ -61,8 +57,7 @@ impl <F: IOReaderFactory> ReaderFactory for F {
     }
 }
 
-
-impl <R: ByteReader, F: FnMut() -> anyhow::Result<R>> IOReaderFactory for F {
+impl<R: ByteReader, F: FnMut() -> anyhow::Result<R>> IOReaderFactory for F {
     type ByteReader = R;
 
     fn next_byte_reader(&mut self) -> anyhow::Result<Self::ByteReader> {

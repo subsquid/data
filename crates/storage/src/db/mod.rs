@@ -2,23 +2,18 @@ mod data;
 mod db;
 pub mod ops;
 mod read;
+pub mod reclaim;
 mod rocks;
 mod table_id;
 mod write;
 
-
-pub use data::{
-    Chunk,
-    Dataset,
-    DatasetId,
-    DatasetKind,
-    DatasetLabel,
-    DatasetVersion
-};
+pub use data::{Chunk, Dataset, DatasetId, DatasetKind, DatasetLabel, DatasetVersion};
 pub use db::*;
 pub use ops::{CompactionStatus, MergedChunk};
 pub use read::snapshot::*;
 pub use table_id::TableId;
-pub use write::dataset_update::*;
-pub use write::table_builder::*;
-pub use write::tx::{get_global_tx_restarts, get_local_tx_restarts};
+pub use write::{
+    dataset_update::*,
+    table_builder::*,
+    tx::{get_global_tx_restarts, get_local_tx_restarts, HashIndexWriteMetrics}
+};

@@ -1,21 +1,17 @@
-use crate::io::reader::byte_reader::ByteReader;
-use crate::offsets::Offsets;
-use crate::reader::OffsetsReader;
-use crate::writer::OffsetsWriter;
-use anyhow::{anyhow, ensure};
-use arrow_buffer::MutableBuffer;
 use std::ops::Range;
 
+use anyhow::{anyhow, ensure};
+use arrow_buffer::MutableBuffer;
+
+use crate::{io::reader::byte_reader::ByteReader, offsets::Offsets, reader::OffsetsReader, writer::OffsetsWriter};
 
 const OS: usize = size_of::<i32>();
-
 
 pub struct OffsetsIOReader<R> {
     byte_reader: R,
     len: usize,
     buf: MutableBuffer
 }
-
 
 impl<R: ByteReader> OffsetsIOReader<R> {
     pub fn new(byte_reader: R) -> anyhow::Result<Self> {
@@ -36,11 +32,9 @@ impl<R: ByteReader> OffsetsIOReader<R> {
 
     fn buffered_offsets(&self) -> &[i32] {
         let len = self.buf.len() / OS;
-        unsafe {
-            std::slice::from_raw_parts(self.buf.as_ptr().cast(), len)
-        }
+        unsafe { std::slice::from_raw_parts(self.buf.as_ptr().cast(), len) }
     }
-    
+
     fn read(&mut self, byte_offset: &mut usize, byte_len: &mut usize) -> anyhow::Result<()> {
         let buf = self.byte_reader.read(*byte_offset, *byte_len)?;
         self.buf.extend_from_slice(buf);
@@ -48,7 +42,7 @@ impl<R: ByteReader> OffsetsIOReader<R> {
         *byte_len -= buf.len();
         Ok(())
     }
-    
+
     fn shift(&mut self) {
         let len = self.buf.len() / OS;
         if len > 1 {
@@ -60,32 +54,25 @@ impl<R: ByteReader> OffsetsIOReader<R> {
     }
 }
 
-
-impl <R: ByteReader> OffsetsReader for OffsetsIOReader<R> {
+impl<R: ByteReader> OffsetsReader for OffsetsIOReader<R> {
     fn len(&self) -> usize {
         self.len
     }
-    
-    fn read_slice(
-        &mut self, 
-        dst: &mut impl OffsetsWriter, 
-        offset: usize, 
-        len: usize
-    ) -> anyhow::Result<Range<usize>> 
-    {
+
+    fn read_slice(&mut self, dst: &mut impl OffsetsWriter, offset: usize, len: usize) -> anyhow::Result<Range<usize>> {
         ensure!(offset + len <= self.len);
         self.buf.clear();
-        
+
         let mut byte_offset = offset * OS;
         let mut byte_len = (len + 1) * OS;
-        
+
         loop {
             self.read(&mut byte_offset, &mut byte_len)?;
             if self.buf.len() >= OS {
-                break
+                break;
             }
         }
-        
+
         let first_offset = self.buffered_offsets()[0] as usize;
 
         while byte_len > 0 {
@@ -100,7 +87,7 @@ impl <R: ByteReader> OffsetsReader for OffsetsIOReader<R> {
 
         let offsets = Offsets::try_new(self.buffered_offsets()).map_err(|msg| anyhow!(msg))?;
         dst.write_slice(offsets)?;
-        
+
         Ok(first_offset..offsets.last_index())
     }
 }

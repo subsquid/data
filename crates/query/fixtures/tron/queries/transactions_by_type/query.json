@@ -1,0 +1,52 @@
+{
+  "type": "tron",
+  "fromBlock": 82644089,
+  "toBlock": 82644439,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "transaction": {
+      "transactionIndex": true,
+      "hash": true,
+      "ret": true,
+      "signature": true,
+      "type": true,
+      "parameter": true,
+      "permissionId": true,
+      "refBlockBytes": true,
+      "refBlockHash": true,
+      "feeLimit": true,
+      "expiration": true,
+      "timestamp": true,
+      "rawDataHex": true,
+      "fee": true,
+      "contractResult": true,
+      "contractAddress": true,
+      "resMessage": true,
+      "withdrawAmount": true,
+      "unfreezeAmount": true,
+      "withdrawExpireAmount": true,
+      "cancelUnfreezeV2Amount": true,
+      "result": true,
+      "energyFee": true,
+      "energyUsage": true,
+      "energyUsageTotal": true,
+      "netUsage": true,
+      "netFee": true,
+      "originEnergyUsage": true,
+      "energyPenaltyTotal": true
+    }
+  },
+  "transactions": [
+    {
+      "type": [
+        "WithdrawBalanceContract",
+        "UnfreezeBalanceV2Contract",
+        "WithdrawExpireUnfreezeContract",
+        "CancelAllUnfreezeV2Contract"
+      ]
+    }
+  ]
+}

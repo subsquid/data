@@ -1,22 +1,17 @@
 use std::sync::LazyLock;
+
 use parking_lot::RwLock;
+use sqd_array::{builder::bitmask::BitmaskBuilder, index::RangeList, writer::BitmaskWriter};
+
 use super::page::PageWriter;
-use sqd_array::builder::bitmask::BitmaskBuilder;
-use sqd_array::index::RangeList;
-use sqd_array::writer::BitmaskWriter;
 
-
-pub static PAGE_SIZE: LazyLock<RwLock<usize>> = LazyLock::new(|| {
-    RwLock::new(16 * 1024)
-});
-
+pub static PAGE_SIZE: LazyLock<RwLock<usize>> = LazyLock::new(|| RwLock::new(16 * 1024));
 
 pub struct BitmaskPageWriter<P> {
     page_writer: P,
     builder: BitmaskBuilder,
     page_size: usize
 }
-
 
 impl<P: PageWriter> BitmaskPageWriter<P> {
     pub fn new(page_writer: P) -> Self {
@@ -36,7 +31,7 @@ impl<P: PageWriter> BitmaskPageWriter<P> {
             Ok(())
         }
     }
-    
+
     #[inline(never)]
     fn do_flush(&mut self) -> anyhow::Result<()> {
         let mut byte_offset = 0;
@@ -52,7 +47,7 @@ impl<P: PageWriter> BitmaskPageWriter<P> {
     pub fn finish(mut self) -> anyhow::Result<P> {
         let mut byte_offset = 0;
         let byte_end = self.builder.bytes_size();
-        
+
         if byte_end > self.page_size {
             let split_byte = byte_end / 2;
             let bytes = &self.builder.data()[0..split_byte];
@@ -66,11 +61,10 @@ impl<P: PageWriter> BitmaskPageWriter<P> {
                 &self.builder.data()[byte_offset..byte_end]
             )?;
         }
-        
+
         Ok(self.page_writer)
     }
 }
-
 
 impl<P: PageWriter> BitmaskWriter for BitmaskPageWriter<P> {
     fn write_slice(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()> {
@@ -78,7 +72,7 @@ impl<P: PageWriter> BitmaskWriter for BitmaskPageWriter<P> {
         self.flush()
     }
 
-    fn write_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item=usize> + Clone) -> anyhow::Result<()> {
+    fn write_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item = usize> + Clone) -> anyhow::Result<()> {
         self.builder.append_slice_indexes(data, indexes);
         self.flush()
     }

@@ -1,11 +1,11 @@
-use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
-
+use std::{
+    fmt::{Debug, Display, Formatter},
+    sync::Arc
+};
 
 pub type Name = &'static str;
 pub type BlockNumber = u64;
 pub type ItemIndex = u32;
-
 
 #[cfg_attr(feature = "borsh", derive(borsh::BorshSerialize, borsh::BorshDeserialize))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -16,13 +16,24 @@ pub struct BlockRef {
     pub hash: String
 }
 
+/// Position of a transaction in the canonical chain.
+#[cfg_attr(feature = "borsh", derive(borsh::BorshSerialize, borsh::BorshDeserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+#[cfg_attr(feature = "valuable", derive(valuable::Valuable))]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
+pub struct TransactionRef {
+    pub block_number: BlockNumber,
+    pub transaction_index: ItemIndex,
+    pub hash: String
+}
 
 impl BlockRef {
     pub fn set_hash(&mut self, hash: &str) {
         self.hash.clear();
         self.hash.push_str(hash)
     }
-    
+
     pub fn set_ptr(&mut self, ptr: BlockPtr) {
         self.number = ptr.number;
         self.set_hash(ptr.hash)
@@ -36,14 +47,12 @@ impl BlockRef {
     }
 }
 
-
 #[cfg_attr(feature = "valuable", derive(valuable::Valuable))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct BlockPtr<'a> {
     pub number: BlockNumber,
     pub hash: &'a str
 }
-
 
 impl<'a> BlockPtr<'a> {
     pub fn to_ref(&self) -> BlockRef {
@@ -54,13 +63,11 @@ impl<'a> BlockPtr<'a> {
     }
 }
 
-
 impl Display for BlockRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}#{}", self.number, self.hash)
     }
 }
-
 
 impl<'a> Display for BlockPtr<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -68,9 +75,7 @@ impl<'a> Display for BlockPtr<'a> {
     }
 }
 
-
 pub struct DisplayBlockRefOption<'a>(pub Option<&'a BlockRef>);
-
 
 impl<'a> Display for DisplayBlockRefOption<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -81,7 +86,6 @@ impl<'a> Display for DisplayBlockRefOption<'a> {
         }
     }
 }
-
 
 pub trait Block {
     fn number(&self) -> BlockNumber;
@@ -121,10 +125,8 @@ pub trait Block {
     }
 }
 
-
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct DataMask(u32);
-
 
 impl DataMask {
     pub fn get(&self, i: usize) -> bool {
@@ -137,7 +139,6 @@ impl DataMask {
         self.0 |= 1 << i
     }
 }
-
 
 impl<'a, T: Block> Block for &'a T {
     #[inline]
@@ -174,8 +175,7 @@ impl<'a, T: Block> Block for &'a T {
     fn parent_ptr(&self) -> BlockPtr<'_> {
         (*self).parent_ptr()
     }
-} 
-
+}
 
 impl<T: Block> Block for Arc<T> {
     #[inline]
@@ -214,11 +214,9 @@ impl<T: Block> Block for Arc<T> {
     }
 }
 
-
 pub trait AsBlockPtr {
     fn as_block_ptr(&self) -> BlockPtr<'_>;
 }
-
 
 impl AsBlockPtr for BlockRef {
     #[inline]
@@ -227,14 +225,12 @@ impl AsBlockPtr for BlockRef {
     }
 }
 
-
 impl<B: Block> AsBlockPtr for B {
     #[inline]
     fn as_block_ptr(&self) -> BlockPtr<'_> {
         self.ptr()
     }
 }
-
 
 impl<'a> AsBlockPtr for BlockPtr<'a> {
     #[inline]

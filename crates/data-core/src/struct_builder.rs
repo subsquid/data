@@ -26,14 +26,14 @@ macro_rules! struct_builder {
                     )),
                     )*
                 ]);
-                
+
                 Self {
                     $( $field, )*
                     _nulls: sqd_array::builder::nullmask::NullmaskBuilder::new(0),
                     _fields: fields
                 }
             }
-            
+
             #[inline]
             pub fn append(&mut self, is_valid: bool) {
                 self._nulls.append(is_valid)
@@ -48,7 +48,7 @@ macro_rules! struct_builder {
             pub fn append_null(&mut self) {
                 self.append(false)
             }
-            
+
             pub fn finish(self) -> arrow::array::StructArray {
                 arrow::array::StructArray::new(
                     self._fields,
@@ -61,21 +61,21 @@ macro_rules! struct_builder {
                 )
             }
         }
-        
+
         impl sqd_array::builder::ArrayBuilder for $name {
             fn data_type(&self) -> arrow::datatypes::DataType {
                 arrow::datatypes::DataType::Struct(self._fields.clone())
             }
-            
+
             fn len(&self) -> usize {
                 self._nulls.len()
             }
-            
+
             fn byte_size(&self) -> usize {
                 use sqd_array::builder::ArrayBuilder;
                 self._nulls.byte_size() $(+ self.$field.byte_size())*
             }
-            
+
             fn clear(&mut self) {
                 use sqd_array::builder::ArrayBuilder;
                 self._nulls.clear();
@@ -83,12 +83,12 @@ macro_rules! struct_builder {
                 self.$field.clear();
                 )*
             }
-            
+
             fn finish(self) -> arrow::array::ArrayRef {
                 std::sync::Arc::new(self.finish())
             }
         }
-        
+
         impl sqd_array::slice::AsSlice for $name {
             type Slice<'a> = sqd_array::slice::AnyStructSlice<'a>;
 

@@ -1,29 +1,20 @@
 use std::ops::Range;
 
-
 pub trait RangeList {
-    fn iter(&self) -> impl Iterator<Item=Range<usize>> + Clone;
+    fn iter(&self) -> impl Iterator<Item = Range<usize>> + Clone;
 
     fn span(&mut self) -> usize;
 
     #[inline]
     fn shift(&mut self, offset: usize, len: usize) -> impl RangeList {
-        ShiftedRangeList {
-            src: self,
-            offset,
-            len
-        }
+        ShiftedRangeList { src: self, offset, len }
     }
 
     #[inline]
     fn scale(&mut self, factor: usize) -> impl RangeList {
-        ScaledRangeList {
-            src: self,
-            factor
-        }
+        ScaledRangeList { src: self, factor }
     }
 }
-
 
 struct ShiftedRangeList<'a, S: ?Sized> {
     src: &'a mut S,
@@ -31,14 +22,14 @@ struct ShiftedRangeList<'a, S: ?Sized> {
     len: usize
 }
 
-
-impl <'a, S: RangeList + ?Sized> RangeList for ShiftedRangeList<'a, S> {
-    fn iter(&self) -> impl Iterator<Item=Range<usize>> + Clone {
+impl<'a, S: RangeList + ?Sized> RangeList for ShiftedRangeList<'a, S> {
+    fn iter(&self) -> impl Iterator<Item = Range<usize>> + Clone {
         self.src.iter().map(|r| {
             assert!(
-                r.start <= self.len && r.end <= self.len, 
+                r.start <= self.len && r.end <= self.len,
                 "{:?} is out of upper bound {}",
-                r, self.len
+                r,
+                self.len
             );
             let beg = self.offset + r.start;
             let end = self.offset + r.end;
@@ -62,14 +53,13 @@ impl <'a, S: RangeList + ?Sized> RangeList for ShiftedRangeList<'a, S> {
     }
 }
 
-
 struct ScaledRangeList<'a, S: ?Sized> {
     src: &'a mut S,
-    factor: usize,
+    factor: usize
 }
 
-impl <'a, S: RangeList + ?Sized> RangeList for ScaledRangeList<'a, S> {
-    fn iter(&self) -> impl Iterator<Item=Range<usize>> + Clone {
+impl<'a, S: RangeList + ?Sized> RangeList for ScaledRangeList<'a, S> {
+    fn iter(&self) -> impl Iterator<Item = Range<usize>> + Clone {
         self.src.iter().map(|r| {
             let beg = r.start * self.factor;
             let end = r.end * self.factor;
@@ -85,11 +75,10 @@ impl <'a, S: RangeList + ?Sized> RangeList for ScaledRangeList<'a, S> {
     fn scale(&mut self, factor: usize) -> impl RangeList {
         ScaledRangeList {
             src: self.src,
-            factor: self.factor * factor,
+            factor: self.factor * factor
         }
     }
 }
-
 
 macro_rules! compute_span {
     ($this:ident) => {
@@ -103,19 +92,14 @@ macro_rules! compute_span {
     };
 }
 
-
 pub struct RangeListFromIterator<I> {
     inner: I,
     span: Option<usize>
 }
 
-
-impl <I> RangeListFromIterator<I> {
+impl<I> RangeListFromIterator<I> {
     pub fn new(inner: I) -> Self {
-        Self {
-            inner,
-            span: None
-        }
+        Self { inner, span: None }
     }
 
     pub fn with_size(inner: I, span: impl Into<Option<usize>>) -> Self {
@@ -126,10 +110,9 @@ impl <I> RangeListFromIterator<I> {
     }
 }
 
-
-impl <I: Iterator<Item=Range<usize>> + Clone> RangeList for RangeListFromIterator<I> {
+impl<I: Iterator<Item = Range<usize>> + Clone> RangeList for RangeListFromIterator<I> {
     #[inline]
-    fn iter(&self) -> impl Iterator<Item=Range<usize>> + Clone {
+    fn iter(&self) -> impl Iterator<Item = Range<usize>> + Clone {
         self.inner.clone()
     }
 
@@ -138,21 +121,21 @@ impl <I: Iterator<Item=Range<usize>> + Clone> RangeList for RangeListFromIterato
     }
 }
 
-
 pub struct MaterializedRangeList {
     ranges: Vec<Range<u32>>,
     span: Option<usize>
 }
 
-
 impl MaterializedRangeList {
-    pub fn from_iter(ranges: impl Iterator<Item=Range<usize>>) -> Self {
+    pub fn from_iter(ranges: impl Iterator<Item = Range<usize>>) -> Self {
         let mut span = 0;
-        
-        let ranges = ranges.map(|r| {
-            span += r.len();
-            r.start as u32..r.end as u32
-        }).collect();
+
+        let ranges = ranges
+            .map(|r| {
+                span += r.len();
+                r.start as u32..r.end as u32
+            })
+            .collect();
 
         Self {
             ranges,
@@ -161,13 +144,12 @@ impl MaterializedRangeList {
     }
 }
 
-
 impl RangeList for MaterializedRangeList {
     #[inline]
-    fn iter(&self) -> impl Iterator<Item=Range<usize>> + Clone {
+    fn iter(&self) -> impl Iterator<Item = Range<usize>> + Clone {
         self.ranges.iter().map(|r| r.start as usize..r.end as usize)
     }
-    
+
     fn span(&mut self) -> usize {
         compute_span!(self)
     }

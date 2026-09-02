@@ -9,9 +9,12 @@ on:
         description: image tag
         required: true
       platforms:
+        # amd64-only by default: keeps the persistent cache to a single target dir, which
+        # matters on this disk-constrained host. Pass "linux/amd64, linux/arm64" (or just
+        # linux/arm64) explicitly when an arm image is needed.
         description: image platforms
         required: true
-        default: linux/amd64, linux/arm64
+        default: linux/amd64
 
 env:
   CI: true
@@ -19,7 +22,11 @@ env:
 jobs:
   publish:
     name: docker-publish
-    runs-on: ubuntu-latest
+    # Self-hosted so the persistent BuildKit builder (dev-server-cache) and its warm cargo
+    # cache mounts survive across runs — that is what makes the Rust build incremental.
+    # Safe here because this workflow is workflow_dispatch-only (maintainer-triggered): no
+    # untrusted PR code runs on the host. Do NOT move the PR-triggered tests workflow here.
+    runs-on: [self-hosted, dev-server]
     steps:
       - name: Docker login
         uses: docker/login-action@v3
@@ -30,8 +37,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up QEMU
+        # Registers binfmt so arm64 can be built via emulation when the platforms input asks
+        # for it. No-op / cheap when only linux/amd64 is requested.
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          # Fixed name + keep-state + no cleanup => the builder and its cache (including the
+          # Dockerfile cargo cache mounts) persist across jobs on this host.
+          name: dev-server-cache
+          keep-state: true
+          cleanup: false
+          # Bound the on-disk cache so it can't grow without limit: BuildKit GC keeps the cache
+          # under ~15GB (LRU eviction) and drops entries older than 7 days. 15GB comfortably
+          # holds one arch's warm cargo cache (~8-14GB) and is sized for this host's tight free
+          # space (~32GB, 90% full). The github-runner Ansible role enforces the same cap from
+          # the host side as a belt-and-suspenders.
+          buildkitd-config-inline: |
+            [worker.oci]
+              gc = true
+              [[worker.oci.gcpolicy]]
+                all = true
+                keepBytes = "15GB"
+                keepDuration = "168h"
 
       - name: Build & Publish
         uses: docker/build-push-action@v6

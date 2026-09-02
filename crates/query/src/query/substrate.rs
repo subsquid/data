@@ -1,43 +1,37 @@
-use crate::json::exp::Exp;
-use crate::json::lang::*;
-use crate::plan::{Plan, ScanBuilder, TableSet};
-use crate::primitives::BlockNumber;
-use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, to_lowercase_list, PredicateBuilder};
-use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    json::{exp::Exp, lang::*},
+    plan::{Plan, ScanBuilder, TableSet},
+    primitives::BlockNumber,
+    query::util::{
+        compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request,
+        to_lowercase_list, PredicateBuilder
+    }
+};
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     let mut tables = TableSet::new();
 
-    tables.add_table("blocks", vec![
-        "number"
-    ])
-    .set_weight("digest", 32 * 4);
+    tables.add_table("blocks", vec!["number"]).set_weight("digest", 32 * 4);
 
-    tables.add_table("events", vec![
-        "block_number",
-        "index"
-    ])
-    .set_weight_column("args", "args_size");
+    tables
+        .add_table("events", vec!["block_number", "index"])
+        .set_weight_column("args", "args_size");
 
-    tables.add_table("calls", vec![
-        "block_number",
-        "extrinsic_index",
-        "address"
-    ])
-    .set_weight_column("args", "args_size");
+    tables
+        .add_table("calls", vec!["block_number", "extrinsic_index", "address"])
+        .set_weight_column("args", "args_size");
 
-    tables.add_table("extrinsics", vec![
-        "block_number",
-        "index"
-    ])
-    .add_child("calls", vec!["block_number", "extrinsic_index"])
-    .set_weight("signature", 4 * 32);
+    tables
+        .add_table("extrinsics", vec!["block_number", "index"])
+        .add_child("calls", vec!["block_number", "extrinsic_index"])
+        .set_weight("signature", 4 * 32);
 
     tables
 });
-
 
 field_selection! {
     block: BlockFieldSelection,
@@ -45,7 +39,6 @@ field_selection! {
     call: CallFieldSelection,
     event: EventFieldSelection,
 }
-
 
 item_field_selection! {
     BlockFieldSelection {
@@ -79,7 +72,6 @@ item_field_selection! {
     }}
 }
 
-
 item_field_selection! {
     ExtrinsicFieldSelection {
         index,
@@ -104,7 +96,6 @@ item_field_selection! {
     }}
 }
 
-
 item_field_selection! {
     CallFieldSelection {
         extrinsic_index,
@@ -127,7 +118,6 @@ item_field_selection! {
     }}
 }
 
-
 item_field_selection! {
     EventFieldSelection {
         index,
@@ -145,15 +135,12 @@ item_field_selection! {
         this.call_address,
         this.name,
         this.phase,
-        this.call_address,
         this.topics,
         [this.args]: Json,
     }}
 }
 
-
 type Bytes = String;
-
 
 request! {
     pub struct EventRequest {
@@ -163,7 +150,6 @@ request! {
         pub stack: bool,
     }
 }
-
 
 impl EventRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -197,7 +183,6 @@ impl EventRequest {
     }
 }
 
-
 request! {
     pub struct CallRequest {
         pub name: Option<Vec<String>>,
@@ -207,7 +192,6 @@ request! {
         pub events: bool,
     }
 }
-
 
 impl CallRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -241,7 +225,6 @@ impl CallRequest {
     }
 }
 
-
 request! {
     pub struct EvmLogRequest {
         pub address: Option<Vec<Bytes>>,
@@ -254,7 +237,6 @@ request! {
         pub stack: bool,
     }
 }
-
 
 impl EvmLogRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -293,7 +275,6 @@ impl EvmLogRequest {
     }
 }
 
-
 request! {
     pub struct EthereumTransactionRequest {
         pub to: Option<Vec<Bytes>>,
@@ -303,7 +284,6 @@ request! {
         pub events: bool,
     }
 }
-
 
 impl EthereumTransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -335,7 +315,6 @@ impl EthereumTransactionRequest {
     }
 }
 
-
 request! {
     pub struct ContractsContractEmittedRequest {
         pub contract_address: Option<Vec<Bytes>>,
@@ -344,7 +323,6 @@ request! {
         pub stack: bool,
     }
 }
-
 
 impl ContractsContractEmittedRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -379,7 +357,6 @@ impl ContractsContractEmittedRequest {
     }
 }
 
-
 request! {
     pub struct GearMessageEnqueuedRequest {
         pub program_id: Option<Vec<Bytes>>,
@@ -388,7 +365,6 @@ request! {
         pub stack: bool,
     }
 }
-
 
 impl GearMessageEnqueuedRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -423,7 +399,6 @@ impl GearMessageEnqueuedRequest {
     }
 }
 
-
 request! {
     pub struct GearUserMessageSentRequest {
         pub program_id: Option<Vec<Bytes>>,
@@ -432,7 +407,6 @@ request! {
         pub stack: bool,
     }
 }
-
 
 impl GearUserMessageSentRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -467,7 +441,6 @@ impl GearUserMessageSentRequest {
     }
 }
 
-
 request! {
     pub struct ReviveContractEmittedRequest {
         pub contract: Option<Vec<Bytes>>,
@@ -480,7 +453,6 @@ request! {
         pub stack: bool,
     }
 }
-
 
 impl ReviveContractEmittedRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -519,7 +491,6 @@ impl ReviveContractEmittedRequest {
     }
 }
 
-
 request! {
     pub struct SubstrateQuery {
         pub from_block: BlockNumber,
@@ -537,7 +508,6 @@ request! {
         pub revive_contract_emitted: Vec<ReviveContractEmittedRequest>,
     }
 }
-
 
 impl SubstrateQuery {
     pub fn validate(&self) -> anyhow::Result<()> {

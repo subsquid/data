@@ -1,7 +1,8 @@
-use arrow::array::{Array, ArrowPrimitiveType, BooleanArray, GenericByteArray, PrimitiveArray};
-use arrow::datatypes::ByteArrayType;
+use arrow::{
+    array::{Array, ArrowPrimitiveType, BooleanArray, GenericByteArray, PrimitiveArray},
+    datatypes::ByteArrayType
+};
 use arrow_buffer::ArrowNativeType;
-
 
 pub trait Access {
     type Value;
@@ -18,8 +19,7 @@ pub trait Access {
     fn has_nulls(&self) -> bool;
 }
 
-
-impl <'a, T: Access> Access for &'a T {
+impl<'a, T: Access> Access for &'a T {
     type Value = T::Value;
 
     #[inline]
@@ -37,7 +37,6 @@ impl <'a, T: Access> Access for &'a T {
         (*self).has_nulls()
     }
 }
-
 
 impl Access for BooleanArray {
     type Value = bool;
@@ -57,8 +56,7 @@ impl Access for BooleanArray {
     }
 }
 
-
-impl <T: ArrowPrimitiveType> Access for PrimitiveArray<T> {
+impl<T: ArrowPrimitiveType> Access for PrimitiveArray<T> {
     type Value = T::Native;
 
     #[inline]
@@ -76,8 +74,7 @@ impl <T: ArrowPrimitiveType> Access for PrimitiveArray<T> {
     }
 }
 
-
-impl <'a, T: ByteArrayType> Access for &'a GenericByteArray<T> {
+impl<'a, T: ByteArrayType> Access for &'a GenericByteArray<T> {
     type Value = &'a [u8];
 
     fn get(&self, i: usize) -> Self::Value {

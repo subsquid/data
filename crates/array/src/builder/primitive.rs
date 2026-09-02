@@ -1,15 +1,17 @@
-use crate::builder::memory_writer::MemoryWriter;
-use crate::builder::nullmask::NullmaskBuilder;
-use crate::util::invalid_buffer_access;
-use crate::writer::{ArrayWriter, Writer};
-use arrow::array::{ArrayRef, ArrowPrimitiveType, PrimitiveArray};
-use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer};
-use std::marker::PhantomData;
-use std::sync::Arc;
-use arrow::datatypes::DataType;
-use crate::builder::ArrayBuilder;
-use crate::slice::{AsSlice, PrimitiveSlice};
+use std::{marker::PhantomData, sync::Arc};
 
+use arrow::{
+    array::{ArrayRef, ArrowPrimitiveType, PrimitiveArray},
+    datatypes::DataType
+};
+use arrow_buffer::{ArrowNativeType, MutableBuffer, ScalarBuffer};
+
+use crate::{
+    builder::{memory_writer::MemoryWriter, nullmask::NullmaskBuilder, ArrayBuilder},
+    slice::{AsSlice, PrimitiveSlice},
+    util::invalid_buffer_access,
+    writer::{ArrayWriter, Writer}
+};
 
 pub struct PrimitiveBuilder<T: ArrowPrimitiveType> {
     nulls: NullmaskBuilder,
@@ -17,8 +19,7 @@ pub struct PrimitiveBuilder<T: ArrowPrimitiveType> {
     phantom_data: PhantomData<T>
 }
 
-
-impl <T: ArrowPrimitiveType> PrimitiveBuilder<T> {
+impl<T: ArrowPrimitiveType> PrimitiveBuilder<T> {
     pub fn new(capacity: usize) -> Self {
         Self {
             nulls: NullmaskBuilder::new(capacity),
@@ -26,12 +27,12 @@ impl <T: ArrowPrimitiveType> PrimitiveBuilder<T> {
             phantom_data: PhantomData
         }
     }
-    
+
     pub fn append(&mut self, val: T::Native) {
         self.nulls.append(true);
         self.values.push(val)
     }
-    
+
     pub fn append_option(&mut self, val: Option<T::Native>) {
         if let Some(val) = val {
             self.append(val)
@@ -40,17 +41,13 @@ impl <T: ArrowPrimitiveType> PrimitiveBuilder<T> {
             self.values.push(T::default_value())
         }
     }
-    
+
     pub fn finish(self) -> PrimitiveArray<T> {
-        PrimitiveArray::new(
-            ScalarBuffer::from(self.values), 
-            self.nulls.finish()
-        )
+        PrimitiveArray::new(ScalarBuffer::from(self.values), self.nulls.finish())
     }
 }
 
-
-impl <T: ArrowPrimitiveType> ArrayBuilder for PrimitiveBuilder<T> {
+impl<T: ArrowPrimitiveType> ArrayBuilder for PrimitiveBuilder<T> {
     fn data_type(&self) -> DataType {
         T::DATA_TYPE
     }
@@ -73,8 +70,7 @@ impl <T: ArrowPrimitiveType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 }
 
-
-impl <T: ArrowPrimitiveType> ArrayWriter for PrimitiveBuilder<T> {
+impl<T: ArrowPrimitiveType> ArrayWriter for PrimitiveBuilder<T> {
     type Writer = MemoryWriter;
 
     fn bitmask(&mut self, _buf: usize) -> &mut <Self::Writer as Writer>::Bitmask {
@@ -104,20 +100,15 @@ impl <T: ArrowPrimitiveType> ArrayWriter for PrimitiveBuilder<T> {
     }
 }
 
-
-impl <T: ArrowPrimitiveType> AsSlice for PrimitiveBuilder<T> {
+impl<T: ArrowPrimitiveType> AsSlice for PrimitiveBuilder<T> {
     type Slice<'a> = PrimitiveSlice<'a, T::Native>;
 
     fn as_slice(&self) -> Self::Slice<'_> {
-        PrimitiveSlice::new(
-            self.values.typed_data::<T::Native>(),
-            self.nulls.as_slice().bitmask()
-        )
+        PrimitiveSlice::new(self.values.typed_data::<T::Native>(), self.nulls.as_slice().bitmask())
     }
 }
 
-
-impl <T: ArrowPrimitiveType> Default for PrimitiveBuilder<T> {
+impl<T: ArrowPrimitiveType> Default for PrimitiveBuilder<T> {
     fn default() -> Self {
         Self::new(0)
     }

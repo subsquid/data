@@ -1,17 +1,18 @@
-use crate::types::DatasetId;
 use serde::Deserialize;
 use sqd_primitives::BlockNumber;
+
+use crate::types::DatasetId;
 
 #[derive(Debug, Deserialize)]
 pub struct SchedulingStatus {
     pub datasets: Vec<DatasetStatus>,
-    pub effective_from: u64,
+    pub effective_from: u64
 }
 
 #[derive(Debug, Deserialize)]
 pub struct DatasetStatus {
     pub id: DatasetId,
-    pub height: Option<BlockNumber>,
+    pub height: Option<BlockNumber>
 }
 
 pub async fn get_status(client: &reqwest::Client, url: &str) -> anyhow::Result<SchedulingStatus> {

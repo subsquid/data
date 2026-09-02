@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 futures = { workspace = true }
+prometheus-client = { workspace = true }
 sqd-data-client = { path = "../data-client" }
 sqd-primitives = { path = "../primitives" }
 tokio = { workspace = true }

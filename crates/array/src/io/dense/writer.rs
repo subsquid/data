@@ -1,14 +1,12 @@
-use crate::io::writer::IOWriterFactory;
-use arrow_buffer::ToByteSlice;
-use std::cell::RefCell;
-use std::io::Write;
-use std::rc::Rc;
+use std::{cell::RefCell, io::Write, rc::Rc};
 
+use arrow_buffer::ToByteSlice;
+
+use crate::io::writer::IOWriterFactory;
 
 pub struct DenseWriter<W> {
     inner: Rc<RefCell<WriterInner<W>>>
 }
-
 
 impl<W: Write> DenseWriter<W> {
     pub fn new(write: W) -> Self {
@@ -40,18 +38,14 @@ impl<W: Write> DenseWriter<W> {
     }
 }
 
-
 struct WriterInner<W> {
     write: W,
-    buffers: Vec<Vec<u8>>,
+    buffers: Vec<Vec<u8>>
 }
-
 
 impl<W: Write> WriterInner<W> {
     fn finish(mut self) -> std::io::Result<W> {
-        let buffer_lengths: Vec<u32> = self.buffers.iter()
-            .map(|b| b.len() as u32)
-            .collect();
+        let buffer_lengths: Vec<u32> = self.buffers.iter().map(|b| b.len() as u32).collect();
 
         for buf in self.buffers.into_iter() {
             self.write.write_all(&buf)?;
@@ -63,13 +57,11 @@ impl<W: Write> WriterInner<W> {
     }
 }
 
-
 pub struct BufferWriter<W> {
     write: Rc<RefCell<WriterInner<W>>>,
     buf: Vec<u8>,
     buffer_index: usize
 }
-
 
 impl<W> BufferWriter<W> {
     pub fn finish(self) {
@@ -77,7 +69,6 @@ impl<W> BufferWriter<W> {
         file.buffers[self.buffer_index] = self.buf
     }
 }
-
 
 impl<W: Write> Write for BufferWriter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -93,11 +84,10 @@ impl<W: Write> Write for BufferWriter<W> {
     }
 }
 
-
 impl<W: Write> IOWriterFactory for DenseWriter<W> {
     type Write = BufferWriter<W>;
 
     fn next_write(&mut self) -> anyhow::Result<Self::Write> {
         Ok(self.new_buffer())
     }
-} 
+}

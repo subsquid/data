@@ -3,10 +3,9 @@ mod fill;
 
 pub use block::*;
 pub use fill::*;
-
-use super::model::Block;
 use sqd_data_core::chunk_builder;
 
+use super::model::Block;
 
 chunk_builder! {
     HyperliquidFillsChunkBuilder {
@@ -14,7 +13,6 @@ chunk_builder! {
         fills: FillBuilder,
     }
 }
-
 
 impl sqd_data_core::BlockChunkBuilder for HyperliquidFillsChunkBuilder {
     type Block = Block;
@@ -29,4 +27,3 @@ impl sqd_data_core::BlockChunkBuilder for HyperliquidFillsChunkBuilder {
         Ok(())
     }
 }
-

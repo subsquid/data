@@ -1,10 +1,8 @@
-use super::storage_writer::{StorageWriter, StorageWriterFactory};
-use crate::kv::KvWrite;
-use crate::table::key::TableKeyFactory;
-use arrow::datatypes::SchemaRef;
-use arrow::ipc::convert::IpcSchemaEncoder;
+use arrow::{datatypes::SchemaRef, ipc::convert::IpcSchemaEncoder};
 use sqd_array::writer::{AnyArrayWriter, AnyWriter, ArrayWriter, Writer};
 
+use super::storage_writer::{StorageWriter, StorageWriterFactory};
+use crate::{kv::KvWrite, table::key::TableKeyFactory};
 
 pub struct TableWriter<S: KvWrite> {
     storage: S,
@@ -12,7 +10,6 @@ pub struct TableWriter<S: KvWrite> {
     key: TableKeyFactory,
     writer: AnyArrayWriter<StorageWriter<S>>
 }
-
 
 impl<S: KvWrite + Clone> TableWriter<S> {
     pub fn new(storage: S, table_name: &[u8], schema: SchemaRef) -> Self {
@@ -28,27 +25,26 @@ impl<S: KvWrite + Clone> TableWriter<S> {
     }
 }
 
-
-impl<S: KvWrite> TableWriter<S>  {
+impl<S: KvWrite> TableWriter<S> {
     pub fn finish(mut self) -> anyhow::Result<S> {
         for buf in self.writer.into_inner() {
             match buf {
                 AnyWriter::Bitmask(writer) => writer.finish(),
                 AnyWriter::Nullmask(writer) => writer.finish(),
                 AnyWriter::Native(writer) => writer.finish(),
-                AnyWriter::Offsets(writer) => writer.finish(),
-            }?.finish()?;
+                AnyWriter::Offsets(writer) => writer.finish()
+            }?
+            .finish()?;
         }
 
         self.storage.put(
             self.key.schema(),
             IpcSchemaEncoder::new().schema_to_fb(&self.schema).finished_data()
         )?;
-        
+
         Ok(self.storage)
     }
 }
-
 
 impl<S: KvWrite> ArrayWriter for TableWriter<S> {
     type Writer = StorageWriter<S>;

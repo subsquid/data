@@ -1,7 +1,8 @@
-use crate::access::Access;
-use crate::slice::{AnySlice, AnyTableSlice, FixedSizeListSlice, ListSlice, Slice};
-use crate::sort::order::{IgnoreNulls, Order, OrderList, OrderPair};
-
+use crate::{
+    access::Access,
+    slice::{AnySlice, AnyTableSlice, FixedSizeListSlice, ListSlice, Slice},
+    sort::order::{IgnoreNulls, Order, OrderList, OrderPair}
+};
 
 macro_rules! with_order {
     ($slice:expr, $order:ident, $cb: expr) => {
@@ -19,45 +20,40 @@ macro_rules! with_order {
             AnySlice::Float64(_) => panic!("sorting on f64 is not supported"),
             AnySlice::Binary(s) => dispatch_nulls!(s, $order, $cb),
             AnySlice::FixedSizeBinary(s) => dispatch_nulls!(s, $order, $cb),
-            AnySlice::List(list) => {
-                match list.values().item() {
-                    AnySlice::UInt16(it) if !it.has_nulls() => {
-                        let slice = ListSlice::new(list.offsets(), it.values(), list.nulls().bitmask());
-                        dispatch_nulls!(slice, $order, $cb)
-                    },
-                    AnySlice::UInt32(it) if !it.has_nulls() => {
-                        let slice = ListSlice::new(list.offsets(), it.values(), list.nulls().bitmask());
-                        dispatch_nulls!(slice, $order, $cb)
-                    },
-                    AnySlice::Int32(it) if !it.has_nulls() => {
-                        let slice = ListSlice::new(list.offsets(), it.values(), list.nulls().bitmask());
-                        dispatch_nulls!(slice, $order, $cb)
-                    },
-                    _ => panic!("only lists of non-nullable u16, u32 and i32 items are sortable")
+            AnySlice::List(list) => match list.values().item() {
+                AnySlice::UInt16(it) if !it.has_nulls() => {
+                    let slice = ListSlice::new(list.offsets(), it.values(), list.nulls().bitmask());
+                    dispatch_nulls!(slice, $order, $cb)
                 }
-            },
-            AnySlice::FixedSizeList(list) => {
-                match list.values().item() {
-                    AnySlice::UInt16(it) if !it.has_nulls() => {
-                        let slice = FixedSizeListSlice::new(list.size(), it.values(), list.nulls().bitmask());
-                        dispatch_nulls!(slice, $order, $cb)
-                    },
-                    AnySlice::UInt32(it) if !it.has_nulls() => {
-                        let slice = FixedSizeListSlice::new(list.size(), it.values(), list.nulls().bitmask());
-                        dispatch_nulls!(slice, $order, $cb)
-                    },
-                    AnySlice::Int32(it) if !it.has_nulls() => {
-                        let slice = FixedSizeListSlice::new(list.size(), it.values(), list.nulls().bitmask());
-                        dispatch_nulls!(slice, $order, $cb)
-                    },
-                    _ => panic!("only fixed size lists of non-nullable u16, u32 and i32 items are sortable")
+                AnySlice::UInt32(it) if !it.has_nulls() => {
+                    let slice = ListSlice::new(list.offsets(), it.values(), list.nulls().bitmask());
+                    dispatch_nulls!(slice, $order, $cb)
                 }
+                AnySlice::Int32(it) if !it.has_nulls() => {
+                    let slice = ListSlice::new(list.offsets(), it.values(), list.nulls().bitmask());
+                    dispatch_nulls!(slice, $order, $cb)
+                }
+                _ => panic!("only lists of non-nullable u16, u32 and i32 items are sortable")
             },
-            AnySlice::Struct(_) => panic!("sorting on structs is not supported"),
+            AnySlice::FixedSizeList(list) => match list.values().item() {
+                AnySlice::UInt16(it) if !it.has_nulls() => {
+                    let slice = FixedSizeListSlice::new(list.size(), it.values(), list.nulls().bitmask());
+                    dispatch_nulls!(slice, $order, $cb)
+                }
+                AnySlice::UInt32(it) if !it.has_nulls() => {
+                    let slice = FixedSizeListSlice::new(list.size(), it.values(), list.nulls().bitmask());
+                    dispatch_nulls!(slice, $order, $cb)
+                }
+                AnySlice::Int32(it) if !it.has_nulls() => {
+                    let slice = FixedSizeListSlice::new(list.size(), it.values(), list.nulls().bitmask());
+                    dispatch_nulls!(slice, $order, $cb)
+                }
+                _ => panic!("only fixed size lists of non-nullable u16, u32 and i32 items are sortable")
+            },
+            AnySlice::Struct(_) => panic!("sorting on structs is not supported")
         }
     };
 }
-
 
 macro_rules! dispatch_nulls {
     ($slice:ident, $order:ident, $cb: expr) => {
@@ -77,13 +73,9 @@ macro_rules! sort {
     };
 }
 
-
 fn to_dyn_order<'a>(slice: AnySlice<'a>) -> Box<dyn Order<usize> + 'a> {
-    with_order!(slice, order, {
-        Box::new(order)
-    })
+    with_order!(slice, order, { Box::new(order) })
 }
-
 
 pub fn sort_to_indexes(array: &AnySlice<'_>) -> Vec<usize> {
     let mut indexes: Vec<usize> = (0..array.len()).collect();
@@ -91,12 +83,7 @@ pub fn sort_to_indexes(array: &AnySlice<'_>) -> Vec<usize> {
     indexes
 }
 
-
-pub fn sort_table_to_indexes(
-    table: &AnyTableSlice<'_>,
-    columns: &[usize]
-) -> Vec<usize>
-{
+pub fn sort_table_to_indexes(table: &AnyTableSlice<'_>, columns: &[usize]) -> Vec<usize> {
     macro_rules! col {
         ($i:expr) => {
             table.column(columns[$i])
@@ -115,11 +102,9 @@ pub fn sort_table_to_indexes(
     indexes
 }
 
-
 fn sort_1(indexes: &mut [usize], col: &AnySlice<'_>) {
     with_order!(col, order, sort!(indexes, order))
 }
-
 
 fn sort_2(indexes: &mut [usize], c1: AnySlice<'_>, c2: AnySlice<'_>) {
     let order2 = to_dyn_order(c2);
@@ -129,10 +114,11 @@ fn sort_2(indexes: &mut [usize], c1: AnySlice<'_>, c2: AnySlice<'_>) {
     })
 }
 
-
 fn sort_many(indexes: &mut [usize], table: &AnyTableSlice<'_>, columns: &[usize]) {
     let order2 = OrderList::new(
-        columns[1..].iter().copied()
+        columns[1..]
+            .iter()
+            .copied()
             .map(|i| to_dyn_order(table.column(i)))
             .collect()
     );

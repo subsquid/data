@@ -1,15 +1,19 @@
-use crate::primitives::{Name, RowRangeList};
-use crate::scan::reader::TableReader;
-use crate::scan::row_predicate::{ColumnStats, RowStats};
-use crate::scan::util::{add_row_index, build_row_index_array};
-use crate::scan::RowPredicateRef;
-use arrow::array::RecordBatch;
-use arrow::datatypes::SchemaRef;
-use sqd_storage::db::SnapshotTableReader;
 use std::collections::HashSet;
 
+use arrow::{array::RecordBatch, datatypes::SchemaRef};
+use sqd_storage::db::SnapshotTableReader;
 
-impl <'a> TableReader for SnapshotTableReader<'a> {
+use crate::{
+    primitives::{Name, RowRangeList},
+    scan::{
+        reader::TableReader,
+        row_predicate::{ColumnStats, RowStats},
+        util::{add_row_index, build_row_index_array},
+        RowPredicateRef
+    }
+};
+
+impl<'a> TableReader for SnapshotTableReader<'a> {
     fn read(
         &self,
         predicate: Option<RowPredicateRef>,
@@ -17,8 +21,7 @@ impl <'a> TableReader for SnapshotTableReader<'a> {
         row_selection: Option<&RowRangeList>,
         with_row_index: bool,
         _default_null_columns: Option<&HashSet<Name>>
-    ) -> anyhow::Result<Vec<RecordBatch>>
-    {
+    ) -> anyhow::Result<Vec<RecordBatch>> {
         let mut maybe_new_row_selection = None;
         let mut maybe_new_projection = None;
 
@@ -33,9 +36,10 @@ impl <'a> TableReader for SnapshotTableReader<'a> {
                     }
                 });
             }
-            
+
             if let Some(columns) = projection {
-                let new_columns = predicate.projection()
+                let new_columns = predicate
+                    .projection()
                     .iter()
                     .filter(|col| !columns.contains(*col))
                     .count();
@@ -51,17 +55,10 @@ impl <'a> TableReader for SnapshotTableReader<'a> {
 
         let row_selection = maybe_new_row_selection.as_ref().or(row_selection);
 
-        let mut record_batch = self.read_table(
-            maybe_new_projection.as_ref().or(projection),
-            row_selection
-        )?;
+        let mut record_batch = self.read_table(maybe_new_projection.as_ref().or(projection), row_selection)?;
 
         if with_row_index {
-            let row_index = build_row_index_array(
-                0,
-                record_batch.num_rows(),
-                row_selection
-            );
+            let row_index = build_row_index_array(0, record_batch.num_rows(), row_selection);
             record_batch = add_row_index(&record_batch, row_index)
         }
 
@@ -71,7 +68,8 @@ impl <'a> TableReader for SnapshotTableReader<'a> {
             if maybe_new_projection.is_some() {
                 let projected_columns = projection.unwrap();
 
-                let indexes: Vec<usize> = record_batch.schema()
+                let indexes: Vec<usize> = record_batch
+                    .schema()
                     .fields()
                     .iter()
                     .enumerate()
@@ -81,11 +79,12 @@ impl <'a> TableReader for SnapshotTableReader<'a> {
                         } else {
                             None
                         }
-                    }).collect();
+                    })
+                    .collect();
 
                 record_batch = record_batch.project(&indexes)?;
             }
-            
+
             record_batch = arrow::compute::filter_record_batch(&record_batch, &mask)?;
         }
 
@@ -97,17 +96,14 @@ impl <'a> TableReader for SnapshotTableReader<'a> {
     }
 }
 
-
-impl <'a> RowStats for SnapshotTableReader<'a> {
+impl<'a> RowStats for SnapshotTableReader<'a> {
     fn get_column_stats(&self, column: Name) -> anyhow::Result<Option<ColumnStats>> {
         let index = self.schema().index_of(column)?;
         let stats = self.get_column_stats(index)?;
-        Ok(stats.map(|stats| {
-            ColumnStats {
-                offsets: stats.offsets,
-                min: stats.min,
-                max: stats.max
-            }
+        Ok(stats.map(|stats| ColumnStats {
+            offsets: stats.offsets,
+            min: stats.min,
+            max: stats.max
         }))
     }
 }

@@ -1,16 +1,14 @@
-use crate::chain::{Chain, HeadChain};
 use sqd_primitives::{Block, BlockNumber, BlockPtr};
 
+use crate::chain::{Chain, HeadChain};
 
 pub type ChainReceiver<B> = tokio::sync::watch::Receiver<Chain<B>>;
-
 
 #[derive(Clone)]
 pub struct ChainSender<B> {
     inner: tokio::sync::watch::Sender<Chain<B>>,
     max_size: usize
 }
-
 
 impl<B: Block> ChainSender<B> {
     pub fn new(head_chain: HeadChain, min_size: usize, max_size: usize) -> Self {
@@ -29,14 +27,13 @@ impl<B: Block> ChainSender<B> {
     }
 
     pub fn mark_stored(&self, number: BlockNumber, hash: &str) {
-        self.inner.send_if_modified(|chain| {
-            chain.mark_stored(number, hash) && chain.clean()
-        });
+        self.inner
+            .send_if_modified(|chain| chain.mark_stored(number, hash) && chain.clean());
     }
 
     pub fn finalize(&self, head: BlockPtr) -> anyhow::Result<()> {
         let mut res = Ok(false);
-        self.inner.send_if_modified(|chain| { 
+        self.inner.send_if_modified(|chain| {
             res = chain.finalize(head);
             res.as_ref().map_or(false, |changed| *changed)
         });

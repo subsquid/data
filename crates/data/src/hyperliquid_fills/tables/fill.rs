@@ -1,7 +1,9 @@
-use crate::hyperliquid_fills::model::{Block, Fill, Side};
-use sqd_array::builder::{BooleanBuilder, Float64Builder, StringBuilder, TimestampMillisecondBuilder, UInt32Builder, UInt64Builder};
+use sqd_array::builder::{
+    BooleanBuilder, Float64Builder, StringBuilder, TimestampMillisecondBuilder, UInt32Builder, UInt64Builder
+};
 use sqd_data_core::table_builder;
 
+use crate::hyperliquid_fills::model::{Block, Fill, Side};
 
 table_builder! {
     FillBuilder {
@@ -54,7 +56,6 @@ table_builder! {
         d.options.row_group_size = 20_000;
     }
 }
-
 
 impl FillBuilder {
     pub fn push(&mut self, block: &Block, fill: &Fill) -> anyhow::Result<()> {

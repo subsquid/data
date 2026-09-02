@@ -1,0 +1,28 @@
+{
+  "type": "tron",
+  "fromBlock": 82644089,
+  "toBlock": 82644089,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "transaction": {
+      "transactionIndex": true,
+      "hash": true,
+      "type": true,
+      "parameter": true,
+      "feeLimit": true,
+      "fee": true,
+      "energyUsageTotal": true,
+      "netUsage": true,
+      "result": true
+    }
+  },
+  "triggerSmartContractTransactions": [
+    {
+      "contract": ["41a614f803b6fd780986a42c78ec9c7f77e6ded13c"],
+      "sighash": ["a9059cbb"]
+    }
+  ]
+}

@@ -1,8 +1,10 @@
-use crate::solana::model::{Balance, Block};
-use crate::solana::tables::common::Base58Builder;
 use sqd_array::builder::{UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
+use crate::solana::{
+    model::{Balance, Block},
+    tables::common::Base58Builder
+};
 
 table_builder! {
     BalanceBuilder {
@@ -23,7 +25,6 @@ table_builder! {
         d.options.row_group_size = 5_000;
     }
 }
-
 
 impl BalanceBuilder {
     pub fn push(&mut self, block: &Block, row: &Balance) -> anyhow::Result<()> {

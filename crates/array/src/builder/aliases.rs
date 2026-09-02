@@ -1,6 +1,9 @@
-use crate::builder::PrimitiveBuilder;
-use arrow::datatypes::{Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, TimestampMillisecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
+use arrow::datatypes::{
+    Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, TimestampMillisecondType,
+    TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type
+};
 
+use crate::builder::PrimitiveBuilder;
 
 /// A signed 8-bit integer array builder.
 pub type Int8Builder = PrimitiveBuilder<Int8Type>;

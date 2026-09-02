@@ -1,0 +1,74 @@
+{
+  "type": "tron",
+  "fromBlock": 82644089,
+  "toBlock": 82644098,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true,
+      "parentHash": true,
+      "txTrieRoot": true,
+      "version": true,
+      "timestamp": true,
+      "witnessAddress": true,
+      "witnessSignature": true
+    },
+    "transaction": {
+      "transactionIndex": true,
+      "hash": true,
+      "ret": true,
+      "signature": true,
+      "type": true,
+      "parameter": true,
+      "permissionId": true,
+      "refBlockBytes": true,
+      "refBlockHash": true,
+      "feeLimit": true,
+      "expiration": true,
+      "timestamp": true,
+      "rawDataHex": true,
+      "fee": true,
+      "contractResult": true,
+      "contractAddress": true,
+      "resMessage": true,
+      "withdrawAmount": true,
+      "unfreezeAmount": true,
+      "withdrawExpireAmount": true,
+      "cancelUnfreezeV2Amount": true,
+      "result": true,
+      "energyFee": true,
+      "energyUsage": true,
+      "energyUsageTotal": true,
+      "netUsage": true,
+      "netFee": true,
+      "originEnergyUsage": true,
+      "energyPenaltyTotal": true
+    },
+    "log": {
+      "transactionIndex": true,
+      "logIndex": true,
+      "address": true,
+      "data": true,
+      "topics": true
+    },
+    "internalTransaction": {
+      "transactionIndex": true,
+      "internalTransactionIndex": true,
+      "hash": true,
+      "callerAddress": true,
+      "transferToAddress": true,
+      "callValueInfo": true,
+      "note": true,
+      "rejected": true,
+      "extra": true
+    }
+  },
+  "triggerSmartContractTransactions": [
+    {
+      "contract": ["4139dd12a54e2bab7c82aa14a1e158b34263d2d510"],
+      "sighash": ["6f21b898"],
+      "logs": true,
+      "internalTransactions": true
+    }
+  ]
+}

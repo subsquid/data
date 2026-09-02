@@ -1,55 +1,45 @@
-use super::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
-use crate::json::exp::Exp;
-use crate::json::lang::*;
-use crate::plan::{Plan, ScanBuilder, TableSet};
-use crate::primitives::BlockNumber;
-use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
+use serde::{Deserialize, Serialize};
+
+use super::util::{
+    compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request,
+    PredicateBuilder
+};
+use crate::{
+    json::{exp::Exp, lang::*},
+    plan::{Plan, ScanBuilder, TableSet},
+    primitives::BlockNumber
+};
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     let mut tables = TableSet::new();
 
-    tables.add_table("blocks", vec![
-        "number"
-    ]);
+    tables.add_table("blocks", vec!["number"]);
 
-    tables.add_table("transactions", vec![
-        "block_number",
-        "index"
-    ])
-    .set_weight_column("input_asset_ids", "input_asset_ids_size")
-    .set_weight_column("input_contracts", "input_contracts_size")
-    .set_weight_column("witnesses", "witnesses_size")
-    .set_weight_column("storage_slots", "storage_slots_size")
-    .set_weight_column("proof_set", "proof_set_size")
-    .set_weight_column("script_data", "script_data_size")
-    .set_weight_column("raw_payload", "raw_payload_size");
+    tables
+        .add_table("transactions", vec!["block_number", "index"])
+        .set_weight_column("input_asset_ids", "input_asset_ids_size")
+        .set_weight_column("input_contracts", "input_contracts_size")
+        .set_weight_column("witnesses", "witnesses_size")
+        .set_weight_column("storage_slots", "storage_slots_size")
+        .set_weight_column("proof_set", "proof_set_size")
+        .set_weight_column("script_data", "script_data_size")
+        .set_weight_column("raw_payload", "raw_payload_size");
 
-    tables.add_table("receipts", vec![
-        "block_number",
-        "transaction_index",
-        "index"
-    ])
-    .set_weight_column("data", "data_size");
+    tables
+        .add_table("receipts", vec!["block_number", "transaction_index", "index"])
+        .set_weight_column("data", "data_size");
 
-    tables.add_table("inputs", vec![
-        "block_number",
-        "transaction_index",
-        "index"
-    ])
-    .set_weight_column("coin_predicate", "coin_predicate_size")
-    .set_weight_column("message_predicate", "message_predicate_size");
+    tables
+        .add_table("inputs", vec!["block_number", "transaction_index", "index"])
+        .set_weight_column("coin_predicate", "coin_predicate_size")
+        .set_weight_column("message_predicate", "message_predicate_size");
 
-    tables.add_table("outputs", vec![
-        "block_number",
-        "transaction_index",
-        "index"
-    ]);
+    tables.add_table("outputs", vec!["block_number", "transaction_index", "index"]);
 
     tables
 });
-
 
 field_selection! {
     block: BlockFieldSelection,
@@ -58,7 +48,6 @@ field_selection! {
     input: InputFieldSelection,
     output: OutputFieldSelection,
 }
-
 
 item_field_selection! {
     BlockFieldSelection {
@@ -93,7 +82,6 @@ item_field_selection! {
         [this.time]: BigNum,
     }}
 }
-
 
 item_field_selection! {
     TransactionFieldSelection {
@@ -187,7 +175,6 @@ item_field_selection! {
     }}
 }
 
-
 item_field_selection! {
     ReceiptFieldSelection {
         index,
@@ -255,7 +242,6 @@ item_field_selection! {
         [this.gas_used]: BigNum,
     }}
 }
-
 
 item_field_selection! {
     InputFieldSelection {
@@ -380,7 +366,6 @@ item_field_selection! {
     }
 }
 
-
 item_field_selection! {
     OutputFieldSelection {
         transaction_index,
@@ -474,9 +459,7 @@ item_field_selection! {
     }
 }
 
-
 type Bytes = String;
-
 
 request! {
     pub struct ReceiptRequest {
@@ -485,7 +468,6 @@ request! {
         pub transaction: bool,
     }
 }
-
 
 impl ReceiptRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -498,12 +480,11 @@ impl ReceiptRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
 }
-
 
 request! {
     pub struct TransactionRequest {
@@ -513,7 +494,6 @@ request! {
         pub outputs: bool,
     }
 }
-
 
 impl TransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -545,7 +525,6 @@ impl TransactionRequest {
     }
 }
 
-
 request! {
     pub struct InputRequest {
         pub r#type: Option<Vec<String>>,
@@ -557,7 +536,6 @@ request! {
         pub transaction: bool,
     }
 }
-
 
 impl InputRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -580,14 +558,12 @@ impl InputRequest {
     }
 }
 
-
 request! {
     pub struct OutputRequest {
         pub r#type: Option<Vec<String>>,
         pub transaction: bool,
     }
 }
-
 
 impl OutputRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -605,7 +581,6 @@ impl OutputRequest {
     }
 }
 
-
 request! {
     pub struct FuelQuery {
         pub from_block: BlockNumber,
@@ -619,7 +594,6 @@ request! {
         pub outputs: Vec<OutputRequest>,
     }
 }
-
 
 impl FuelQuery {
     pub fn validate(&self) -> anyhow::Result<()> {

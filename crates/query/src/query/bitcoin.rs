@@ -1,41 +1,33 @@
-use super::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
-use crate::json::exp::Exp;
-use crate::json::lang::*;
-use crate::plan::{Plan, ScanBuilder, TableSet};
-use crate::primitives::BlockNumber;
-use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
+use serde::{Deserialize, Serialize};
+
+use super::util::{
+    compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request,
+    PredicateBuilder
+};
+use crate::{
+    json::{exp::Exp, lang::*},
+    plan::{Plan, ScanBuilder, TableSet},
+    primitives::BlockNumber
+};
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     let mut tables = TableSet::new();
 
-    tables.add_table("blocks", vec![
-        "number"
-    ]);
+    tables.add_table("blocks", vec!["number"]);
 
-    tables.add_table("transactions", vec![
-        "block_number",
-        "transaction_index"
-    ])
-    .add_child("inputs", vec!["block_number", "transaction_index"])
-    .add_child("outputs", vec!["block_number", "transaction_index"]);
+    tables
+        .add_table("transactions", vec!["block_number", "transaction_index"])
+        .add_child("inputs", vec!["block_number", "transaction_index"])
+        .add_child("outputs", vec!["block_number", "transaction_index"]);
 
-    tables.add_table("inputs", vec![
-        "block_number",
-        "transaction_index",
-        "input_index"
-    ]);
+    tables.add_table("inputs", vec!["block_number", "transaction_index", "input_index"]);
 
-    tables.add_table("outputs", vec![
-        "block_number",
-        "transaction_index",
-        "output_index"
-    ]);
+    tables.add_table("outputs", vec!["block_number", "transaction_index", "output_index"]);
 
     tables
 });
-
 
 field_selection! {
     block: BlockFieldSelection,
@@ -43,7 +35,6 @@ field_selection! {
     input: InputFieldSelection,
     output: OutputFieldSelection,
 }
-
 
 item_field_selection! {
     BlockFieldSelection {
@@ -83,7 +74,6 @@ item_field_selection! {
     }}
 }
 
-
 item_field_selection! {
     TransactionFieldSelection {
         transaction_index,
@@ -109,7 +99,6 @@ item_field_selection! {
         this.locktime,
     }}
 }
-
 
 item_field_selection! {
     InputFieldSelection {
@@ -157,7 +146,6 @@ item_field_selection! {
     }
 }
 
-
 item_field_selection! {
     OutputFieldSelection {
         transaction_index,
@@ -182,9 +170,7 @@ item_field_selection! {
     }}
 }
 
-
 type Bytes = String;
-
 
 request! {
     pub struct TransactionRequest {
@@ -193,29 +179,26 @@ request! {
     }
 }
 
-
 impl TransactionRequest {
-    fn predicate(&self, _p: &mut PredicateBuilder) {
-    }
+    fn predicate(&self, _p: &mut PredicateBuilder) {}
 
     fn relations(&self, scan: &mut ScanBuilder) {
         if self.inputs {
             scan.join(
                 "inputs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.outputs {
             scan.join(
                 "outputs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
 }
-
 
 request! {
     pub struct InputRequest {
@@ -229,12 +212,17 @@ request! {
     }
 }
 
-
 impl InputRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_in_list("type", self.r#type.as_deref());
-        p.col_in_list("prevout_script_pub_key_address", self.prevout_script_pub_key_address.as_deref());
-        p.col_in_list("prevout_script_pub_key_type", self.prevout_script_pub_key_type.as_deref());
+        p.col_in_list(
+            "prevout_script_pub_key_address",
+            self.prevout_script_pub_key_address.as_deref()
+        );
+        p.col_in_list(
+            "prevout_script_pub_key_type",
+            self.prevout_script_pub_key_type.as_deref()
+        );
         p.col_eq("prevout_generated", self.prevout_generated);
     }
 
@@ -243,26 +231,25 @@ impl InputRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_inputs {
             scan.join(
                 "inputs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_outputs {
             scan.join(
                 "outputs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
 }
-
 
 request! {
     pub struct OutputRequest {
@@ -273,7 +260,6 @@ request! {
         pub transaction_outputs: bool,
     }
 }
-
 
 impl OutputRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -286,26 +272,25 @@ impl OutputRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_inputs {
             scan.join(
                 "inputs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_outputs {
             scan.join(
                 "outputs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
 }
-
 
 request! {
     pub struct BitcoinQuery {
@@ -319,7 +304,6 @@ request! {
         pub outputs: Vec<OutputRequest>,
     }
 }
-
 
 impl BitcoinQuery {
     pub fn validate(&self) -> anyhow::Result<()> {

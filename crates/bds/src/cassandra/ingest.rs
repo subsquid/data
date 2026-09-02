@@ -1,12 +1,11 @@
-use super::store::CassandraStorage;
-use crate::block::BlockArc;
-use crate::chain::HeadChain;
-use crate::ingest::Store;
+use std::pin::pin;
+
 use anyhow::{bail, ensure};
 use futures::TryStreamExt;
 use sqd_primitives::{Block, BlockNumber, BlockPtr, BlockRef};
-use std::pin::pin;
 
+use super::store::CassandraStorage;
+use crate::{block::BlockArc, chain::HeadChain, ingest::Store};
 
 impl Store for CassandraStorage {
     type Block = BlockArc;
@@ -15,14 +14,10 @@ impl Store for CassandraStorage {
         let states = self.fetch_write_states().await?;
 
         if !states.iter().any(|s| s.head.number >= first_block) {
-            return Ok(HeadChain::empty())
+            return Ok(HeadChain::empty());
         }
 
-        let last_block = states.into_iter()
-            .max_by_key(|s| s.head.number)
-            .unwrap()
-            .head
-            .number;
+        let last_block = states.into_iter().max_by_key(|s| s.head.number).unwrap().head.number;
 
         if let Some(parent_hash) = parent_hash {
             validate_chain_base(self, parent_hash, first_block, last_block).await?;
@@ -45,23 +40,21 @@ impl Store for CassandraStorage {
     }
 }
 
-
 async fn validate_chain_base(
     store: &CassandraStorage,
     parent_hash: &str,
     first_block: BlockNumber,
     last_block: BlockNumber
-) -> anyhow::Result<()>
-{
+) -> anyhow::Result<()> {
     let mut stream = store.list_blocks(first_block, last_block);
     let mut stream_pin = pin!(stream);
     'L: while let Some(batch) = stream_pin.try_next().await? {
         for b in batch.blocks() {
             if b.parent_number >= first_block {
-                break 'L
+                break 'L;
             }
             if b.parent_hash == parent_hash {
-                return Ok(())
+                return Ok(());
             }
         }
     }
@@ -72,14 +65,12 @@ async fn validate_chain_base(
     );
 }
 
-
 async fn build_chain(
     store: &CassandraStorage,
     first_block: BlockNumber,
     last_block: BlockNumber,
     parent_hash: Option<&str>
-) -> anyhow::Result<HeadChain>
-{
+) -> anyhow::Result<HeadChain> {
     let mut stream = pin! {
         store.list_blocks_in_reversed_order(first_block, last_block)
     };
@@ -94,20 +85,20 @@ async fn build_chain(
                 chain.blocks.push(b.ptr().to_ref());
                 if b.is_final {
                     chain.first_finalized = true;
-                    break 'L
+                    break 'L;
                 }
             }
         }
         if batch.partition_end() < expected.number {
             bail!(
-                "block {} is missing in the database, while the above block is present", 
+                "block {} is missing in the database, while the above block is present",
                 expected
             );
         }
     }
 
     if chain.blocks.is_empty() {
-        return Ok(chain)
+        return Ok(chain);
     }
 
     chain.blocks.reverse();
@@ -117,12 +108,12 @@ async fn build_chain(
         "block {} is missing in the database, while the above block is present",
         expected
     );
-    
+
     if let Some(parent_hash) = parent_hash {
         if expected.number < first_block {
             ensure!(
                 expected.hash == parent_hash,
-                "the highest available chain {} is not based on block with hash {}", 
+                "the highest available chain {} is not based on block with hash {}",
                 chain.blocks.last().unwrap(),
                 parent_hash
             );

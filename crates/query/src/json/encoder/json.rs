@@ -1,23 +1,20 @@
-use arrow::buffer::{Buffer, OffsetBuffer};
-use arrow::datatypes::ArrowNativeType;
-use crate::json::encoder::Encoder;
+use arrow::{
+    buffer::{Buffer, OffsetBuffer},
+    datatypes::ArrowNativeType
+};
 
+use crate::json::encoder::Encoder;
 
 pub struct JsonEncoder {
     buffer: Buffer,
     offsets: OffsetBuffer<i32>
 }
 
-
 impl JsonEncoder {
     pub fn new(buffer: Buffer, offsets: OffsetBuffer<i32>) -> Self {
-        Self {
-            buffer,
-            offsets
-        }
+        Self { buffer, offsets }
     }
 }
-
 
 impl Encoder for JsonEncoder {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {

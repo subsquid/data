@@ -1,8 +1,10 @@
-use crate::chunking::ChunkRange;
-use crate::reader::{ArrayReader, BitmaskReader, ChunkedArrayReader, Reader};
-use crate::writer::ArrayWriter;
 use anyhow::ensure;
 
+use crate::{
+    chunking::ChunkRange,
+    reader::{ArrayReader, BitmaskReader, ChunkedArrayReader, Reader},
+    writer::ArrayWriter
+};
 
 pub struct FixedSizeListReader<R: Reader, T> {
     size: usize,
@@ -10,24 +12,20 @@ pub struct FixedSizeListReader<R: Reader, T> {
     values: T
 }
 
-
-impl <R: Reader, T: ArrayReader> FixedSizeListReader<R, T> {
+impl<R: Reader, T: ArrayReader> FixedSizeListReader<R, T> {
     pub fn try_new(size: usize, nulls: R::Nullmask, values: T) -> anyhow::Result<Self> {
         ensure!(
             nulls.len() * size == values.len(),
             "null and value buffers have incompatible lengths: {} * {} != {}",
-            nulls.len(), size, values.len()
-        );
-        Ok(Self {
+            nulls.len(),
             size,
-            nulls,
-            values
-        })
+            values.len()
+        );
+        Ok(Self { size, nulls, values })
     }
 }
 
-
-impl <R: Reader, T: ArrayReader> ArrayReader for FixedSizeListReader<R, T> {
+impl<R: Reader, T: ArrayReader> ArrayReader for FixedSizeListReader<R, T> {
     fn num_buffers(&self) -> usize {
         1 + self.values.num_buffers()
     }
@@ -39,17 +37,16 @@ impl <R: Reader, T: ArrayReader> ArrayReader for FixedSizeListReader<R, T> {
     fn read_slice(&mut self, dst: &mut impl ArrayWriter, offset: usize, len: usize) -> anyhow::Result<()> {
         self.nulls.read_slice(dst.nullmask(0), offset, len)?;
 
-        self.values.read_slice(&mut dst.shift(1), offset * self.size, len * self.size)
+        self.values
+            .read_slice(&mut dst.shift(1), offset * self.size, len * self.size)
     }
 }
-
 
 pub struct ChunkedFixedSizeListReader<R: Reader, T> {
     size: usize,
     nulls: Vec<R::Nullmask>,
     values: T
 }
-
 
 impl<R: Reader, T> ChunkedFixedSizeListReader<R, T> {
     pub fn new(size: usize, capacity: usize, values: T) -> Self {
@@ -61,8 +58,7 @@ impl<R: Reader, T> ChunkedFixedSizeListReader<R, T> {
     }
 }
 
-
-impl <R: Reader, T: ChunkedArrayReader> ChunkedArrayReader for ChunkedFixedSizeListReader<R, T> {
+impl<R: Reader, T: ChunkedArrayReader> ChunkedArrayReader for ChunkedFixedSizeListReader<R, T> {
     type Chunk = FixedSizeListReader<R, T::Chunk>;
 
     fn num_buffers(&self) -> usize {
@@ -77,17 +73,12 @@ impl <R: Reader, T: ChunkedArrayReader> ChunkedArrayReader for ChunkedFixedSizeL
     fn read_chunked_ranges(
         &mut self,
         dst: &mut impl ArrayWriter,
-        ranges: impl Iterator<Item=ChunkRange> + Clone
-    ) -> anyhow::Result<()>
-    {
+        ranges: impl Iterator<Item = ChunkRange> + Clone
+    ) -> anyhow::Result<()> {
         let nullmask_dst = dst.nullmask(0);
         let mut ranges_len = 0;
         for r in ranges.clone() {
-            self.nulls[r.chunk_index()].read_slice(
-                nullmask_dst,
-                r.offset_index(),
-                r.len_index()
-            )?;
+            self.nulls[r.chunk_index()].read_slice(nullmask_dst, r.offset_index(), r.len_index())?;
             ranges_len += 1;
         }
 
@@ -100,9 +91,7 @@ impl <R: Reader, T: ChunkedArrayReader> ChunkedArrayReader for ChunkedFixedSizeL
             })
         }
 
-        self.values.read_chunked_ranges(
-            &mut dst.shift(1), 
-            value_ranges.into_iter()
-        )
+        self.values
+            .read_chunked_ranges(&mut dst.shift(1), value_ranges.into_iter())
     }
 }

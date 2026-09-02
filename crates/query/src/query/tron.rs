@@ -1,44 +1,41 @@
-use crate::json::exp::Exp;
-use crate::json::lang::*;
-use crate::plan::{Plan, ScanBuilder, TableSet};
-use crate::primitives::BlockNumber;
-use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, to_lowercase_list, PredicateBuilder};
-use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    json::{exp::Exp, lang::*},
+    plan::{Plan, ScanBuilder, TableSet},
+    primitives::BlockNumber,
+    query::util::{
+        compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request,
+        to_lowercase_list, PredicateBuilder
+    }
+};
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     let mut tables = TableSet::new();
 
-    tables.add_table("blocks", vec![
-        "number"
-    ]);
+    tables.add_table("blocks", vec!["number"]);
 
-    tables.add_table("transactions", vec![
-        "block_number",
-        "transaction_index"
-    ])
-    .add_child("logs", vec!["block_number", "transaction_index"])
-    .add_child("internal_transactions", vec!["block_number", "transaction_index"])
-    .set_weight_column("raw_data_hex", "raw_data_hex_size");
+    tables
+        .add_table("transactions", vec!["block_number", "transaction_index"])
+        .add_child("logs", vec!["block_number", "transaction_index"])
+        .add_child("internal_transactions", vec!["block_number", "transaction_index"])
+        .set_weight_column("raw_data_hex", "raw_data_hex_size");
 
-    tables.add_table("logs", vec![
-        "block_number",
-        "transaction_index",
-        "log_index"
-    ])
-    .set_weight_column("data", "data_size");
+    tables
+        .add_table("logs", vec!["block_number", "transaction_index", "log_index"])
+        .set_weight_column("data", "data_size");
 
-    tables.add_table("internal_transactions", vec![
-        "block_number",
-        "transaction_index",
-        "internal_transaction_index"
-    ])
-    .set_result_item_name("internalTransactions");
+    tables
+        .add_table(
+            "internal_transactions",
+            vec!["block_number", "transaction_index", "internal_transaction_index"]
+        )
+        .set_result_item_name("internalTransactions");
 
     tables
 });
-
 
 field_selection! {
     block: BlockFieldSelection,
@@ -46,7 +43,6 @@ field_selection! {
     log: LogFieldSelection,
     internal_transaction: InternalTransactionFieldSelection,
 }
-
 
 item_field_selection! {
     BlockFieldSelection {
@@ -71,7 +67,6 @@ item_field_selection! {
         [this.timestamp]: TimestampMillisecond,
     }}
 }
-
 
 item_field_selection! {
     TransactionFieldSelection {
@@ -139,7 +134,6 @@ item_field_selection! {
     }}
 }
 
-
 item_field_selection! {
     LogFieldSelection {
         transaction_index,
@@ -167,7 +161,6 @@ item_field_selection! {
     }}
 }
 
-
 item_field_selection! {
     InternalTransactionFieldSelection {
         transaction_index,
@@ -194,9 +187,7 @@ item_field_selection! {
     }}
 }
 
-
 type Bytes = String;
-
 
 request! {
     pub struct TransactionRequest {
@@ -205,7 +196,6 @@ request! {
         pub internal_transactions: bool,
     }
 }
-
 
 impl TransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -217,19 +207,18 @@ impl TransactionRequest {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.internal_transactions {
             scan.join(
                 "internal_transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
 }
-
 
 request! {
     pub struct TransferTransactionRequest {
@@ -239,7 +228,6 @@ request! {
         pub internal_transactions: bool,
     }
 }
-
 
 impl TransferTransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -253,19 +241,18 @@ impl TransferTransactionRequest {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.internal_transactions {
             scan.join(
                 "internal_transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
 }
-
 
 request! {
     pub struct TransferAssetTransactionRequest {
@@ -276,7 +263,6 @@ request! {
         pub internal_transactions: bool,
     }
 }
-
 
 impl TransferAssetTransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -291,19 +277,18 @@ impl TransferAssetTransactionRequest {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.internal_transactions {
             scan.join(
                 "internal_transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
 }
-
 
 request! {
     pub struct TriggerSmartContractTransactionRequest {
@@ -314,7 +299,6 @@ request! {
         pub internal_transactions: bool,
     }
 }
-
 
 impl TriggerSmartContractTransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -329,19 +313,18 @@ impl TriggerSmartContractTransactionRequest {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.internal_transactions {
             scan.join(
                 "internal_transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
 }
-
 
 request! {
     pub struct LogRequest {
@@ -353,7 +336,6 @@ request! {
         pub transaction: bool,
     }
 }
-
 
 impl LogRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -369,12 +351,11 @@ impl LogRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
 }
-
 
 request! {
     pub struct InternalTransactionRequest {
@@ -383,7 +364,6 @@ request! {
         pub transaction: bool,
     }
 }
-
 
 impl InternalTransactionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
@@ -396,12 +376,11 @@ impl InternalTransactionRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
 }
-
 
 request! {
     pub struct TronQuery {
@@ -418,7 +397,6 @@ request! {
         pub internal_transactions: Vec<InternalTransactionRequest>,
     }
 }
-
 
 impl TronQuery {
     pub fn validate(&self) -> anyhow::Result<()> {

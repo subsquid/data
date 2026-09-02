@@ -2,7 +2,6 @@ use clap::{value_parser, Parser, ValueEnum};
 use sqd_primitives::BlockNumber;
 use url::Url;
 
-
 #[derive(ValueEnum, Clone, Debug)]
 pub enum NetworkKind {
     Bitcoin,
@@ -12,7 +11,6 @@ pub enum NetworkKind {
     Evm,
     Tron
 }
-
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -67,5 +65,5 @@ pub struct Cli {
 
     /// Whether to attach an index field to each record
     #[arg(long)]
-    pub attach_idx_field: bool,
+    pub attach_idx_field: bool
 }

@@ -1,36 +1,35 @@
-use crate::json::exp::Exp;
-use crate::json::lang::*;
-use crate::plan::{ScanBuilder, TableSet};
-use crate::query::util::{compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request, PredicateBuilder};
-use crate::{BlockNumber, Plan};
-use arrow::datatypes::UInt32Type;
-use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
+use arrow::datatypes::UInt32Type;
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    json::{exp::Exp, lang::*},
+    plan::{ScanBuilder, TableSet},
+    query::util::{
+        compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request,
+        PredicateBuilder
+    },
+    BlockNumber, Plan
+};
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     let mut tables = TableSet::new();
 
-    tables.add_table("blocks", vec![
-        "number"
-    ]);
+    tables.add_table("blocks", vec!["number"]);
 
-    tables.add_table("actions", vec![
-        "block_number",
-        "action_index"
-    ])
-    .set_weight_column("action", "action_size")
-    .set_weight_column("response", "response_size");
+    tables
+        .add_table("actions", vec!["block_number", "action_index"])
+        .set_weight_column("action", "action_size")
+        .set_weight_column("response", "response_size");
 
     tables
 });
-
 
 field_selection! {
     block: BlockFieldSelection,
     action: ActionFieldSelection,
 }
-
 
 item_field_selection! {
     BlockFieldSelection {
@@ -56,7 +55,6 @@ item_field_selection! {
     }}
 }
 
-
 item_field_selection! {
     ActionFieldSelection {
         action_index,
@@ -81,18 +79,15 @@ item_field_selection! {
     }}
 }
 
-
 type Bytes = String;
 type AssetIndex = u32;
-
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Ok,
-    Err,
+    Err
 }
-
 
 request! {
     pub struct ActionRequest {
@@ -103,21 +98,22 @@ request! {
     }
 }
 
-
 impl ActionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_in_list("action_type", self.action_type.as_deref());
         p.col_in_list("user", self.user.as_deref());
         p.col_in_list("vault_address", self.vault_address.as_deref());
-        p.col_eq("status", self.status.as_ref().map(|val| match val {
-            Status::Ok => "ok",
-            Status::Err => "err"
-        }));
+        p.col_eq(
+            "status",
+            self.status.as_ref().map(|val| match val {
+                Status::Ok => "ok",
+                Status::Err => "err"
+            })
+        );
     }
 
-    fn relations(&self, _scan: &mut ScanBuilder) { }
+    fn relations(&self, _scan: &mut ScanBuilder) {}
 }
-
 
 request! {
     pub struct OrderActionRequest {
@@ -129,22 +125,23 @@ request! {
     }
 }
 
-
 impl OrderActionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_primitive_list_contains_any::<UInt32Type>("order_asset", self.contains_asset.as_deref());
         p.col_string_list_contains_any("order_cloid", self.contains_cloid.as_deref());
         p.col_in_list("user", self.user.as_deref());
         p.col_in_list("vault_address", self.vault_address.as_deref());
-        p.col_eq("status", self.status.as_ref().map(|val| match val {
-            Status::Ok => "ok",
-            Status::Err => "err"
-        }));
+        p.col_eq(
+            "status",
+            self.status.as_ref().map(|val| match val {
+                Status::Ok => "ok",
+                Status::Err => "err"
+            })
+        );
     }
 
-    fn relations(&self, _scan: &mut ScanBuilder) { }
+    fn relations(&self, _scan: &mut ScanBuilder) {}
 }
-
 
 request! {
     pub struct CancelActionRequest {
@@ -155,21 +152,22 @@ request! {
     }
 }
 
-
 impl CancelActionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_primitive_list_contains_any::<UInt32Type>("cancel_asset", self.contains_asset.as_deref());
         p.col_in_list("user", self.user.as_deref());
         p.col_in_list("vault_address", self.vault_address.as_deref());
-        p.col_eq("status", self.status.as_ref().map(|val| match val {
-            Status::Ok => "ok",
-            Status::Err => "err"
-        }));
+        p.col_eq(
+            "status",
+            self.status.as_ref().map(|val| match val {
+                Status::Ok => "ok",
+                Status::Err => "err"
+            })
+        );
     }
 
-    fn relations(&self, _scan: &mut ScanBuilder) { }
+    fn relations(&self, _scan: &mut ScanBuilder) {}
 }
-
 
 request! {
     pub struct CancelByCloidActionRequest {
@@ -181,22 +179,23 @@ request! {
     }
 }
 
-
 impl CancelByCloidActionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_primitive_list_contains_any::<UInt32Type>("asset", self.contains_asset.as_deref());
         p.col_string_list_contains_any("cloid", self.contains_cloid.as_deref());
         p.col_in_list("user", self.user.as_deref());
         p.col_in_list("vault_address", self.vault_address.as_deref());
-        p.col_eq("status", self.status.as_ref().map(|val| match val {
-            Status::Ok => "ok",
-            Status::Err => "err"
-        }));
+        p.col_eq(
+            "status",
+            self.status.as_ref().map(|val| match val {
+                Status::Ok => "ok",
+                Status::Err => "err"
+            })
+        );
     }
 
-    fn relations(&self, _scan: &mut ScanBuilder) { }
+    fn relations(&self, _scan: &mut ScanBuilder) {}
 }
-
 
 request! {
     pub struct BatchModifyActionRequest {
@@ -208,22 +207,23 @@ request! {
     }
 }
 
-
 impl BatchModifyActionRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
         p.col_primitive_list_contains_any::<UInt32Type>("batch_modify_asset", self.contains_asset.as_deref());
         p.col_string_list_contains_any("batch_modify_cloid", self.contains_cloid.as_deref());
         p.col_in_list("user", self.user.as_deref());
         p.col_in_list("vault_address", self.vault_address.as_deref());
-        p.col_eq("status", self.status.as_ref().map(|val| match val {
-            Status::Ok => "ok",
-            Status::Err => "err"
-        }));
+        p.col_eq(
+            "status",
+            self.status.as_ref().map(|val| match val {
+                Status::Ok => "ok",
+                Status::Err => "err"
+            })
+        );
     }
 
-    fn relations(&self, _scan: &mut ScanBuilder) { }
+    fn relations(&self, _scan: &mut ScanBuilder) {}
 }
-
 
 request! {
     pub struct HyperliquidReplicaCmdsQuery {
@@ -239,7 +239,6 @@ request! {
         pub batch_modify_actions: Vec<BatchModifyActionRequest>,
     }
 }
-
 
 impl HyperliquidReplicaCmdsQuery {
     pub fn validate(&self) -> anyhow::Result<()> {

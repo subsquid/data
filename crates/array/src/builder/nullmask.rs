@@ -1,10 +1,9 @@
-use crate::builder::bitmask::BitmaskBuilder;
-use crate::index::RangeList;
-use crate::slice::nullmask::NullmaskSlice;
-use crate::util::bit_tools;
-use crate::writer::BitmaskWriter;
 use arrow_buffer::NullBuffer;
 
+use crate::{
+    builder::bitmask::BitmaskBuilder, index::RangeList, slice::nullmask::NullmaskSlice, util::bit_tools,
+    writer::BitmaskWriter
+};
 
 pub struct NullmaskBuilder {
     nulls: BitmaskBuilder,
@@ -13,21 +12,20 @@ pub struct NullmaskBuilder {
     capacity: usize
 }
 
-
 impl NullmaskBuilder {
     pub fn new(capacity: usize) -> Self {
         Self {
             nulls: BitmaskBuilder::new(0),
             has_nulls: false,
             len: 0,
-            capacity,
+            capacity
         }
     }
 
     pub fn byte_size(&self) -> usize {
         self.nulls.bytes_size()
     }
-    
+
     pub fn len(&self) -> usize {
         if self.has_nulls {
             self.nulls.len()
@@ -41,7 +39,7 @@ impl NullmaskBuilder {
         self.len = 0;
         self.has_nulls = false
     }
-    
+
     pub fn append_slice(&mut self, data: &[u8], offset: usize, len: usize) {
         if self.has_nulls {
             self.nulls.append_slice(data, offset, len);
@@ -53,7 +51,7 @@ impl NullmaskBuilder {
         }
     }
 
-    pub fn append_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item=usize> + Clone) {
+    pub fn append_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item = usize> + Clone) {
         if self.has_nulls {
             self.nulls.append_slice_indexes(data, indexes);
         } else if let Some(len) = bit_tools::all_indexes_valid(data, indexes.clone()) {
@@ -74,48 +72,46 @@ impl NullmaskBuilder {
             self.nulls.append_slice_ranges(data, ranges);
         }
     }
-    
+
     pub fn append_many(&mut self, val: bool, count: usize) {
         if count == 0 {
             return;
         }
         match (self.has_nulls, val) {
             (true, val) => self.nulls.append_many(val, count),
-            (false, true) => {
-                self.len += count
-            }, 
+            (false, true) => self.len += count,
             (false, false) => {
                 self.init_nulls(count);
                 self.nulls.append_many(false, count)
             }
         }
     }
-    
+
     #[inline]
     pub fn append(&mut self, val: bool) {
-        match (self.has_nulls, val) { 
+        match (self.has_nulls, val) {
             (true, val) => self.nulls.append(val),
             (false, true) => {
                 self.len += 1;
-            },
+            }
             (false, false) => {
                 self.init_nulls(1);
                 self.nulls.append(false)
             }
         }
     }
-    
+
     fn init_nulls(&mut self, additional: usize) {
         let cap = std::cmp::max(self.capacity, self.len + additional);
         self.nulls.reserve(cap);
         self.nulls.append_many(true, self.len);
         self.has_nulls = true
     }
-    
+
     pub fn finish(self) -> Option<NullBuffer> {
         self.has_nulls.then(|| NullBuffer::new(self.nulls.finish()))
     }
-    
+
     pub fn as_slice(&self) -> NullmaskSlice<'_> {
         if self.has_nulls {
             NullmaskSlice::new(self.nulls.len(), Some(self.nulls.as_slice()))
@@ -125,7 +121,6 @@ impl NullmaskBuilder {
     }
 }
 
-
 impl BitmaskWriter for NullmaskBuilder {
     #[inline]
     fn write_slice(&mut self, data: &[u8], offset: usize, len: usize) -> anyhow::Result<()> {
@@ -134,12 +129,7 @@ impl BitmaskWriter for NullmaskBuilder {
     }
 
     #[inline]
-    fn write_slice_indexes(
-        &mut self,
-        data: &[u8],
-        indexes: impl Iterator<Item=usize> + Clone
-    ) -> anyhow::Result<()>
-    {
+    fn write_slice_indexes(&mut self, data: &[u8], indexes: impl Iterator<Item = usize> + Clone) -> anyhow::Result<()> {
         self.append_slice_indexes(data, indexes);
         Ok(())
     }

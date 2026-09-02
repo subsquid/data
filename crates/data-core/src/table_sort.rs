@@ -1,46 +1,48 @@
 use arrow::datatypes::FieldRef;
-use sqd_array::builder::{AnyBuilder, ArrayBuilder};
-use sqd_array::chunking::ChunkRange;
-use sqd_array::io::file::{ArrayFile, ArrayFileWriter, FileReader};
-use sqd_array::reader::{AnyChunkedReader, ChunkedArrayReader};
-use sqd_array::slice::{AnyTableSlice, AsSlice, Slice};
-use sqd_array::sort::sort_table_to_indexes;
-use sqd_array::util::{build_offsets, get_offset_position};
-use sqd_array::writer::ArrayWriter;
-
+use sqd_array::{
+    builder::{AnyBuilder, ArrayBuilder},
+    chunking::ChunkRange,
+    io::file::{ArrayFile, ArrayFileWriter, FileReader},
+    reader::{AnyChunkedReader, ChunkedArrayReader},
+    slice::{AnyTableSlice, AsSlice, Slice},
+    sort::sort_table_to_indexes,
+    util::{build_offsets, get_offset_position},
+    writer::ArrayWriter
+};
 
 pub struct TableSorter {
     data_table: Vec<ArrayFileWriter>,
     data_key: Vec<usize>,
     sort_table: Vec<AnyBuilder>,
     sort_key: Vec<usize>,
-    batch_offsets: Vec<usize>,
+    batch_offsets: Vec<usize>
 }
-
 
 impl TableSorter {
     pub fn new(fields: &[FieldRef], sort_key: Vec<usize>) -> anyhow::Result<Self> {
         assert!(sort_key.len() > 0);
 
-        let sort_table = sort_key.iter().map(|i| {
-            AnyBuilder::new(fields[*i].data_type())
-        }).collect();
-
-        let data_key: Vec<usize> = (0..fields.len())
-            .filter(|i| !sort_key.contains(i))
+        let sort_table = sort_key
+            .iter()
+            .map(|i| AnyBuilder::new(fields[*i].data_type()))
             .collect();
 
-        let data_table = data_key.iter().map(|i| {
-            let file = ArrayFile::new_temporary(fields[*i].data_type().clone())?;
-            file.write()
-        }).collect::<anyhow::Result<_>>()?;
+        let data_key: Vec<usize> = (0..fields.len()).filter(|i| !sort_key.contains(i)).collect();
+
+        let data_table = data_key
+            .iter()
+            .map(|i| {
+                let file = ArrayFile::new_temporary(fields[*i].data_type().clone())?;
+                file.write()
+            })
+            .collect::<anyhow::Result<_>>()?;
 
         Ok(Self {
             data_table,
             data_key,
             sort_table,
             sort_key,
-            batch_offsets: vec![0],
+            batch_offsets: vec![0]
         })
     }
 
@@ -68,19 +70,24 @@ impl TableSorter {
     }
 
     pub fn finish(self) -> anyhow::Result<SortedTable> {
-        let data_table = self.data_table.into_iter()
+        let data_table = self
+            .data_table
+            .into_iter()
             .map(|c| c.finish())
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         let num_batches = self.batch_offsets.len() - 1;
 
-        let data_readers = data_table.iter().map(|c| {
-            let mut chunked = AnyChunkedReader::with_capacity(num_batches, c.data_type());
-            for _ in 0..num_batches {
-                chunked.push(c.read()?);
-            }
-            Ok(chunked)
-        }).collect::<anyhow::Result<Vec<_>>>()?;
+        let data_readers = data_table
+            .iter()
+            .map(|c| {
+                let mut chunked = AnyChunkedReader::with_capacity(num_batches, c.data_type());
+                for _ in 0..num_batches {
+                    chunked.push(c.read()?);
+                }
+                Ok(chunked)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         Ok(SortedTable {
             len: self.sort_table[0].len(),
@@ -90,11 +97,10 @@ impl TableSorter {
             sort_key: self.sort_key,
             batch_offsets: self.batch_offsets,
             order: None,
-            data_readers,
+            data_readers
         })
     }
 }
-
 
 pub struct SortedTable {
     data_table: Vec<ArrayFile>,
@@ -107,12 +113,13 @@ pub struct SortedTable {
     len: usize
 }
 
-
 impl SortedTable {
     pub fn into_sorter(mut self) -> anyhow::Result<TableSorter> {
         drop(self.data_readers);
 
-        let data_table = self.data_table.into_iter()
+        let data_table = self
+            .data_table
+            .into_iter()
             .map(|c| c.write())
             .collect::<anyhow::Result<_>>()?;
 
@@ -125,7 +132,7 @@ impl SortedTable {
             data_key: self.data_key,
             sort_table: self.sort_table,
             sort_key: self.sort_key,
-            batch_offsets: self.batch_offsets,
+            batch_offsets: self.batch_offsets
         })
     }
 
@@ -139,8 +146,7 @@ impl SortedTable {
         i: usize,
         offset: usize,
         len: usize
-    ) -> anyhow::Result<()>
-    {
+    ) -> anyhow::Result<()> {
         assert!(offset + len <= self.num_rows());
         assert!(
             i < self.sort_key.len() + self.data_key.len(),
@@ -159,7 +165,7 @@ impl SortedTable {
         if let Some(pos) = self.sort_key.iter().position(|c| *c == i) {
             self.sort_table[pos].as_slice().write_indexes(
                 dst,
-                self.order.as_ref().unwrap().0[offset..offset + len].iter().copied(),
+                self.order.as_ref().unwrap().0[offset..offset + len].iter().copied()
             )
         } else {
             let pos = self.data_key.iter().position(|c| *c == i).unwrap();
@@ -173,14 +179,9 @@ impl SortedTable {
     }
 
     fn prepare_order(&mut self) {
-        let sort_table = AnyTableSlice::new(
-            self.sort_table.iter().map(|c| c.as_slice()).collect()
-        );
+        let sort_table = AnyTableSlice::new(self.sort_table.iter().map(|c| c.as_slice()).collect());
 
-        let order = sort_table_to_indexes(
-            &sort_table,
-            &(0..sort_table.num_columns()).collect::<Vec<_>>(),
-        );
+        let order = sort_table_to_indexes(&sort_table, &(0..sort_table.num_columns()).collect::<Vec<_>>());
 
         let chunk_tracker = ChunkTracker::new(&self.batch_offsets, &order);
 
@@ -188,14 +189,12 @@ impl SortedTable {
     }
 }
 
-
 struct ChunkTracker {
     chunks: Vec<ChunkRange>,
     offsets: Vec<u32>,
     last_start_pos: usize,
-    last_end_pos: usize,
+    last_end_pos: usize
 }
-
 
 impl ChunkTracker {
     fn new(batch_offsets: &[usize], order: &[usize]) -> Self {
@@ -205,7 +204,7 @@ impl ChunkTracker {
             chunks,
             offsets,
             last_start_pos: 0,
-            last_end_pos: 0,
+            last_end_pos: 0
         }
     }
 
@@ -224,7 +223,7 @@ impl ChunkTracker {
             first_chunk = Some(ChunkRange {
                 chunk: ch.chunk,
                 offset: ch.offset + ch_offset,
-                len: std::cmp::min(ch.len - ch_offset, len),
+                len: std::cmp::min(ch.len - ch_offset, len)
             });
         }
 
@@ -235,7 +234,7 @@ impl ChunkTracker {
                     Some(ChunkRange {
                         chunk: ch.chunk,
                         offset: ch.offset,
-                        len,
+                        len
                     })
                 }),
                 &[],
@@ -257,7 +256,7 @@ impl ChunkTracker {
                 Some(ChunkRange {
                     chunk: ch.chunk,
                     offset: ch.offset,
-                    len: ch.len + end - self.offsets[ep + 1],
+                    len: ch.len + end - self.offsets[ep + 1]
                 })
             )
         } else {

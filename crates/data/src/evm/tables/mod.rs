@@ -1,19 +1,18 @@
-mod common;
 mod block;
-mod transaction;
+mod common;
 mod logs;
 mod state_diff;
 mod trace;
+mod transaction;
 
 pub use block::*;
-pub use transaction::*;
 pub use logs::*;
+use sqd_data_core::chunk_builder;
 pub use state_diff::*;
 pub use trace::*;
+pub use transaction::*;
 
 use super::model::Block;
-use sqd_data_core::chunk_builder;
-
 
 chunk_builder! {
     EvmChunkBuilder {
@@ -24,7 +23,6 @@ chunk_builder! {
         statediffs: StateDiffBuilder,
     }
 }
-
 
 impl sqd_data_core::BlockChunkBuilder for EvmChunkBuilder {
     type Block = Block;

@@ -3,6 +3,5 @@ mod ingest;
 mod store;
 mod write;
 
-
-pub use store::*;
 pub use ingest::*;
+pub use store::*;

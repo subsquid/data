@@ -1,25 +1,29 @@
-use crate::io::file::shared_file::SharedFileRef;
-use crate::io::file::ArrayFile;
-use crate::io::writer::IOWriter;
-use crate::writer::{AnyArrayWriter, ArrayWriter, Writer};
-use arrow::datatypes::DataType;
-use std::fs::File;
-use std::io::{BufWriter, Seek, SeekFrom, Write};
+use std::{
+    fs::File,
+    io::{BufWriter, Seek, SeekFrom, Write}
+};
 
+use arrow::datatypes::DataType;
+
+use crate::{
+    io::{
+        file::{shared_file::SharedFileRef, ArrayFile},
+        writer::IOWriter
+    },
+    writer::{AnyArrayWriter, ArrayWriter, Writer}
+};
 
 pub type FileWriter = IOWriter<BufWriter<File>>;
-
 
 pub struct ArrayFileWriter {
     data_type: DataType,
     inner: AnyArrayWriter<FileWriter>
 }
 
-
 impl ArrayFileWriter {
     pub(super) fn new(data_type: DataType, buffers: Vec<SharedFileRef>) -> anyhow::Result<Self> {
         let mut buffers = buffers.into_iter();
-        
+
         let mut factory = move || {
             let shared = buffers.next().expect("no more buffers left");
             let mut file = shared.into_file();
@@ -27,27 +31,28 @@ impl ArrayFileWriter {
             file.set_len(0)?;
             Ok(BufWriter::new(file))
         };
-        
+
         let inner = AnyArrayWriter::from_factory(&mut factory, &data_type)?;
-        
-        Ok(Self {
-            data_type,
-            inner
-        })
+
+        Ok(Self { data_type, inner })
     }
-    
+
     pub fn finish(self) -> anyhow::Result<ArrayFile> {
-        let buffers = self.inner.into_inner().into_iter().map(|buf| {
-            let mut buf_writer = IOWriter::finish_any_writer(buf)?;
-            buf_writer.flush()?;
-            let file = buf_writer.into_inner().expect("buffer was already flushed");
-            Ok(SharedFileRef::new(file))
-        }).collect::<anyhow::Result<Vec<_>>>()?;
-        
+        let buffers = self
+            .inner
+            .into_inner()
+            .into_iter()
+            .map(|buf| {
+                let mut buf_writer = IOWriter::finish_any_writer(buf)?;
+                buf_writer.flush()?;
+                let file = buf_writer.into_inner().expect("buffer was already flushed");
+                Ok(SharedFileRef::new(file))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
         Ok(ArrayFile::new(self.data_type, buffers))
     }
 }
-
 
 impl ArrayWriter for ArrayFileWriter {
     type Writer = FileWriter;

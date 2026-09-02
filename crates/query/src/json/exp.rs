@@ -1,13 +1,21 @@
-use crate::json::encoder::factory::{extract_nulls, make_encoder, make_nullable_encoder};
-use crate::json::encoder::util::json_close;
-use crate::json::encoder::{Encoder, EncoderObject, HexEncode, HexEncoder, JsonEncoder, ListEncoder, ListSpreadEncoder, NullableEncoder, PrimitiveEncoder, PrimitiveEncode, SafeStringEncoder, StructEncoder, StructField, TimestampEncoder};
-use crate::primitives::{schema_error, Name, SchemaError};
-use arrow::array::{Array, AsArray, PrimitiveArray, StringArray, StructArray};
-use arrow::buffer::{NullBuffer, ScalarBuffer};
-use arrow::datatypes::{DataType, TimeUnit, TimestampMillisecondType, TimestampSecondType};
-use lexical_core::FormattedSize;
 use std::ops::Deref;
 
+use arrow::{
+    array::{Array, AsArray, PrimitiveArray, StringArray, StructArray},
+    buffer::{NullBuffer, ScalarBuffer},
+    datatypes::{DataType, TimeUnit, TimestampMillisecondType, TimestampSecondType}
+};
+use lexical_core::FormattedSize;
+
+use crate::{
+    json::encoder::{
+        factory::{extract_nulls, make_encoder, make_nullable_encoder},
+        util::json_close,
+        Encoder, EncoderObject, HexEncode, HexEncoder, JsonEncoder, ListEncoder, ListSpreadEncoder, NullableEncoder,
+        PrimitiveEncode, PrimitiveEncoder, SafeStringEncoder, StructEncoder, StructField, TimestampEncoder
+    },
+    primitives::{schema_error, Name, SchemaError}
+};
 
 #[derive(Debug, Clone)]
 pub enum Exp {
@@ -31,35 +39,31 @@ pub enum Exp {
     }
 }
 
-
 impl Exp {
-    pub fn for_each_column<F>(&self, f: &mut F) where F: FnMut(Name) {
+    pub fn for_each_column<F>(&self, f: &mut F)
+    where
+        F: FnMut(Name)
+    {
         match self {
-            Exp::Object(props) => {
-                props.iter().for_each(|(_name, exp)| {
-                    exp.for_each_column(f);
-                })
-            },
-            Exp::Prop(name, _) => {
-                f(name)
-            },
-            Exp::Roll { columns, .. } => {
-                columns.iter().for_each(|name| f(name))
-            },
+            Exp::Object(props) => props.iter().for_each(|(_name, exp)| {
+                exp.for_each_column(f);
+            }),
+            Exp::Prop(name, _) => f(name),
+            Exp::Roll { columns, .. } => columns.iter().for_each(|name| f(name)),
             Exp::Enum { tag_column, variants } => {
                 f(tag_column);
                 variants.iter().for_each(|(_name, exp)| {
                     exp.for_each_column(f);
                 })
-            },
-            Exp::List(_) |
-            Exp::Value |
-            Exp::Json |
-            Exp::BigNum |
-            Exp::HexNum |
-            Exp::SolanaTransactionVersion |
-            Exp::TimestampSecond |
-            Exp::TimestampMillisecond => {},
+            }
+            Exp::List(_)
+            | Exp::Value
+            | Exp::Json
+            | Exp::BigNum
+            | Exp::HexNum
+            | Exp::SolanaTransactionVersion
+            | Exp::TimestampSecond
+            | Exp::TimestampMillisecond => {}
         }
     }
 
@@ -81,7 +85,6 @@ impl Exp {
     }
 }
 
-
 macro_rules! extract_nulls {
     ($array:expr, $result_array:ident, $nulls:ident) => {
         let array = $array;
@@ -90,23 +93,15 @@ macro_rules! extract_nulls {
     };
 }
 
-
 fn eval_json(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
     let (offsets, buffer, nulls) = match array.data_type() {
-        DataType::Binary => {
-            array.as_binary().clone().into_parts()
-        },
-        DataType::Utf8 => {
-            array.as_string().clone().into_parts()
-        },
-        ty => return Err(schema_error!(
-            "Expected a raw JSON column, but got - {}", ty
-        ))
+        DataType::Binary => array.as_binary().clone().into_parts(),
+        DataType::Utf8 => array.as_string().clone().into_parts(),
+        ty => return Err(schema_error!("Expected a raw JSON column, but got - {}", ty))
     };
     let encoder = JsonEncoder::new(buffer, offsets);
     Ok(make_nullable_encoder(encoder, nulls))
 }
-
 
 fn eval_bignum(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
     use arrow::datatypes::*;
@@ -116,10 +111,7 @@ fn eval_bignum(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
             let array = array.as_primitive::<$ty>();
             let (_, buffer, nulls) = array.clone().into_parts();
             let encoder = PrimitiveEncoder::new(buffer);
-            Ok(make_nullable_encoder(
-                SafeStringEncoder::new(encoder),
-                nulls
-            ))
+            Ok(make_nullable_encoder(SafeStringEncoder::new(encoder), nulls))
         }};
     }
 
@@ -135,22 +127,17 @@ fn eval_bignum(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
         DataType::Float32 => make!(Float32Type),
         DataType::Float64 => make!(Float64Type),
         DataType::Decimal128(_, 0) => make!(Decimal128Type),
-        ty => Err(schema_error!(
-            "Expected numeric primitive value, but got - {}", ty
-        ))
+        ty => Err(schema_error!("Expected numeric primitive value, but got - {}", ty))
     }
 }
-
 
 fn eval_hex(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
     use arrow::datatypes::*;
 
-    fn make_encoder<T>(
-        array: &PrimitiveArray<T>,
-    ) -> Result<EncoderObject, SchemaError>
+    fn make_encoder<T>(array: &PrimitiveArray<T>) -> Result<EncoderObject, SchemaError>
     where
         T: ArrowPrimitiveType,
-        T::Native: HexEncode,
+        T::Native: HexEncode
     {
         let (_, buffer, nulls) = array.clone().into_parts();
         let encoder = HexEncoder::new(buffer);
@@ -163,11 +150,11 @@ fn eval_hex(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
         DataType::UInt32 => make_encoder(array.as_primitive::<UInt32Type>()),
         DataType::UInt64 => make_encoder(array.as_primitive::<UInt64Type>()),
         ty => Err(schema_error!(
-            "Expected unsigned numeric primitive value, but got - {}", ty
+            "Expected unsigned numeric primitive value, but got - {}",
+            ty
         ))
     }
 }
-
 
 fn eval_solana_transaction_version(array: &dyn Array) -> Result<EncoderObject, SchemaError> {
     use arrow::datatypes::Int16Type;
@@ -180,22 +167,24 @@ fn eval_solana_transaction_version(array: &dyn Array) -> Result<EncoderObject, S
     Ok(make_nullable_encoder(encoder, nulls))
 }
 
-
 fn eval_timestamp(array: &dyn Array, target_unit: TimeUnit) -> Result<EncoderObject, SchemaError> {
     let (unit, buffer, nulls) = match array.data_type() {
         DataType::Timestamp(TimeUnit::Second, _) => {
             let array = array.as_primitive::<TimestampSecondType>();
             let (_, buffer, nulls) = array.clone().into_parts();
             (TimeUnit::Second, buffer, nulls)
-        },
+        }
         DataType::Timestamp(TimeUnit::Millisecond, _) => {
             let array = array.as_primitive::<TimestampMillisecondType>();
             let (_, buffer, nulls) = array.clone().into_parts();
             (TimeUnit::Millisecond, buffer, nulls)
-        },
-        ty => return Err(
-            schema_error!("expected Timestamp measured in seconds or milliseconds, but got {}", ty)
-        )
+        }
+        ty => {
+            return Err(schema_error!(
+                "expected Timestamp measured in seconds or milliseconds, but got {}",
+                ty
+            ))
+        }
     };
     let (mul, div) = match (unit, target_unit) {
         (TimeUnit::Second, TimeUnit::Millisecond) => (1000, 1),
@@ -206,7 +195,6 @@ fn eval_timestamp(array: &dyn Array, target_unit: TimeUnit) -> Result<EncoderObj
     let encoder = TimestampEncoder::new(buffer, mul, div);
     Ok(make_nullable_encoder(encoder, nulls))
 }
-
 
 fn eval_object(array: &dyn Array, props: &Vec<(Name, Exp)>) -> Result<EncoderObject, SchemaError> {
     extract_nulls!(array, array, nulls);
@@ -220,7 +208,6 @@ fn eval_object(array: &dyn Array, props: &Vec<(Name, Exp)>) -> Result<EncoderObj
     Ok(make_nullable_encoder(struct_encoder, nulls))
 }
 
-
 fn eval_list(array: &dyn Array, exp: &Exp) -> Result<EncoderObject, SchemaError> {
     let array = array.as_list::<i32>();
     let (_, offsets, values, nulls) = array.clone().into_parts();
@@ -228,9 +215,7 @@ fn eval_list(array: &dyn Array, exp: &Exp) -> Result<EncoderObject, SchemaError>
     Ok(make_nullable_encoder(ListEncoder::new(item_encoder, offsets), nulls))
 }
 
-
 struct AllNullEncoder;
-
 
 impl Encoder for AllNullEncoder {
     fn encode(&mut self, _idx: usize, out: &mut Vec<u8>) {
@@ -238,22 +223,22 @@ impl Encoder for AllNullEncoder {
     }
 }
 
-
 fn eval_prop(array: &dyn Array, name: Name, exp: &Exp) -> Result<EncoderObject, SchemaError> {
-    let array: &StructArray = array.as_any().downcast_ref().ok_or_else(|| {
-        schema_error!("expected a StructArray, but got {}", array.data_type())
-    })?;
+    let array: &StructArray = array
+        .as_any()
+        .downcast_ref()
+        .ok_or_else(|| schema_error!("expected a StructArray, but got {}", array.data_type()))?;
 
-    let column_array = array.column_by_name(name).ok_or_else(|| {
-        schema_error!("column `{}` not found", name)
-    })?;
+    let column_array = array
+        .column_by_name(name)
+        .ok_or_else(|| schema_error!("column `{}` not found", name))?;
 
     if column_array.data_type() == &DataType::Null {
         let encoder: EncoderObject = Box::new(AllNullEncoder);
         if let Some(nulls) = array.nulls() {
-            return Ok(Box::new(NullableEncoder::new(encoder, nulls.clone())))
+            return Ok(Box::new(NullableEncoder::new(encoder, nulls.clone())));
         } else {
-            return Ok(encoder)
+            return Ok(encoder);
         }
     }
 
@@ -266,22 +251,22 @@ fn eval_prop(array: &dyn Array, name: Name, exp: &Exp) -> Result<EncoderObject, 
     }
 }
 
-
 fn eval_roll(array: &dyn Array, columns: &Vec<Name>, exp: &Exp) -> Result<EncoderObject, SchemaError> {
     extract_nulls!(array, array, array_nulls);
 
-    let struct_array: &StructArray = array.as_any().downcast_ref().ok_or_else(|| {
-        schema_error!("expected a StructArray, but got {}", array.data_type())
-    })?;
+    let struct_array: &StructArray = array
+        .as_any()
+        .downcast_ref()
+        .ok_or_else(|| schema_error!("expected a StructArray, but got {}", array.data_type()))?;
 
     let mut non_nullable = Vec::with_capacity(columns.len());
     let mut nullable = Vec::with_capacity(columns.len());
     let mut spread: Option<ListSpreadEncoder<EncoderObject>> = None;
 
     for (idx, name) in columns.iter().copied().enumerate() {
-        let item_array = struct_array.column_by_name(name).ok_or_else(|| {
-            schema_error!("column `{}` is not found", name)
-        })?;
+        let item_array = struct_array
+            .column_by_name(name)
+            .ok_or_else(|| schema_error!("column `{}` is not found", name))?;
 
         extract_nulls!(item_array, item_array, item_nulls);
 
@@ -290,32 +275,28 @@ fn eval_roll(array: &dyn Array, columns: &Vec<Name>, exp: &Exp) -> Result<Encode
                 return Err(schema_error!(
                     "column {} is a list item of a roll, but it does not come last",
                     name
-                ))
+                ));
             }
             if list.null_count() > 0 {
-                return Err(
-                    SchemaError::new("list item of a roll is not supposed to be nullable")
-                        .at("item")
-                        .at(name)
-                )
+                return Err(SchemaError::new("list item of a roll is not supposed to be nullable")
+                    .at("item")
+                    .at(name));
             }
             let encoder = exp.eval(list.values()).map_err(|err| err.at("item").at(name))?;
             spread = Some(ListSpreadEncoder::new(encoder, list.offsets().clone()));
-            break
+            break;
         }
 
         if item_nulls.is_none() && nullable.len() > 0 {
-            return Err(
-                schema_error!(
-                    "Failed to construct list roll: column `{}` is nullable, while the next in the roll `{}` is not",
-                    columns[idx-1],
-                    name
-                )
-            )
+            return Err(schema_error!(
+                "Failed to construct list roll: column `{}` is nullable, while the next in the roll `{}` is not",
+                columns[idx - 1],
+                name
+            ));
         }
 
         let encoder = exp.eval(item_array).map_err(|err| err.at(name))?;
-        
+
         if let Some(nulls) = item_nulls {
             nullable.push((nulls, encoder))
         } else {
@@ -332,13 +313,11 @@ fn eval_roll(array: &dyn Array, columns: &Vec<Name>, exp: &Exp) -> Result<Encode
     Ok(make_nullable_encoder(roll_encoder, array_nulls))
 }
 
-
 struct ListRollEncoder {
     non_nullable: Vec<EncoderObject>,
     nullable: Vec<(NullBuffer, EncoderObject)>,
     spread: Option<ListSpreadEncoder<EncoderObject>>
 }
-
 
 impl Encoder for ListRollEncoder {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {
@@ -350,7 +329,7 @@ impl Encoder for ListRollEncoder {
         for (nulls, item) in self.nullable.iter_mut() {
             if nulls.is_null(idx) {
                 json_close(b']', out);
-                return
+                return;
             }
             item.encode(idx, out);
             out.push(b',')
@@ -362,34 +341,27 @@ impl Encoder for ListRollEncoder {
     }
 }
 
-
-fn eval_enum(
-    array: &dyn Array,
-    tag_column: Name,
-    variants: &Vec<(Name, Exp)>
-) -> Result<EncoderObject, SchemaError>
-{
+fn eval_enum(array: &dyn Array, tag_column: Name, variants: &Vec<(Name, Exp)>) -> Result<EncoderObject, SchemaError> {
     extract_nulls!(array, array, array_nulls);
 
-    let struct_array: &StructArray = array.as_struct_opt().ok_or_else(|| {
-        schema_error!("expected a StructArray, but got {}", array.data_type())
-    })?;
+    let struct_array: &StructArray = array
+        .as_struct_opt()
+        .ok_or_else(|| schema_error!("expected a StructArray, but got {}", array.data_type()))?;
 
-    let tag_array = struct_array.column_by_name(tag_column).ok_or_else(|| {
-        schema_error!("column `{}` not found", tag_column)
-    })?;
+    let tag_array = struct_array
+        .column_by_name(tag_column)
+        .ok_or_else(|| schema_error!("column `{}` not found", tag_column))?;
 
     extract_nulls!(tag_array, tag_array, tag_nulls);
 
-    let tag_array = tag_array.as_string_opt().ok_or_else(|| {
-        schema_error!("expected a StringArray, but got {}", tag_array.data_type()).at(tag_column)
-    })?;
+    let tag_array = tag_array
+        .as_string_opt()
+        .ok_or_else(|| schema_error!("expected a StringArray, but got {}", tag_array.data_type()).at(tag_column))?;
 
-    let variants = variants.iter().map(|(name, exp)| {
-        exp.eval(array).map(|encoder| {
-            (*name, encoder)
-        })
-    }).collect::<Result<Vec<_>, _>>()?;
+    let variants = variants
+        .iter()
+        .map(|(name, exp)| exp.eval(array).map(|encoder| (*name, encoder)))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let encoder = EnumEncoder {
         tag: tag_array.clone(),
@@ -403,12 +375,10 @@ fn eval_enum(
     })
 }
 
-
 struct EnumEncoder {
     tag: StringArray,
     variants: Vec<(Name, EncoderObject)>
 }
-
 
 impl Encoder for EnumEncoder {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {
@@ -416,29 +386,26 @@ impl Encoder for EnumEncoder {
         for (v, e) in self.variants.iter_mut() {
             if *v == tag {
                 e.encode(idx, out);
-                return
+                return;
             }
         }
         out.extend_from_slice(b"null")
     }
 }
 
-
 struct SolanaTransactionVersionEncoder {
     values: ScalarBuffer<i16>,
     buffer: [u8; i16::FORMATTED_SIZE]
 }
 
-
 impl SolanaTransactionVersionEncoder {
     fn new(values: ScalarBuffer<i16>) -> Self {
         Self {
             values,
-            buffer: i16::init_buffer(),
+            buffer: i16::init_buffer()
         }
     }
 }
-
 
 impl Encoder for SolanaTransactionVersionEncoder {
     fn encode(&mut self, idx: usize, out: &mut Vec<u8>) {

@@ -1,11 +1,11 @@
-use crate::builder::memory_writer::MemoryWriter;
-use crate::builder::{AnyBuilder, ArrayBuilder};
-use crate::slice::{AnyTableSlice, AsSlice};
-use crate::util::{bisect_offsets, build_field_offsets, invalid_buffer_access};
-use crate::writer::{ArrayWriter, Writer};
-use arrow::array::RecordBatch;
-use arrow::datatypes::SchemaRef;
+use arrow::{array::RecordBatch, datatypes::SchemaRef};
 
+use crate::{
+    builder::{memory_writer::MemoryWriter, AnyBuilder, ArrayBuilder},
+    slice::{AnyTableSlice, AsSlice},
+    util::{bisect_offsets, build_field_offsets, invalid_buffer_access},
+    writer::{ArrayWriter, Writer}
+};
 
 pub struct AnyTableBuilder {
     schema: SchemaRef,
@@ -13,14 +13,11 @@ pub struct AnyTableBuilder {
     columns: Vec<AnyBuilder>
 }
 
-
 impl AnyTableBuilder {
     pub fn new(schema: SchemaRef) -> Self {
         let buffers = build_field_offsets(0, schema.fields());
 
-        let columns = schema.fields().iter()
-            .map(|f| AnyBuilder::new(f.data_type()))
-            .collect();
+        let columns = schema.fields().iter().map(|f| AnyBuilder::new(f.data_type())).collect();
 
         Self {
             schema,
@@ -30,27 +27,25 @@ impl AnyTableBuilder {
     }
 
     pub fn finish(self) -> RecordBatch {
-        RecordBatch::try_new(
-            self.schema,
-            self.columns.into_iter().map(|c| c.finish()).collect()
-        ).unwrap()
+        RecordBatch::try_new(self.schema, self.columns.into_iter().map(|c| c.finish()).collect()).unwrap()
     }
 
     pub unsafe fn finish_unchecked(self) -> RecordBatch {
         RecordBatch::try_new(
             self.schema,
             self.columns.into_iter().map(|c| c.finish_unchecked()).collect()
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     pub fn num_columns(&self) -> usize {
         self.columns.len()
     }
-    
-    pub fn column_writer(&mut self, column: usize) -> &mut impl ArrayWriter<Writer=MemoryWriter>  {
+
+    pub fn column_writer(&mut self, column: usize) -> &mut impl ArrayWriter<Writer = MemoryWriter> {
         &mut self.columns[column]
     }
-    
+
     pub fn clear(&mut self) {
         for c in self.columns.iter_mut() {
             c.clear()
@@ -65,7 +60,6 @@ impl AnyTableBuilder {
         }
     }
 }
-
 
 impl ArrayWriter for AnyTableBuilder {
     type Writer = MemoryWriter;
@@ -91,13 +85,10 @@ impl ArrayWriter for AnyTableBuilder {
     }
 }
 
-
 impl AsSlice for AnyTableBuilder {
     type Slice<'a> = AnyTableSlice<'a>;
 
     fn as_slice(&self) -> Self::Slice<'_> {
-        AnyTableSlice::new(
-            self.columns.iter().map(|c| c.as_slice()).collect()
-        )
+        AnyTableSlice::new(self.columns.iter().map(|c| c.as_slice()).collect())
     }
 }

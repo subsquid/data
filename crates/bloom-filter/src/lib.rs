@@ -1,18 +1,17 @@
 use std::hash::{Hash, Hasher};
-use xxhash_rust::xxh3::Xxh3Builder;
 
+use xxhash_rust::xxh3::Xxh3Builder;
 
 pub struct BloomFilter {
     bytes: Box<[u8]>,
-    num_hashes: usize,
+    num_hashes: usize
 }
-
 
 impl BloomFilter {
     pub fn new(byte_size: usize, num_hashes: usize) -> Self {
         BloomFilter {
             bytes: vec![0; byte_size].into_boxed_slice(),
-            num_hashes,
+            num_hashes
         }
     }
 
@@ -20,7 +19,7 @@ impl BloomFilter {
     pub fn bytes(&self) -> &[u8] {
         self.bytes.as_ref()
     }
-    
+
     pub fn clear(&mut self) {
         for i in &mut self.bytes {
             *i = 0;
@@ -52,21 +51,17 @@ impl BloomFilter {
     }
 }
 
-
 fn get_bit(data: &[u8], i: usize) -> bool {
     data[i / 8] & (1 << (i % 8)) != 0
 }
-
 
 fn set_bit(data: &mut [u8], i: usize) {
     data[i / 8] |= 1 << (i % 8);
 }
 
-
 #[cfg(test)]
 mod test {
     use crate::BloomFilter;
-
 
     #[test]
     fn basic_test() {

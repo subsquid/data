@@ -1,0 +1,32 @@
+{
+  "type": "tron",
+  "fromBlock": 82644089,
+  "toBlock": 82644089,
+  "fields": {
+    "block": {
+      "number": true,
+      "hash": true
+    },
+    "log": {
+      "transactionIndex": true,
+      "logIndex": true,
+      "address": true,
+      "data": true,
+      "topics": true
+    },
+    "transaction": {
+      "transactionIndex": true,
+      "hash": true,
+      "type": true,
+      "contractAddress": true,
+      "energyUsageTotal": true
+    }
+  },
+  "logs": [
+    {
+      "address": ["a614f803b6fd780986a42c78ec9c7f77e6ded13c"],
+      "topic0": ["ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],
+      "transaction": true
+    }
+  ]
+}

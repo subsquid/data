@@ -1,10 +1,10 @@
-use crate::bitcoin::model::{Block, TransactionInput};
-use crate::bitcoin::tables::common::*;
-use sqd_array::builder::{
-    BooleanBuilder, Float64Builder, StringBuilder, UInt32Builder, UInt64Builder,
-};
+use sqd_array::builder::{BooleanBuilder, Float64Builder, StringBuilder, UInt32Builder, UInt64Builder};
 use sqd_data_core::table_builder;
 
+use crate::bitcoin::{
+    model::{Block, TransactionInput},
+    tables::common::*
+};
 
 table_builder! {
     InputBuilder {
@@ -47,15 +47,8 @@ table_builder! {
     }
 }
 
-
 impl InputBuilder {
-    pub fn push(
-        &mut self,
-        block: &Block,
-        transaction_index: u32,
-        input_index: u32,
-        row: &TransactionInput,
-    ) {
+    pub fn push(&mut self, block: &Block, transaction_index: u32, input_index: u32, row: &TransactionInput) {
         self.block_number.append(block.header.number);
         self.transaction_index.append(transaction_index);
         self.input_index.append(input_index);
@@ -66,8 +59,7 @@ impl InputBuilder {
                 self.txid.append(&tx_input.txid);
                 self.vout.append(tx_input.vout);
                 self.script_sig_hex.append(&tx_input.script_sig.hex);
-                self.script_sig_asm
-                    .append_option(tx_input.script_sig.asm.as_deref());
+                self.script_sig_asm.append_option(tx_input.script_sig.asm.as_deref());
                 self.sequence.append(tx_input.sequence);
                 self.coinbase.append_option(None::<&str>);
 
@@ -81,8 +73,7 @@ impl InputBuilder {
                     self.prevout_generated.append(prevout.generated);
                     self.prevout_height.append(prevout.height);
                     self.prevout_value.append(prevout.value);
-                    self.prevout_script_pub_key_hex
-                        .append(&prevout.script_pub_key.hex);
+                    self.prevout_script_pub_key_hex.append(&prevout.script_pub_key.hex);
                     self.prevout_script_pub_key_asm
                         .append_option(prevout.script_pub_key.asm.as_deref());
                     self.prevout_script_pub_key_desc
@@ -99,8 +90,7 @@ impl InputBuilder {
                     self.prevout_script_pub_key_asm.append_option(None::<&str>);
                     self.prevout_script_pub_key_desc.append_option(None::<&str>);
                     self.prevout_script_pub_key_type.append_option(None::<&str>);
-                    self.prevout_script_pub_key_address
-                        .append_option(None::<&str>);
+                    self.prevout_script_pub_key_address.append_option(None::<&str>);
                 }
             }
             TransactionInput::Coinbase(cb_input) => {
@@ -125,8 +115,7 @@ impl InputBuilder {
                 self.prevout_script_pub_key_asm.append_option(None::<&str>);
                 self.prevout_script_pub_key_desc.append_option(None::<&str>);
                 self.prevout_script_pub_key_type.append_option(None::<&str>);
-                self.prevout_script_pub_key_address
-                    .append_option(None::<&str>);
+                self.prevout_script_pub_key_address.append_option(None::<&str>);
             }
         }
     }

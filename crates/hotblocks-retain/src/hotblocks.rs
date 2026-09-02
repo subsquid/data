@@ -6,7 +6,7 @@ pub async fn set_retention(
     client: &Client,
     base_url: &Url,
     dataset: &str,
-    from_block: BlockNumber,
+    from_block: BlockNumber
 ) -> anyhow::Result<()> {
     let retention_url = base_url.join(&format!("/datasets/{dataset}/retention"))?;
 

@@ -1,49 +1,55 @@
-use crate::primitives::{Name, RowIndex, RowRangeList};
-use crate::scan::parquet::io::MmapIO;
-use crate::scan::parquet::metadata::ParquetMetadata;
-use crate::scan::reader::TableReader;
-use crate::scan::row_predicate::{RowPredicate, RowPredicateRef};
-use crate::scan::util::{add_row_index, build_row_index_array};
-use crate::ColumnDoesNotExist;
-use arrow::array::{new_null_array, RecordBatch};
-use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
-use parquet::arrow::arrow_reader::{
-    ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder, RowSelection,
-    RowSelector,
+use std::{cmp::Ordering, collections::HashSet, ops::Not, path::PathBuf, sync::Arc};
+
+use arrow::{
+    array::{new_null_array, RecordBatch},
+    datatypes::{DataType, Field, Schema, SchemaRef}
 };
-use parquet::arrow::ProjectionMask;
-use parquet::file::metadata::RowGroupMetaData;
+use parquet::{
+    arrow::{
+        arrow_reader::{
+            ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder, RowSelection, RowSelector
+        },
+        ProjectionMask
+    },
+    file::metadata::RowGroupMetaData
+};
 use rayon::prelude::*;
-use std::cmp::Ordering;
-use std::collections::HashSet;
-use std::ops::Not;
-use std::path::PathBuf;
-use std::sync::Arc;
+
+use crate::{
+    primitives::{Name, RowIndex, RowRangeList},
+    scan::{
+        parquet::{io::MmapIO, metadata::ParquetMetadata},
+        reader::TableReader,
+        row_predicate::{RowPredicate, RowPredicateRef},
+        util::{add_row_index, build_row_index_array}
+    },
+    ColumnDoesNotExist
+};
 
 #[derive(Clone)]
 pub struct ParquetFile {
     io: MmapIO,
     metadata: Arc<ParquetMetadata>,
-    table_name: String,
+    table_name: String
 }
 
 impl ParquetFile {
     pub fn open(file: impl Into<PathBuf>) -> anyhow::Result<Self> {
         let path = file.into();
 
-        let table_name = path.file_stem()
+        let table_name = path
+            .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
 
         let io = MmapIO::open(&path)?;
 
-        let metadata =
-            ArrowReaderMetadata::load(&io, ArrowReaderOptions::new().with_page_index(true))?;
+        let metadata = ArrowReaderMetadata::load(&io, ArrowReaderOptions::new().with_page_index(true))?;
 
         Ok(Self {
             io,
             metadata: Arc::new(ParquetMetadata::new(metadata)),
-            table_name,
+            table_name
         })
     }
 }
@@ -83,8 +89,7 @@ impl TableReader for ParquetFile {
         row_selection: Option<&RowRangeList>,
         with_row_index: bool,
         default_null_columns: Option<&HashSet<Name>>
-    ) -> anyhow::Result<Vec<RecordBatch>>
-    {
+    ) -> anyhow::Result<Vec<RecordBatch>> {
         // Stage 1: Row group stats pruning
         let mut maybe_new_row_selection = None;
 
@@ -116,9 +121,7 @@ impl TableReader for ParquetFile {
             maybe_row_group_offsets = Some(row_group_offsets);
             selected_row_groups
         } else {
-            (0..parquet_metadata.num_row_groups())
-                .map(|idx| (idx, None))
-                .collect()
+            (0..parquet_metadata.num_row_groups()).map(|idx| (idx, None)).collect()
         };
 
         // Stage 2: Page stats pruning
@@ -135,11 +138,7 @@ impl TableReader for ParquetFile {
                         let _ = std::mem::replace(sel_ptr, Some(new_selection));
                     }
                 }
-                row_groups.retain(|rg| {
-                    rg.1.as_ref()
-                        .map(|ranges| !ranges.is_empty())
-                        .unwrap_or(true)
-                })
+                row_groups.retain(|rg| rg.1.as_ref().map(|ranges| !ranges.is_empty()).unwrap_or(true))
             }
         }
 
@@ -160,12 +159,7 @@ impl TableReader for ParquetFile {
 
             let mut indices = Vec::with_capacity(columns.len() + predicate_columns.len());
 
-            let fields = self
-                .metadata
-                .metadata()
-                .parquet_schema()
-                .root_schema()
-                .get_fields();
+            let fields = self.metadata.metadata().parquet_schema().root_schema().get_fields();
 
             for name in columns.iter().chain(predicate_columns.iter()).copied() {
                 match fields.iter().position(|f| f.name() == name) {
@@ -183,8 +177,7 @@ impl TableReader for ParquetFile {
                 }
             }
 
-            let projection_mask =
-                ProjectionMask::roots(parquet_metadata.file_metadata().schema_descr(), indices);
+            let projection_mask = ProjectionMask::roots(parquet_metadata.file_metadata().schema_descr(), indices);
 
             (projection_mask, predicate_columns)
         } else {
@@ -193,10 +186,8 @@ impl TableReader for ParquetFile {
 
         tracing::trace!("missing columnds: {missing_null_columns:?}");
 
-        let maybe_row_index_offsets = with_row_index.then(|| {
-            maybe_row_group_offsets
-                .unwrap_or_else(|| build_row_group_offsets(parquet_metadata.row_groups()))
-        });
+        let maybe_row_index_offsets = with_row_index
+            .then(|| maybe_row_group_offsets.unwrap_or_else(|| build_row_group_offsets(parquet_metadata.row_groups())));
 
         // Stage 4: Parallel row group reading
         let results: Vec<_> = row_groups
@@ -209,20 +200,13 @@ impl TableReader for ParquetFile {
                     projection_mask.clone(),
                     predicate.clone().map(|p| (p, &predicate_columns)),
                     maybe_row_selection,
-                    maybe_row_index_offsets
-                        .as_ref()
-                        .map(|offsets| offsets[row_group_idx]),
-                    1_000_000_000,
+                    maybe_row_index_offsets.as_ref().map(|offsets| offsets[row_group_idx]),
+                    1_000_000_000
                 )
             })
             .collect();
 
-        let mut record_batches = Vec::with_capacity(
-            results
-                .iter()
-                .map(|r| r.as_ref().map_or(0, |bs| bs.len()))
-                .sum(),
-        );
+        let mut record_batches = Vec::with_capacity(results.iter().map(|r| r.as_ref().map_or(0, |bs| bs.len())).sum());
 
         for r in results {
             record_batches.extend(r?)
@@ -263,7 +247,7 @@ fn read_row_group(
     maybe_predicate: Option<(RowPredicateRef, &HashSet<Name>)>,
     maybe_row_selection: Option<RowRangeList>,
     maybe_row_index_offset: Option<RowIndex>,
-    record_batch_size: usize,
+    record_batch_size: usize
 ) -> anyhow::Result<Vec<RecordBatch>> {
     let mut reader = ParquetRecordBatchReaderBuilder::new_with_metadata(io, metadata.clone());
 
@@ -320,7 +304,7 @@ fn build_row_group_offsets(row_groups: &[RowGroupMetaData]) -> Vec<RowIndex> {
 fn apply_predicate(
     mut batch: RecordBatch,
     predicate: &dyn RowPredicate,
-    predicate_columns: &HashSet<Name>,
+    predicate_columns: &HashSet<Name>
 ) -> anyhow::Result<RecordBatch> {
     let mask = predicate.evaluate(&batch)?;
 
@@ -356,13 +340,13 @@ fn to_parquet_row_selection(ranges: &RowRangeList) -> RowSelection {
         match range.start.cmp(&last_end) {
             Ordering::Equal => match selectors.last_mut() {
                 Some(last) => last.row_count = last.row_count.checked_add(len).unwrap(),
-                None => selectors.push(RowSelector::select(len)),
+                None => selectors.push(RowSelector::select(len))
             },
             Ordering::Greater => {
                 selectors.push(RowSelector::skip((range.start - last_end) as usize));
                 selectors.push(RowSelector::select(len))
             }
-            Ordering::Less => panic!("out of order"),
+            Ordering::Less => panic!("out of order")
         }
         last_end = range.end;
     }

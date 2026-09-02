@@ -1,14 +1,15 @@
-use parking_lot::Mutex;
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
-use std::sync::Arc;
+use std::{
+    fs::File,
+    io::{Read, Seek, SeekFrom},
+    sync::Arc
+};
 
+use parking_lot::Mutex;
 
 #[derive(Clone)]
 pub struct SharedFileRef {
     inner: Arc<Mutex<SharedFile>>
 }
-
 
 impl SharedFileRef {
     pub fn new(file: File) -> Self {
@@ -16,15 +17,15 @@ impl SharedFileRef {
             inner: Arc::new(Mutex::new(SharedFile::new(file)))
         }
     }
-    
+
     pub fn read(&self, offset: usize, buf: &mut [u8]) -> std::io::Result<usize> {
         self.inner.lock().read(offset, buf)
     }
-    
+
     pub fn len(&self) -> std::io::Result<usize> {
         self.inner.lock().len()
     }
-    
+
     pub fn into_file(self) -> File {
         Arc::into_inner(self.inner)
             .expect("this shared file is still in use by other readers")
@@ -33,19 +34,14 @@ impl SharedFileRef {
     }
 }
 
-
 pub struct SharedFile {
     inner: File,
     pos: Option<usize>
 }
 
-
 impl SharedFile {
     pub fn new(file: File) -> Self {
-        Self {
-            inner: file,
-            pos: None
-        }
+        Self { inner: file, pos: None }
     }
 
     pub fn read(&mut self, offset: usize, buf: &mut [u8]) -> std::io::Result<usize> {

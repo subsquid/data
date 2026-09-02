@@ -1,7 +1,13 @@
-use arrow::array::ArrowPrimitiveType;
-use arrow::datatypes::{DataType, FieldRef, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit, TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type};
 use std::sync::Arc;
 
+use arrow::{
+    array::ArrowPrimitiveType,
+    datatypes::{
+        DataType, FieldRef, Float16Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, TimeUnit,
+        TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type,
+        UInt32Type, UInt64Type, UInt8Type
+    }
+};
 
 pub trait DataTypeVisitor {
     type Result;
@@ -18,7 +24,7 @@ pub trait DataTypeVisitor {
             TimeUnit::Nanosecond => self.primitive::<TimestampNanosecondType>()
         }
     }
-    
+
     fn binary(&mut self) -> Self::Result;
 
     fn fixed_size_binary(&mut self, size: usize) -> Self::Result;
@@ -27,11 +33,11 @@ pub trait DataTypeVisitor {
     fn string(&mut self) -> Self::Result {
         self.binary()
     }
-    
+
     fn list(&mut self, item: &DataType) -> Self::Result;
-    
+
     fn r#struct(&mut self, fields: &[FieldRef]) -> Self::Result;
-    
+
     fn visit(&mut self, data_type: &DataType) -> Self::Result {
         match data_type {
             DataType::Boolean => self.boolean(),

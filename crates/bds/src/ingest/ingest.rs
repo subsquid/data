@@ -1,18 +1,17 @@
-use super::grow::grow;
-use super::store::Store;
-use super::write::write_chain;
-use crate::chain_watch::{ChainReceiver, ChainSender};
-use crate::util::task_termination_error;
-use anyhow::{anyhow, ensure, Context};
+use std::{future::Future, pin::Pin, task::Poll};
+
+use anyhow::{Context, anyhow, ensure};
 use futures::FutureExt;
 use sqd_data_source::DataSource;
 use sqd_primitives::BlockNumber;
-use std::future::Future;
-use std::pin::Pin;
-use std::task::Poll;
 use tokio::task::JoinHandle;
 use tracing::debug;
 
+use super::{grow::grow, store::Store, write::write_chain};
+use crate::{
+    chain_watch::{ChainReceiver, ChainSender},
+    util::task_termination_error
+};
 
 pub struct Ingest<S, D> {
     store: S,
@@ -22,7 +21,6 @@ pub struct Ingest<S, D> {
     min_queue_size: usize,
     max_queue_size: usize
 }
-
 
 impl<S, D> Ingest<S, D>
 where
@@ -51,40 +49,38 @@ where
     }
 
     pub async fn start(mut self) -> anyhow::Result<(ChainReceiver<S::Block>, IngestHandle)> {
-        let head_chain = self.store.get_chain_head(
-            self.first_block,
-            self.parent_block_hash.as_deref()
-        ).await?;
+        let head_chain = self
+            .store
+            .get_chain_head(self.first_block, self.parent_block_hash.as_deref())
+            .await?;
 
         if let Some(head) = head_chain.blocks.last() {
             self.data_source.set_position(head.number + 1, Some(&head.hash));
         } else {
-            self.data_source.set_position(self.first_block, self.parent_block_hash.as_deref());
+            self.data_source
+                .set_position(self.first_block, self.parent_block_hash.as_deref());
         }
 
-        let chain_sender = ChainSender::<S::Block>::new(
-            head_chain,
-            self.min_queue_size,
-            self.max_queue_size
-        );
+        let chain_sender = ChainSender::<S::Block>::new(head_chain, self.min_queue_size, self.max_queue_size);
 
         let chain_receiver = chain_sender.subscribe();
 
-        let write = tokio::spawn(
-            write_chain(self.store.clone(), chain_sender.clone())
-        );
+        let write = tokio::spawn(write_chain(self.store.clone(), chain_sender.clone()));
 
-        let head_update = tokio::spawn(
-            head_update_loop(self.store.clone(), chain_receiver.clone())
-        );
+        let head_update = tokio::spawn(head_update_loop(self.store.clone(), chain_receiver.clone()));
 
-        let finalize = tokio::spawn(
-            finalize_loop(self.store.clone(), chain_receiver.clone(), self.first_block)
-        );
+        let finalize = tokio::spawn(finalize_loop(
+            self.store.clone(),
+            chain_receiver.clone(),
+            self.first_block
+        ));
 
-        let ingest = tokio::spawn(
-            grow(self.data_source, self.first_block, self.parent_block_hash, chain_sender)
-        );
+        let ingest = tokio::spawn(grow(
+            self.data_source,
+            self.first_block,
+            self.parent_block_hash,
+            chain_sender
+        ));
 
         let handle = IngestHandle {
             write,
@@ -98,16 +94,8 @@ where
     }
 }
 
-
-async fn head_update_loop<S: Store>(
-    store: S,
-    mut chain_receiver: ChainReceiver<S::Block>
-) -> anyhow::Result<()>
-{
-    let mut prev = chain_receiver
-        .borrow()
-        .stored_head()
-        .map(|b| b.to_ref());
+async fn head_update_loop<S: Store>(store: S, mut chain_receiver: ChainReceiver<S::Block>) -> anyhow::Result<()> {
+    let mut prev = chain_receiver.borrow().stored_head().map(|b| b.to_ref());
     loop {
         chain_receiver.changed().await?;
         {
@@ -120,26 +108,17 @@ async fn head_update_loop<S: Store>(
         }
         if let Some(head) = prev.as_ref() {
             store.set_head(head.ptr()).await?;
-            debug!(
-                number = head.number,
-                hash = head.hash,
-                "head updated"
-            );
+            debug!(number = head.number, hash = head.hash, "head updated");
         }
     }
 }
-
 
 async fn finalize_loop<S: Store>(
     store: S,
     mut chain_receiver: ChainReceiver<S::Block>,
     first_block: BlockNumber
-) -> anyhow::Result<()>
-{
-    let mut prev = chain_receiver
-        .borrow()
-        .stored_finalized_head()
-        .map(|b| b.number);
+) -> anyhow::Result<()> {
+    let mut prev = chain_receiver.borrow().stored_finalized_head().map(|b| b.number);
 
     loop {
         chain_receiver.changed().await?;
@@ -147,33 +126,26 @@ async fn finalize_loop<S: Store>(
         let (from, to) = {
             let chain = chain_receiver.borrow_and_update();
             let Some(head) = chain.stored_finalized_head() else {
-                continue
+                continue;
             };
             if prev.map_or(false, |n| n == head.number) {
-                continue
+                continue;
             }
-            (
-                prev.unwrap_or(first_block),
-                head.to_ref()
-            )
+            (prev.unwrap_or(first_block), head.to_ref())
         };
 
         ensure!(from <= to.number);
 
-        store.finalize(from, to.ptr()).await.with_context(|| {
-            format!("failed to finalize blocks from {} to {}", from, to.ptr())
-        })?;
-        
-        debug!(
-            number = to.number,
-            hash = to.hash,
-            "finalized"
-        );
+        store
+            .finalize(from, to.ptr())
+            .await
+            .with_context(|| format!("failed to finalize blocks from {} to {}", from, to.ptr()))?;
+
+        debug!(number = to.number, hash = to.hash, "finalized");
 
         prev = Some(to.number);
     }
 }
-
 
 pub struct IngestHandle {
     write: JoinHandle<anyhow::Result<()>>,
@@ -182,7 +154,6 @@ pub struct IngestHandle {
     ingest: JoinHandle<anyhow::Result<()>>,
     terminated: bool
 }
-
 
 impl IngestHandle {
     pub fn abort(&mut self) {
@@ -194,22 +165,19 @@ impl IngestHandle {
     }
 }
 
-
 impl Future for IngestHandle {
     type Output = anyhow::Result<()>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         if self.terminated {
-            return Poll::Ready(Err(anyhow!("ingest was already terminated")))
+            return Poll::Ready(Err(anyhow!("ingest was already terminated")));
         }
 
         macro_rules! poll_task {
             ($name:expr, $handle:ident) => {
                 if let Poll::Ready(res) = self.$handle.poll_unpin(cx) {
                     self.abort();
-                    return Poll::Ready(
-                        task_termination_error($name, res)
-                    )
+                    return Poll::Ready(task_termination_error($name, res));
                 }
             };
         }
@@ -218,15 +186,13 @@ impl Future for IngestHandle {
         poll_task!("head update", head_update);
         poll_task!("block finalization", finalize);
         poll_task!("ingest", ingest);
-        
+
         Poll::Pending
     }
 }
-
 
 impl Drop for IngestHandle {
     fn drop(&mut self) {
         self.abort()
     }
 }
-
