@@ -8,9 +8,9 @@ use crate::{
     plan::{ScanBuilder, TableSet},
     query::util::{
         compile_plan, ensure_block_range, ensure_item_count, field_selection, item_field_selection, request,
-        PredicateBuilder,
+        PredicateBuilder
     },
-    BlockNumber, Plan,
+    BlockNumber, Plan
 };
 
 static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
@@ -46,7 +46,7 @@ static TABLES: LazyLock<TableSet> = LazyLock::new(|| {
     tables
         .add_table(
             "statediffs",
-            vec!["block_number", "transaction_index", "address", "key"],
+            vec!["block_number", "transaction_index", "address", "key"]
         )
         .set_weight_column("prev", "prev_size")
         .set_weight_column("next", "next_size")
@@ -516,21 +516,21 @@ impl TransactionRequest {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.traces {
             scan.join(
                 "traces",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.state_diffs {
             scan.join(
                 "statediffs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
@@ -564,28 +564,28 @@ impl LogRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_traces {
             scan.join(
                 "traces",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_logs {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_state_diffs {
             scan.join(
                 "statediffs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }
@@ -627,7 +627,7 @@ impl TraceRequest {
         p.col_in_list("suicide_address", to_lowercase_list(&self.suicide_address));
         p.col_in_list(
             "suicide_refund_address",
-            to_lowercase_list(&self.suicide_refund_address),
+            to_lowercase_list(&self.suicide_refund_address)
         );
         p.col_in_list("reward_author", to_lowercase_list(&self.reward_author));
 
@@ -652,21 +652,21 @@ impl TraceRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_logs {
             scan.join(
                 "logs",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.transaction_traces {
             scan.join(
                 "traces",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
         if self.subtraces {
@@ -699,7 +699,7 @@ impl StateDiffRequest {
             scan.join(
                 "transactions",
                 vec!["block_number", "transaction_index"],
-                vec!["block_number", "transaction_index"],
+                vec!["block_number", "transaction_index"]
             );
         }
     }

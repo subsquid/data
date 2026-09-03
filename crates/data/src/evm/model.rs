@@ -58,7 +58,7 @@ pub struct BlockHeader {
     pub settled_height: Option<HexBytes>,
     pub settled_gas_unix: Option<HexBytes>,
     pub settled_gas_numerator: Option<HexBytes>,
-    pub settled_excess: Option<HexBytes>,
+    pub settled_excess: Option<HexBytes>
 }
 
 #[derive(Deserialize)]
