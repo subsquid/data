@@ -114,6 +114,7 @@ item_field_selection! {
         loaded_addresses,
         fee_payer,
         has_dropped_log_messages,
+        transaction_config,
     }
 
     project(this) json_object! {
@@ -137,6 +138,24 @@ item_field_selection! {
             [this.loaded_addresses]: Value,
             [this.fee_payer]: Value,
             [this.has_dropped_log_messages]: Value,
+        },
+        {
+            |obj| {
+                if this.transaction_config {
+                    obj.add(
+                        "transactionConfig",
+                        prop(
+                            "transaction_config",
+                            Exp::Object(vec![
+                                ("computeUnitLimit", prop("compute_unit_limit", Exp::Value)),
+                                ("heapSize", prop("heap_size", Exp::Value)),
+                                ("loadedAccountsDataSizeLimit", prop("loaded_accounts_data_size_limit", Exp::Value)),
+                                ("priorityFee", prop("priority_fee", Exp::BigNum)),
+                            ])
+                        )
+                    );
+                }
+            }
         }
     }
 }

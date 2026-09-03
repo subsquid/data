@@ -1,0 +1,26 @@
+{
+  "type": "solana",
+  "fromBlock": 492480500,
+  "toBlock": 492481000,
+  "fields": {
+    "block": {
+      "parentHash": true,
+      "timestamp": true,
+      "hash": true,
+      "height": true,
+      "number": true,
+      "parentNumber": true
+    },
+    "transaction": {
+      "signatures": true,
+      "feePayer": true,
+      "err": true,
+      "transactionIndex": true,
+      "transactionConfig": true,
+      "version": true
+    }
+  },
+  "transactions": [
+    {}
+  ]
+}
