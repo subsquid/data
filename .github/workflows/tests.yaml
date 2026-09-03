@@ -34,6 +34,11 @@ jobs:
     if: github.event_name == 'push' || !github.event.pull_request.draft
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Self-hosted jobs share one working tree. Without lfs, checkout writes new LFS files
+          # as pointers and later checkouts never rewrite them, so `test` read pointers and the
+          # query fixtures failed. Objects are cached under .git/lfs, so this is cheap.
+          lfs: true
       - uses: dsherret/rust-toolchain-file@v1
       - uses: Swatinem/rust-cache@v2
         with:
@@ -66,6 +71,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
+      # `git lfs fetch` above only fills the object cache. Pointers that an earlier checkout
+      # without lfs left in the shared working tree are never rewritten by git, so replace
+      # them from the cache here.
+      - run: git lfs checkout
       - uses: dsherret/rust-toolchain-file@v1
       - uses: Swatinem/rust-cache@v2
         with:
