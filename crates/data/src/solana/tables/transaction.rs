@@ -151,9 +151,7 @@ impl TransactionBuilder {
         match &row.transaction_config {
             Some(config) => {
                 let builder = &mut self.transaction_config;
-                builder
-                    .compute_unit_limit
-                    .append_option(config.compute_unit_limit);
+                builder.compute_unit_limit.append_option(config.compute_unit_limit);
                 builder.heap_size.append_option(config.heap_size);
                 builder
                     .loaded_accounts_data_size_limit
@@ -165,9 +163,7 @@ impl TransactionBuilder {
                 let builder = &mut self.transaction_config;
                 builder.compute_unit_limit.append_option(None);
                 builder.heap_size.append_option(None);
-                builder
-                    .loaded_accounts_data_size_limit
-                    .append_option(None);
+                builder.loaded_accounts_data_size_limit.append_option(None);
                 builder.priority_fee.append_option(None);
                 builder.append_null();
             }
