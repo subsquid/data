@@ -32,6 +32,16 @@ pub struct LoadedAddresses {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransactionConfig {
+    pub compute_unit_limit: Option<u64>,
+    pub heap_size: Option<u64>,
+    pub loaded_accounts_data_size_limit: Option<u64>,
+    #[serde(deserialize_with = "sqd_data_core::serde::decode_string_option", default)]
+    pub priority_fee: Option<u64>
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TransactionVersion {
     Legacy,
@@ -46,6 +56,8 @@ pub struct Transaction {
     pub version: TransactionVersion,
     pub account_keys: Vec<AccountIndex>,
     pub address_table_lookups: Vec<AddressTableLookup>,
+    #[serde(default)]
+    pub transaction_config: Option<TransactionConfig>,
     pub num_readonly_signed_accounts: u8,
     pub num_readonly_unsigned_accounts: u8,
     pub num_required_signatures: u8,

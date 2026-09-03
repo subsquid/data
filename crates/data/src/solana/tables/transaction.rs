@@ -27,6 +27,15 @@ struct_builder! {
     }
 }
 
+struct_builder! {
+    TransactionConfigBuilder {
+        compute_unit_limit: UInt64Builder,
+        heap_size: UInt64Builder,
+        loaded_accounts_data_size_limit: UInt64Builder,
+        priority_fee: UInt64Builder,
+    }
+}
+
 const ACCOUNT_BLOOM_BYTES: usize = 64;
 const ACCOUNT_BLOOM_NUM_HASHES: usize = 7;
 
@@ -47,6 +56,7 @@ table_builder! {
         cost_units: UInt64Builder,
         fee: UInt64Builder,
         loaded_addresses: LoadedAddressBuilder,
+        transaction_config: TransactionConfigBuilder,
         has_dropped_log_messages: BooleanBuilder,
         fee_payer: Base58Builder,
         account_keys_size: UInt64Builder,
@@ -137,6 +147,31 @@ impl TransactionBuilder {
         }
         self.loaded_addresses.writable.append();
         self.loaded_addresses.append(true);
+
+        match &row.transaction_config {
+            Some(config) => {
+                let builder = &mut self.transaction_config;
+                builder
+                    .compute_unit_limit
+                    .append_option(config.compute_unit_limit);
+                builder.heap_size.append_option(config.heap_size);
+                builder
+                    .loaded_accounts_data_size_limit
+                    .append_option(config.loaded_accounts_data_size_limit);
+                builder.priority_fee.append_option(config.priority_fee);
+                builder.append_valid();
+            }
+            None => {
+                let builder = &mut self.transaction_config;
+                builder.compute_unit_limit.append_option(None);
+                builder.heap_size.append_option(None);
+                builder
+                    .loaded_accounts_data_size_limit
+                    .append_option(None);
+                builder.priority_fee.append_option(None);
+                builder.append_null();
+            }
+        }
 
         self.has_dropped_log_messages.append(row.has_dropped_log_messages);
         self.fee_payer.append(block.get_account(row.account_keys[0])?);
