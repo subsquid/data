@@ -15,6 +15,7 @@ use crate::{
     encoding::ContentEncoding,
     errors::{Busy, QueryIsAboveTheHead, QueryKindMismatch},
     query::QueryExecutorCollector,
+    shadow::ShadowQuery,
     types::{ClientId, DBRef, DatasetKind}
 };
 
@@ -86,9 +87,11 @@ impl QueryService {
         dataset: &DatasetController,
         query: Query,
         client_id: ClientId,
-        encoding: ContentEncoding
+        encoding: ContentEncoding,
+        shadow: Option<ShadowQuery>
     ) -> anyhow::Result<QueryResponse> {
-        self.query_internal(dataset, query, false, client_id, encoding).await
+        self.query_internal(dataset, query, false, client_id, encoding, shadow)
+            .await
     }
 
     pub async fn query_finalized(
@@ -96,9 +99,11 @@ impl QueryService {
         dataset: &DatasetController,
         query: Query,
         client_id: ClientId,
-        encoding: ContentEncoding
+        encoding: ContentEncoding,
+        shadow: Option<ShadowQuery>
     ) -> anyhow::Result<QueryResponse> {
-        self.query_internal(dataset, query, true, client_id, encoding).await
+        self.query_internal(dataset, query, true, client_id, encoding, shadow)
+            .await
     }
 
     async fn query_internal(
@@ -107,7 +112,8 @@ impl QueryService {
         query: Query,
         finalized: bool,
         client_id: ClientId,
-        encoding: ContentEncoding
+        encoding: ContentEncoding,
+        shadow: Option<ShadowQuery>
     ) -> anyhow::Result<QueryResponse> {
         let query_kind = DatasetKind::from_query(&query)?;
         ensure!(
@@ -164,7 +170,8 @@ impl QueryService {
             finalized,
             None,
             client_id,
-            encoding
+            encoding,
+            shadow
         )
         .await
     }

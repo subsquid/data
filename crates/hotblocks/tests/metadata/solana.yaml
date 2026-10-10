@@ -1,0 +1,510 @@
+version: v2
+name: solana
+
+tables:
+  blocks:
+    output:
+      name: block
+      fields: [ number, hash, parent_number, parent_hash, height, timestamp ]
+    parent_hash_column: parent_hash
+    parent_number_column: parent_number
+    block_number_column: number
+    sort_key: [ number ]
+    columns:
+      number:
+        type: uint64
+      hash:
+        type: string
+        encoding: base58
+      parent_number:
+        type: uint64
+      parent_hash:
+        type: string
+        encoding: base58
+      height:
+        type: uint64
+      timestamp:
+        type: timestamp_second
+
+  transactions:
+    request:
+      name: transactions
+      filters: [ fee_payer, mentions_account ]
+      special_filters:
+        mentions_account:
+          kind: bloom
+          column: accounts_bloom
+          bytes: 64
+          hashes: 7
+      relations:
+        instructions:
+          table: instructions
+          key: [ block_number, transaction_index ]
+        logs:
+          table: logs
+          key: [ block_number, transaction_index ]
+        balances:
+          table: balances
+          key: [ block_number, transaction_index ]
+        token_balances:
+          table: token_balances
+          key: [ block_number, transaction_index ]
+    output:
+      name: transaction
+      fields: [
+        transaction_index, version, account_keys, address_table_lookups,
+        num_readonly_signed_accounts, num_readonly_unsigned_accounts, num_required_signatures,
+        recent_blockhash, signatures, err, fee, compute_units_consumed, loaded_addresses,
+        fee_payer, has_dropped_log_messages, transaction_config
+      ]
+    item_order_keys: [ transaction_index ]
+    sort_key: [ fee_payer, block_number, transaction_index ]
+    columns:
+      block_number:
+        type: uint64
+      transaction_index:
+        type: uint32
+      version:
+        type: int16
+        encoding: solana_tx_version
+      account_keys:
+        type: list_string
+        weight: account_keys_size
+      address_table_lookups:
+        type: list_struct
+        weight: address_table_lookups_size
+      num_readonly_signed_accounts:
+        type: uint8
+      num_readonly_unsigned_accounts:
+        type: uint8
+      num_required_signatures:
+        type: uint8
+      recent_blockhash:
+        type: string
+        encoding: base58
+      signatures:
+        type: list_string
+        weight: signatures_size
+      err:
+        type: string
+        encoding: json_verbatim
+      compute_units_consumed:
+        type: uint64
+        encoding: decimal_string
+      cost_units:
+        type: uint64
+      fee:
+        type: uint64
+        encoding: decimal_string
+      loaded_addresses:
+        type: struct
+        weight: loaded_addresses_size
+      # Nullable; absent from chunks written before the field existed.
+      transaction_config:
+        type: struct
+        members:
+          priority_fee:
+            encoding: decimal_string
+      has_dropped_log_messages:
+        type: boolean
+      fee_payer:
+        type: string
+        encoding: base58
+
+      # system
+      account_keys_size:
+        type: uint64
+        system: true
+      address_table_lookups_size:
+        type: uint64
+        system: true
+      signatures_size:
+        type: uint64
+        system: true
+      loaded_addresses_size:
+        type: uint64
+        system: true
+      accounts_bloom:
+        type: fixed_binary_64
+        system: true
+
+  instructions:
+    request:
+      name: instructions
+      filters: [
+        program_id, discriminator, d1, d2, d4, d8, mentions_account, is_committed,
+        a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15
+      ]
+      special_filters:
+        discriminator:
+          kind: discriminator
+          by_length:
+            "1": d1
+            "2": d2
+            "3": d3
+            "4": d4
+            "5": d5
+            "6": d6
+            "7": d7
+            "8": d8
+            "9": d9
+            "10": d10
+            "11": d11
+            "12": d12
+            "13": d13
+            "14": d14
+            "15": d15
+            "16": d16
+        mentions_account:
+          kind: bloom
+          column: accounts_bloom
+          bytes: 64
+          hashes: 7
+      relations:
+        transaction:
+          table: transactions
+          key: [ block_number, transaction_index ]
+        transaction_balances:
+          table: balances
+          key: [ block_number, transaction_index ]
+        transaction_token_balances:
+          table: token_balances
+          key: [ block_number, transaction_index ]
+        transaction_instructions:
+          table: instructions
+          key: [ block_number, transaction_index ]
+        inner_instructions:
+          table: instructions
+          kind: children
+          key: [ block_number, transaction_index, instruction_address ]
+        parent_instructions:
+          table: instructions
+          kind: parents
+          key: [ block_number, transaction_index, instruction_address ]
+        logs:
+          table: logs
+          key: [ block_number, transaction_index, instruction_address ]
+    output:
+      name: instruction
+      fields: [
+        transaction_index, instruction_address, program_id, accounts, data, d1, d2, d4, d8,
+        error, compute_units_consumed, is_committed, has_dropped_log_messages
+      ]
+      virtual_fields:
+        accounts:
+          kind: roll
+          columns: [ a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, rest_accounts ]
+    address_column: instruction_address
+    item_order_keys: [ transaction_index, instruction_address ]
+    sort_key: [ program_id, d1, b9, block_number, transaction_index ]
+    columns:
+      block_number:
+        type: uint64
+      transaction_index:
+        type: uint32
+      instruction_address:
+        type: list_uint32
+      program_id:
+        type: string
+        encoding: base58
+      data:
+        type: string
+        encoding: base58
+        weight: data_size
+      a0:
+        type: string
+        encoding: base58
+        weight: accounts_size
+      a1:
+        type: string
+        encoding: base58
+        weight: 0
+      a2:
+        type: string
+        encoding: base58
+        weight: 0
+      a3:
+        type: string
+        encoding: base58
+        weight: 0
+      a4:
+        type: string
+        encoding: base58
+        weight: 0
+      a5:
+        type: string
+        encoding: base58
+        weight: 0
+      a6:
+        type: string
+        encoding: base58
+        weight: 0
+      a7:
+        type: string
+        encoding: base58
+        weight: 0
+      a8:
+        type: string
+        encoding: base58
+        weight: 0
+      a9:
+        type: string
+        encoding: base58
+        weight: 0
+      a10:
+        type: string
+        encoding: base58
+        weight: 0
+      a11:
+        type: string
+        encoding: base58
+        weight: 0
+      a12:
+        type: string
+        encoding: base58
+        weight: 0
+      a13:
+        type: string
+        encoding: base58
+        weight: 0
+      a14:
+        type: string
+        encoding: base58
+        weight: 0
+      a15:
+        type: string
+        encoding: base58
+        weight: 0
+      rest_accounts:
+        type: list_string
+        weight: 0
+      compute_units_consumed:
+        type: uint64
+        encoding: decimal_string
+      error:
+        type: string
+      is_committed:
+        type: boolean
+      has_dropped_log_messages:
+        type: boolean
+      # d1/d2/d4/d8 are selectable; the remaining widths exist only to serve the
+      # `discriminator` filter.
+      d1:
+        type: uint8
+        encoding: hex_number
+      d2:
+        type: uint16
+        encoding: hex_number
+      d3:
+        type: fixed_binary_3
+        system: true
+      d4:
+        type: uint32
+        encoding: hex_number
+      d5:
+        type: fixed_binary_5
+        system: true
+      d6:
+        type: fixed_binary_6
+        system: true
+      d7:
+        type: fixed_binary_7
+        system: true
+      d8:
+        type: uint64
+        encoding: hex_number
+      d9:
+        type: fixed_binary_9
+        system: true
+      d10:
+        type: fixed_binary_10
+        system: true
+      d11:
+        type: fixed_binary_11
+        system: true
+      d12:
+        type: fixed_binary_12
+        system: true
+      d13:
+        type: fixed_binary_13
+        system: true
+      d14:
+        type: fixed_binary_14
+        system: true
+      d15:
+        type: fixed_binary_15
+        system: true
+      d16:
+        type: fixed_binary_16
+        system: true
+      b9:
+        type: uint8
+        system: true
+      accounts_bloom:
+        type: fixed_binary_64
+        system: true
+      accounts_size:
+        type: uint64
+        system: true
+      data_size:
+        type: uint64
+        system: true
+
+  logs:
+    request:
+      name: logs
+      filters: [ program_id, kind ]
+      relations:
+        transaction:
+          table: transactions
+          key: [ block_number, transaction_index ]
+        instruction:
+          table: instructions
+          key: [ block_number, transaction_index, instruction_address ]
+          left_key: [ block_number, transaction_index, instruction_address ]
+          right_key: [ block_number, transaction_index, instruction_address ]
+    output:
+      name: log
+      fields: [ transaction_index, log_index, instruction_address, program_id, kind, message ]
+    item_order_keys: [ transaction_index, log_index ]
+    sort_key: [ program_id, block_number, transaction_index, log_index ]
+    columns:
+      block_number:
+        type: uint64
+      transaction_index:
+        type: uint32
+      log_index:
+        type: uint32
+      instruction_address:
+        type: list_uint32
+      program_id:
+        type: string
+        encoding: base58
+      kind:
+        type: string
+      message:
+        type: string
+        weight: message_size
+      # system
+      message_size:
+        type: uint64
+        system: true
+
+  balances:
+    request:
+      name: balances
+      filters: [ account ]
+      relations:
+        transaction:
+          table: transactions
+          key: [ block_number, transaction_index ]
+        transaction_instructions:
+          table: instructions
+          key: [ block_number, transaction_index ]
+    output:
+      name: balance
+      fields: [ transaction_index, account, pre, post ]
+    item_order_keys: [ transaction_index, account ]
+    sort_key: [ account, block_number, transaction_index ]
+    columns:
+      block_number:
+        type: uint64
+      transaction_index:
+        type: uint32
+      account:
+        type: string
+        encoding: base58
+      pre:
+        type: uint64
+        encoding: decimal_string
+      post:
+        type: uint64
+        encoding: decimal_string
+
+  token_balances:
+    request:
+      name: tokenBalances
+      filters: [ account, pre_mint, post_mint, pre_program_id, post_program_id, pre_owner, post_owner ]
+      relations:
+        transaction:
+          table: transactions
+          key: [ block_number, transaction_index ]
+        transaction_instructions:
+          table: instructions
+          key: [ block_number, transaction_index ]
+        transaction_balances:
+          table: balances
+          key: [ block_number, transaction_index ]
+        transaction_token_balances:
+          table: token_balances
+          key: [ block_number, transaction_index ]
+    output:
+      name: tokenBalance
+      fields: [
+        transaction_index, account, pre_mint, post_mint, pre_decimals, post_decimals,
+        pre_program_id, post_program_id, pre_owner, post_owner, pre_amount, post_amount
+      ]
+    item_order_keys: [ transaction_index, account ]
+    sort_key: [ post_program_id, post_mint, account, block_number, transaction_index ]
+    columns:
+      block_number:
+        type: uint64
+      transaction_index:
+        type: uint32
+      account:
+        type: string
+        encoding: base58
+      pre_mint:
+        type: string
+        encoding: base58
+      post_mint:
+        type: string
+        encoding: base58
+      pre_decimals:
+        type: uint16
+      post_decimals:
+        type: uint16
+      pre_program_id:
+        type: string
+        encoding: base58
+      post_program_id:
+        type: string
+        encoding: base58
+      pre_owner:
+        type: string
+        encoding: base58
+      post_owner:
+        type: string
+        encoding: base58
+      pre_amount:
+        type: uint64
+        encoding: decimal_string
+      post_amount:
+        type: uint64
+        encoding: decimal_string
+
+  rewards:
+    request:
+      name: rewards
+      filters: [ pubkey ]
+    output:
+      name: reward
+      fields: [ pubkey, lamports, post_balance, reward_type, commission ]
+    item_order_keys: [ pubkey, reward_type ]
+    sort_key: [ pubkey, block_number ]
+    columns:
+      block_number:
+        type: uint64
+      pubkey:
+        type: string
+        encoding: base58
+      lamports:
+        type: int64
+        encoding: decimal_string
+      post_balance:
+        type: uint64
+        encoding: decimal_string
+      reward_type:
+        type: string
+      commission:
+        type: uint8
