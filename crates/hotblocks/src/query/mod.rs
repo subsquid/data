@@ -7,3 +7,4 @@ mod static_snapshot;
 pub use executor::QueryExecutorCollector;
 pub use response::*;
 pub use service::*;
+pub use static_snapshot::StaticChunkReader;

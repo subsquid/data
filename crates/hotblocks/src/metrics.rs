@@ -211,6 +211,88 @@ pub(crate) fn report_flush_floor(dataset_id: DatasetId, floor: Option<BlockNumbe
         .set(floor.map_or(-1, |block| i64::try_from(block).unwrap_or(i64::MAX)));
 }
 
+#[derive(Copy, Clone, Hash, Debug, Eq, PartialEq)]
+pub(crate) enum ShadowOutcome {
+    Match,
+    Mismatch,
+    LegacyError,
+    NewError,
+    BothError,
+    Skipped
+}
+
+impl ShadowOutcome {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Match => "match",
+            Self::Mismatch => "mismatch",
+            Self::LegacyError => "legacy_error",
+            Self::NewError => "new_error",
+            Self::BothError => "both_error",
+            Self::Skipped => "skipped"
+        }
+    }
+}
+
+#[derive(Copy, Clone, Hash, Debug, Eq, PartialEq, EncodeLabelSet)]
+struct ShadowRunLabels {
+    dataset: DatasetValue,
+    outcome: &'static str
+}
+
+#[derive(Copy, Clone, Hash, Debug, Eq, PartialEq, EncodeLabelSet)]
+struct ShadowEngineLabels {
+    dataset: DatasetValue,
+    engine: &'static str
+}
+
+static SHADOW_QUERIES: LazyLock<Family<DatasetLabel, Counter>> = LazyLock::new(Default::default);
+static SHADOW_RUNS: LazyLock<Family<ShadowRunLabels, Counter>> = LazyLock::new(Default::default);
+static SHADOW_SLOW_RUNS: LazyLock<Family<DatasetLabel, Counter>> = LazyLock::new(Default::default);
+static SHADOW_RUN_DURATION: LazyLock<Family<ShadowEngineLabels, Histogram>> =
+    LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(buckets(0.0001, 24))));
+static SHADOW_PERCENT: LazyLock<Gauge<f64, std::sync::atomic::AtomicU64>> = LazyLock::new(Default::default);
+static SHADOW_IN_FLIGHT: LazyLock<Gauge> = LazyLock::new(Default::default);
+
+pub(crate) fn report_shadow_query(dataset_id: DatasetId) {
+    SHADOW_QUERIES.get_or_create(&dataset_label!(dataset_id)).inc();
+}
+
+pub(crate) fn report_shadow_run(dataset_id: DatasetId, outcome: ShadowOutcome) {
+    let labels = ShadowRunLabels {
+        dataset: DatasetValue(dataset_id),
+        outcome: outcome.as_str()
+    };
+    SHADOW_RUNS.get_or_create(&labels).inc();
+}
+
+pub(crate) fn report_shadow_timing(dataset_id: DatasetId, legacy: Duration, new: Duration, slow: bool) {
+    for (engine, duration) in [("legacy", legacy), ("new", new)] {
+        let labels = ShadowEngineLabels {
+            dataset: DatasetValue(dataset_id),
+            engine
+        };
+        SHADOW_RUN_DURATION
+            .get_or_create(&labels)
+            .observe(duration.as_secs_f64());
+    }
+    if slow {
+        SHADOW_SLOW_RUNS.get_or_create(&dataset_label!(dataset_id)).inc();
+    }
+}
+
+pub(crate) fn set_shadow_percent(percent: f64) {
+    SHADOW_PERCENT.set(percent);
+}
+
+pub(crate) fn report_shadow_run_started() {
+    SHADOW_IN_FLIGHT.inc();
+}
+
+pub(crate) fn report_shadow_run_finished() {
+    SHADOW_IN_FLIGHT.dec();
+}
+
 pub fn report_query_too_many_tasks_error() {
     QUERY_ERROR_TOO_MANY_TASKS.inc();
 }
@@ -598,6 +680,38 @@ pub fn build_metrics_registry() -> Registry {
         "completed_queries",
         "Number of completed queries",
         COMPLETED_QUERIES.clone()
+    );
+    registry.register(
+        "shadow_queries",
+        "Queries sampled for the new query engine's shadow comparison",
+        SHADOW_QUERIES.clone()
+    );
+    registry.register(
+        "shadow_runs",
+        "Chunks of shadowed queries run by both engines, by outcome: match, mismatch (values \
+         differ), legacy_error or new_error (only that engine failed), both_error, or skipped \
+         (every shadow slot was taken)",
+        SHADOW_RUNS.clone()
+    );
+    registry.register(
+        "shadow_slow_runs",
+        "Shadow runs where the new engine exceeded the slow ratio and margin",
+        SHADOW_SLOW_RUNS.clone()
+    );
+    registry.register(
+        "shadow_run_duration_seconds",
+        "Time each engine took to answer one chunk of a shadowed query",
+        SHADOW_RUN_DURATION.clone()
+    );
+    registry.register(
+        "shadow_percent",
+        "Share of queries sampled for the shadow comparison, in percent",
+        SHADOW_PERCENT.clone()
+    );
+    registry.register(
+        "shadow_in_flight",
+        "Shadow runs started and not yet counted in shadow_runs",
+        SHADOW_IN_FLIGHT.clone()
     );
     registry.register(
         "ingest_withheld_flushes",

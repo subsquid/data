@@ -7,6 +7,8 @@ mod encoding;
 mod errors;
 mod metrics;
 mod query;
+mod query_engine;
+mod shadow;
 mod types;
 
 use std::{

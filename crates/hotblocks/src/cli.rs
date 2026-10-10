@@ -1,7 +1,8 @@
 use std::{
     collections::{BTreeSet, HashSet},
+    path::PathBuf,
     sync::Arc,
-    time::Instant
+    time::{Duration, Instant}
 };
 
 use anyhow::Context;
@@ -14,6 +15,8 @@ use crate::{
     dataset_config::{DatasetConfig, RetentionConfig},
     metrics::{DatasetMetricsCollector, RocksDbCollector},
     query::{QueryService, QueryServiceRef},
+    query_engine::MetadataCatalogs,
+    shadow::{Shadow, ShadowConfig, ShadowRef},
     types::DBRef
 };
 
@@ -149,7 +152,52 @@ pub struct CLI {
     /// Known client IDs for metrics labeling. Client IDs not in this list
     /// will be reported as "unknown" to prevent metrics cardinality abuse.
     #[arg(long = "known-client", value_name = "ID")]
-    pub known_clients: Vec<String>
+    pub known_clients: Vec<String>,
+
+    /// Directory with the metadata catalogs of the new query engine
+    /// (`evm.yaml`, `solana.yaml`, ...), from the engine revision this binary
+    /// is built with. The new engine is off for a dataset kind with no catalog.
+    #[arg(long, value_name = "DIR", env = "SQD_METADATA_DIR")]
+    pub metadata_dir: Option<PathBuf>,
+
+    /// Share of queries, in percent, that the new query engine shadows: each
+    /// chunk such a query reads is answered again by both engines in the
+    /// background and the answers and timings compared.
+    #[arg(
+        long,
+        value_name = "PERCENT",
+        env = "SQD_SHADOW_PERCENT",
+        default_value = "0",
+        value_parser = parse_percent
+    )]
+    pub shadow_percent: f64,
+
+    /// A shadow run is slow, and logged, when the new engine takes more than
+    /// this many times the legacy engine's time...
+    #[arg(long, value_name = "RATIO", default_value = "2")]
+    pub shadow_slow_ratio: f64,
+
+    /// ...and at least this many milliseconds longer.
+    #[arg(long, value_name = "MS", default_value = "50")]
+    pub shadow_slow_margin_ms: u64,
+
+    /// Shadow runs at once. A chunk that finds every one taken is skipped.
+    #[arg(long, value_name = "N", default_value = "2")]
+    pub shadow_max_in_flight: usize,
+
+    /// Shadow log lines for differences, failures and slow runs per 5 minutes,
+    /// at most one per query shape; 0 turns them off.
+    #[arg(long, value_name = "N", env = "SQD_SHADOW_LOG_LIMIT", default_value = "20")]
+    pub shadow_log_limit: usize
+}
+
+fn parse_percent(value: &str) -> Result<f64, String> {
+    let percent: f64 = value.parse().map_err(|err| format!("{err}"))?;
+    if (0.0..=100.0).contains(&percent) {
+        Ok(percent)
+    } else {
+        Err(format!("{percent} is not between 0 and 100"))
+    }
 }
 
 pub struct App {
@@ -158,7 +206,8 @@ pub struct App {
     pub query_service: QueryServiceRef,
     pub api_controlled_datasets: BTreeSet<DatasetId>,
     pub metrics_registry: prometheus_client::registry::Registry,
-    pub known_clients: HashSet<String>
+    pub known_clients: HashSet<String>,
+    pub shadow: ShadowRef
 }
 
 impl CLI {
@@ -228,13 +277,31 @@ impl CLI {
 
         let known_clients: HashSet<String> = self.known_clients.iter().cloned().collect();
 
+        let catalogs = match &self.metadata_dir {
+            Some(dir) => MetadataCatalogs::load(dir).context("failed to load the metadata catalogs")?,
+            None => MetadataCatalogs::default()
+        };
+        info!(kinds = ?catalogs.kinds(), "loaded the metadata catalogs");
+        let shadow = Shadow::new(
+            ShadowConfig {
+                percent: self.shadow_percent,
+                slow_ratio: self.shadow_slow_ratio,
+                slow_margin: Duration::from_millis(self.shadow_slow_margin_ms),
+                max_in_flight: self.shadow_max_in_flight,
+                log_limit: self.shadow_log_limit
+            },
+            Arc::new(catalogs)
+        )
+        .map(Arc::new)?;
+
         Ok(App {
             db,
             data_service,
             query_service,
             api_controlled_datasets,
             metrics_registry,
-            known_clients
+            known_clients,
+            shadow
         })
     }
 }

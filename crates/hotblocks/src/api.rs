@@ -349,12 +349,16 @@ async fn stream_internal(
         return error_response(StatusCode::BAD_REQUEST, ErrorCode::MalformedRequest, err.to_string());
     }
 
+    let shadow = app.shadow.sample(dataset_id, &query, &body);
+
     let query_result = if finalized {
         app.query_service
-            .query_finalized(&dataset, query, client_id, encoding)
+            .query_finalized(&dataset, query, client_id, encoding, shadow)
             .await
     } else {
-        app.query_service.query(&dataset, query, client_id, encoding).await
+        app.query_service
+            .query(&dataset, query, client_id, encoding, shadow)
+            .await
     };
 
     match query_result {

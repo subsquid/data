@@ -13,6 +13,7 @@ use crate::{
     errors::{BlockItemIsNotAvailable, BlockRangeMissing, QueryIsAboveTheHead, QueryKindMismatch},
     metrics::{QUERIED_BLOCKS, QUERIED_CHUNKS},
     query::static_snapshot::{StaticChunkIterator, StaticChunkReader, StaticSnapshot},
+    shadow::{ChunkBounds, ShadowQuery},
     types::{ClientId, DBRef, DatasetKind}
 };
 
@@ -111,7 +112,8 @@ pub struct RunningQuery {
     chunk_iterator: StaticChunkIterator,
     finalized_head: Option<BlockRef>,
     buf: Compressor,
-    stats: RunningQueryStats
+    stats: RunningQueryStats,
+    shadow: Option<ShadowQuery>
 }
 
 fn finalized_query_last_block(query: &Query, finalized_head: Option<&BlockRef>) -> anyhow::Result<BlockNumber> {
@@ -129,7 +131,8 @@ impl RunningQuery {
         dataset_id: DatasetId,
         query: &Query,
         only_finalized: bool,
-        encoding: ContentEncoding
+        encoding: ContentEncoding,
+        shadow: Option<ShadowQuery>
     ) -> anyhow::Result<Self> {
         let snapshot = StaticSnapshot::new(db);
 
@@ -200,7 +203,8 @@ impl RunningQuery {
             chunk_iterator,
             finalized_head,
             buf: Compressor::new(encoding)?,
-            stats
+            stats,
+            shadow
         })
     }
 
@@ -247,6 +251,17 @@ impl RunningQuery {
             self.plan.set_last_block(last_block);
         } else {
             self.plan.set_last_block(None);
+        }
+
+        if let Some(shadow) = &self.shadow {
+            shadow.submit(
+                &chunk,
+                ChunkBounds {
+                    first_block: self.plan.first_block(),
+                    last_block: self.plan.last_block(),
+                    parent_block_hash: self.plan.parent_block_hash().map(str::to_owned)
+                }
+            );
         }
 
         let query_result = chunk.with_reader(|reader| self.plan.execute(reader)).map_err(|err| {

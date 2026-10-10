@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = { workspace = true }
+arrow = { workspace = true }
 async-stream = "0.3.6"
 axum = { workspace = true }
 bytes = { workspace = true }
@@ -14,9 +15,14 @@ flate2 = { workspace = true }
 zstd = "0.13"
 futures = { workspace = true }
 ouroboros = { workspace = true }
+parking_lot = { workspace = true }
 prometheus-client = { workspace = true }
+rand = "0.9.0"
+rayon = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+# Best-effort float parsing rounds two spellings of one value apart, which the
+# shadow comparison reports as a difference.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 serde_yaml = { workspace = true }
 sqd-data = { path = "../data" }
 sqd-data-client = { path = "../data-client" }
@@ -26,6 +32,7 @@ sqd-dataset = { path = "../dataset" }
 sqd-polars = { path = "../polars" }
 sqd-primitives = { path = "../primitives", features = ["serde", "valuable"] }
 sqd-query = { path = "../query", features = ["storage"] }
+sqd-query-engine = { git = "https://github.com/subsquid/sqd-query-engine", rev = "9525538761168f5f995fab9dbe8f05bdc98d593e" }
 sqd-storage = { path = "../storage" }
 tikv-jemallocator = "0.6.0"
 tokio = { workspace = true, features = ["full"] }

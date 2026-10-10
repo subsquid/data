@@ -71,6 +71,18 @@ impl Plan {
     pub fn set_last_block(&mut self, block_number: impl Into<Option<BlockNumber>>) {
         self.last_block = block_number.into()
     }
+
+    pub fn parent_block_hash(&self) -> Option<&str> {
+        self.parent_block_hash.as_deref()
+    }
+
+    pub fn first_block(&self) -> Option<BlockNumber> {
+        self.first_block
+    }
+
+    pub fn last_block(&self) -> Option<BlockNumber> {
+        self.last_block
+    }
 }
 
 /// A wrapper around `Chunk` that automatically attaches default-null columns
