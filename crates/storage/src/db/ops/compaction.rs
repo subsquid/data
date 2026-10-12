@@ -1,18 +1,14 @@
-use std::{
-    cmp::{max, min},
-    collections::BTreeMap
-};
+use std::{cmp::max, collections::BTreeMap};
 
-use arrow::datatypes::SchemaRef;
 use sqd_primitives::BlockNumber;
 
+use self::plan::{MergePlanner, RunBoundary};
 use crate::db::{
-    db::RocksDB,
-    ops::{schema_merge::can_merge_schemas, table_merge::TableMerge},
-    table_id::TableId,
-    write::tx::Tx,
-    Chunk, ChunkReader, DatasetId, ReadSnapshot, TableBuilder
+    db::RocksDB, ops::table_merge::TableMerge, table_id::TableId, write::tx::Tx, Chunk, ChunkReader, DatasetId,
+    ReadSnapshot, TableBuilder
 };
+
+mod plan;
 
 pub const MAX_CHUNK_SIZE: usize = 200_000;
 pub const WA_LIMIT: f64 = 1.9;
@@ -180,164 +176,37 @@ impl<'a> DatasetCompaction<'a> {
         Ok(())
     }
 
-    fn score_merge(chunk_sizes: &[usize], max_wa: Option<f64>) -> usize {
-        let max_size = chunk_sizes.iter().max().unwrap_or(&0).clone() as f64;
-        let full_size = chunk_sizes.iter().sum();
-        if max_size == 0.0 {
-            return 1;
-        }
-        if let Some(wa_limit) = max_wa {
-            let wa = full_size as f64 / max_size;
-            if wa < wa_limit {
-                return 0;
-            }
-        }
-        full_size
-    }
-
-    fn find_range(
-        chunk_sizes: &[usize],
-        start: usize,
-        end: usize,
-        chunk_size_threshold: usize,
-        wa_threshold: f64,
-        len_limit: usize
-    ) -> Option<(usize, usize, usize)> {
-        if start + 1 >= end {
-            return None;
-        }
-        let left = start;
-        let mut right = left + 1;
-        let right_limit = min(end, start + len_limit);
-        loop {
-            let score = Self::score_merge(&chunk_sizes[left..right], Some(wa_threshold));
-            if score >= chunk_size_threshold {
-                return Some((left, right, score));
-            }
-            if right < right_limit {
-                right += 1;
-                continue;
-            }
-            if score > 0 {
-                return Some((left, right, score));
-            }
-            break;
-        }
-        let max_el = chunk_sizes[left..right].iter().max().unwrap();
-        let max_idx = chunk_sizes[left..right]
-            .iter()
-            .position(|element| element == max_el)
-            .unwrap();
-        let left_range = Self::find_range(chunk_sizes, start, start + max_idx, *max_el, wa_threshold, len_limit);
-        if left_range.is_some() {
-            return left_range;
-        }
-        Self::find_range(chunk_sizes, start + max_idx + 1, end, *max_el, wa_threshold, len_limit)
-    }
-
     fn prepare_merge_plan(&mut self) -> anyhow::Result<()> {
-        let mut reversed_chunk_iterator = self.snapshot.list_chunks(self.dataset_id, 0, None).into_reversed();
-        let mut first_applicable_block = u64::MAX;
-        let mut chunk_data_sizes: Vec<Vec<usize>> = Default::default();
-        let mut last_schema_map: BTreeMap<String, SchemaRef> = Default::default();
-        let mut first_block: Option<u64> = None;
-        chunk_data_sizes.push(Default::default());
-        let mut chunk_ctr = 0;
-        while let Some(el) = reversed_chunk_iterator.next().transpose()? {
-            if chunk_ctr < MERGE_HORIZON {
-                chunk_ctr += 1;
-            } else {
-                break;
-            }
-            let tables = el.tables();
+        let reversed_chunk_iterator = self.snapshot.list_chunks(self.dataset_id, 0, None).into_reversed();
+        let mut planner = MergePlanner::new(
+            self.max_chunk_size,
+            self.write_amplification_limit,
+            self.compaction_len_limit
+        );
+        let mut boundary = RunBoundary::default();
+        let mut chunks = Vec::new();
+        for chunk in reversed_chunk_iterator.take(MERGE_HORIZON) {
+            let chunk = chunk?;
+
             let mut max_rows = 0;
-            let mut schema_compatible = true;
-            let mut data_continuous = true;
-            let is_last_schema_empty = last_schema_map.is_empty();
-            if let Some(first_block) = first_block {
-                data_continuous = (el.last_block() + 1 == first_block);
-            }
-            first_block = Some(el.first_block());
-            if !is_last_schema_empty && tables.len() != last_schema_map.len() {
-                last_schema_map = Default::default();
-                schema_compatible = false;
-            }
-            for (key, v) in tables {
-                let reader = self.snapshot.create_table_reader(*v)?;
+            let mut schemas = Vec::with_capacity(chunk.tables().len());
+            for (name, table_id) in chunk.tables() {
+                let reader = self.snapshot.create_table_reader(*table_id)?;
                 max_rows = max(reader.num_rows(), max_rows);
-                let this_schema = reader.schema();
-                if let Some(last_schema) = last_schema_map.get(key) {
-                    schema_compatible &= can_merge_schemas(&this_schema, last_schema);
-                } else if !is_last_schema_empty {
-                    schema_compatible = false;
-                }
-                last_schema_map.insert(key.to_string(), this_schema);
+                schemas.push((name.as_str(), reader.schema()));
             }
             if max_rows == 0 {
-                max_rows = el.blocks_count() as usize;
+                max_rows = chunk.blocks_count() as usize;
             }
-            if schema_compatible && data_continuous && max_rows < self.max_chunk_size {
-                chunk_data_sizes.last_mut().unwrap().push(max_rows);
-            } else {
-                chunk_data_sizes.push(vec![max_rows; 1]);
-            }
-            if max_rows >= self.max_chunk_size {
-                chunk_data_sizes.push(Default::default());
-            }
-            first_applicable_block = el.first_block();
-        }
-        chunk_data_sizes.iter_mut().for_each(|v| v.reverse());
-        chunk_data_sizes.reverse();
 
-        let mut skip_chunks = 0;
-        let mut take_chunks = 0;
-
-        for (idx, continous_run) in chunk_data_sizes.iter().enumerate() {
-            if continous_run.len() < 2 {
-                // skip unmergable run
-                skip_chunks += continous_run.len();
-                continue;
-            }
-            if idx < chunk_data_sizes.len() - 1 {
-                // there will be no more chunks in this run, we can just merge disregarding write amplification as each chunk would be merged at most once
-                let left = 0;
-                let mut right = 1;
-                while Self::score_merge(&continous_run[left..right], None) < self.max_chunk_size {
-                    if right < continous_run.len() {
-                        right += 1;
-                    } else {
-                        break;
-                    }
-                }
-                skip_chunks += left;
-                take_chunks = right - left;
-                break;
-            }
-            // we should find appropriate range to merge respecting write amplification
-            let range_option = Self::find_range(
-                continous_run,
-                0,
-                continous_run.len(),
-                self.max_chunk_size,
-                self.write_amplification_limit,
-                self.compaction_len_limit
-            );
-            if let Some((left, right, score)) = range_option {
-                skip_chunks += left;
-                take_chunks = right - left;
-                break;
-            }
-            skip_chunks += continous_run.len();
+            let joins_next = boundary.joins_next(chunk.first_block(), chunk.last_block(), &schemas);
+            planner.push_reversed(max_rows, joins_next);
+            chunks.push(chunk);
         }
 
-        let mut chunk_iterator = self.snapshot.list_chunks(self.dataset_id, first_applicable_block, None);
-        let mut new_chunk_size: u64 = 0;
-        let mut expected_first_block = first_applicable_block;
-
-        for chunk_result in chunk_iterator.skip(skip_chunks).take(take_chunks) {
-            let chunk = chunk_result?;
-            let reader = self.snapshot.create_chunk_reader(chunk);
-            self.merge.push(reader);
+        chunks.reverse();
+        for chunk in chunks.drain(planner.finish()) {
+            self.merge.push(self.snapshot.create_chunk_reader(chunk));
         }
         Ok(())
     }

@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use arrow::datatypes::{DataType, Schema};
+use arrow::{
+    array::{ArrayRef, Int32Array, RecordBatch, UInt32Array},
+    datatypes::DataType
+};
 use proptest::{
     prelude::{prop, ProptestConfig},
     proptest
@@ -8,7 +11,7 @@ use proptest::{
 use rand::{rng, seq::SliceRandom};
 use sqd_storage::{
     db::{
-        ops::{schema_merge::can_merge_schemas, CompactionStatus},
+        ops::{schema_merge::can_merge_schemas, CompactionStatus, COMPACTION_LEN_LIMIT, MERGE_HORIZON},
         Chunk, Database, DatasetId
     },
     table::write::use_small_buffers
@@ -210,127 +213,153 @@ fn compaction_fuzzy_tables_test() {
     });
 }
 
-#[test]
-fn compaction_plan_test() {
-    let data_strategy = prop::collection::vec(prop::collection::vec(1..20usize, 10..40), 1..5);
-    proptest!(ProptestConfig::with_cases(200), |(block_sizes in data_strategy)| {
-        compaction_plan_test_execution(&block_sizes, 100, 1.25, false);
-        compaction_plan_test_execution(&block_sizes, 150, 1.25, false);
-        compaction_plan_test_execution(&block_sizes, 100, 1.50, false);
-        compaction_plan_test_execution(&block_sizes, 100, 1.25, true);
-        compaction_plan_test_execution(&block_sizes, 150, 1.25, true);
-        compaction_plan_test_execution(&block_sizes, 100, 1.50, true);
-    });
+/// Runs one compaction pass and returns the first and last block of the merged chunks.
+fn compaction_step(db: &Database, dataset_id: DatasetId, wa: f64) -> Option<(u64, u64)> {
+    let status = db
+        .perform_dataset_compaction(dataset_id, Some(100), Some(wa), None)
+        .unwrap();
+
+    match status {
+        CompactionStatus::Ok(merged) => {
+            let first_block = merged.first().unwrap().first_block;
+            let last_block = merged.last().unwrap().last_block;
+            Some((first_block, last_block))
+        }
+        CompactionStatus::NotingToCompact => None,
+        CompactionStatus::Canceled => panic!("compaction canceled without concurrent writes")
+    }
 }
 
-fn compaction_plan_test_execution(
-    block_sizes: &Vec<Vec<usize>>,
-    max_chunk_size: usize,
-    wa_limit: f64,
-    compact_on_each_insert: bool
-) {
-    let type_a = DataType::UInt32;
-    let type_b = DataType::Int32;
-    let do_sort = false;
+fn compact_to_completion(db: &Database, dataset_id: DatasetId, wa: f64) -> Vec<(u64, u64)> {
+    let mut merges = Vec::new();
+    while let Some(merge) = compaction_step(db, dataset_id, wa) {
+        merges.push(merge);
+        assert!(merges.len() <= 100, "compaction did not converge");
+    }
+    merges
+}
 
-    let total_blocks = block_sizes.iter().map(|v| v.iter().sum::<usize>()).sum::<usize>();
-    let static_data = vec![
-        (0..total_blocks as u16).collect::<Vec<u16>>(),
-        (0..total_blocks as u16).collect::<Vec<u16>>(),
-    ];
+#[test]
+fn compaction_finishes_closed_schemas_and_preserves_rows() {
+    for compact_on_each_insert in [false, true] {
+        let (db, dataset_id) = setup_db();
+        let schemas = [
+            make_schema(DataType::UInt32, DataType::Int32, false),
+            make_schema(DataType::Int32, DataType::UInt32, false)
+        ];
+        assert!(!can_merge_schemas(&schemas[0], &schemas[1]));
 
-    let (db, dataset_id) = setup_db();
-    let mut chunks = Vec::default();
-    let schema_a = make_schema(type_a.clone(), type_b.clone(), do_sort);
-    let schema_b = make_schema(type_b, type_a, do_sort);
-    let mut global_data = vec![(0u32, 0u32); 0];
+        let data = vec![(0..38u16).collect::<Vec<_>>(); 2];
+        let mut offset = 0;
+        let mut steps = Vec::new();
+        for (schema, sizes) in schemas.iter().zip([&[19, 8, 1][..], &[5, 5][..]]) {
+            for &size in sizes {
+                let (chunk, _) = make_irregular_block(&data, offset, offset + size, schema.clone(), &db);
+                db.insert_chunk(dataset_id, &chunk).unwrap();
+                offset += size;
 
-    let mut total_offset = 0;
+                if compact_on_each_insert {
+                    steps.push(compaction_step(&db, dataset_id, 1.50));
+                }
+            }
+        }
 
-    for (i, sizes) in block_sizes.iter().enumerate() {
-        for size in sizes {
-            let local_schema = if i % 2 == 0 {
-                Arc::clone(&schema_a)
+        // [19, 8, 1] stays below the open tail's 1.5 merge ratio until the schema
+        // change closes it.
+        let remaining = compact_to_completion(&db, dataset_id, 1.50);
+        if compact_on_each_insert {
+            assert_eq!(steps, [None, None, None, Some((0, 27)), Some((28, 37))]);
+            assert!(remaining.is_empty());
+        } else {
+            assert_eq!(remaining, [(0, 27), (28, 37)]);
+        }
+
+        let snapshot = db.snapshot();
+        let chunks = snapshot
+            .list_chunks(dataset_id, 0, None)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(chunks.len(), 2);
+
+        for ((chunk, schema), (start, end)) in chunks.iter().zip(&schemas).zip([(0, 28), (28, 38)]) {
+            assert_eq!(chunk.first_block(), start as u64);
+            assert_eq!(chunk.last_block(), (end - 1) as u64);
+            assert_eq!(chunk.parent_block_hash(), format!("last_{start}"));
+            assert_eq!(chunk.last_block_hash(), format!("last_{end}"));
+            assert_eq!(chunk.tables().len(), 1);
+
+            let reader = snapshot
+                .create_table_reader(*chunk.tables().get("block").unwrap())
+                .unwrap();
+            assert_eq!(reader.schema().as_ref(), schema.as_ref());
+
+            let actual = RecordBatch::try_new(
+                reader.schema(),
+                vec![
+                    reader.read_column(0, None).unwrap(),
+                    reader.read_column(1, None).unwrap(),
+                ]
+            )
+            .unwrap();
+            let unsigned = Arc::new(UInt32Array::from((start..end).map(|v| v as u32).collect::<Vec<_>>())) as ArrayRef;
+            let signed = Arc::new(Int32Array::from((start..end).collect::<Vec<_>>())) as ArrayRef;
+            let columns = if start == 0 {
+                vec![unsigned, signed]
             } else {
-                Arc::clone(&schema_b)
+                vec![signed, unsigned]
             };
-            let (chunk, data) =
-                make_irregular_block(&static_data, total_offset, total_offset + *size, local_schema, &db);
-            assert!(db.insert_chunk(dataset_id, &chunk).is_ok());
-            if compact_on_each_insert {
-                db.perform_dataset_compaction(dataset_id, Some(max_chunk_size), Some(wa_limit), None)
-                    .unwrap();
-            }
-            chunks.push(chunk);
-            global_data.extend(data);
-            total_offset += *size;
+            let expected = RecordBatch::try_new(schema.clone(), columns).unwrap();
+            assert_eq!(actual, expected);
         }
     }
+}
 
-    if !compact_on_each_insert {
-        validate_chunks(&db, dataset_id, chunks.iter().collect());
+#[test]
+fn compaction_merges_runs_split_by_schema_switches_and_gaps() {
+    let (db, dataset_id) = setup_db();
+    let a = make_schema(DataType::UInt32, DataType::Int32, false);
+    let b = make_schema(DataType::Int32, DataType::UInt32, false);
+    let data = vec![(0..55u16).collect::<Vec<_>>(); 2];
+
+    // A [0, 28), B [28, 38), A [38, 50), no block 50, A [51, 55).
+    let chunks = [
+        (&a, 0, 19),
+        (&a, 19, 27),
+        (&a, 27, 28),
+        (&b, 28, 33),
+        (&b, 33, 38),
+        (&a, 38, 42),
+        (&a, 42, 46),
+        (&a, 46, 50),
+        (&a, 51, 53),
+        (&a, 53, 55)
+    ];
+    for (schema, start, end) in chunks {
+        let (chunk, _) = make_irregular_block(&data, start, end, schema.clone(), &db);
+        db.insert_chunk(dataset_id, &chunk).unwrap();
     }
 
-    while matches!(
-        db.perform_dataset_compaction(dataset_id, Some(max_chunk_size), Some(wa_limit), None),
-        Ok(CompactionStatus::Ok(_))
-    ) {}
+    // Each pass skips the chunks that the passes before it merged.
+    let merges = compact_to_completion(&db, dataset_id, 1.50);
+    assert_eq!(merges, [(0, 27), (28, 37), (38, 49), (51, 54)]);
+}
 
-    let snapshot = db.snapshot();
-    let mut chunks = snapshot.list_chunks(dataset_id, 0, None);
-    let mut last_schema_option: Option<Arc<Schema>> = None;
-    let mut chunk_data_sizes: Vec<Vec<usize>> = Default::default();
-    chunk_data_sizes.push(Default::default());
-    while let Some(el) = chunks.next().transpose().unwrap() {
-        let tables = el.tables();
-        assert_eq!(tables.len(), 1);
-        let mut schema_compatible = true;
-        let (_, table_id) = tables.first_key_value().unwrap();
-        let reader = snapshot.create_table_reader(*table_id).unwrap();
-        let total_rows = reader.num_rows();
-        let this_schema = reader.schema();
-        match last_schema_option {
-            Some(last_schema) => {
-                schema_compatible = can_merge_schemas(&this_schema, &last_schema);
-            }
-            None => {}
-        }
-        last_schema_option = Some(this_schema);
-
-        if schema_compatible {
-            chunk_data_sizes.last_mut().unwrap().push(total_rows);
-        } else {
-            chunk_data_sizes.push(vec![total_rows; 1]);
-        }
+#[test]
+fn compaction_plans_only_within_the_merge_horizon() {
+    let (db, dataset_id) = setup_db();
+    let n_chunks = MERGE_HORIZON as u64 + 10;
+    for i in 0..n_chunks {
+        let chunk = Chunk::V0 {
+            first_block: i,
+            last_block: i,
+            last_block_hash: format!("last_{}", i + 1),
+            parent_block_hash: format!("last_{i}"),
+            tables: Default::default()
+        };
+        db.insert_chunk(dataset_id, &chunk).unwrap();
     }
 
-    for (run_idx, run) in chunk_data_sizes.iter().enumerate() {
-        if run_idx + 1 < chunk_data_sizes.len() {
-            // all chunks (except last) in non-final run should be not sorter than MAX_MERGEABLE_CHUNK_SIZE, last chunk may be whatever
-            for (chunk_idx, &chunk_size) in run.iter().enumerate() {
-                if chunk_idx + 1 < run.len() {
-                    assert!(chunk_size >= max_chunk_size);
-                }
-            }
-        } else {
-            // in the last run, chunks should be split in two continous groups:
-            // - chunks in the first group all should be not shorter than MAX_MERGEABLE_CHUNK_SIZE
-            // - chunks in the second (maybe empty) group are all shorter than MAX_MERGEABLE_CHUNK_SIZE and longest of them should dominate (break wa formula)
-            let mut iter = run.iter().peekable();
-            while let Some(&&chunk_size) = iter.peek() {
-                if chunk_size < max_chunk_size {
-                    break;
-                }
-                iter.next();
-            }
-            let longest_chunk_option = iter.clone().max();
-            match longest_chunk_option {
-                Some(&longest_chunk) => {
-                    let total_len = iter.sum::<usize>();
-                    assert!(wa_limit * longest_chunk as f64 >= total_len as f64);
-                }
-                None => {}
-            }
-        }
-    }
+    let first_block = n_chunks - MERGE_HORIZON as u64;
+    let last_block = first_block + COMPACTION_LEN_LIMIT as u64 - 1;
+    assert_eq!(compaction_step(&db, dataset_id, 1.25), Some((first_block, last_block)));
 }
