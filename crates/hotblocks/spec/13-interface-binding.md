@@ -33,6 +33,8 @@ annotated with the relevant GAP.
 | METADATA | `GET /datasets/{id}/metadata` | start block, real-time flag, aliases |
 | GET-RETENTION | `GET /datasets/{id}/retention` | current policy JSON |
 | SET-RETENTION | `POST /datasets/{id}/retention` | policy JSON; only for `External` datasets, else `FORBIDDEN` (403) |
+| GET-SETTINGS | `GET /settings` | runtime settings JSON (`{"shadow":{…}}`) |
+| UPDATE-SETTINGS | `PATCH /settings` | JSON Merge Patch (RFC 7386); answers the settings after it. An unknown key, a removed key or an invalid value is a 400 and changes nothing. In memory and per process: a restart returns to the flags |
 | observability | `GET /metrics` (+ engine-diagnostic routes) | OB surface, text formats |
 | readiness | `GET /ready` | rotation gate (OB-8), distinct from the `/` liveness signal: 503 for the whole pre-drain grace window so the orchestrator withdraws the endpoint before anything closes (LIV-12). Process-level only — per-dataset readability (LIV-5c) is still absent (GAP-7) |
 

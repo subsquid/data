@@ -216,6 +216,22 @@ impl Client {
         Ok(res.status().as_u16())
     }
 
+    pub async fn settings(&self) -> Result<Value> {
+        let res = self.http.get(format!("{}/settings", self.base)).send().await?;
+        Ok(res.error_for_status()?.json().await?)
+    }
+
+    /// Merge `patch` into the runtime settings. Returns the status code.
+    pub async fn update_settings(&self, patch: &Value) -> Result<u16> {
+        let res = self
+            .http
+            .patch(format!("{}/settings", self.base))
+            .json(patch)
+            .send()
+            .await?;
+        Ok(res.status().as_u16())
+    }
+
     /// The OB-* surface, parsed into `name{labels} -> value`.
     pub async fn metrics(&self) -> Result<Metrics> {
         let text = self
