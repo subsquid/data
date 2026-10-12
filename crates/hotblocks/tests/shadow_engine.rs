@@ -198,6 +198,37 @@ async fn no_query_is_shadowed_without_metadata_catalogs() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn the_shadow_share_changes_without_a_restart() -> Result<()> {
+    let mut cfg = HarnessConfig::from_block(env!("CARGO_BIN_EXE_sqd-hotblocks"), Arc::new(Evm), START);
+    cfg.sut_args
+        .extend(["--metadata-dir", METADATA_DIR].into_iter().map(String::from));
+    let mut h = Harness::start(cfg).await?;
+    h.produce(10)?;
+    h.settle().await?;
+    let query = Evm.scan_query(START, None, None);
+    let shadowed = |metrics: &Metrics| metrics.get("hotblocks_shadow_queries_total", Some(("dataset", &h.dataset)));
+
+    expect_data(h.client.query(&query).await?, &query)?;
+    assert_eq!(shadowed(&h.client.metrics().await?), None);
+
+    assert_eq!(
+        h.client.update_settings(&json!({"shadow": {"percent": 150}})).await?,
+        400
+    );
+    assert_eq!(
+        h.client.update_settings(&json!({"shadow": {"percent": 100}})).await?,
+        200
+    );
+    assert_eq!(h.client.settings().await?["shadow"]["percent"], json!(100.0));
+
+    expect_data(h.client.query(&query).await?, &query)?;
+    let metrics = h.client.metrics().await?;
+    assert_eq!(shadowed(&metrics), Some(1.0));
+    assert_eq!(metrics.get("hotblocks_shadow_percent", None), Some(100.0));
+    Ok(())
+}
+
 async fn start(chain: Arc<dyn Chain>, numbering: Numbering) -> Result<Harness> {
     start_with(chain, numbering, Path::new(METADATA_DIR), &[]).await
 }

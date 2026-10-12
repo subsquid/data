@@ -8,6 +8,7 @@ mod errors;
 mod metrics;
 mod query;
 mod query_engine;
+mod settings;
 mod shadow;
 mod types;
 

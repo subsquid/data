@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeSet, HashSet},
     path::PathBuf,
     sync::Arc,
-    time::{Duration, Instant}
+    time::Instant
 };
 
 use anyhow::Context;
@@ -16,7 +16,8 @@ use crate::{
     metrics::{DatasetMetricsCollector, RocksDbCollector},
     query::{QueryService, QueryServiceRef},
     query_engine::MetadataCatalogs,
-    shadow::{Shadow, ShadowConfig, ShadowRef},
+    settings::{RuntimeSettings, Settings, SettingsRef, ShadowSettings},
+    shadow::{Shadow, ShadowRef},
     types::DBRef
 };
 
@@ -163,13 +164,10 @@ pub struct CLI {
     /// Share of queries, in percent, that the new query engine shadows: each
     /// chunk such a query reads is answered again by both engines in the
     /// background and the answers and timings compared.
-    #[arg(
-        long,
-        value_name = "PERCENT",
-        env = "SQD_SHADOW_PERCENT",
-        default_value = "0",
-        value_parser = parse_percent
-    )]
+    ///
+    /// This and the other `--shadow-*` flags but `--shadow-max-in-flight` are
+    /// starting values: `PATCH /settings` changes them until a restart.
+    #[arg(long, value_name = "PERCENT", env = "SQD_SHADOW_PERCENT", default_value = "0")]
     pub shadow_percent: f64,
 
     /// A shadow run is slow, and logged, when the new engine takes more than
@@ -191,15 +189,6 @@ pub struct CLI {
     pub shadow_log_limit: usize
 }
 
-fn parse_percent(value: &str) -> Result<f64, String> {
-    let percent: f64 = value.parse().map_err(|err| format!("{err}"))?;
-    if (0.0..=100.0).contains(&percent) {
-        Ok(percent)
-    } else {
-        Err(format!("{percent} is not between 0 and 100"))
-    }
-}
-
 pub struct App {
     pub db: DBRef,
     pub data_service: DataServiceRef,
@@ -207,12 +196,23 @@ pub struct App {
     pub api_controlled_datasets: BTreeSet<DatasetId>,
     pub metrics_registry: prometheus_client::registry::Registry,
     pub known_clients: HashSet<String>,
+    pub settings: SettingsRef,
     pub shadow: ShadowRef
 }
 
 impl CLI {
     pub async fn build_app(&self) -> anyhow::Result<App> {
         let datasets = DatasetConfig::read_config_file(&self.datasets).context("failed to read datasets config")?;
+
+        let runtime_settings = RuntimeSettings::new(Settings {
+            shadow: ShadowSettings {
+                percent: self.shadow_percent,
+                slow_ratio: self.shadow_slow_ratio,
+                slow_margin_ms: self.shadow_slow_margin_ms,
+                log_limit: self.shadow_log_limit
+            }
+        })
+        .map(Arc::new)?;
 
         let mut settings = DatabaseSettings::default()
             .with_data_cache_size(self.data_cache_size)
@@ -282,17 +282,8 @@ impl CLI {
             None => MetadataCatalogs::default()
         };
         info!(kinds = ?catalogs.kinds(), "loaded the metadata catalogs");
-        let shadow = Shadow::new(
-            ShadowConfig {
-                percent: self.shadow_percent,
-                slow_ratio: self.shadow_slow_ratio,
-                slow_margin: Duration::from_millis(self.shadow_slow_margin_ms),
-                max_in_flight: self.shadow_max_in_flight,
-                log_limit: self.shadow_log_limit
-            },
-            Arc::new(catalogs)
-        )
-        .map(Arc::new)?;
+        let shadow =
+            Shadow::new(self.shadow_max_in_flight, runtime_settings.clone(), Arc::new(catalogs)).map(Arc::new)?;
 
         Ok(App {
             db,
@@ -301,6 +292,7 @@ impl CLI {
             api_controlled_datasets,
             metrics_registry,
             known_clients,
+            settings: runtime_settings,
             shadow
         })
     }

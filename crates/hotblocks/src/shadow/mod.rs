@@ -37,36 +37,25 @@ use self::compare::Difference;
 use crate::{
     metrics::{
         ShadowOutcome, report_shadow_query, report_shadow_run, report_shadow_run_finished, report_shadow_run_started,
-        report_shadow_timing, set_shadow_percent
+        report_shadow_timing
     },
     query::StaticChunkReader,
     query_engine::{self, MetadataCatalogs},
+    settings::{SettingsRef, ShadowSettings},
     types::DatasetKind
 };
 
 /// How much of a query a log line carries: a query can list tens of thousands
 /// of addresses.
 const MAX_LOGGED_QUERY_BYTES: usize = 16 * 1024;
-/// The window [`ShadowConfig::log_limit`] counts log lines in.
+/// The window [`ShadowSettings::log_limit`] counts log lines in.
 const LOG_WINDOW: Duration = Duration::from_secs(300);
 
 pub type ShadowRef = Arc<Shadow>;
 
-#[derive(Debug, Clone)]
-pub struct ShadowConfig {
-    pub percent: f64,
-    /// A run is slow when the new engine takes this many times the legacy time...
-    pub slow_ratio: f64,
-    /// ...and at least this much longer.
-    pub slow_margin: Duration,
-    pub max_in_flight: usize,
-    /// Detailed log lines per [`LOG_WINDOW`], so that one hot query cannot
-    /// flood the logs; 0 turns them off.
-    pub log_limit: usize
-}
-
 pub struct Shadow {
-    config: ShadowConfig,
+    settings: SettingsRef,
+    max_in_flight: usize,
     catalogs: Arc<MetadataCatalogs>,
     /// Runs get their own threads, so that they never queue ahead of a client's
     /// query. The legacy engine's polars operations still use the shared pool.
@@ -76,20 +65,20 @@ pub struct Shadow {
 }
 
 impl Shadow {
-    pub fn new(config: ShadowConfig, catalogs: Arc<MetadataCatalogs>) -> anyhow::Result<Self> {
+    pub fn new(max_in_flight: usize, settings: SettingsRef, catalogs: Arc<MetadataCatalogs>) -> anyhow::Result<Self> {
         let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(config.max_in_flight.max(1))
+            .num_threads(max_in_flight.max(1))
             .thread_name(|index| format!("shadow-{index}"))
             .build()
             .context("failed to start the shadow threads")?;
-        set_shadow_percent(config.percent);
         Ok(Self {
             in_flight: AtomicUsize::new(0),
             log_window: Mutex::new(LogWindow {
                 started: Instant::now(),
                 logged: HashSet::new()
             }),
-            config,
+            settings,
+            max_in_flight,
             catalogs,
             pool
         })
@@ -98,7 +87,7 @@ impl Shadow {
     /// Decide whether a query is shadowed. `body` is the request as the client
     /// sent it, which the new engine parses itself.
     pub fn sample(self: &Arc<Self>, dataset_id: DatasetId, query: &Query, body: &Bytes) -> Option<ShadowQuery> {
-        let percent = self.config.percent;
+        let percent = self.settings.shadow().percent;
         if percent <= 0.0 || rand::random::<f64>() * 100.0 >= percent {
             return None;
         }
@@ -118,7 +107,7 @@ impl Shadow {
 
     fn try_reserve(self: &Arc<Self>) -> Option<InFlight> {
         let previous = self.in_flight.fetch_add(1, Ordering::SeqCst);
-        if previous < self.config.max_in_flight {
+        if previous < self.max_in_flight {
             report_shadow_run_started();
             Some(InFlight(self.clone()))
         } else {
@@ -128,13 +117,14 @@ impl Shadow {
     }
 
     fn record(&self, run: &Run, outcome: &Outcome) {
+        let settings = self.settings.shadow();
         let dataset_id = run.query.dataset_id;
         let label = outcome.label();
         report_shadow_run(dataset_id, label);
 
         let slow = match outcome {
             Outcome::Compared { legacy, new, .. } => {
-                let slow = self.is_slow(*legacy, *new);
+                let slow = is_slow(&settings, *legacy, *new);
                 report_shadow_timing(dataset_id, *legacy, *new, slow);
                 slow
             }
@@ -147,7 +137,7 @@ impl Shadow {
             _ => return
         };
         let fingerprint = run.query.fingerprint();
-        if !self.log_window.lock().claim(fingerprint, reason, self.config.log_limit) {
+        if !self.log_window.lock().claim(fingerprint, reason, settings.log_limit) {
             return;
         }
 
@@ -164,11 +154,11 @@ impl Shadow {
     fn record_skip(&self, dataset_id: DatasetId) {
         report_shadow_run(dataset_id, ShadowOutcome::Skipped);
     }
+}
 
-    fn is_slow(&self, legacy: Duration, new: Duration) -> bool {
-        let margin = new.saturating_sub(legacy);
-        new.as_secs_f64() > legacy.as_secs_f64() * self.config.slow_ratio && margin >= self.config.slow_margin
-    }
+fn is_slow(settings: &ShadowSettings, legacy: Duration, new: Duration) -> bool {
+    let margin = new.saturating_sub(legacy);
+    new.as_secs_f64() > legacy.as_secs_f64() * settings.slow_ratio && margin >= settings.slow_margin()
 }
 
 /// A shadowed query, carried by the response it shadows.

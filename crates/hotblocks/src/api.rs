@@ -111,6 +111,7 @@ pub fn build_api(app: App, shutting_down: Arc<AtomicBool>) -> Router {
         .route("/datasets/{id}/status", get(get_status))
         .route("/datasets/{id}/metadata", get(get_metadata))
         .route("/metrics", get(get_metrics))
+        .route("/settings", get(get_settings).patch(update_settings))
         .route("/rocksdb/stats", get(get_rocks_stats))
         .route("/rocksdb/prop/{cf}/{name}", get(get_rocks_prop))
         .fallback(handle_404)
@@ -869,6 +870,36 @@ async fn get_metrics(
         .with_client_id(&client_id)
         .with_endpoint("/metrics")
         .with_response(|| metrics.into_response())
+}
+
+async fn get_settings(
+    Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>
+) -> impl IntoResponse {
+    ResponseWithMetadata::new()
+        .with_client_id(&client_id)
+        .with_endpoint("/settings")
+        .with_response(|| json_ok!(app.settings.get()))
+}
+
+/// The body is a JSON Merge Patch (RFC 7386); the answer is the settings after it.
+async fn update_settings(
+    Extension(app): Extension<AppRef>,
+    Extension(client_id): Extension<ClientId>,
+    body: Bytes
+) -> impl IntoResponse {
+    let response = match Json::<serde_json::Value>::from_bytes(&body) {
+        Ok(Json(patch)) => match app.settings.update(patch) {
+            Ok(settings) => json_ok!(settings),
+            Err(err) => error_response(StatusCode::BAD_REQUEST, ErrorCode::MalformedRequest, format!("{err:#}"))
+        },
+        Err(rejection) => error_response(rejection.status(), ErrorCode::MalformedRequest, rejection.body_text())
+    };
+
+    ResponseWithMetadata::new()
+        .with_client_id(&client_id)
+        .with_endpoint("/settings")
+        .with_response(|| response)
 }
 
 async fn get_rocks_stats(
