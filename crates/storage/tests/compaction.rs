@@ -363,3 +363,23 @@ fn compaction_plans_only_within_the_merge_horizon() {
     let last_block = first_block + COMPACTION_LEN_LIMIT as u64 - 1;
     assert_eq!(compaction_step(&db, dataset_id, 1.25), Some((first_block, last_block)));
 }
+
+#[test]
+fn compaction_keeps_chunks_with_different_tables_apart() {
+    let (db, dataset_id) = setup_db();
+    let schema = make_schema(DataType::UInt32, DataType::Int32, false);
+    let data = vec![(0..4u16).collect::<Vec<_>>(); 2];
+
+    let (with_tables, _) = make_irregular_block(&data, 0, 4, schema, &db);
+    let without_tables = Chunk::V0 {
+        first_block: 4,
+        last_block: 7,
+        last_block_hash: "last_8".to_owned(),
+        parent_block_hash: "last_4".to_owned(),
+        tables: Default::default()
+    };
+    db.insert_chunk(dataset_id, &with_tables).unwrap();
+    db.insert_chunk(dataset_id, &without_tables).unwrap();
+
+    assert_eq!(compaction_step(&db, dataset_id, 1.25), None);
+}
