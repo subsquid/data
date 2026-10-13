@@ -8,8 +8,28 @@ use crate::db::ops::schema_merge::can_merge_schemas;
 /// Decides, in reverse block order, whether a chunk joins the run of the newer chunk.
 #[derive(Default)]
 pub(super) struct RunBoundary {
-    last_schema_map: BTreeMap<String, SchemaRef>,
-    next_first_block: Option<BlockNumber>
+    next: Option<NextChunk>
+}
+
+struct NextChunk {
+    first_block: BlockNumber,
+    schemas: BTreeMap<String, SchemaRef>
+}
+
+impl NextChunk {
+    /// A merge reads every table of the oldest chunk from each chunk in the run,
+    /// so both chunks need the same table names.
+    fn has_mergeable_tables(&self, tables: &[(&str, SchemaRef)]) -> bool {
+        if tables.len() != self.schemas.len() {
+            return false;
+        }
+
+        tables.iter().all(|(name, schema)| {
+            self.schemas
+                .get(*name)
+                .is_some_and(|next_schema| can_merge_schemas(schema, next_schema))
+        })
+    }
 }
 
 impl RunBoundary {
@@ -19,29 +39,18 @@ impl RunBoundary {
         last_block: BlockNumber,
         tables: &[(&str, SchemaRef)]
     ) -> bool {
-        let mut schema_compatible = true;
-        let mut data_continuous = true;
-        let is_last_schema_empty = self.last_schema_map.is_empty();
+        let joins_next = self.next.as_ref().is_none_or(|next| {
+            let data_continuous = last_block + 1 == next.first_block;
+            data_continuous && next.has_mergeable_tables(tables)
+        });
 
-        if let Some(next_first_block) = self.next_first_block {
-            data_continuous = last_block + 1 == next_first_block;
-        }
-        self.next_first_block = Some(first_block);
+        let schemas = tables
+            .iter()
+            .map(|(name, schema)| (name.to_string(), schema.clone()))
+            .collect();
+        self.next = Some(NextChunk { first_block, schemas });
 
-        if !is_last_schema_empty && tables.len() != self.last_schema_map.len() {
-            self.last_schema_map = Default::default();
-            schema_compatible = false;
-        }
-        for (name, schema) in tables {
-            if let Some(last_schema) = self.last_schema_map.get(*name) {
-                schema_compatible &= can_merge_schemas(schema, last_schema);
-            } else if !is_last_schema_empty {
-                schema_compatible = false;
-            }
-            self.last_schema_map.insert(name.to_string(), schema.clone());
-        }
-
-        schema_compatible && data_continuous
+        joins_next
     }
 }
 
@@ -311,6 +320,22 @@ mod tests {
         assert!(!joins(20, 29, &b));
         assert!(!joins(10, 19, &a));
         assert!(joins(0, 9, &a));
+    }
+
+    #[test]
+    fn joins_only_chunks_with_the_same_tables() {
+        let schema = schema(DataType::UInt32, DataType::Int32);
+        let tables = |names: &[&'static str]| -> Vec<_> { names.iter().map(|&name| (name, schema.clone())).collect() };
+
+        let mut boundary = RunBoundary::default();
+        assert!(boundary.joins_next(10, 19, &[]));
+        assert!(!boundary.joins_next(0, 9, &tables(&["block"])));
+
+        let mut boundary = RunBoundary::default();
+        assert!(boundary.joins_next(30, 39, &tables(&["a", "c"])));
+        assert!(!boundary.joins_next(20, 29, &tables(&["a", "b"])));
+        assert!(boundary.joins_next(10, 19, &tables(&["a", "b"])));
+        assert!(!boundary.joins_next(0, 9, &tables(&["a", "b", "c"])));
     }
 
     #[test]
