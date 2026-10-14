@@ -14,7 +14,8 @@ use crate::{
     encoding::ContentEncoding,
     errors::Busy,
     metrics::{
-        STREAM_BLOCKS, STREAM_BLOCKS_PER_SECOND, STREAM_BYTES, STREAM_BYTES_PER_SECOND, STREAM_CHUNKS, STREAM_DURATIONS
+        QueryStep, STREAM_BLOCKS, STREAM_BLOCKS_PER_SECOND, STREAM_BYTES, STREAM_BYTES_PER_SECOND, STREAM_CHUNKS,
+        STREAM_DURATIONS
     },
     shadow::ShadowQuery,
     types::{ClientId, DBRef}
@@ -95,7 +96,7 @@ impl QueryResponse {
 
         let stats = QueryStreamStats::new();
         let mut runner = slot
-            .run(move |slot| -> anyhow::Result<_> {
+            .run(QueryStep::First, move |slot| -> anyhow::Result<_> {
                 let mut runner =
                     RunningQuery::new(db, dataset_id, &query, only_finalized, encoding, shadow).map(Box::new)?;
                 next_run(&mut runner, slot)?;
@@ -148,7 +149,7 @@ impl QueryResponse {
         };
 
         let (mut runner, result) = slot
-            .run(move |slot| {
+            .run(QueryStep::Next, move |slot| {
                 let mut runner = runner;
                 let result = next_run(&mut runner, slot);
                 (runner, result)

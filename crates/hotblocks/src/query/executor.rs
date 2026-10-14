@@ -3,12 +3,16 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering}
-    }
+    },
+    time::Instant
 };
 
 use crate::{
     errors::QueryTaskPanicked,
-    metrics::{COMPLETED_QUERIES, report_query_too_many_tasks_error}
+    metrics::{
+        COMPLETED_QUERIES, QueryStep, report_query_task_finished, report_query_task_spawned, report_query_task_started,
+        report_query_too_many_tasks_error
+    }
 };
 
 #[derive(Clone)]
@@ -70,16 +74,23 @@ impl QuerySlot {
         time.min(100)
     }
 
-    pub async fn run<R, F>(self, task: F) -> Result<R, QueryTaskPanicked>
+    pub async fn run<R, F>(self, step: QueryStep, task: F) -> Result<R, QueryTaskPanicked>
     where
         F: FnOnce(&Self) -> R + Send + 'static,
         R: Send + 'static
     {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
+        let spawned = Instant::now();
+        report_query_task_spawned();
         sqd_polars::POOL.spawn(move || {
+            let started = Instant::now();
+            report_query_task_started(step, started.duration_since(spawned));
+
             let slot = self;
             let result = catch_unwind(AssertUnwindSafe(|| task(&slot))).map_err(|_| QueryTaskPanicked);
+            report_query_task_finished(step, started.elapsed());
+
             // Release before waking the caller: sending first lets it observe the slot still
             // taken and be refused admission for a query that has already finished.
             drop(slot);
@@ -115,7 +126,7 @@ mod tests {
         let result = executor
             .get_slot()
             .expect("the first task must get a slot")
-            .run(|_| panic!("injected query panic"))
+            .run(QueryStep::First, |_| panic!("injected query panic"))
             .await;
 
         assert!(result.is_err());
