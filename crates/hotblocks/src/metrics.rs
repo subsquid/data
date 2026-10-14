@@ -293,6 +293,58 @@ pub(crate) fn report_shadow_run_finished() {
     SHADOW_IN_FLIGHT.dec();
 }
 
+/// The `QuerySlot::run` call site of a query task.
+#[derive(Copy, Clone, Hash, Debug, Eq, PartialEq)]
+pub(crate) enum QueryStep {
+    /// Opens the response stream.
+    First,
+    /// Fills the buffer for the next data pack of an open stream.
+    Next
+}
+
+impl QueryStep {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::First => "first",
+            Self::Next => "next"
+        }
+    }
+}
+
+impl EncodeLabelValue for QueryStep {
+    fn encode(&self, encoder: &mut LabelValueEncoder) -> Result<(), std::fmt::Error> {
+        encoder.write_str(self.as_str())
+    }
+}
+
+#[derive(Copy, Clone, Hash, Debug, Eq, PartialEq, EncodeLabelSet)]
+struct QueryStepLabel {
+    step: QueryStep
+}
+
+static QUERY_TASK_QUEUE_DURATION: LazyLock<Family<QueryStepLabel, Histogram>> =
+    LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(exponential_buckets(0.0001, 2.0, 18))));
+static QUERY_TASK_RUN_DURATION: LazyLock<Family<QueryStepLabel, Histogram>> =
+    LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(exponential_buckets(0.0001, 2.0, 18))));
+static QUERY_TASKS_QUEUED: LazyLock<Gauge> = LazyLock::new(Default::default);
+
+pub(crate) fn report_query_task_spawned() {
+    QUERY_TASKS_QUEUED.inc();
+}
+
+pub(crate) fn report_query_task_started(step: QueryStep, queued: Duration) {
+    QUERY_TASKS_QUEUED.dec();
+    QUERY_TASK_QUEUE_DURATION
+        .get_or_create(&QueryStepLabel { step })
+        .observe(queued.as_secs_f64());
+}
+
+pub(crate) fn report_query_task_finished(step: QueryStep, ran: Duration) {
+    QUERY_TASK_RUN_DURATION
+        .get_or_create(&QueryStepLabel { step })
+        .observe(ran.as_secs_f64());
+}
+
 pub fn report_query_too_many_tasks_error() {
     QUERY_ERROR_TOO_MANY_TASKS.inc();
 }
@@ -680,6 +732,23 @@ pub fn build_metrics_registry() -> Registry {
         "completed_queries",
         "Number of completed queries",
         COMPLETED_QUERIES.clone()
+    );
+    registry.register(
+        "query_task_queue_seconds",
+        "Time a query task waited in the query pool's queue before a worker took it, by step \
+         (first opens a stream, next fills each later data pack)",
+        QUERY_TASK_QUEUE_DURATION.clone()
+    );
+    registry.register(
+        "query_task_run_seconds",
+        "Time a query task held a query pool worker, by step",
+        QUERY_TASK_RUN_DURATION.clone()
+    );
+    registry.register(
+        "query_tasks_queued",
+        "Query tasks waiting in the query pool's queue; active_queries minus this is the number \
+         of running tasks",
+        QUERY_TASKS_QUEUED.clone()
     );
     registry.register(
         "shadow_queries",
