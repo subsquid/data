@@ -7,14 +7,20 @@ use std::{
 };
 
 use anyhow::{bail, ensure};
+use bytes::Bytes;
 use sqd_query::Query;
 
-use super::{executor::QueryExecutor, response::QueryResponse};
+use super::{
+    executor::QueryExecutor,
+    response::QueryResponse,
+    slow_tasks::{SlowTasks, SlowTasksRef}
+};
 use crate::{
     dataset_controller::DatasetController,
     encoding::ContentEncoding,
     errors::{Busy, QueryIsAboveTheHead, QueryKindMismatch},
     query::QueryExecutorCollector,
+    settings::SettingsRef,
     shadow::ShadowQuery,
     types::{ClientId, DBRef, DatasetKind}
 };
@@ -23,15 +29,17 @@ pub type QueryServiceRef = Arc<QueryService>;
 
 pub struct QueryServiceBuilder {
     db: DBRef,
+    settings: SettingsRef,
     max_data_waiters: usize,
     max_pending_tasks: usize,
     urgency: usize
 }
 
 impl QueryServiceBuilder {
-    pub fn new(db: DBRef) -> Self {
+    pub fn new(db: DBRef, settings: SettingsRef) -> Self {
         Self {
             db,
+            settings,
             max_data_waiters: 64_000,
             max_pending_tasks: sqd_polars::POOL.current_num_threads() * 200,
             urgency: 500
@@ -63,6 +71,7 @@ impl QueryServiceBuilder {
         QueryService {
             db: self.db.clone(),
             executor: QueryExecutor::new(self.max_pending_tasks, self.urgency),
+            slow_tasks: Arc::new(SlowTasks::new(self.settings.clone())),
             wait_slots: WaitSlots {
                 waiters: AtomicUsize::new(0),
                 limit: self.max_data_waiters
@@ -74,23 +83,25 @@ impl QueryServiceBuilder {
 pub struct QueryService {
     db: DBRef,
     executor: QueryExecutor,
+    slow_tasks: SlowTasksRef,
     wait_slots: WaitSlots
 }
 
 impl QueryService {
-    pub fn builder(db: DBRef) -> QueryServiceBuilder {
-        QueryServiceBuilder::new(db)
+    pub fn builder(db: DBRef, settings: SettingsRef) -> QueryServiceBuilder {
+        QueryServiceBuilder::new(db, settings)
     }
 
     pub async fn query(
         &self,
         dataset: &DatasetController,
         query: Query,
+        body: Bytes,
         client_id: ClientId,
         encoding: ContentEncoding,
         shadow: Option<ShadowQuery>
     ) -> anyhow::Result<QueryResponse> {
-        self.query_internal(dataset, query, false, client_id, encoding, shadow)
+        self.query_internal(dataset, query, body, false, client_id, encoding, shadow)
             .await
     }
 
@@ -98,11 +109,12 @@ impl QueryService {
         &self,
         dataset: &DatasetController,
         query: Query,
+        body: Bytes,
         client_id: ClientId,
         encoding: ContentEncoding,
         shadow: Option<ShadowQuery>
     ) -> anyhow::Result<QueryResponse> {
-        self.query_internal(dataset, query, true, client_id, encoding, shadow)
+        self.query_internal(dataset, query, body, true, client_id, encoding, shadow)
             .await
     }
 
@@ -110,6 +122,7 @@ impl QueryService {
         &self,
         dataset: &DatasetController,
         query: Query,
+        body: Bytes,
         finalized: bool,
         client_id: ClientId,
         encoding: ContentEncoding,
@@ -164,9 +177,11 @@ impl QueryService {
 
         QueryResponse::new(
             self.executor.clone(),
+            self.slow_tasks.clone(),
             self.db.clone(),
             dataset.dataset_id(),
             query,
+            body,
             finalized,
             None,
             client_id,

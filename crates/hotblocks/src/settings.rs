@@ -17,7 +17,8 @@ pub type SettingsRef = Arc<RuntimeSettings>;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
-    pub shadow: ShadowSettings
+    pub shadow: ShadowSettings,
+    pub slow_tasks: SlowTaskSettings
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -36,6 +37,22 @@ pub struct ShadowSettings {
 impl ShadowSettings {
     pub fn slow_margin(&self) -> Duration {
         Duration::from_millis(self.slow_margin_ms)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SlowTaskSettings {
+    /// A query task is slow when it holds a query pool worker this long.
+    pub threshold_ms: u64,
+    /// Detailed log lines per 5 minutes, at most one per query shape; 0 turns
+    /// them off.
+    pub log_limit: usize
+}
+
+impl SlowTaskSettings {
+    pub fn threshold(&self) -> Duration {
+        Duration::from_millis(self.threshold_ms)
     }
 }
 
@@ -69,6 +86,10 @@ impl RuntimeSettings {
 
     pub fn shadow(&self) -> ShadowSettings {
         self.current.read().shadow
+    }
+
+    pub fn slow_tasks(&self) -> SlowTaskSettings {
+        self.current.read().slow_tasks
     }
 
     /// Apply a JSON Merge Patch (RFC 7386). A patch that leaves the settings
@@ -142,6 +163,10 @@ mod tests {
                 slow_ratio: 2.0,
                 slow_margin_ms: 50,
                 log_limit: 20
+            },
+            slow_tasks: SlowTaskSettings {
+                threshold_ms: 500,
+                log_limit: 20
             }
         })
         .unwrap()
@@ -150,6 +175,7 @@ mod tests {
     #[test]
     fn a_patch_changes_only_the_keys_it_names() {
         let settings = settings();
+        let before = settings.get();
 
         let updated = settings
             .update(json!({"shadow": {"percent": 5, "logLimit": 0}}))
@@ -163,6 +189,7 @@ mod tests {
         };
         assert_eq!(updated.shadow, expected);
         assert_eq!(settings.shadow(), expected);
+        assert_eq!(updated.slow_tasks, before.slow_tasks);
     }
 
     #[test]

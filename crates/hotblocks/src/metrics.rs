@@ -23,7 +23,7 @@ use tracing::error;
 use crate::{
     errors::{DataAvailabilityChangedDuringFinalizedReplay, UnapplicableFork},
     query::QueryExecutorCollector,
-    types::DBRef
+    types::{ClientId, DBRef}
 };
 
 #[derive(Copy, Clone, Hash, Debug, Default, Ord, PartialOrd, Eq, PartialEq, EncodeLabelSet)]
@@ -303,7 +303,7 @@ pub(crate) enum QueryStep {
 }
 
 impl QueryStep {
-    const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::First => "first",
             Self::Next => "next"
@@ -327,6 +327,7 @@ static QUERY_TASK_QUEUE_DURATION: LazyLock<Family<QueryStepLabel, Histogram>> =
 static QUERY_TASK_RUN_DURATION: LazyLock<Family<QueryStepLabel, Histogram>> =
     LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(exponential_buckets(0.0001, 2.0, 18))));
 static QUERY_TASKS_QUEUED: LazyLock<Gauge> = LazyLock::new(Default::default);
+static QUERY_SLOW_TASKS: LazyLock<Family<Labels, Counter>> = LazyLock::new(Default::default);
 
 pub(crate) fn report_query_task_spawned() {
     QUERY_TASKS_QUEUED.inc();
@@ -343,6 +344,15 @@ pub(crate) fn report_query_task_finished(step: QueryStep, ran: Duration) {
     QUERY_TASK_RUN_DURATION
         .get_or_create(&QueryStepLabel { step })
         .observe(ran.as_secs_f64());
+}
+
+pub(crate) fn report_slow_query_task(dataset_id: DatasetId, client_id: &ClientId, step: QueryStep) {
+    let labels = vec![
+        ("client_id", client_id.as_str().to_owned()),
+        ("dataset_name", dataset_id.as_str().to_owned()),
+        ("step", step.as_str().to_owned()),
+    ];
+    QUERY_SLOW_TASKS.get_or_create(&labels).inc();
 }
 
 pub fn report_query_too_many_tasks_error() {
@@ -749,6 +759,12 @@ pub fn build_metrics_registry() -> Registry {
         "Query tasks waiting in the query pool's queue; active_queries minus this is the number \
          of running tasks",
         QUERY_TASKS_QUEUED.clone()
+    );
+    registry.register(
+        "query_slow_tasks",
+        "Query tasks that held a query pool worker longer than the slow-task threshold, not \
+         counting other tasks the worker ran inside them, by dataset, client and step",
+        QUERY_SLOW_TASKS.clone()
     );
     registry.register(
         "shadow_queries",

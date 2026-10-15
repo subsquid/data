@@ -2,6 +2,7 @@ mod executor;
 mod response;
 mod running;
 mod service;
+mod slow_tasks;
 mod static_snapshot;
 
 pub use executor::QueryExecutorCollector;

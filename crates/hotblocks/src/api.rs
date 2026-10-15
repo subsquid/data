@@ -354,11 +354,11 @@ async fn stream_internal(
 
     let query_result = if finalized {
         app.query_service
-            .query_finalized(&dataset, query, client_id, encoding, shadow)
+            .query_finalized(&dataset, query, body.clone(), client_id, encoding, shadow)
             .await
     } else {
         app.query_service
-            .query(&dataset, query, client_id, encoding, shadow)
+            .query(&dataset, query, body.clone(), client_id, encoding, shadow)
             .await
     };
 

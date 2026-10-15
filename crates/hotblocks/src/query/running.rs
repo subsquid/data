@@ -22,6 +22,7 @@ struct LeftOver {
     next_block: BlockNumber
 }
 
+#[derive(Clone, Copy)]
 pub struct RunningQueryStats {
     pub chunks_read: u64,
     pub blocks_read: u64,

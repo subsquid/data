@@ -1,10 +1,11 @@
 use std::{
+    cell::Cell,
     panic::{AssertUnwindSafe, catch_unwind},
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering}
     },
-    time::Instant
+    time::{Duration, Instant}
 };
 
 use crate::{
@@ -14,6 +15,26 @@ use crate::{
         report_query_too_many_tasks_error
     }
 };
+
+thread_local! {
+    /// Time of the tasks nested in the one this worker runs; `None` between tasks.
+    static NESTED: Cell<Option<Duration>> = const { Cell::new(None) };
+}
+
+/// How long a query task held its worker.
+#[derive(Copy, Clone, Debug)]
+pub struct TaskTime {
+    pub total: Duration,
+    /// Other query tasks this worker ran inside the task while it waited for
+    /// the task's parallel work. Tasks nested on other workers are not seen.
+    pub nested: Duration
+}
+
+impl TaskTime {
+    pub fn own(&self) -> Duration {
+        self.total.saturating_sub(self.nested)
+    }
+}
 
 #[derive(Clone)]
 pub struct QueryExecutor {
@@ -74,9 +95,12 @@ impl QuerySlot {
         time.min(100)
     }
 
-    pub async fn run<R, F>(self, step: QueryStep, task: F) -> Result<R, QueryTaskPanicked>
+    /// Run `task` on the query pool, then `report` its result and time on the
+    /// same worker. A task that panics is not reported.
+    pub async fn run<R, F, P>(self, step: QueryStep, task: F, report: P) -> Result<R, QueryTaskPanicked>
     where
         F: FnOnce(&Self) -> R + Send + 'static,
+        P: FnOnce(&R, TaskTime) + Send + 'static,
         R: Send + 'static
     {
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -86,14 +110,22 @@ impl QuerySlot {
         sqd_polars::POOL.spawn(move || {
             let started = Instant::now();
             report_query_task_started(step, started.duration_since(spawned));
+            let outer = NESTED.replace(Some(Duration::ZERO));
 
             let slot = self;
             let result = catch_unwind(AssertUnwindSafe(|| task(&slot))).map_err(|_| QueryTaskPanicked);
-            report_query_task_finished(step, started.elapsed());
+
+            let total = started.elapsed();
+            let nested = NESTED.replace(outer.map(|nested| nested + total)).unwrap_or_default();
+            report_query_task_finished(step, total);
 
             // Release before waking the caller: sending first lets it observe the slot still
             // taken and be refused admission for a query that has already finished.
             drop(slot);
+            // Here and not in the caller, which is gone when the client disconnects.
+            if let Ok(value) = &result {
+                report(value, TaskTime { total, nested });
+            }
             let _ = tx.send(result);
         });
 
@@ -126,10 +158,41 @@ mod tests {
         let result = executor
             .get_slot()
             .expect("the first task must get a slot")
-            .run(QueryStep::First, |_| panic!("injected query panic"))
+            .run(QueryStep::First, |_| panic!("injected query panic"), |_: &(), _| {})
             .await;
 
         assert!(result.is_err());
         assert!(executor.get_slot().is_some(), "the panicked task must release its slot");
+    }
+
+    #[tokio::test]
+    async fn a_task_is_reported_after_its_caller_is_gone() {
+        let executor = QueryExecutor::new(1, 1);
+        let (start, started) = tokio::sync::oneshot::channel();
+        let (finish, finished) = std::sync::mpsc::channel::<()>();
+        let (report, reported) = std::sync::mpsc::channel();
+
+        let run = executor.get_slot().expect("the first task must get a slot").run(
+            QueryStep::Next,
+            move |_| {
+                start.send(()).unwrap();
+                finished.recv().unwrap()
+            },
+            move |_, time| report.send(time).unwrap()
+        );
+        let caller = tokio::spawn(run);
+        started.await.unwrap();
+        caller.abort();
+        assert!(
+            matches!(caller.await, Err(e) if e.is_cancelled()),
+            "the caller was not dropped while the task ran"
+        );
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        finish.send(()).unwrap();
+        let time = reported
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the task was not reported");
+        assert!(time.total >= Duration::from_millis(50), "{time:?}");
     }
 }
