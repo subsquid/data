@@ -14,8 +14,6 @@
 mod compare;
 
 use std::{
-    collections::HashSet,
-    hash::{Hash, Hasher},
     panic::{AssertUnwindSafe, catch_unwind},
     sync::{
         Arc,
@@ -35,6 +33,7 @@ use tracing::{error, warn};
 
 use self::compare::Difference;
 use crate::{
+    log_window::{LogWindow, query_fingerprint, truncate_query},
     metrics::{
         ShadowOutcome, report_shadow_query, report_shadow_run, report_shadow_run_finished, report_shadow_run_started,
         report_shadow_timing
@@ -44,12 +43,6 @@ use crate::{
     settings::{SettingsRef, ShadowSettings},
     types::DatasetKind
 };
-
-/// How much of a query a log line carries: a query can list tens of thousands
-/// of addresses.
-const MAX_LOGGED_QUERY_BYTES: usize = 16 * 1024;
-/// The window [`ShadowSettings::log_limit`] counts log lines in.
-const LOG_WINDOW: Duration = Duration::from_secs(300);
 
 pub type ShadowRef = Arc<Shadow>;
 
@@ -73,10 +66,7 @@ impl Shadow {
             .context("failed to start the shadow threads")?;
         Ok(Self {
             in_flight: AtomicUsize::new(0),
-            log_window: Mutex::new(LogWindow {
-                started: Instant::now(),
-                logged: HashSet::new()
-            }),
+            log_window: Mutex::new(LogWindow::new()),
             settings,
             max_in_flight,
             catalogs,
@@ -136,7 +126,7 @@ impl Shadow {
             ShadowOutcome::Match if slow => "slow",
             _ => return
         };
-        let fingerprint = run.query.fingerprint();
+        let fingerprint = query_fingerprint(dataset_id, &run.query.body);
         if !self.log_window.lock().claim(fingerprint, reason, settings.log_limit) {
             return;
         }
@@ -200,23 +190,6 @@ impl ShadowQuery {
             run.query.shadow.record(&run, &outcome);
             drop(slot);
         });
-    }
-
-    /// The query with its block range and parent hash removed: what stays the
-    /// same while a client follows the chain.
-    fn fingerprint(&self) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.dataset_id.as_str().hash(&mut hasher);
-        match serde_json::from_slice::<serde_json::Value>(&self.body) {
-            Ok(serde_json::Value::Object(mut query)) => {
-                for key in ["fromBlock", "toBlock", "parentBlockHash"] {
-                    query.remove(key);
-                }
-                serde_json::Value::Object(query).to_string().hash(&mut hasher);
-            }
-            _ => self.body.hash(&mut hasher)
-        }
-        hasher.finish()
     }
 }
 
@@ -484,40 +457,10 @@ fn guarded<T>(run: impl FnOnce() -> anyhow::Result<T>) -> Result<T, String> {
     }
 }
 
-fn truncate_query(mut query: String) -> String {
-    if query.len() > MAX_LOGGED_QUERY_BYTES {
-        let mut cut = MAX_LOGGED_QUERY_BYTES;
-        while !query.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        query.truncate(cut);
-        query.push_str("…<truncated>");
-    }
-    query
-}
-
 fn panic_message(panic: &Box<dyn std::any::Any + Send>) -> &str {
     panic
         .downcast_ref::<String>()
         .map(String::as_str)
         .or_else(|| panic.downcast_ref::<&str>().copied())
         .unwrap_or("non-string panic payload")
-}
-
-/// The queries logged in detail in the current [`LOG_WINDOW`].
-struct LogWindow {
-    started: Instant,
-    /// Query fingerprints and reasons.
-    logged: HashSet<(u64, &'static str)>
-}
-
-impl LogWindow {
-    /// Whether this query may be logged in detail for this reason now.
-    fn claim(&mut self, fingerprint: u64, reason: &'static str, limit: usize) -> bool {
-        if self.started.elapsed() >= LOG_WINDOW {
-            self.started = Instant::now();
-            self.logged.clear();
-        }
-        self.logged.len() < limit && self.logged.insert((fingerprint, reason))
-    }
 }

@@ -5,6 +5,7 @@ mod dataset_config;
 mod dataset_controller;
 mod encoding;
 mod errors;
+mod log_window;
 mod metrics;
 mod query;
 mod query_engine;

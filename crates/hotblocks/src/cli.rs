@@ -16,7 +16,7 @@ use crate::{
     metrics::{DatasetMetricsCollector, RocksDbCollector},
     query::{QueryService, QueryServiceRef},
     query_engine::MetadataCatalogs,
-    settings::{RuntimeSettings, Settings, SettingsRef, ShadowSettings},
+    settings::{RuntimeSettings, Settings, SettingsRef, ShadowSettings, SlowTaskSettings},
     shadow::{Shadow, ShadowRef},
     types::DBRef
 };
@@ -186,7 +186,21 @@ pub struct CLI {
     /// Shadow log lines for differences, failures and slow runs per 5 minutes,
     /// at most one per query shape; 0 turns them off.
     #[arg(long, value_name = "N", env = "SQD_SHADOW_LOG_LIMIT", default_value = "20")]
-    pub shadow_log_limit: usize
+    pub shadow_log_limit: usize,
+
+    /// A query task is slow, and counted in `hotblocks_query_slow_tasks_total`, when it
+    /// holds a query pool worker this many milliseconds, not counting other
+    /// tasks the worker ran inside it.
+    ///
+    /// This and `--slow-task-log-limit` are starting values: `PATCH /settings`
+    /// changes them until a restart.
+    #[arg(long, value_name = "MS", default_value = "500")]
+    pub slow_task_threshold_ms: u64,
+
+    /// Slow-task log lines per 5 minutes, at most one per query shape; 0 turns
+    /// them off.
+    #[arg(long, value_name = "N", default_value = "20")]
+    pub slow_task_log_limit: usize
 }
 
 pub struct App {
@@ -210,6 +224,10 @@ impl CLI {
                 slow_ratio: self.shadow_slow_ratio,
                 slow_margin_ms: self.shadow_slow_margin_ms,
                 log_limit: self.shadow_log_limit
+            },
+            slow_tasks: SlowTaskSettings {
+                threshold_ms: self.slow_task_threshold_ms,
+                log_limit: self.slow_task_log_limit
             }
         })
         .map(Arc::new)?;
@@ -259,7 +277,7 @@ impl CLI {
             .map(Arc::new)?;
 
         let query_service = {
-            let mut builder = QueryService::builder(db.clone());
+            let mut builder = QueryService::builder(db.clone(), runtime_settings.clone());
             builder.set_max_data_waiters(self.query_max_data_waiters);
 
             if let Some(size) = self.query_task_queue {

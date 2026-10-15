@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant}
+};
 
 use anyhow::bail;
 use bytes::Bytes;
@@ -8,7 +11,8 @@ use sqd_storage::db::DatasetId;
 
 use super::{
     executor::{QueryExecutor, QuerySlot},
-    running::{RunningQuery, RunningQueryStats}
+    running::{RunningQuery, RunningQueryStats},
+    slow_tasks::{SlowTasksRef, TaskReporter}
 };
 use crate::{
     encoding::ContentEncoding,
@@ -25,6 +29,7 @@ const DEFAULT_QUERY_LIMIT: Duration = Duration::from_secs(10);
 
 pub struct QueryResponse {
     executor: QueryExecutor,
+    reporter: Arc<TaskReporter>,
     runner: Option<Box<RunningQuery>>,
     finalized_head: Option<BlockRef>,
     dataset_id: DatasetId,
@@ -83,9 +88,11 @@ impl QueryStreamStats {
 impl QueryResponse {
     pub(super) async fn new(
         executor: QueryExecutor,
+        slow_tasks: SlowTasksRef,
         db: DBRef,
         dataset_id: DatasetId,
         query: Query,
+        body: Bytes,
         only_finalized: bool,
         time_limit: Option<Duration>,
         client_id: ClientId,
@@ -95,18 +102,29 @@ impl QueryResponse {
         let Some(slot) = executor.get_slot() else { bail!(Busy) };
 
         let stats = QueryStreamStats::new();
+        let reporter = Arc::new(TaskReporter::new(slow_tasks, dataset_id, client_id.clone(), body));
+        let first_reporter = reporter.clone();
         let mut runner = slot
-            .run(QueryStep::First, move |slot| -> anyhow::Result<_> {
-                let mut runner =
-                    RunningQuery::new(db, dataset_id, &query, only_finalized, encoding, shadow).map(Box::new)?;
-                next_run(&mut runner, slot)?;
-                Ok(runner)
-            })
+            .run(
+                QueryStep::First,
+                move |slot| -> anyhow::Result<_> {
+                    let mut runner =
+                        RunningQuery::new(db, dataset_id, &query, only_finalized, encoding, shadow).map(Box::new)?;
+                    next_run(&mut runner, slot)?;
+                    Ok(runner)
+                },
+                move |runner, time| {
+                    let failed = runner.is_err();
+                    let runner = runner.as_deref().ok();
+                    first_reporter.record(QueryStep::First, time, runner, &RunningQueryStats::new(), failed);
+                }
+            )
             .await??;
 
         let time_limit = time_limit.unwrap_or(DEFAULT_QUERY_LIMIT);
         let response = Self {
             executor,
+            reporter,
             finalized_head: runner.take_finalized_head(),
             runner: Some(runner),
             stats,
@@ -148,12 +166,21 @@ impl QueryResponse {
             bail!(Busy);
         };
 
+        let stats_before = *runner.stats();
+        let reporter = self.reporter.clone();
         let (mut runner, result) = slot
-            .run(QueryStep::Next, move |slot| {
-                let mut runner = runner;
-                let result = next_run(&mut runner, slot);
-                (runner, result)
-            })
+            .run(
+                QueryStep::Next,
+                move |slot| {
+                    let mut runner = runner;
+                    let result = next_run(&mut runner, slot);
+                    (runner, result)
+                },
+                move |(runner, result), time| {
+                    let failed = result.is_err();
+                    reporter.record(QueryStep::Next, time, Some(runner), &stats_before, failed);
+                }
+            )
             .await?;
 
         if let Err(err) = result {
