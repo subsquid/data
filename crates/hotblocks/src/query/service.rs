@@ -67,16 +67,16 @@ impl QueryServiceBuilder {
         self
     }
 
-    pub fn build(&self) -> QueryService {
-        QueryService {
+    pub fn build(&self) -> anyhow::Result<QueryService> {
+        Ok(QueryService {
             db: self.db.clone(),
-            executor: QueryExecutor::new(self.max_pending_tasks, self.urgency),
+            executor: QueryExecutor::new(self.max_pending_tasks, self.urgency, self.settings.clone())?,
             slow_tasks: Arc::new(SlowTasks::new(self.settings.clone())),
             wait_slots: WaitSlots {
                 waiters: AtomicUsize::new(0),
                 limit: self.max_data_waiters
             }
-        }
+        })
     }
 }
 

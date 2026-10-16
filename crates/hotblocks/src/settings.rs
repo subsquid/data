@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::info;
 
-use crate::metrics::set_shadow_percent;
+use crate::metrics::{set_query_thread_per_task, set_shadow_percent};
 
 pub type SettingsRef = Arc<RuntimeSettings>;
 
@@ -18,7 +18,8 @@ pub type SettingsRef = Arc<RuntimeSettings>;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
     pub shadow: ShadowSettings,
-    pub slow_tasks: SlowTaskSettings
+    pub slow_tasks: SlowTaskSettings,
+    pub query: QuerySettings
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -54,6 +55,14 @@ impl SlowTaskSettings {
     pub fn threshold(&self) -> Duration {
         Duration::from_millis(self.threshold_ms)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QuerySettings {
+    /// Run each new query task on a single thread instead of the shared query
+    /// pool. A task already queued keeps the pool it was sent to.
+    pub thread_per_task: bool
 }
 
 impl Settings {
@@ -92,6 +101,10 @@ impl RuntimeSettings {
         self.current.read().slow_tasks
     }
 
+    pub fn query(&self) -> QuerySettings {
+        self.current.read().query
+    }
+
     /// Apply a JSON Merge Patch (RFC 7386). A patch that leaves the settings
     /// invalid, names an unknown key or removes a key changes nothing.
     pub fn update(&self, patch: Value) -> anyhow::Result<Settings> {
@@ -113,6 +126,7 @@ impl RuntimeSettings {
 /// Settings that are also exported as metrics.
 fn publish(settings: &Settings) {
     set_shadow_percent(settings.shadow.percent);
+    set_query_thread_per_task(settings.query.thread_per_task);
 }
 
 /// The merge drops a `null` key before deserialization can reject it as
@@ -167,7 +181,8 @@ mod tests {
             slow_tasks: SlowTaskSettings {
                 threshold_ms: 500,
                 log_limit: 20
-            }
+            },
+            query: QuerySettings { thread_per_task: false }
         })
         .unwrap()
     }
@@ -190,6 +205,7 @@ mod tests {
         assert_eq!(updated.shadow, expected);
         assert_eq!(settings.shadow(), expected);
         assert_eq!(updated.slow_tasks, before.slow_tasks);
+        assert_eq!(updated.query, before.query);
     }
 
     #[test]
@@ -203,6 +219,7 @@ mod tests {
             json!({"shadow": {"percent": 5, "percnt": null}}),
             json!({"shadow": {"percent": null}}),
             json!({"shadow": {"logLimit": -1}}),
+            json!({"query": {"threadPerTask": 1}}),
             json!({"other": {}}),
             json!(5)
         ] {

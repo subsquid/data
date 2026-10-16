@@ -50,5 +50,9 @@ sqd-hotblocks-harness = { path = "../hotblocks-harness" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
 
+[[bench]]
+name = "query_pool"
+harness = false
+
 [lints]
 workspace = true
