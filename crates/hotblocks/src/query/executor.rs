@@ -3,17 +3,21 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering}
+        atomic::{AtomicUsize, Ordering},
+        mpsc
     },
     time::{Duration, Instant}
 };
+
+use parking_lot::Mutex;
 
 use crate::{
     errors::QueryTaskPanicked,
     metrics::{
         COMPLETED_QUERIES, QueryStep, report_query_task_finished, report_query_task_spawned, report_query_task_started,
         report_query_too_many_tasks_error
-    }
+    },
+    settings::SettingsRef
 };
 
 thread_local! {
@@ -36,30 +40,117 @@ impl TaskTime {
     }
 }
 
+type Job = Box<dyn FnOnce() + Send>;
+
+/// Single-thread workers that take query tasks from one FIFO queue. Each is the
+/// only thread of its own rayon pool, so the `par_iter` and `join` inside a task
+/// run on the task's thread. In the shared pool they spread over every worker,
+/// and a new task waits in the injector until a heavy query has no parallel work
+/// left: rayon takes injected jobs last.
+struct TaskQueue {
+    sender: mpsc::Sender<Job>,
+    _workers: Vec<rayon::ThreadPool>
+}
+
+impl TaskQueue {
+    fn new(threads: usize) -> anyhow::Result<Self> {
+        let (sender, receiver) = mpsc::channel::<Job>();
+        let receiver = Arc::new(Mutex::new(receiver));
+
+        let workers = (0..threads)
+            .map(|i| {
+                let worker = rayon::ThreadPoolBuilder::new()
+                    .num_threads(1)
+                    .thread_name(move |_| format!("query-task-{i}"))
+                    .build()?;
+                let receiver = receiver.clone();
+                worker.spawn(move || {
+                    loop {
+                        // The guard must drop before the job runs, or the workers run one at a time.
+                        let job = receiver.lock().recv();
+                        let Ok(job) = job else { return };
+                        job();
+                    }
+                });
+                Ok(worker)
+            })
+            .collect::<anyhow::Result<_>>()?;
+
+        Ok(Self {
+            sender,
+            _workers: workers
+        })
+    }
+}
+
+/// Where a query task runs, chosen when its slot is taken.
+#[derive(Clone)]
+enum TaskPool {
+    Shared,
+    ThreadPerTask(Arc<TaskQueue>)
+}
+
+impl TaskPool {
+    fn spawn(&self, job: impl FnOnce() + Send + 'static) {
+        match self {
+            Self::Shared => sqd_polars::POOL.spawn(job),
+            Self::ThreadPerTask(queue) => queue
+                .sender
+                .send(Box::new(job))
+                .expect("the workers outlive the queue's sender")
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct QueryExecutor {
     // number of concurrent queries
     in_flight: Arc<AtomicUsize>,
     // limit for concurrent queries
     max_pending_tasks: usize,
-    urgency: usize
+    urgency: usize,
+    settings: SettingsRef,
+    task_queue: Arc<TaskQueue>
 }
 
 impl QueryExecutor {
-    pub fn new(max_pending_tasks: usize, urgency: usize) -> Self {
-        Self {
+    pub fn new(max_pending_tasks: usize, urgency: usize, settings: SettingsRef) -> anyhow::Result<Self> {
+        Self::with_task_workers(
+            max_pending_tasks,
+            urgency,
+            settings,
+            sqd_polars::POOL.current_num_threads()
+        )
+    }
+
+    fn with_task_workers(
+        max_pending_tasks: usize,
+        urgency: usize,
+        settings: SettingsRef,
+        task_workers: usize
+    ) -> anyhow::Result<Self> {
+        let task_queue = TaskQueue::new(task_workers)?;
+        Ok(Self {
             in_flight: Arc::new(AtomicUsize::new(0)),
             max_pending_tasks,
-            urgency
-        }
+            urgency,
+            settings,
+            task_queue: Arc::new(task_queue)
+        })
     }
 
     pub fn get_slot(&self) -> Option<QuerySlot> {
         let active_queries = self.in_flight.fetch_add(1, Ordering::SeqCst);
         if active_queries < self.max_pending_tasks {
+            let pool = if self.settings.query().thread_per_task {
+                TaskPool::ThreadPerTask(self.task_queue.clone())
+            } else {
+                TaskPool::Shared
+            };
             Some(QuerySlot {
                 in_flight: self.in_flight.clone(),
-                urgency: self.urgency
+                urgency: self.urgency,
+                pool
             })
         } else {
             self.in_flight.fetch_sub(1, Ordering::SeqCst);
@@ -75,7 +166,8 @@ impl QueryExecutor {
 
 pub struct QuerySlot {
     in_flight: Arc<AtomicUsize>,
-    urgency: usize
+    urgency: usize,
+    pool: TaskPool
 }
 
 impl Drop for QuerySlot {
@@ -95,8 +187,8 @@ impl QuerySlot {
         time.min(100)
     }
 
-    /// Run `task` on the query pool, then `report` its result and time on the
-    /// same worker. A task that panics is not reported.
+    /// Run `task` on the query pool or a single-thread worker, then `report` its
+    /// result and time on the same thread. A task that panics is not reported.
     pub async fn run<R, F, P>(self, step: QueryStep, task: F, report: P) -> Result<R, QueryTaskPanicked>
     where
         F: FnOnce(&Self) -> R + Send + 'static,
@@ -107,7 +199,8 @@ impl QuerySlot {
 
         let spawned = Instant::now();
         report_query_task_spawned();
-        sqd_polars::POOL.spawn(move || {
+        let pool = self.pool.clone();
+        pool.spawn(move || {
             let started = Instant::now();
             report_query_task_started(step, started.duration_since(spawned));
             let outer = NESTED.replace(Some(Duration::ZERO));
@@ -150,24 +243,107 @@ impl QueryExecutorCollector {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashSet, thread};
+
+    use rayon::prelude::*;
+
     use super::*;
+    use crate::settings::{QuerySettings, RuntimeSettings, Settings, ShadowSettings, SlowTaskSettings};
+
+    fn executor(max_pending_tasks: usize, thread_per_task: bool) -> QueryExecutor {
+        let settings = RuntimeSettings::new(Settings {
+            shadow: ShadowSettings {
+                percent: 0.0,
+                slow_ratio: 2.0,
+                slow_margin_ms: 50,
+                log_limit: 0
+            },
+            slow_tasks: SlowTaskSettings {
+                threshold_ms: 500,
+                log_limit: 0
+            },
+            query: QuerySettings { thread_per_task }
+        })
+        .unwrap();
+        // A worker for every task a test admits, whatever the size of the polars pool.
+        QueryExecutor::with_task_workers(max_pending_tasks, 1, Arc::new(settings), max_pending_tasks).unwrap()
+    }
 
     #[tokio::test]
     async fn worker_panic_returns_an_error_and_releases_the_slot() {
-        let executor = QueryExecutor::new(1, 1);
-        let result = executor
+        for thread_per_task in [false, true] {
+            let executor = executor(1, thread_per_task);
+            let result = executor
+                .get_slot()
+                .expect("the first task must get a slot")
+                .run(QueryStep::First, |_| panic!("injected query panic"), |_: &(), _| {})
+                .await;
+
+            assert!(result.is_err());
+            assert!(executor.get_slot().is_some(), "the panicked task must release its slot");
+        }
+    }
+
+    #[tokio::test]
+    async fn parallel_work_inside_a_task_stays_on_its_thread() {
+        let executor = executor(1, true);
+        let threads = executor
             .get_slot()
             .expect("the first task must get a slot")
-            .run(QueryStep::First, |_| panic!("injected query panic"), |_: &(), _| {})
-            .await;
+            .run(
+                QueryStep::First,
+                |_| {
+                    // Work long enough for idle workers to steal it.
+                    (0..64)
+                        .into_par_iter()
+                        .map(|_| {
+                            thread::sleep(Duration::from_millis(1));
+                            thread::current().id()
+                        })
+                        .collect::<HashSet<_>>()
+                },
+                |_, _| {}
+            )
+            .await
+            .unwrap();
 
-        assert!(result.is_err());
-        assert!(executor.get_slot().is_some(), "the panicked task must release its slot");
+        assert_eq!(threads.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_task_runs_while_another_holds_its_worker() {
+        let executor = executor(2, true);
+        let (start, started) = tokio::sync::oneshot::channel();
+        let (release, held) = std::sync::mpsc::channel::<()>();
+
+        let holder = executor.get_slot().expect("the first task must get a slot").run(
+            QueryStep::First,
+            move |_| {
+                start.send(()).unwrap();
+                held.recv().unwrap()
+            },
+            |_, _| {}
+        );
+        let holder = tokio::spawn(holder);
+        started.await.unwrap();
+
+        let other =
+            executor
+                .get_slot()
+                .expect("the second task must get a slot")
+                .run(QueryStep::First, |_| (), |_, _| {});
+        tokio::time::timeout(Duration::from_secs(10), other)
+            .await
+            .expect("the task waited for the worker of another")
+            .unwrap();
+
+        release.send(()).unwrap();
+        holder.await.unwrap().unwrap();
     }
 
     #[tokio::test]
     async fn a_task_is_reported_after_its_caller_is_gone() {
-        let executor = QueryExecutor::new(1, 1);
+        let executor = executor(1, false);
         let (start, started) = tokio::sync::oneshot::channel();
         let (finish, finished) = std::sync::mpsc::channel::<()>();
         let (report, reported) = std::sync::mpsc::channel();

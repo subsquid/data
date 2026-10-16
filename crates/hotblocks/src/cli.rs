@@ -16,7 +16,7 @@ use crate::{
     metrics::{DatasetMetricsCollector, RocksDbCollector},
     query::{QueryService, QueryServiceRef},
     query_engine::MetadataCatalogs,
-    settings::{RuntimeSettings, Settings, SettingsRef, ShadowSettings, SlowTaskSettings},
+    settings::{QuerySettings, RuntimeSettings, Settings, SettingsRef, ShadowSettings, SlowTaskSettings},
     shadow::{Shadow, ShadowRef},
     types::DBRef
 };
@@ -200,7 +200,17 @@ pub struct CLI {
     /// Slow-task log lines per 5 minutes, at most one per query shape; 0 turns
     /// them off.
     #[arg(long, value_name = "N", default_value = "20")]
-    pub slow_task_log_limit: usize
+    pub slow_task_log_limit: usize,
+
+    /// Run each query task on one of `--query-threads` single-thread workers
+    /// that take tasks from one queue, instead of the shared query pool. The
+    /// parallel work inside a task then stays on its thread, so a heavy query
+    /// holds one worker and not the whole pool. Polars keeps its own pool of the
+    /// same size.
+    ///
+    /// A starting value: `PATCH /settings` changes it until a restart.
+    #[arg(long)]
+    pub query_thread_per_task: bool
 }
 
 pub struct App {
@@ -228,6 +238,9 @@ impl CLI {
             slow_tasks: SlowTaskSettings {
                 threshold_ms: self.slow_task_threshold_ms,
                 log_limit: self.slow_task_log_limit
+            },
+            query: QuerySettings {
+                thread_per_task: self.query_thread_per_task
             }
         })
         .map(Arc::new)?;
@@ -287,7 +300,7 @@ impl CLI {
             if let Some(ms) = self.query_urgency {
                 builder.set_urgency(ms);
             }
-            let service = builder.build();
+            let service = builder.build()?;
             metrics_registry.register_collector(Box::new(service.metrics_collector()));
 
             Arc::new(service)

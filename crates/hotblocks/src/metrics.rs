@@ -327,7 +327,12 @@ static QUERY_TASK_QUEUE_DURATION: LazyLock<Family<QueryStepLabel, Histogram>> =
 static QUERY_TASK_RUN_DURATION: LazyLock<Family<QueryStepLabel, Histogram>> =
     LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(exponential_buckets(0.0001, 2.0, 18))));
 static QUERY_TASKS_QUEUED: LazyLock<Gauge> = LazyLock::new(Default::default);
+static QUERY_THREAD_PER_TASK: LazyLock<Gauge> = LazyLock::new(Default::default);
 static QUERY_SLOW_TASKS: LazyLock<Family<Labels, Counter>> = LazyLock::new(Default::default);
+
+pub(crate) fn set_query_thread_per_task(on: bool) {
+    QUERY_THREAD_PER_TASK.set(on as i64);
+}
 
 pub(crate) fn report_query_task_spawned() {
     QUERY_TASKS_QUEUED.inc();
@@ -759,6 +764,11 @@ pub fn build_metrics_registry() -> Registry {
         "Query tasks waiting in the query pool's queue; active_queries minus this is the number \
          of running tasks",
         QUERY_TASKS_QUEUED.clone()
+    );
+    registry.register(
+        "query_thread_per_task",
+        "1 when new query tasks run on a single thread each, 0 when they share the query pool",
+        QUERY_THREAD_PER_TASK.clone()
     );
     registry.register(
         "query_slow_tasks",

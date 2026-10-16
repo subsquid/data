@@ -132,7 +132,7 @@ mod tests {
     use super::*;
     use crate::{
         metrics::build_metrics_registry,
-        settings::{RuntimeSettings, Settings, ShadowSettings, SlowTaskSettings}
+        settings::{QuerySettings, RuntimeSettings, Settings, ShadowSettings, SlowTaskSettings}
     };
 
     #[test]
@@ -147,7 +147,8 @@ mod tests {
             slow_tasks: SlowTaskSettings {
                 threshold_ms: 500,
                 log_limit: 0
-            }
+            },
+            query: QuerySettings { thread_per_task: false }
         })
         .unwrap();
         let slow_tasks = SlowTasks::new(Arc::new(settings));

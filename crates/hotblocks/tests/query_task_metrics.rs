@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use anyhow::{Result, ensure};
-use serde_json::json;
+use anyhow::{Result, bail, ensure};
+use serde_json::{Value, json};
 use sqd_hotblocks_harness::{
     Harness, HarnessConfig, Outcome,
     chain::{Chain, Evm},
@@ -15,6 +15,7 @@ const START: u64 = 1_000;
 const QUEUE: &str = "hotblocks_query_task_queue_seconds_count";
 const RUN: &str = "hotblocks_query_task_run_seconds_count";
 const SLOW: &str = "hotblocks_query_slow_tasks_total";
+const THREAD_PER_TASK: &str = "hotblocks_query_thread_per_task";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_query_task_is_timed_in_the_queue_and_on_a_worker() -> Result<()> {
@@ -100,5 +101,38 @@ async fn a_first_task_that_fails_is_still_counted() -> Result<()> {
 
     let metrics = h.client.metrics().await?;
     assert_eq!(metrics.get(SLOW, Some(("step", "first"))), Some(1.0));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_query_answers_the_same_with_a_thread_per_task_and_the_mode_changes_at_runtime() -> Result<()> {
+    let mut cfg = HarnessConfig::from_block(env!("CARGO_BIN_EXE_sqd-hotblocks"), Arc::new(Evm), START);
+    cfg.sut_args.push("--query-thread-per-task".to_string());
+    let mut h = Harness::start(cfg).await?;
+    h.produce(10)?;
+    h.settle().await?;
+    let query = Evm.scan_query(START, None, None);
+
+    let blocks = async |h: &Harness| -> Result<Vec<Value>> {
+        match h.client.query(&query).await? {
+            Outcome::Ok { blocks, .. } => Ok(blocks.into_iter().map(|block| block.raw).collect()),
+            outcome => bail!("{query} did not return data: {outcome:?}")
+        }
+    };
+
+    assert_eq!(h.client.metrics().await?.get(THREAD_PER_TASK, None), Some(1.0));
+    let single = blocks(&h).await?;
+
+    assert_eq!(
+        h.client
+            .update_settings(&json!({"query": {"threadPerTask": false}}))
+            .await?,
+        200
+    );
+    assert_eq!(h.client.metrics().await?.get(THREAD_PER_TASK, None), Some(0.0));
+    let shared = blocks(&h).await?;
+
+    assert_eq!(shared.len(), 10);
+    assert_eq!(single, shared);
     Ok(())
 }
