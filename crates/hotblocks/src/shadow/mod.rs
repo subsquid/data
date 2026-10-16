@@ -9,7 +9,8 @@
 //!
 //! A difference in values, an error only one engine raises, and a run where the
 //! new engine is much slower are logged with the query that reproduces them and
-//! counted in metrics.
+//! counted in metrics. A run where the legacy engine is much slower is counted
+//! too: a slow-run count means little without its mirror.
 
 mod compare;
 
@@ -35,10 +36,10 @@ use self::compare::Difference;
 use crate::{
     log_window::{LogWindow, query_fingerprint, truncate_query},
     metrics::{
-        ShadowOutcome, report_shadow_query, report_shadow_run, report_shadow_run_finished, report_shadow_run_started,
-        report_shadow_timing
+        ShadowOutcome, ShadowSlower, report_shadow_query, report_shadow_run, report_shadow_run_finished,
+        report_shadow_run_started, report_shadow_timing
     },
-    query::StaticChunkReader,
+    query::{StaticChunkReader, TaskQueue},
     query_engine::{self, MetadataCatalogs},
     settings::{SettingsRef, ShadowSettings},
     types::DatasetKind
@@ -52,25 +53,20 @@ pub struct Shadow {
     catalogs: Arc<MetadataCatalogs>,
     /// Runs get their own threads, so that they never queue ahead of a client's
     /// query. The legacy engine's polars operations still use the shared pool.
-    pool: rayon::ThreadPool,
+    threads: TaskQueue,
     in_flight: AtomicUsize,
     log_window: Mutex<LogWindow>
 }
 
 impl Shadow {
     pub fn new(max_in_flight: usize, settings: SettingsRef, catalogs: Arc<MetadataCatalogs>) -> anyhow::Result<Self> {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(max_in_flight.max(1))
-            .thread_name(|index| format!("shadow-{index}"))
-            .build()
-            .context("failed to start the shadow threads")?;
         Ok(Self {
             in_flight: AtomicUsize::new(0),
             log_window: Mutex::new(LogWindow::new()),
             settings,
             max_in_flight,
             catalogs,
-            pool
+            threads: run_threads(max_in_flight)?
         })
     }
 
@@ -112,18 +108,18 @@ impl Shadow {
         let label = outcome.label();
         report_shadow_run(dataset_id, label);
 
-        let slow = match outcome {
+        let slower = match outcome {
             Outcome::Compared { legacy, new, .. } => {
-                let slow = is_slow(&settings, *legacy, *new);
-                report_shadow_timing(dataset_id, *legacy, *new, slow);
-                slow
+                let slower = slower(&settings, *legacy, *new);
+                report_shadow_timing(dataset_id, *legacy, *new, slower);
+                slower
             }
-            Outcome::Failed { .. } => false
+            Outcome::Failed { .. } => None
         };
 
         let reason = match label {
             ShadowOutcome::Mismatch | ShadowOutcome::LegacyError | ShadowOutcome::NewError => label.as_str(),
-            ShadowOutcome::Match if slow => "slow",
+            ShadowOutcome::Match if slower == Some(ShadowSlower::New) => "slow",
             _ => return
         };
         let fingerprint = query_fingerprint(dataset_id, &run.query.body);
@@ -146,9 +142,26 @@ impl Shadow {
     }
 }
 
-fn is_slow(settings: &ShadowSettings, legacy: Duration, new: Duration) -> bool {
-    let margin = new.saturating_sub(legacy);
-    new.as_secs_f64() > legacy.as_secs_f64() * settings.slow_ratio && margin >= settings.slow_margin()
+/// One single-thread worker for each run slot. A worker that waits for parallel
+/// work in a shared pool runs other jobs of that pool meanwhile, so one run's
+/// time would hold the whole of other runs.
+fn run_threads(max_in_flight: usize) -> anyhow::Result<TaskQueue> {
+    TaskQueue::new(max_in_flight.max(1), "shadow").context("failed to start the shadow threads")
+}
+
+fn slower(settings: &ShadowSettings, legacy: Duration, new: Duration) -> Option<ShadowSlower> {
+    if is_slower(settings, new, legacy) {
+        Some(ShadowSlower::New)
+    } else if is_slower(settings, legacy, new) {
+        Some(ShadowSlower::Legacy)
+    } else {
+        None
+    }
+}
+
+fn is_slower(settings: &ShadowSettings, time: Duration, other: Duration) -> bool {
+    let margin = time.saturating_sub(other);
+    time.as_secs_f64() > other.as_secs_f64() * settings.slow_ratio && margin >= settings.slow_margin()
 }
 
 /// A shadowed query, carried by the response it shadows.
@@ -185,7 +198,7 @@ impl ShadowQuery {
             chunk: chunk.clone(),
             bounds
         };
-        self.shadow.pool.spawn(move || {
+        self.shadow.threads.spawn(move || {
             let outcome = run.execute();
             run.query.shadow.record(&run, &outcome);
             drop(slot);
@@ -463,4 +476,53 @@ fn panic_message(panic: &Box<dyn std::any::Any + Send>) -> &str {
         .map(String::as_str)
         .or_else(|| panic.downcast_ref::<&str>().copied())
         .unwrap_or("non-string panic payload")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::mpsc, thread};
+
+    use super::*;
+
+    #[test]
+    fn a_run_never_runs_another_inside_its_time() {
+        let threads = run_threads(2).unwrap();
+        let (started, run_started) = mpsc::channel();
+        let (other_done, other_finished) = mpsc::channel();
+        let (done, finished) = mpsc::channel();
+
+        threads.spawn(move || {
+            // The second half waits for the other run. Where another worker can take
+            // it, this one waits for that worker and takes the other run meanwhile.
+            let ((), other_thread) = rayon::join(
+                || {
+                    started.send(()).unwrap();
+                    thread::sleep(Duration::from_millis(100));
+                },
+                move || other_finished.recv_timeout(Duration::from_secs(10)).unwrap()
+            );
+            done.send((thread::current().id(), other_thread)).unwrap();
+        });
+        run_started.recv().unwrap();
+        threads.spawn(move || other_done.send(thread::current().id()).unwrap());
+
+        let (thread, other_thread) = finished.recv_timeout(Duration::from_secs(20)).unwrap();
+        assert_ne!(thread, other_thread, "the other run ran inside this one");
+    }
+
+    #[test]
+    fn either_engine_can_be_the_slower() {
+        let settings = ShadowSettings {
+            percent: 100.0,
+            slow_ratio: 2.0,
+            slow_margin_ms: 50,
+            log_limit: 0
+        };
+        let ms = Duration::from_millis;
+
+        assert_eq!(slower(&settings, ms(10), ms(100)), Some(ShadowSlower::New));
+        assert_eq!(slower(&settings, ms(100), ms(10)), Some(ShadowSlower::Legacy));
+        assert_eq!(slower(&settings, ms(10), ms(40)), None, "under the margin");
+        assert_eq!(slower(&settings, ms(100), ms(190)), None, "under the ratio");
+    }
 }
