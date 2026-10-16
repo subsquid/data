@@ -175,7 +175,8 @@ pub struct CLI {
     #[arg(long, value_name = "RATIO", default_value = "2")]
     pub shadow_slow_ratio: f64,
 
-    /// ...and at least this many milliseconds longer.
+    /// ...and at least this many milliseconds longer. The same rule with the
+    /// engines swapped counts the runs where the legacy engine is slow.
     #[arg(long, value_name = "MS", default_value = "50")]
     pub shadow_slow_margin_ms: u64,
 

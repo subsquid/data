@@ -234,6 +234,13 @@ impl ShadowOutcome {
     }
 }
 
+/// The engine whose time is over the slow ratio and margin of the other's.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ShadowSlower {
+    Legacy,
+    New
+}
+
 #[derive(Copy, Clone, Hash, Debug, Eq, PartialEq, EncodeLabelSet)]
 struct ShadowRunLabels {
     dataset: DatasetValue,
@@ -249,6 +256,7 @@ struct ShadowEngineLabels {
 static SHADOW_QUERIES: LazyLock<Family<DatasetLabel, Counter>> = LazyLock::new(Default::default);
 static SHADOW_RUNS: LazyLock<Family<ShadowRunLabels, Counter>> = LazyLock::new(Default::default);
 static SHADOW_SLOW_RUNS: LazyLock<Family<DatasetLabel, Counter>> = LazyLock::new(Default::default);
+static SHADOW_LEGACY_SLOW_RUNS: LazyLock<Family<DatasetLabel, Counter>> = LazyLock::new(Default::default);
 static SHADOW_RUN_DURATION: LazyLock<Family<ShadowEngineLabels, Histogram>> =
     LazyLock::new(|| Family::new_with_constructor(|| Histogram::new(buckets(0.0001, 24))));
 static SHADOW_PERCENT: LazyLock<Gauge<f64, std::sync::atomic::AtomicU64>> = LazyLock::new(Default::default);
@@ -266,7 +274,12 @@ pub(crate) fn report_shadow_run(dataset_id: DatasetId, outcome: ShadowOutcome) {
     SHADOW_RUNS.get_or_create(&labels).inc();
 }
 
-pub(crate) fn report_shadow_timing(dataset_id: DatasetId, legacy: Duration, new: Duration, slow: bool) {
+pub(crate) fn report_shadow_timing(
+    dataset_id: DatasetId,
+    legacy: Duration,
+    new: Duration,
+    slower: Option<ShadowSlower>
+) {
     for (engine, duration) in [("legacy", legacy), ("new", new)] {
         let labels = ShadowEngineLabels {
             dataset: DatasetValue(dataset_id),
@@ -276,9 +289,12 @@ pub(crate) fn report_shadow_timing(dataset_id: DatasetId, legacy: Duration, new:
             .get_or_create(&labels)
             .observe(duration.as_secs_f64());
     }
-    if slow {
-        SHADOW_SLOW_RUNS.get_or_create(&dataset_label!(dataset_id)).inc();
-    }
+    let slow_runs = match slower {
+        Some(ShadowSlower::New) => &SHADOW_SLOW_RUNS,
+        Some(ShadowSlower::Legacy) => &SHADOW_LEGACY_SLOW_RUNS,
+        None => return
+    };
+    slow_runs.get_or_create(&dataset_label!(dataset_id)).inc();
 }
 
 pub(crate) fn set_shadow_percent(percent: f64) {
@@ -792,6 +808,11 @@ pub fn build_metrics_registry() -> Registry {
         "shadow_slow_runs",
         "Shadow runs where the new engine exceeded the slow ratio and margin",
         SHADOW_SLOW_RUNS.clone()
+    );
+    registry.register(
+        "shadow_legacy_slow_runs",
+        "Shadow runs where the legacy engine exceeded the slow ratio and margin",
+        SHADOW_LEGACY_SLOW_RUNS.clone()
     );
     registry.register(
         "shadow_run_duration_seconds",

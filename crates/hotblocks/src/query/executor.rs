@@ -47,13 +47,14 @@ type Job = Box<dyn FnOnce() + Send>;
 /// run on the task's thread. In the shared pool they spread over every worker,
 /// and a new task waits in the injector until a heavy query has no parallel work
 /// left: rayon takes injected jobs last.
-struct TaskQueue {
+pub(crate) struct TaskQueue {
     sender: mpsc::Sender<Job>,
     _workers: Vec<rayon::ThreadPool>
 }
 
 impl TaskQueue {
-    fn new(threads: usize) -> anyhow::Result<Self> {
+    /// `threads` workers, named `<name>-<index>`.
+    pub(crate) fn new(threads: usize, name: &'static str) -> anyhow::Result<Self> {
         let (sender, receiver) = mpsc::channel::<Job>();
         let receiver = Arc::new(Mutex::new(receiver));
 
@@ -61,7 +62,7 @@ impl TaskQueue {
             .map(|i| {
                 let worker = rayon::ThreadPoolBuilder::new()
                     .num_threads(1)
-                    .thread_name(move |_| format!("query-task-{i}"))
+                    .thread_name(move |_| format!("{name}-{i}"))
                     .build()?;
                 let receiver = receiver.clone();
                 worker.spawn(move || {
@@ -81,6 +82,12 @@ impl TaskQueue {
             _workers: workers
         })
     }
+
+    pub(crate) fn spawn(&self, job: impl FnOnce() + Send + 'static) {
+        self.sender
+            .send(Box::new(job))
+            .expect("the workers outlive the queue's sender")
+    }
 }
 
 /// Where a query task runs, chosen when its slot is taken.
@@ -94,10 +101,7 @@ impl TaskPool {
     fn spawn(&self, job: impl FnOnce() + Send + 'static) {
         match self {
             Self::Shared => sqd_polars::POOL.spawn(job),
-            Self::ThreadPerTask(queue) => queue
-                .sender
-                .send(Box::new(job))
-                .expect("the workers outlive the queue's sender")
+            Self::ThreadPerTask(queue) => queue.spawn(job)
         }
     }
 }
@@ -129,7 +133,7 @@ impl QueryExecutor {
         settings: SettingsRef,
         task_workers: usize
     ) -> anyhow::Result<Self> {
-        let task_queue = TaskQueue::new(task_workers)?;
+        let task_queue = TaskQueue::new(task_workers, "query-task")?;
         Ok(Self {
             in_flight: Arc::new(AtomicUsize::new(0)),
             max_pending_tasks,
