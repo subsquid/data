@@ -18,6 +18,13 @@ annotated with the relevant GAP.
   `Content-Encoding` and `Vary: Accept-Encoding` set.
 - **IB-3** Correlation: responses carry a request-id header; clients MAY send a client
   identity header used for bounded-cardinality attribution (OB-10).
+- **IB-3a** Engine choice: on the two query routes a client MAY send
+  `x-sqd-query-engine: dynamic` to have the new query engine answer alone, with no
+  shadow; `legacy`, or no header, leaves the answer to the legacy engine. Another value
+  is `MALFORMED_REQUEST` (400), and a dataset kind with no loaded catalog is
+  `UNSUPPORTED_QUERY` (400). With `dynamic` only the new engine parses the body, so a
+  request may use what the legacy parser refuses, such as value sets; a `type` other
+  than the dataset's kind is `MALFORMED_REQUEST` (400).
 
 ## 2. Operations → routes
 

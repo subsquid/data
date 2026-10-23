@@ -33,11 +33,43 @@ use crate::{
         BlockItemIsNotAvailable, BlockRangeMissing, Busy, QueryIsAboveTheHead, QueryKindMismatch, QueryTaskPanicked,
         UnknownDataset, UnsupportedQuery
     },
-    query::QueryResponse,
+    query::{Engine, QueryRange, QueryResponse},
     types::{ClientId, RetentionStrategy}
 };
 
 const DEFAULT_CLIENT_ID: &str = "unknown";
+
+/// `dynamic` makes the new query engine answer a stream request on its own, with no
+/// shadow; `legacy`, or no header, leaves it to the legacy engine.
+const QUERY_ENGINE_HEADER: &str = "x-sqd-query-engine";
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum RequestedEngine {
+    Legacy,
+    Dynamic
+}
+
+impl RequestedEngine {
+    fn from_headers(headers: &HeaderMap) -> Result<Self, String> {
+        let Some(value) = headers.get(QUERY_ENGINE_HEADER) else {
+            return Ok(Self::Legacy);
+        };
+        match value.as_bytes() {
+            b"legacy" => Ok(Self::Legacy),
+            b"dynamic" => Ok(Self::Dynamic),
+            _ => Err(format!("{QUERY_ENGINE_HEADER} must be 'legacy' or 'dynamic'"))
+        }
+    }
+
+    /// The `engine` label of the response metrics.
+    fn label(requested: &Result<Self, String>) -> &'static str {
+        match requested {
+            Ok(Self::Legacy) => "legacy",
+            Ok(Self::Dynamic) => "dynamic",
+            Err(_) => "invalid"
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 enum ErrorCode {
@@ -282,6 +314,11 @@ impl ResponseWithMetadata {
         self
     }
 
+    fn with_engine(mut self, engine: &'static str) -> Self {
+        self.labels.0.push(("engine", engine.to_owned()));
+        self
+    }
+
     pub fn with_response<F>(mut self, clause: F) -> Self
     where
         F: FnOnce() -> Response
@@ -307,11 +344,14 @@ async fn stream(
     body: Bytes
 ) -> impl IntoResponse {
     let encoding = ContentEncoding::from_headers(&headers);
-    let response = stream_internal(app, dataset_id, body, false, client_id.clone(), encoding).await;
+    let engine = RequestedEngine::from_headers(&headers);
+    let engine_label = RequestedEngine::label(&engine);
+    let response = stream_internal(app, dataset_id, body, false, client_id.clone(), encoding, engine).await;
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
         .with_dataset_id(dataset_id)
         .with_endpoint("/stream")
+        .with_engine(engine_label)
         .with_response(|| response)
 }
 
@@ -323,11 +363,14 @@ async fn finalized_stream(
     body: Bytes
 ) -> impl IntoResponse {
     let encoding = ContentEncoding::from_headers(&headers);
-    let response = stream_internal(app, dataset_id, body, true, client_id.clone(), encoding).await;
+    let engine = RequestedEngine::from_headers(&headers);
+    let engine_label = RequestedEngine::label(&engine);
+    let response = stream_internal(app, dataset_id, body, true, client_id.clone(), encoding, engine).await;
     ResponseWithMetadata::new()
         .with_client_id(&client_id)
         .with_dataset_id(dataset_id)
         .with_endpoint("/finalized_stream")
+        .with_engine(engine_label)
         .with_response(|| response)
 }
 
@@ -337,28 +380,67 @@ async fn stream_internal(
     body: Bytes,
     finalized: bool,
     client_id: ClientId,
-    encoding: ContentEncoding
+    encoding: ContentEncoding,
+    engine: Result<RequestedEngine, String>
 ) -> Response {
     let dataset = get_dataset!(app, dataset_id);
 
-    let query: Query = match Json::<Query>::from_bytes(&body) {
-        Ok(Json(q)) => q,
-        Err(rejection) => return error_response(rejection.status(), ErrorCode::MalformedRequest, rejection.body_text())
+    let engine = match engine {
+        Ok(engine) => engine,
+        Err(message) => return error_response(StatusCode::BAD_REQUEST, ErrorCode::MalformedRequest, message)
     };
 
-    if let Err(err) = query.validate() {
-        return error_response(StatusCode::BAD_REQUEST, ErrorCode::MalformedRequest, err.to_string());
-    }
+    let (range, engine) = match engine {
+        RequestedEngine::Legacy => {
+            let query: Query = match Json::<Query>::from_bytes(&body) {
+                Ok(Json(q)) => q,
+                Err(rejection) => {
+                    return error_response(rejection.status(), ErrorCode::MalformedRequest, rejection.body_text());
+                }
+            };
 
-    let shadow = app.shadow.sample(dataset_id, &query, &body);
+            if let Err(err) = query.validate() {
+                return error_response(StatusCode::BAD_REQUEST, ErrorCode::MalformedRequest, err.to_string());
+            }
+
+            let range = match QueryRange::of(&query) {
+                Ok(range) => range,
+                Err(err) => return error_to_response(err.into(), &body)
+            };
+            let shadow = app.shadow.sample(dataset_id, &query, &body);
+            (range, Engine::Legacy { query, shadow })
+        }
+        // The legacy parser refuses what only the new engine knows, so the new
+        // engine parses and checks the body itself.
+        RequestedEngine::Dynamic => {
+            let kind = dataset.dataset_kind();
+            let Some(catalog) = app.catalogs.get(kind) else {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    ErrorCode::UnsupportedQuery,
+                    format!("the new query engine does not answer {} queries", kind.as_str())
+                );
+            };
+
+            let range = match QueryRange::from_body(&body, kind) {
+                Ok(range) => range,
+                Err(message) => return error_response(StatusCode::BAD_REQUEST, ErrorCode::MalformedRequest, message)
+            };
+            let engine = Engine::New {
+                catalog,
+                body: body.clone()
+            };
+            (range, engine)
+        }
+    };
 
     let query_result = if finalized {
         app.query_service
-            .query_finalized(&dataset, query, body.clone(), client_id, encoding, shadow)
+            .query_finalized(&dataset, range, body.clone(), client_id, encoding, engine)
             .await
     } else {
         app.query_service
-            .query(&dataset, query, body.clone(), client_id, encoding, shadow)
+            .query(&dataset, range, body.clone(), client_id, encoding, engine)
             .await
     };
 
@@ -550,6 +632,8 @@ fn error_to_response(err: anyhow::Error, body: &Bytes) -> Response {
         (StatusCode::BAD_REQUEST, ErrorCode::RangeUnavailable)
     } else if err.is::<BlockItemIsNotAvailable>() {
         (StatusCode::BAD_REQUEST, ErrorCode::ItemUnavailable)
+    } else if let Some(code) = new_engine_error_code(&err) {
+        (StatusCode::BAD_REQUEST, code)
     } else if err.is::<Busy>() {
         (StatusCode::SERVICE_UNAVAILABLE, ErrorCode::Overloaded)
     } else {
@@ -566,6 +650,18 @@ fn error_to_response(err: anyhow::Error, body: &Bytes) -> Response {
     };
 
     error_response(status_code, error_code, err.to_string())
+}
+
+/// A new-engine error the client caused; `None` for one the service caused,
+/// which is a 500.
+fn new_engine_error_code(err: &anyhow::Error) -> Option<ErrorCode> {
+    use sqd_query_engine::error::{ErrorKind, error_kind};
+
+    match error_kind(err)? {
+        ErrorKind::TableNotFound | ErrorKind::ColumnNotFound => Some(ErrorCode::ItemUnavailable),
+        kind if kind.is_validation() => Some(ErrorCode::MalformedRequest),
+        _ => None
+    }
 }
 
 fn error_response(status: StatusCode, code: ErrorCode, message: impl Into<String>) -> Response {
@@ -604,6 +700,58 @@ mod error_response_tests {
         );
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert_eq!(body, "substrate queries are not supported");
+    }
+
+    fn engine_error(kind: sqd_query_engine::error::ErrorKind) -> anyhow::Error {
+        anyhow::Error::new(sqd_query_engine::error::EngineError::new(kind, "refused"))
+    }
+
+    fn classified(err: anyhow::Error) -> (StatusCode, Option<&'static str>) {
+        let response = error_to_response(err, &Bytes::new());
+        let code = response.extensions().get::<ErrorCode>().map(|code| code.as_str());
+        (response.status(), code)
+    }
+
+    #[test]
+    fn new_engine_errors_are_classified_by_their_kind() {
+        use sqd_query_engine::error::ErrorKind;
+
+        assert_eq!(
+            classified(engine_error(ErrorKind::TableNotFound)),
+            (StatusCode::BAD_REQUEST, Some("ITEM_UNAVAILABLE"))
+        );
+        assert_eq!(
+            classified(engine_error(ErrorKind::UnknownField).context("compiling the query")),
+            (StatusCode::BAD_REQUEST, Some("MALFORMED_REQUEST"))
+        );
+        assert_eq!(
+            classified(engine_error(ErrorKind::MalformedChunkData)),
+            (StatusCode::INTERNAL_SERVER_ERROR, Some("INTERNAL"))
+        );
+    }
+
+    #[test]
+    fn the_engine_header_names_one_of_two_engines() {
+        let headers = |value: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(QUERY_ENGINE_HEADER, HeaderValue::from_str(value).unwrap());
+            headers
+        };
+
+        assert_eq!(
+            RequestedEngine::from_headers(&HeaderMap::new()),
+            Ok(RequestedEngine::Legacy)
+        );
+        assert_eq!(
+            RequestedEngine::from_headers(&headers("legacy")),
+            Ok(RequestedEngine::Legacy)
+        );
+        assert_eq!(
+            RequestedEngine::from_headers(&headers("dynamic")),
+            Ok(RequestedEngine::Dynamic)
+        );
+        assert!(RequestedEngine::from_headers(&headers("new")).is_err());
+        assert!(RequestedEngine::from_headers(&headers("Dynamic")).is_err());
     }
 }
 

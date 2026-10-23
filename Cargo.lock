@@ -4971,6 +4971,7 @@ dependencies = [
  "arrow",
  "async-stream",
  "axum",
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "clap",
@@ -5004,6 +5005,8 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "xorf",
+ "xxhash-rust",
  "zstd",
 ]
 
@@ -6300,6 +6303,15 @@ name = "xmlparser"
 version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
+
+[[package]]
+name = "xorf"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f13846c9009c0e550697ddde851e934b5dfafbce757a5ef5edfdb27ea20803e"
+dependencies = [
+ "libm",
+]
 
 [[package]]
 name = "xxhash-rust"

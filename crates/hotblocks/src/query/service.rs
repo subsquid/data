@@ -8,21 +8,24 @@ use std::{
 
 use anyhow::{bail, ensure};
 use bytes::Bytes;
-use sqd_query::Query;
+use sqd_query_engine::metadata::DatasetDescription;
 
 use super::{
     executor::QueryExecutor,
+    range::QueryRange,
     response::QueryResponse,
+    running::{Engine, ReadyEngine},
     slow_tasks::{SlowTasks, SlowTasksRef}
 };
 use crate::{
     dataset_controller::DatasetController,
     encoding::ContentEncoding,
     errors::{Busy, QueryIsAboveTheHead, QueryKindMismatch},
+    metrics::QueryStep,
     query::QueryExecutorCollector,
+    query_engine,
     settings::SettingsRef,
-    shadow::ShadowQuery,
-    types::{ClientId, DBRef, DatasetKind}
+    types::{ClientId, DBRef}
 };
 
 pub type QueryServiceRef = Arc<QueryService>;
@@ -95,40 +98,40 @@ impl QueryService {
     pub async fn query(
         &self,
         dataset: &DatasetController,
-        query: Query,
+        range: QueryRange,
         body: Bytes,
         client_id: ClientId,
         encoding: ContentEncoding,
-        shadow: Option<ShadowQuery>
+        engine: Engine
     ) -> anyhow::Result<QueryResponse> {
-        self.query_internal(dataset, query, body, false, client_id, encoding, shadow)
+        self.query_internal(dataset, range, body, false, client_id, encoding, engine)
             .await
     }
 
     pub async fn query_finalized(
         &self,
         dataset: &DatasetController,
-        query: Query,
+        range: QueryRange,
         body: Bytes,
         client_id: ClientId,
         encoding: ContentEncoding,
-        shadow: Option<ShadowQuery>
+        engine: Engine
     ) -> anyhow::Result<QueryResponse> {
-        self.query_internal(dataset, query, body, true, client_id, encoding, shadow)
+        self.query_internal(dataset, range, body, true, client_id, encoding, engine)
             .await
     }
 
     async fn query_internal(
         &self,
         dataset: &DatasetController,
-        query: Query,
+        range: QueryRange,
         body: Bytes,
         finalized: bool,
         client_id: ClientId,
         encoding: ContentEncoding,
-        shadow: Option<ShadowQuery>
+        engine: Engine
     ) -> anyhow::Result<QueryResponse> {
-        let query_kind = DatasetKind::from_query(&query)?;
+        let query_kind = range.kind;
         ensure!(
             dataset.dataset_kind() == query_kind,
             QueryKindMismatch {
@@ -137,6 +140,11 @@ impl QueryService {
             }
         );
 
+        let engine = match engine {
+            Engine::Legacy { query, shadow } => ReadyEngine::Legacy { query, shadow },
+            Engine::New { catalog, body: request } => ReadyEngine::New(self.compile(catalog, request).await?)
+        };
+
         let target_head = if finalized {
             dataset.get_finalized_head()
         } else {
@@ -144,9 +152,9 @@ impl QueryService {
         };
 
         let should_wait = match target_head {
-            Some(head) if head.number >= query.first_block() => false,
-            Some(head) if head.number + 1 == query.first_block() => {
-                if let Some(parent_hash) = query.parent_block_hash() {
+            Some(head) if head.number >= range.first_block => false,
+            Some(head) if head.number + 1 == range.first_block => {
+                if let Some(parent_hash) = range.parent_block_hash.as_deref() {
                     ensure!(
                         head.hash == parent_hash,
                         sqd_query::UnexpectedBaseBlock {
@@ -166,9 +174,9 @@ impl QueryService {
             };
             tokio::time::timeout(Duration::from_secs(5), async {
                 if finalized {
-                    dataset.wait_for_finalized_block(query.first_block()).await
+                    dataset.wait_for_finalized_block(range.first_block).await
                 } else {
-                    dataset.wait_for_block(query.first_block()).await
+                    dataset.wait_for_block(range.first_block).await
                 }
             })
             .await
@@ -180,15 +188,31 @@ impl QueryService {
             self.slow_tasks.clone(),
             self.db.clone(),
             dataset.dataset_id(),
-            query,
+            range,
             body,
             finalized,
             None,
             client_id,
             encoding,
-            shadow
+            engine
         )
         .await
+    }
+
+    /// Compile in an admitted task before the query waits for the head: a large
+    /// body never holds a runtime thread, a busy service refuses it before any
+    /// parsing, and a request the engine refuses is refused at once rather than
+    /// answered as no data when the wait runs out.
+    async fn compile(&self, catalog: Arc<DatasetDescription>, body: Bytes) -> anyhow::Result<query_engine::Plan> {
+        let Some(slot) = self.executor.get_slot() else {
+            bail!(Busy)
+        };
+        slot.run(
+            QueryStep::Compile,
+            move |_| query_engine::Plan::compile(&body, catalog),
+            |_, _| {}
+        )
+        .await?
     }
 
     pub fn metrics_collector(&self) -> QueryExecutorCollector {

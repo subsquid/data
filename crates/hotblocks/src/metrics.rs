@@ -312,6 +312,8 @@ pub(crate) fn report_shadow_run_finished() {
 /// The `QuerySlot::run` call site of a query task.
 #[derive(Copy, Clone, Hash, Debug, Eq, PartialEq)]
 pub(crate) enum QueryStep {
+    /// Compiles a new-engine query before it waits for the head.
+    Compile,
     /// Opens the response stream.
     First,
     /// Fills the buffer for the next data pack of an open stream.
@@ -321,6 +323,7 @@ pub(crate) enum QueryStep {
 impl QueryStep {
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
+            Self::Compile => "compile",
             Self::First => "first",
             Self::Next => "next"
         }
