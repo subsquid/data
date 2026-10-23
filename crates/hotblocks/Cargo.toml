@@ -32,7 +32,7 @@ sqd-dataset = { path = "../dataset" }
 sqd-polars = { path = "../polars" }
 sqd-primitives = { path = "../primitives", features = ["serde", "valuable"] }
 sqd-query = { path = "../query", features = ["storage"] }
-sqd-query-engine = { git = "https://github.com/subsquid/sqd-query-engine", rev = "155460e0e74f6699c9bc856d4526bab027cc5591" }
+sqd-query-engine = { git = "https://github.com/subsquid/sqd-query-engine", rev = "fee829e5a260204c4b27a65698395b47a6f3ac2f" }
 sqd-storage = { path = "../storage" }
 tikv-jemallocator = "0.6.0"
 tokio = { workspace = true, features = ["full"] }
