@@ -5,10 +5,10 @@ mod chunk;
 use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
-use sqd_primitives::BlockNumber;
+use sqd_primitives::{BlockNumber, BlockRef};
 use sqd_query_engine::{
     metadata::{DatasetDescription, load_dataset_description_strict},
-    output::{ExecOptions, QueryOutput, execute_chunk_with},
+    output::{ExecOptions, QueryOutput, UnexpectedBaseBlock, execute_chunk_with},
     query::{compile, parse_query},
     scan::ColumnarChunkReader
 };
@@ -105,6 +105,26 @@ impl Plan {
     /// block is selected.
     pub fn execute(&self, chunk: &ChunkReader<'_>) -> anyhow::Result<Option<QueryOutput>> {
         let chunk = ColumnarChunkReader::new(HotChunk { reader: chunk });
-        execute_chunk_with(&self.inner, &self.catalog, &chunk, self.options)
+        execute_chunk_with(&self.inner, &self.catalog, &chunk, self.options).map_err(as_legacy_fork)
     }
+}
+
+/// The engine's fork error as the legacy engine's, which the API answers with the
+/// blocks a client rewinds to. Both say the same text.
+fn as_legacy_fork(err: anyhow::Error) -> anyhow::Error {
+    let fork = match err.downcast::<UnexpectedBaseBlock>() {
+        Ok(fork) => fork,
+        Err(err) => return err
+    };
+    anyhow::Error::new(sqd_query::UnexpectedBaseBlock {
+        prev_blocks: fork
+            .prev_blocks
+            .into_iter()
+            .map(|block| BlockRef {
+                number: block.number,
+                hash: block.hash
+            })
+            .collect(),
+        expected_hash: fork.expected_hash
+    })
 }

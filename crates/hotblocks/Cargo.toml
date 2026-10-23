@@ -45,6 +45,10 @@ url = { workspace = true, features = ["serde"] }
 [dev-dependencies]
 anyhow = { workspace = true }
 arrow = { workspace = true }
+# Build the value sets a client sends to the new engine.
+base64 = "0.22"
+xorf = { version = "0.13", default-features = false, features = ["binary-fuse"] }
+xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 reqwest = { workspace = true }
 sqd-hotblocks-harness = { path = "../hotblocks-harness" }
 tempfile = { workspace = true }

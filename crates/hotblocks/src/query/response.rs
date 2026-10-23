@@ -6,12 +6,12 @@ use std::{
 use anyhow::bail;
 use bytes::Bytes;
 use sqd_primitives::BlockRef;
-use sqd_query::Query;
 use sqd_storage::db::DatasetId;
 
 use super::{
     executor::{QueryExecutor, QuerySlot},
-    running::{RunningQuery, RunningQueryStats},
+    range::QueryRange,
+    running::{ReadyEngine, RunningQuery, RunningQueryStats},
     slow_tasks::{SlowTasksRef, TaskReporter}
 };
 use crate::{
@@ -21,7 +21,6 @@ use crate::{
         QueryStep, STREAM_BLOCKS, STREAM_BLOCKS_PER_SECOND, STREAM_BYTES, STREAM_BYTES_PER_SECOND, STREAM_CHUNKS,
         STREAM_DURATIONS
     },
-    shadow::ShadowQuery,
     types::{ClientId, DBRef}
 };
 
@@ -91,13 +90,13 @@ impl QueryResponse {
         slow_tasks: SlowTasksRef,
         db: DBRef,
         dataset_id: DatasetId,
-        query: Query,
+        range: QueryRange,
         body: Bytes,
         only_finalized: bool,
         time_limit: Option<Duration>,
         client_id: ClientId,
         encoding: ContentEncoding,
-        shadow: Option<ShadowQuery>
+        engine: ReadyEngine
     ) -> anyhow::Result<Self> {
         let Some(slot) = executor.get_slot() else { bail!(Busy) };
 
@@ -109,7 +108,7 @@ impl QueryResponse {
                 QueryStep::First,
                 move |slot| -> anyhow::Result<_> {
                     let mut runner =
-                        RunningQuery::new(db, dataset_id, &query, only_finalized, encoding, shadow).map(Box::new)?;
+                        RunningQuery::new(db, dataset_id, &range, only_finalized, encoding, engine).map(Box::new)?;
                     next_run(&mut runner, slot)?;
                     Ok(runner)
                 },

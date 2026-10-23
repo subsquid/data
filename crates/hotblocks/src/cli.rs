@@ -222,7 +222,8 @@ pub struct App {
     pub metrics_registry: prometheus_client::registry::Registry,
     pub known_clients: HashSet<String>,
     pub settings: SettingsRef,
-    pub shadow: ShadowRef
+    pub shadow: ShadowRef,
+    pub catalogs: Arc<MetadataCatalogs>
 }
 
 impl CLI {
@@ -314,8 +315,9 @@ impl CLI {
             None => MetadataCatalogs::default()
         };
         info!(kinds = ?catalogs.kinds(), "loaded the metadata catalogs");
+        let catalogs = Arc::new(catalogs);
         let shadow =
-            Shadow::new(self.shadow_max_in_flight, runtime_settings.clone(), Arc::new(catalogs)).map(Arc::new)?;
+            Shadow::new(self.shadow_max_in_flight, runtime_settings.clone(), catalogs.clone()).map(Arc::new)?;
 
         Ok(App {
             db,
@@ -325,7 +327,8 @@ impl CLI {
             metrics_registry,
             known_clients,
             settings: runtime_settings,
-            shadow
+            shadow,
+            catalogs
         })
     }
 }
