@@ -203,14 +203,15 @@ pub async fn assert_conforms(client: &Client, model: &Model, chain: &dyn Chain, 
     if observed != expected {
         errs.push(format!("STATUS: expected {expected:?}, got {observed:?}"));
     }
-    // INV-5/30: first <= fin <= head, in one consistent view.
+    // INV-5/30: fin <= head, in one consistent view. `fin` may sit below the window —
+    // retention can pass finality, and the watermark survives as a claim about the chain.
     if let Some(data) = &status.data {
         if let Some(fin) = &data.finalized_head
-            && !(data.first_block <= fin.number && fin.number <= data.last_block)
+            && fin.number > data.last_block
         {
             errs.push(format!(
-                "INV-5: finalized head {} outside [{}, {}]",
-                fin.number, data.first_block, data.last_block
+                "INV-5: finalized head {} above the head {}",
+                fin.number, data.last_block
             ));
         }
         let head_ts = model

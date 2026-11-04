@@ -180,7 +180,11 @@ impl QueryService {
                 }
             })
             .await
-            .map_err(|_| QueryIsAboveTheHead { finalized_head: None })?;
+            // RP-5: NO_DATA carries the current watermarks, so pollers keep their
+            // finality information even when the finalized head sits below the window.
+            .map_err(|_| QueryIsAboveTheHead {
+                finalized_head: dataset.get_finalized_head()
+            })?;
         }
 
         QueryResponse::new(

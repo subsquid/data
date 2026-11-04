@@ -123,7 +123,10 @@ model Dataset:
         if h != ⊥ and h != hash_at(from_ - 1): return reset((from_ - 1, h))   # WP-9 self-heal
         new_anchor = (from_ - 1, hash_at(from_ - 1))                          # INV-18 (DEF-16)
         seg = [b in seg | b.number >= from_]; anchor = new_anchor
-        if fin != ⊥ and fin.number < from_: fin = ⊥                           # RS-2
+        if not seg: fin = ⊥                            # from_ = next() emptied the window:
+                                                         # no head bounds the watermark (INV-5)
+        # RS-2: `fin` survives below the window — finality does not move back, so the
+        # watermark stays a true claim about the chain and keeps anchoring responses.
         ver += 1; wf()
     else:
         reset((from_ - 1, h))                        # from_ > next()
@@ -141,7 +144,12 @@ model Dataset:
         return RESET((anchor.number, hint hash at that position))  # WP-6b: below-window divergence
     m = max({x in hints | stored_or_anchor(x)}, default=⊥)
     if m != ⊥: return (m.number + 1, m.hash)
-    if fin != ⊥: return (fin.number + 1, fin.hash)   # or any lower position reproducing the
+    if fin != ⊥:
+        if seg and fin.number + 1 < first(): return (first(), anchor.hash)
+                                                     # fin sits below the window (RS-2): the
+                                                     # finality floor is vacuous, so the fallback
+                                                     # is the window start (WP-6)
+        return (fin.number + 1, fin.hash)   # or any lower position reproducing the
                                                      # finalized prefix (INV-14) — a batch-granular
                                                      # implementation must, when fin sits inside a
                                                      # batch. Repeated rejection here = FM-SRC-5,

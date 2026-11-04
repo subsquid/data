@@ -43,13 +43,16 @@ enclosing block's number.
 *Check:* CT-1, CT-5 structural validators.
 
 **INV-5 — Watermark bounds.** [state]
-If `seg = ∅` then `fin = ⊥`. Otherwise, if `fin ≠ ⊥` then
-`first(D) ≤ fin.number ≤ head(D).number`.
-*Why:* a finalized pointer outside the window is meaningless and breaks fork-floor logic.
-*Check:* CT-1 (assert on every STATUS read).
+If `seg = ∅` then `fin = ⊥`. Otherwise, if `fin ≠ ⊥` then `fin.number ≤ head(D).number`;
+a trim may leave `fin.number < first(D)` (RS-2).
+*Why:* finality does not move back, so a watermark below the window stays a true claim
+about the chain and clients read the whole window as unfinalized; above the head it
+would be meaningless and break fork-floor logic.
+*Check:* CT-1 (assert on every STATUS read); retention passing finality (CT-10).
 
 **INV-6 — Finalized-on-chain.** [state]
-If `fin ≠ ⊥` then the stored block at height `fin.number` has hash `fin.hash`.
+If `fin ≠ ⊥` and `fin.number ≥ first(D)`, then the stored block at height `fin.number`
+has hash `fin.hash`. Below the window no stored block backs the watermark.
 *Why:* finality must describe the chain actually served, else finalized-only reads lie.
 *Check:* CT-1; CT-4 with equivocating-finality sources; write-controller finality
 resolver regressions.
@@ -77,7 +80,7 @@ previous head.
 
 **INV-12 — Finality monotonicity.** [transition]
 `fin.number` never decreases while defined, and at a fixed height the finalized hash never
-changes. `fin` may become `⊥` only via RETAIN (window passing above it), RESET, or DROP.
+changes. `fin` may become `⊥` only via a RETAIN that empties the window, RESET, or DROP.
 *Why:* clients treat finalized data as irreversible-while-retained.
 *Check:* CT-1 (monitor every FINALIZED-HEAD read); CT-4 stale/regressing finality sources.
 

@@ -16,10 +16,14 @@ between them.
 | `Unbounded` | nothing trimmed | never |
 
 - **RS-2 (Retention dominates finality).** Trimming ignores `fin`: finalized blocks below
-  the retention bound are deleted, and `fin` becomes `⊥` when the window passes above it
-  (03 §2.5). Rationale: this is a bounded hot store, not an archive (NG1). Consequence
-  for clients: "finalized" means *irreversible while retained*, not *retained forever*
-  (INV-24 note).
+  the retention bound are deleted. The watermark itself survives below the window
+  (03 §2.5): finality does not move back, so `fin` stays a true claim about the chain,
+  responses keep reporting it, and clients read the whole window as unfinalized. Only a
+  RESET — or a trim that empties the window, where `seg = ∅` forces `fin = ⊥` (INV-5) —
+  clears it. Rationale: this is a bounded hot store, not an archive (NG1).
+  Consequence for clients: "finalized" means *irreversible*, not *retained forever*
+  (INV-24 note) — blocks at or below `fin.number` may be gone even while `fin` reports
+  them final.
 - **RS-3 (Availability floor).** For `Window(k)`: at every committed state,
   all blocks in `[next(D) − k, next(D) − 1] ∩ [window start after initial fill, ∞)` are
   present and queryable (an interval of *positions* — DEF-9; on a slot-numbered chain it

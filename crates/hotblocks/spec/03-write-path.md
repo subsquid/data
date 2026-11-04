@@ -140,7 +140,9 @@ the stored chain (or the anchor). If no hint matches stored state, the fallback 
 respect the finality floor:
 
 - `fin ≠ ⊥` → resume from `⟨fin.number + 1, fin.hash⟩`, or from any lower physical position
-  `≥ chunk_first(D)` whose replacement reproduces the finalized prefix (INV-14). The finalized
+  `≥ chunk_first(D)` whose replacement reproduces the finalized prefix (INV-14). When
+  `fin` sits below the window (kept by a trim, RS-2), everything stored is above it, the
+  finality floor is vacuous, and the fallback position is `chunk_first(D)`. The finalized
   block is common to both chains unless the source contradicts finality, so only the
   volatile suffix carries new data either way. An implementation whose REPLACE granularity
   is a storage chunk MUST take the lower position when `fin` falls inside a chunk: `fin + 1`
@@ -236,9 +238,9 @@ history cannot be re-acquired through RETAIN.
   destructive re-bootstrap, not a widening, and controllers MUST treat it as such
   (FM-OP-4). During boot validation of a `Pinned` policy whose `from` lies below the
   stored window, the service MUST refuse the dataset (INV-43) rather than destroy data —
-  symmetric with WP-9. *Finality note:* like every RESET (§2.6) and like upward trims
-  (RS-2), this discards the finalized prefix and clears `fin` — retention dominates
-  finality. It is **not** a rollback below `fin`: the fork floor (INV-13/14) is
+  symmetric with WP-9. *Finality note:* like every RESET (§2.6), this discards the
+  finalized prefix and clears `fin` — retention dominates finality (upward trims keep
+  `fin`, §2.5). It is **not** a rollback below `fin`: the fork floor (INV-13/14) is
   untouched — *sources* can never alter anything at or below `fin` — and this path is
   reachable only through an explicit retention instruction (operator-class actor,
   FM-OP-4), never through source input.
@@ -246,8 +248,10 @@ history cannot be re-acquired through RETAIN.
   - Post: `seg' = seg[from‥]`; `anchor' = ⟨from − 1, hash of from's preceding block in
     the pre-trim state⟩` (= `hash_at(from − 1)`, DEF-16). The hash MUST be carried over
     from previously stored data, never recomputed or dropped (INV-18);
-  - `fin' = fin` if `fin.number ≥ from`, else `fin' = ⊥` (retention dominates finality,
-    RS-2).
+  - `fin' = fin`: finality does not move back, so the watermark survives below the window
+    as a claim about the chain (RS-2) and keeps anchoring responses until finality climbs
+    back in. Exception: `from = next(D)` leaves `seg' = ∅`, and an empty window has no head
+    to bound the watermark (`seg = ∅ ⇒ fin = ⊥`, INV-5) — the label clears with the data.
 - Case `from > next(D)`: equivalent to `RESET(⟨from − 1, h?⟩)` — the whole window is
   discarded and the dataset awaits future blocks.
 - **WP-9 (Mismatch policy).** If `h?` is provided and disagrees with the stored chain's

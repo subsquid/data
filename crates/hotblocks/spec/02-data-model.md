@@ -116,9 +116,11 @@ protocol anchors a client or a source to a position — the anchor (DEF-7),
 **not** "a block numbered `p` has hash `h`". The two readings coincide exactly on
 densely-numbered chains.
 
-**DEF-8 (Finalized watermark).** `fin`, when defined, designates a stored block
-(`first ≤ fin.number ≤ head.number`, hash matching the stored block — INV-5/6) that the
-sources have declared irreversible. Blocks at or below `fin.number` form the **finalized
+**DEF-8 (Finalized watermark).** `fin`, when defined, designates a block
+(`fin.number ≤ head.number` — INV-5) that the sources have declared irreversible. When
+`fin.number ≥ first(D)` it matches the stored block at that height (INV-6); a trim may
+leave it below the window, where it survives as a claim about the chain (RS-2) with no
+stored block behind it. Blocks at or below `fin.number` form the **finalized
 prefix**; blocks above it are the **volatile suffix**, subject to replacement by forks.
 
 **DEF-9 (Retention policy).** One of:
