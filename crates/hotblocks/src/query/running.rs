@@ -157,13 +157,23 @@ pub struct RunningQuery {
 }
 
 fn finalized_query_last_block(
+    first_block: BlockNumber,
     last_block: Option<BlockNumber>,
     finalized_head: Option<&BlockRef>
 ) -> anyhow::Result<BlockNumber> {
     let Some(finalized_head) = finalized_head else {
         bail!(QueryIsAboveTheHead { finalized_head: None })
     };
-    Ok(last_block.map_or(finalized_head.number, |end| end.min(finalized_head.number)))
+    let end = last_block.map_or(finalized_head.number, |end| end.min(finalized_head.number));
+    // A trim can leave the finalized head below the window, so everything the request
+    // wants is unfinalized: that is NO_DATA, never an empty 200 or a range error.
+    ensure!(
+        end >= first_block,
+        QueryIsAboveTheHead {
+            finalized_head: Some(finalized_head.clone())
+        }
+    );
+    Ok(end)
 }
 
 impl RunningQuery {
@@ -236,7 +246,11 @@ impl RunningQuery {
         };
 
         let last_block = if only_finalized {
-            Some(finalized_query_last_block(range.last_block, finalized_head.as_ref())?)
+            Some(finalized_query_last_block(
+                range.first_block,
+                range.last_block,
+                finalized_head.as_ref()
+            )?)
         } else {
             range.last_block
         };
@@ -440,13 +454,39 @@ mod tests {
 
     #[test]
     fn finalized_snapshot_without_a_head_is_no_data() {
-        let query = Query::from_json_value(serde_json::json!({
-            "type": "evm",
-            "fromBlock": 10
-        }))
-        .unwrap();
-
-        let err = finalized_query_last_block(query.last_block(), None).unwrap_err();
+        let err = finalized_query_last_block(10, None, None).unwrap_err();
         assert!(err.is::<QueryIsAboveTheHead>());
+    }
+
+    // A kept head below the window must read as NO_DATA, not as an empty coverage window.
+    #[test]
+    fn finalized_head_below_the_window_is_no_data() {
+        let fin = BlockRef {
+            number: 50,
+            hash: "h50".to_string()
+        };
+
+        let err = finalized_query_last_block(100, None, Some(&fin)).unwrap_err();
+        let above_the_head = err
+            .downcast_ref::<QueryIsAboveTheHead>()
+            .expect("a head below the window must stay a NO_DATA");
+        assert_eq!(above_the_head.finalized_head, Some(fin.clone()));
+
+        let err = finalized_query_last_block(100, Some(120), Some(&fin)).unwrap_err();
+        assert!(err.is::<QueryIsAboveTheHead>());
+    }
+
+    #[test]
+    fn a_finalized_head_inside_the_range_bounds_the_end() {
+        let fin = BlockRef {
+            number: 150,
+            hash: "h150".to_string()
+        };
+
+        let end = finalized_query_last_block(100, Some(120), Some(&fin)).unwrap();
+        assert_eq!(end, 120);
+
+        let end = finalized_query_last_block(100, Some(180), Some(&fin)).unwrap();
+        assert_eq!(end, 150);
     }
 }

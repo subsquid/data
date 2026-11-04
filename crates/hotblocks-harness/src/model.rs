@@ -131,18 +131,21 @@ impl Model {
             }
         }
         if let Some(fin) = &self.fin {
-            let first = self.first().expect("INV-5: finalized watermark without a window");
             let head = self.head().expect("INV-5: finalized watermark without a window").number;
             assert!(
-                first <= fin.number && fin.number <= head,
-                "INV-5: finalized watermark {} outside [{first}, {head}]",
+                fin.number <= head,
+                "INV-5: finalized watermark {} above the head {head}",
                 fin.number
             );
-            assert_eq!(
-                self.block_at(fin.number).map(|b| b.hash.as_str()),
-                Some(fin.hash.as_str()),
-                "INV-6: finalized watermark does not name the stored block"
-            );
+            // `fin` may sit below the window: a trim keeps it as a claim about the chain
+            // (finality does not move back), and no stored block backs it there.
+            if fin.number >= self.first().expect("INV-5: window without a first block") {
+                assert_eq!(
+                    self.block_at(fin.number).map(|b| b.hash.as_str()),
+                    Some(fin.hash.as_str()),
+                    "INV-6: finalized watermark does not name the stored block"
+                );
+            }
         }
     }
 
@@ -377,10 +380,11 @@ impl Model {
             }
             self.seg.drain(..drop);
             self.anchor = Anchor::new(new_anchor.number, Some(new_anchor.hash));
-            // RS-2: the finalized watermark cannot survive below the window.
-            if let Some(fin) = &self.fin
-                && fin.number < from
-            {
+            // `fin` survives below the window: finality does not move back, so the trim
+            // deletes the finalized blocks but keeps the watermark as a claim about the
+            // chain. A trim that empties the window is the exception — an empty window
+            // has no head to bound the watermark (INV-5), and the label clears with it.
+            if self.seg.is_empty() {
                 self.fin = None;
             }
             self.ver += 1;
@@ -437,9 +441,19 @@ impl Model {
             // be replaced (WP-6): the finalized block is common to both chains unless the
             // source contradicts finality — repeated rejection here is FM-SRC-5, never RESET.
             None => match &self.fin {
-                Some(fin) => ForkResolution::Resume {
-                    from: fin.number + 1,
-                    parent_hash: Some(fin.hash.clone())
+                Some(fin) => match self.first() {
+                    // WP-6: a trim may leave `fin` below the window (RS-2). Everything
+                    // stored then sits above the watermark, the finality floor is vacuous,
+                    // and the fallback is the window start with its anchor — `fin + 1`
+                    // would be a position INV-14 forbids `replace` from taking.
+                    Some(first) if fin.number + 1 < first => ForkResolution::Resume {
+                        from: first,
+                        parent_hash: self.anchor.hash.clone()
+                    },
+                    _ => ForkResolution::Resume {
+                        from: fin.number + 1,
+                        parent_hash: Some(fin.hash.clone())
+                    }
                 },
                 // Full-window replacement *probe*; repeated WP-2 rejection at `first(D)`
                 // escalates to RESET per WP-6b.
@@ -724,7 +738,7 @@ mod tests {
     }
 
     #[test]
-    fn retain_trims_moves_the_anchor_and_drops_stale_finality() {
+    fn retain_trims_moves_the_anchor_and_keeps_finality_below_the_window() {
         let (mut m, blocks) = model_at(100, 10);
         m.finalize(&BlockRef::new(101, block_hash(101, 0)));
 
@@ -732,7 +746,11 @@ mod tests {
 
         assert_eq!(m.first(), Some(105));
         assert_eq!(m.anchor, Anchor::new(104, Some(blocks[4].hash.clone())), "INV-18");
-        assert_eq!(m.fin, None, "RS-2: finality below the window is dropped");
+        assert_eq!(
+            m.fin,
+            Some(BlockRef::new(101, block_hash(101, 0))),
+            "finality does not move back: the watermark survives below the window"
+        );
         assert_eq!(m.head().unwrap().number, 109);
         assert_eq!(
             m.finalize(&BlockRef::new(104, blocks[4].hash.clone())),
@@ -743,6 +761,29 @@ mod tests {
         // Trimming at the floor is a no-op.
         m.retain(105, None);
         assert_eq!(m.first(), Some(105));
+    }
+
+    #[test]
+    fn retain_that_empties_the_window_clears_finality() {
+        let (mut m, blocks) = model_at(100, 10);
+        m.finalize(&BlockRef::new(101, block_hash(101, 0)));
+
+        // RETAIN at `next` keeps nothing: an empty window has no head to bound the
+        // watermark (INV-5), and the service clears the label with the data.
+        m.retain(110, None);
+
+        assert!(m.seg.is_empty());
+        assert_eq!(m.fin, None);
+        assert_eq!(m.anchor, Anchor::new(109, Some(blocks[9].hash.clone())), "INV-18");
+        assert_eq!(m.next(), 110);
+
+        // Re-trimming at the same floor changes nothing, and the window re-attaches
+        // at the anchor the trim left.
+        m.retain(110, None);
+        assert!(m.seg.is_empty());
+
+        m.extend(&run(110, 2, 0, &blocks[9].hash), None).unwrap();
+        assert_eq!(m.first(), Some(110));
     }
 
     #[test]
@@ -825,6 +866,32 @@ mod tests {
             },
             "WP-6: the fallback under finality is fin + 1, not the window floor"
         );
+    }
+
+    #[test]
+    fn resolve_fork_with_finality_below_the_window_falls_back_to_the_window_start() {
+        let (mut m, _) = model_at(100, 10);
+        m.finalize(&BlockRef::new(101, block_hash(101, 0)));
+        m.retain(105, None);
+
+        // The watermark (101) sits below the window (105..109): `fin + 1` names a
+        // position INV-14 forbids, so the fallback is the window start with its anchor.
+        let hints = vec![
+            BlockRef::new(107, block_hash(107, 9)),
+            BlockRef::new(108, block_hash(108, 9)),
+        ];
+        assert_eq!(
+            m.resolve_fork(&hints).unwrap(),
+            ForkResolution::Resume {
+                from: 105,
+                parent_hash: Some(block_hash(104, 0))
+            }
+        );
+
+        // The resume point is a position `replace` accepts.
+        let fork = run(105, 2, 9, &block_hash(104, 0));
+        m.replace(105, &fork, None).unwrap();
+        assert_eq!(m.head().unwrap().hash, block_hash(106, 9));
     }
 
     #[test]

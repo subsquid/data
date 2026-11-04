@@ -291,15 +291,11 @@ impl WriteController {
                                 .next()
                                 .expect("bottom chunk can't exist without head chunk")?;
 
-                            let finalized_head = tx
-                                .label()
-                                .finalized_head()
-                                .filter(|h| chunk.first_block() <= h.number)
-                                .cloned();
-
-                            if finalized_head.is_none() {
-                                tx.set_finalized_head(None)
-                            }
+                            // Finality does not move back, so the head stays true even when
+                            // the trim leaves it below the window. Dropping it would strip
+                            // finality information from every response until the chain's
+                            // finality climbs back into the window.
+                            let finalized_head = tx.label().finalized_head().cloned();
 
                             return Ok(Status::Range {
                                 first_chunk: chunk,
@@ -1665,6 +1661,61 @@ mod tests {
         assert_eq!(stored_chunks(&f)?, vec![second.clone()]);
         assert_eq!(f.wc.head(), Some(&get_chunk_head(&second)));
         assert_eq!(*f.fin_rx.borrow(), Some(current_finalized));
+        Ok(())
+    }
+
+    // Finality does not move back, so a trim that passes the finalized head keeps it as a
+    // claim about the chain: every block left in the window is then unfinalized, and
+    // responses keep reporting the head instead of losing finality information.
+    #[test]
+    fn a_trim_past_the_finalized_head_keeps_it() -> anyhow::Result<()> {
+        let mut f = fixture();
+        let (_, second) = seed_chain(&mut f)?;
+        let finalized = block(3, "old-3");
+        f.wc.finalize(&finalized)?;
+
+        assert!(f.wc.retain(6, None)?);
+
+        assert_eq!(stored_chunks(&f)?, vec![second]);
+        assert_eq!(f.wc.start_block(), 6);
+        assert_eq!(*f.fin_rx.borrow(), Some(finalized.clone()));
+        assert_eq!(
+            f.db.snapshot()
+                .get_label(f.dataset_id)?
+                .and_then(|label| label.finalized_head().cloned()),
+            Some(finalized)
+        );
+        Ok(())
+    }
+
+    // The kept head survives a writer restart, and while it sits below the window a report
+    // below the window changes nothing while one inside the window raises it.
+    #[test]
+    fn a_kept_head_below_the_window_survives_and_advances() -> anyhow::Result<()> {
+        let mut f = fixture();
+        seed_chain(&mut f)?;
+        f.wc.finalize(&block(3, "old-3"))?;
+        f.wc.retain(6, None)?;
+        drop(f.wc);
+
+        let (head_tx, _head_rx) = watch::channel(None);
+        let (fin_tx, fin_rx) = watch::channel(None);
+        let mut wc = WriteController::new(f.db.clone(), f.dataset_id, DatasetKind::Evm, head_tx, fin_tx)?;
+        assert_eq!(*fin_rx.borrow(), Some(block(3, "old-3")));
+
+        wc.finalize(&block(4, "old-4"))?;
+        assert_eq!(
+            *fin_rx.borrow(),
+            Some(block(3, "old-3")),
+            "a below-window report must not move the head"
+        );
+
+        wc.finalize(&block(7, "old-7"))?;
+        assert_eq!(
+            *fin_rx.borrow(),
+            Some(block(7, "old-7")),
+            "an in-window report must raise the head"
+        );
         Ok(())
     }
 
