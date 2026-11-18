@@ -170,7 +170,6 @@ impl TableReader for ParquetFile {
                         if default_null_columns.map_or(false, |dnc| dnc.contains(name)) {
                             missing_null_columns.push(name);
                         } else {
-                            tracing::error!("column '{}' is not found in {}", name, self.table_name);
                             anyhow::bail!(ColumnDoesNotExist::new(self.table_name.to_string(), name));
                         }
                     }
