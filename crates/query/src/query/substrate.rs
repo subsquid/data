@@ -357,6 +357,13 @@ impl ContractsContractEmittedRequest {
     }
 }
 
+// Selects `Gear.MessageQueued` events, the ones that put a message into a
+// program's queue; `program_id` is the destination program.
+//
+// The request is served under its historical name `gearMessagesEnqueued`
+// and under `gearMessagesQueued`, the name the SDK uses. It used to pin
+// `Gear.UserMessageEnqueued`, an event no Gear runtime ever had, and so
+// matched nothing.
 request! {
     pub struct GearMessageEnqueuedRequest {
         pub program_id: Option<Vec<Bytes>>,
@@ -368,7 +375,7 @@ request! {
 
 impl GearMessageEnqueuedRequest {
     fn predicate(&self, p: &mut PredicateBuilder) {
-        p.col_eq("name", Some("Gear.UserMessageEnqueued"));
+        p.col_eq("name", Some("Gear.MessageQueued"));
         p.col_in_list("_gear_program_id", self.program_id.as_deref());
     }
 
@@ -503,6 +510,7 @@ request! {
         pub evm_logs: Vec<EvmLogRequest>,
         pub ethereum_transactions: Vec<EthereumTransactionRequest>,
         pub contracts_events: Vec<ContractsContractEmittedRequest>,
+        #[serde(alias = "gearMessagesQueued")]
         pub gear_messages_enqueued: Vec<GearMessageEnqueuedRequest>,
         pub gear_user_messages_sent: Vec<GearUserMessageSentRequest>,
         pub revive_contract_emitted: Vec<ReviveContractEmittedRequest>,
@@ -541,5 +549,127 @@ impl SubstrateQuery {
             <evm_logs: events>,
             <revive_contract_emitted: events>,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow::{
+        array::{BooleanArray, RecordBatch, StringArray},
+        datatypes::{DataType, Field, Schema}
+    };
+
+    use super::*;
+    use crate::query::Query;
+
+    const PROGRAM: &str = "0xa749ccd80d71637b450789e12e3d94524e9ae17877d1b59f5ddda784f89a2cba";
+    const OTHER_PROGRAM: &str = "0x0000000000000000000000000000000000000000000000000000000000000001";
+
+    fn substrate(json: &str) -> anyhow::Result<SubstrateQuery> {
+        match Query::from_json_bytes(json.as_bytes())? {
+            Query::Substrate(q) => Ok(q),
+            _ => panic!("not a substrate query")
+        }
+    }
+
+    /// Events as the ingest writes them: the program id is extracted for the two
+    /// Gear events that carry one, and the third name is the one the request used
+    /// to pin, which no Gear runtime emits.
+    fn gear_events() -> RecordBatch {
+        let schema = Schema::new(vec![
+            Field::new("name", DataType::Utf8, false),
+            Field::new("_gear_program_id", DataType::Utf8, true),
+        ]);
+        RecordBatch::try_new(
+            Arc::new(schema),
+            vec![
+                Arc::new(StringArray::from(vec![
+                    "Gear.MessageQueued",
+                    "Gear.MessageQueued",
+                    "Gear.UserMessageSent",
+                    "Gear.UserMessageEnqueued",
+                    "Balances.Transfer",
+                ])),
+                Arc::new(StringArray::from(vec![
+                    Some(PROGRAM),
+                    Some(OTHER_PROGRAM),
+                    Some(PROGRAM),
+                    Some(PROGRAM),
+                    None,
+                ])),
+            ]
+        )
+        .unwrap()
+    }
+
+    fn matches(predicate: impl FnOnce(&mut PredicateBuilder)) -> Vec<bool> {
+        let mut builder = PredicateBuilder::new();
+        predicate(&mut builder);
+        let mask: BooleanArray = builder
+            .build()
+            .expect("a gear request always pins the event name")
+            .evaluate(&gear_events())
+            .unwrap();
+        mask.iter().map(|v| v.unwrap_or(false)).collect()
+    }
+
+    #[test]
+    fn gear_messages_enqueued_selects_message_queued_events() {
+        let q = substrate(r#"{"type":"substrate","fromBlock":0,"gearMessagesEnqueued":[{}]}"#).unwrap();
+        assert_eq!(
+            matches(|p| q.gear_messages_enqueued[0].predicate(p)),
+            vec![true, true, false, false, false]
+        );
+
+        let q = substrate(&format!(
+            r#"{{"type":"substrate","fromBlock":0,"gearMessagesEnqueued":[{{"programId":["{PROGRAM}"]}}]}}"#
+        ))
+        .unwrap();
+        assert_eq!(
+            matches(|p| q.gear_messages_enqueued[0].predicate(p)),
+            vec![true, false, false, false, false]
+        );
+    }
+
+    #[test]
+    fn gear_messages_queued_is_the_same_request() {
+        let body = format!(r#"[{{"programId":["{PROGRAM}"],"extrinsic":true,"call":true,"stack":true}}]"#);
+        let queued = substrate(&format!(
+            r#"{{"type":"substrate","fromBlock":0,"gearMessagesQueued":{body}}}"#
+        ))
+        .unwrap();
+        let enqueued = substrate(&format!(
+            r#"{{"type":"substrate","fromBlock":0,"gearMessagesEnqueued":{body}}}"#
+        ))
+        .unwrap();
+        assert_eq!(queued, enqueued);
+        assert_eq!(queued.gear_messages_enqueued.len(), 1);
+    }
+
+    /// Both names in one query name the same field twice, which serde refuses.
+    #[test]
+    fn both_gear_message_queued_names_at_once_are_refused() {
+        let err =
+            substrate(r#"{"type":"substrate","fromBlock":0,"gearMessagesEnqueued":[{}],"gearMessagesQueued":[{}]}"#)
+                .unwrap_err();
+        assert!(err.to_string().contains("duplicate field"), "{err}");
+    }
+
+    #[test]
+    fn gear_user_messages_sent_is_unchanged() {
+        let q = substrate(&format!(
+            r#"{{"type":"substrate","fromBlock":0,"gearUserMessagesSent":[{{}},{{"programId":["{PROGRAM}"]}}]}}"#
+        ))
+        .unwrap();
+        assert_eq!(
+            matches(|p| q.gear_user_messages_sent[0].predicate(p)),
+            vec![false, false, true, false, false]
+        );
+        assert_eq!(
+            matches(|p| q.gear_user_messages_sent[1].predicate(p)),
+            vec![false, false, true, false, false]
+        );
     }
 }
